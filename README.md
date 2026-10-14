@@ -9,6 +9,12 @@ App macOS pour lire, étudier et écrire en philosophie (Electron + React + Type
 - Plans de dissertation, éditeur .docx (SuperDoc) avec export .docx / PDF / Markdown / HTML / TXT
 - Espaces de travail avec groupes et sous-groupes
 
+## Télécharger
+
+[`downloads/Marginalia.dmg`](downloads/Marginalia.dmg) — Mac Apple Silicon (arm64).
+Ouvrez le .dmg et glissez Marginalia dans Applications. L'app est signée ad hoc mais pas notariée :
+au premier lancement, faites clic droit sur Marginalia › Ouvrir (ou Réglages Système › Confidentialité et sécurité › Ouvrir quand même).
+
 ## Développement
 
 ```bash

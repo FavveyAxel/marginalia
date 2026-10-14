@@ -1,0 +1,46 @@
+/* ── Correcteur orthographique (spell/) ─────────────────────
+   Soulignement ondulé discret des fautes (décorations peintes par SuperDoc),
+   menu des suggestions dans le style des autres popovers de l'éditeur. */
+.ed-engine {
+  --sd-proofing-spelling-color: color-mix(in srgb, var(--danger) 78%, transparent);
+  --sd-proofing-underline-thickness: 1.2px;
+  --sd-proofing-underline-offset: 2.5px;
+}
+.ed-engine .sd-proofing-spelling {
+  text-decoration-skip-ink: none;
+}
+
+.ed-spell-toggle.busy svg {
+  animation: ed-spell-pulse 1.2s var(--ease) infinite alternate;
+}
+@keyframes ed-spell-pulse {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0.45;
+  }
+}
+
+.ed-spell-menu {
+  min-width: 220px;
+  max-width: 320px;
+}
+.ed-spell-word {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ed-spell-sugg {
+  font-weight: 600;
+  color: var(--ink);
+}
+.ed-spell-note {
+  padding: 4px 8px 6px;
+  font-size: var(--fs-sm);
+  color: var(--muted);
+}
+.ed-spell-menu .menu-item:focus-visible {
+  outline: none;
+  background: var(--bg-hover);
+}

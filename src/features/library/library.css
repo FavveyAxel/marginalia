@@ -602,3 +602,23 @@
   width: 120px;
   font-variant-numeric: tabular-nums;
 }
+
+/* ── Livres d'Apple ── */
+.lib-books-loading { display: flex; align-items: center; gap: 8px; color: var(--muted); padding: 24px 0; justify-content: center; }
+.lib-books-note { color: var(--muted); line-height: 1.5; margin: 4px 0; }
+.lib-books-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 12px; color: var(--muted); margin-bottom: 8px; }
+.lib-books-list { list-style: none; margin: 0; padding: 0; max-height: 46vh; overflow: auto; border: 1px solid var(--border); border-radius: 10px; }
+.lib-books-list li + li { border-top: 1px solid var(--border); }
+.lib-books-list label { display: flex; align-items: center; gap: 10px; padding: 8px 12px; cursor: pointer; }
+.lib-books-list li.off label { cursor: default; }
+.lib-books-list li.off .lib-books-meta { opacity: 0.55; }
+.lib-books-list li:not(.off) label:hover { background: var(--hover, rgba(127,127,127,0.08)); }
+.lib-books-meta { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+.lib-books-title { font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lib-books-sub { font-size: 11.5px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lib-books-tag { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; padding: 2px 7px; border-radius: 999px; background: var(--hover, rgba(127,127,127,0.12)); color: var(--muted); white-space: nowrap; }
+.lib-books-tag.warn { color: var(--danger, #b4442c); }
+.lib-books-tag.ok { color: var(--success, #2f7d4f); }
+.lib-books-sync { display: flex; align-items: flex-start; gap: 8px; font-size: 12.5px; max-width: 300px; cursor: pointer; }
+.lib-books-sync span { display: flex; flex-direction: column; gap: 2px; }
+.lib-books-sync small { color: var(--muted); font-size: 11.5px; line-height: 1.35; }

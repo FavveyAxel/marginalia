@@ -35,7 +35,8 @@ const IGNORED: Partial<Record<UndoCol, string[]>> = {
   books: ['position', 'progress', 'lastOpenedAt'],
   maps: ['viewport'],
   cards: ['fsrs'],
-  drafts: ['wordCount'],
+  // versions : historique propre à l'écrit (fichiers sur disque), hors du journal et de ⌘Z.
+  drafts: ['wordCount', 'versions'],
   groups: ['collapsed'],
 };
 const ALWAYS_IGNORED = ['updatedAt'];

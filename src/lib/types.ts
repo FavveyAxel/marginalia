@@ -245,6 +245,24 @@ export interface EssayPlan {
   updatedAt: number;
 }
 
+/**
+ * Version enregistrée d'un écrit (instantané .docx).
+ * kind : 'auto' (toutes les ~10 min d'écriture), 'close' (fermeture), 'restore' (avant une restauration),
+ * 'replace' (avant « Tout remplacer »), 'manual' (« Créer une version… », toujours nommée).
+ */
+export interface DraftVersion {
+  id: string;
+  /** Chemin relatif au dossier de l'écrit (versions/<horodatage>-<id>.docx). */
+  fileName: string;
+  createdAt: number;
+  /** Nom donné par l'utilisateur (null : version automatique, élaguée avec le temps). */
+  name: string | null;
+  kind: 'auto' | 'close' | 'restore' | 'replace' | 'manual';
+  wordCount: number;
+  /** Empreinte du texte (évite deux versions identiques à la suite). */
+  hash?: string;
+}
+
 /** Document écrit dans l'éditeur (.docx natif). */
 export interface Draft {
   id: string;
@@ -254,7 +272,11 @@ export interface Draft {
   /** Chemin d'origine sur le disque si ouvert depuis un .docx externe (Enregistrer y réécrit). */
   externalPath: string | null;
   wordCount: number;
+  /** Objectif de mots (facultatif, réglable depuis l'éditeur). */
+  wordGoal?: number;
   template: 'vide' | 'dissertation' | 'explication' | 'fiche' | null;
+  /** Historique de versions (copies .docx dans versions/ du dossier de l'écrit), du plus ancien au plus récent. */
+  versions?: DraftVersion[];
   createdAt: number;
   updatedAt: number;
 }

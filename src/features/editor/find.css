@@ -1,0 +1,162 @@
+/* Rechercher / remplacer flottant + interrupteur de typographie. */
+.ed-find {
+  position: absolute;
+  top: 12px;
+  right: 22px;
+  z-index: 30;
+  display: flex;
+  align-items: flex-start;
+  gap: 2px;
+  padding: 6px 8px 6px 4px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-md, var(--shadow-sm));
+  font-size: var(--fs-md);
+  color: var(--ink);
+  max-width: calc(100% - 44px);
+}
+.ed-find-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+.ed-find-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.ed-find-chev {
+  width: 20px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  border-radius: var(--radius-sm);
+  cursor: default;
+}
+.ed-find-chev svg {
+  transition: transform 160ms var(--ease-out);
+  transform: rotate(-90deg);
+}
+.ed-find-chev.open svg {
+  transform: none;
+}
+.ed-find-chev:hover {
+  background: var(--bg-hover);
+  color: var(--ink);
+}
+.ed-find-field {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+  height: 28px;
+  padding: 0 3px 0 8px;
+  background: var(--bg-inset);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  transition: border-color 120ms var(--ease-out), box-shadow 120ms var(--ease-out);
+}
+.ed-find-field:focus-within {
+  border-color: var(--focus);
+  background: var(--bg-panel);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--focus) 20%, transparent);
+}
+.ed-find-field.none {
+  border-color: var(--danger);
+}
+.ed-find-field input {
+  flex: 1;
+  min-width: 0;
+  width: 190px;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  padding: 0 4px;
+}
+.ed-find-ico {
+  color: var(--faint);
+  flex: none;
+}
+.ed-find-opt,
+.ed-find-btn,
+.ed-find-txt {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  border: 0;
+  background: transparent;
+  color: var(--ink-2);
+  border-radius: var(--radius-sm);
+  cursor: default;
+  transition: background 120ms var(--ease-out), color 120ms var(--ease-out);
+}
+.ed-find-opt {
+  min-width: 22px;
+  height: 22px;
+  padding: 0 3px;
+  flex: none;
+}
+.ed-find-btn {
+  width: 26px;
+  height: 28px;
+}
+.ed-find-txt {
+  height: 28px;
+  padding: 0 9px;
+  white-space: nowrap;
+  border: 1px solid var(--border);
+  background: var(--bg-panel);
+}
+.ed-find-acc {
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+.ed-find-opt:hover,
+.ed-find-btn:hover:not(:disabled),
+.ed-find-txt:hover:not(:disabled) {
+  background: var(--bg-hover);
+  color: var(--ink);
+}
+.ed-find-opt.on {
+  background: color-mix(in srgb, var(--focus) 22%, transparent);
+  color: var(--ink);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--focus) 55%, transparent);
+}
+.ed-find button:disabled {
+  opacity: 0.4;
+}
+.ed-find-count {
+  min-width: 70px;
+  text-align: center;
+  font-size: var(--fs-sm);
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+/* Surlignage des occurrences dans la page (décorations de SuperDoc). */
+.ed-engine .ProseMirror-search-match,
+.ed-engine .superdoc-text-run.ProseMirror-search-match {
+  background: color-mix(in srgb, #f5c542 55%, transparent) !important;
+  border-radius: 2px;
+}
+.ed-engine .ProseMirror-active-search-match,
+.ed-engine .superdoc-text-run.ProseMirror-active-search-match {
+  background: color-mix(in srgb, #f08a24 70%, transparent) !important;
+  border-radius: 2px;
+  box-shadow: 0 0 0 1px color-mix(in srgb, #f08a24 85%, transparent);
+}
+.ed-tb-text.ed-typo-on {
+  background: var(--bg-active);
+  color: var(--ink);
+}

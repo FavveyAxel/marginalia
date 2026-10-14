@@ -474,7 +474,13 @@ function recascade(d: UndoData): void {
 function filesOf(kind: TrashKind, root: any): TrashEntry['files'] {
   if (kind === 'book') return [{ ownerId: root.id, fileName: root.fileName }];
   // L'éditeur garde aussi une copie de la version précédente (document.prev.docx).
-  if (kind === 'draft') return [{ ownerId: root.id, fileName: root.fileName }, { ownerId: root.id, fileName: 'document.prev.docx' }];
+  // … et son historique de versions (versions/*.docx), effacé avec lui au vidage.
+  if (kind === 'draft')
+    return [
+      { ownerId: root.id, fileName: root.fileName },
+      { ownerId: root.id, fileName: 'document.prev.docx' },
+      ...((root.versions ?? []) as { fileName: string }[]).map((v) => ({ ownerId: root.id, fileName: v.fileName })),
+    ];
   return [];
 }
 

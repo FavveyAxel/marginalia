@@ -129,7 +129,7 @@ const inspect = (file, ...needles) => JSON.parse(py(INSPECT_PY, file, ...needles
 
 // ── Application ───────────────────────────────────────────────
 async function withApp(fn) {
-  const server = await createServer({ root: ROOT, cacheDir: path.join(TMP, 'vite-cache'), server: { port: PORT, strictPort: true }, logLevel: 'error' });
+  const server = await createServer({ root: ROOT, cacheDir: path.join(os.tmpdir(), `marginalia-vite-${PORT}`), server: { port: PORT, strictPort: true, hmr: false, watch: { ignored: ['**/*'] } }, logLevel: 'error' });
   await server.listen();
   const browser = await chromium.launch({ executablePath: '/opt/pw-browsers/chromium', args: ['--no-sandbox'] });
   const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, acceptDownloads: true });

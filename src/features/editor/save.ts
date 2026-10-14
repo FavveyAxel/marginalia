@@ -110,7 +110,7 @@ export async function writeExternalFile(path: string, data: ArrayBuffer): Promis
 
 /** Export de secours : le texte de l'éditeur, tel quel, en .txt. */
 export async function rescueExport(engine: DocEngine, title: string): Promise<string | null> {
-  const text = engine.plainText();
+  const text = engine.plainText({ privateNotes: false });
   const bytes = new TextEncoder().encode(text.endsWith('\n') ? text : text + '\n');
   return host.saveBinary(`${title} (secours).txt`, bytes.buffer as ArrayBuffer, 'txt');
 }

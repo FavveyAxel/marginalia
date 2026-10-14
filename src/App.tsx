@@ -20,6 +20,7 @@ import { CommandPalette } from './components/CommandPalette';
 import { TrashView } from './features/trash/TrashView';
 import { HistoryView } from './features/history/HistoryView';
 import { isTextEditingTarget } from './features/history/keys';
+import { useAppleBooksSync } from './features/library/appleBooks';
 
 function useTheme(theme: ThemeId) {
   useEffect(() => {
@@ -264,6 +265,7 @@ export function App() {
   const theme = useStore((s) => s.settings.theme);
   useTheme(theme);
   useWindowDrag();
+  useAppleBooksSync();
 
   useEffect(() => {
     useStore.getState().init();

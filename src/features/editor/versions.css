@@ -1,0 +1,344 @@
+/* ═════════════════════════════════════════════════════════════
+   Historique de versions (VersionsPanel.tsx) et lien citation → extrait (citeLink.ts).
+   Couleurs : variables de tokens.css (clair / sépia / sombre).
+   ═════════════════════════════════════════════════════════════ */
+
+.ed-versions {
+  --ver-add: var(--cat-argument);
+  --ver-del: var(--danger);
+}
+
+/* ── Création ─────────────────────────────────────────────── */
+.ver-create {
+  padding: 4px 12px 10px;
+  border-bottom: 1px solid var(--border);
+}
+.ver-create-btn {
+  width: 100%;
+  justify-content: flex-start;
+}
+.ver-create-btn kbd,
+.ver-create-btn .kbd {
+  margin-left: auto;
+}
+.ver-create-form {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.ver-label {
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  color: var(--muted);
+}
+.ver-create-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+/* ── Liste ────────────────────────────────────────────────── */
+.ver-day {
+  position: sticky;
+  top: -6px;
+  z-index: 1;
+  margin: 6px -8px 2px;
+  padding: 6px 16px 4px;
+  background: var(--bg-panel);
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  color: var(--muted);
+}
+.ver-item {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  border-radius: var(--radius-md);
+  transition: background var(--dur) var(--ease);
+}
+.ver-item:hover {
+  background: var(--bg-hover);
+}
+.ver-item.active {
+  background: var(--bg-active);
+}
+.ver-item-main {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 44px 1fr;
+  grid-template-rows: auto auto;
+  column-gap: 6px;
+  row-gap: 1px;
+  padding: 7px 8px;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: default;
+  border-radius: var(--radius-md);
+}
+.ver-time {
+  grid-row: 1 / span 2;
+  padding-top: 1px;
+  font-size: var(--fs-sm);
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+}
+.ver-name {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  font-size: var(--fs-md);
+  color: var(--ink-2);
+}
+.ver-item.named .ver-name {
+  color: var(--ink);
+  font-weight: 600;
+}
+.ver-flag {
+  flex: none;
+  color: var(--cat-these);
+  fill: currentColor;
+}
+.ver-meta {
+  display: flex;
+  gap: 6px;
+  font-size: var(--fs-xs);
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.ver-delta {
+  color: var(--faint);
+}
+.ver-item-actions {
+  display: flex;
+  gap: 1px;
+  padding: 5px 4px 0 0;
+  opacity: 0;
+  transition: opacity var(--dur) var(--ease);
+}
+.ver-item:hover .ver-item-actions,
+.ver-item:focus-within .ver-item-actions {
+  opacity: 1;
+}
+.ver-rename {
+  flex: 1;
+  padding: 4px;
+}
+
+/* ── Comparaison (par-dessus la page) ─────────────────────── */
+.ver-compare {
+  --ver-add: var(--cat-argument);
+  --ver-del: var(--danger);
+  position: absolute;
+  z-index: 6;
+  top: 0;
+  bottom: 12px;
+  left: 12px;
+  right: 344px;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  box-shadow: var(--shadow-lg);
+}
+.ver-compare-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 12px 10px 20px;
+  border-bottom: 1px solid var(--border);
+}
+.ver-compare-title {
+  flex: 1;
+  min-width: 0;
+}
+.ver-compare-title h3 {
+  margin: 0;
+  font-family: var(--font-display);
+  font-weight: 400;
+  font-size: 22px;
+  line-height: 1.15;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ver-compare-title span {
+  font-size: var(--fs-sm);
+  color: var(--muted);
+}
+.ver-seg {
+  display: inline-flex;
+  padding: 2px;
+  border-radius: 8px;
+  background: var(--bg-inset);
+}
+.ver-seg button {
+  height: 24px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  font-size: var(--fs-sm);
+  transition: background var(--dur) var(--ease), color var(--dur) var(--ease);
+}
+.ver-seg button.on {
+  background: var(--bg-panel);
+  color: var(--ink);
+  box-shadow: var(--shadow-sm);
+}
+.ver-legend {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 6px 12px 6px 20px;
+  border-bottom: 1px solid var(--border);
+  font-size: var(--fs-sm);
+  color: var(--muted);
+}
+.ver-legend .spacer {
+  flex: 1;
+}
+.ver-compare-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 20px 24px 28px;
+  background: var(--bg-app);
+}
+.ver-paper {
+  max-width: 700px;
+  margin: 0 auto;
+  padding: 36px 48px 44px;
+  background: var(--bg-page);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
+  font-family: var(--font-read);
+  font-size: 15px;
+  line-height: 1.65;
+  color: var(--ink);
+  user-select: text;
+  -webkit-user-select: text;
+}
+.ver-diff {
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+}
+.ver-compare ins,
+.ver-compare del {
+  border-radius: 3px;
+  padding: 0 1px;
+  transition: box-shadow var(--dur) var(--ease);
+}
+.ver-compare ins {
+  text-decoration: none;
+  color: color-mix(in srgb, var(--ver-add) 78%, var(--ink));
+  background: color-mix(in srgb, var(--ver-add) 18%, transparent);
+}
+.ver-compare del {
+  text-decoration: line-through;
+  text-decoration-thickness: 1.5px;
+  color: color-mix(in srgb, var(--ver-del) 82%, var(--ink));
+  background: color-mix(in srgb, var(--ver-del) 13%, transparent);
+}
+.ver-compare .ver-focus {
+  box-shadow: 0 0 0 2px var(--focus);
+}
+.ver-preview h1,
+.ver-preview h2,
+.ver-preview h3,
+.ver-preview h4 {
+  margin: 1.1em 0 0.4em;
+  line-height: 1.25;
+}
+.ver-preview .ver-p-title {
+  text-align: center;
+  font-size: 1.6em;
+}
+.ver-preview p {
+  margin: 0 0 0.7em;
+}
+.ver-preview blockquote {
+  margin: 0 0 0.8em 2.2em;
+  font-size: 0.94em;
+  color: var(--ink-2);
+}
+.ver-preview .ver-li::before {
+  content: '•';
+  margin-left: -14px;
+  margin-right: 8px;
+}
+.ver-note {
+  color: var(--muted);
+}
+.ver-empty-doc {
+  color: var(--muted);
+  font-style: italic;
+}
+.ver-same {
+  margin-top: 40px;
+}
+.ver-compare-foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px 10px 20px;
+  border-top: 1px solid var(--border);
+}
+.ver-hint {
+  flex: 1;
+  font-size: var(--fs-sm);
+  color: var(--muted);
+}
+.ed-focus .ver-compare,
+.ed-focus .ed-versions {
+  display: none;
+}
+@media (max-width: 900px) {
+  .ver-compare {
+    right: 304px;
+  }
+  .ver-hint {
+    display: none;
+  }
+}
+
+/* ── Lien citation → extrait ──────────────────────────────── */
+.ed-engine.ed-cite-meta,
+.ed-engine.ed-cite-meta * {
+  cursor: pointer !important;
+}
+.ed-citebar {
+  position: fixed;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px;
+  border-radius: 9px;
+  background: var(--bg-panel);
+  box-shadow: var(--shadow-md);
+  font-size: var(--fs-sm);
+}
+.ed-citebar .btn {
+  height: 26px;
+  padding: 0 8px;
+  border-color: transparent;
+  background: transparent;
+}
+.ed-citebar .btn:hover {
+  background: var(--bg-hover);
+}
+.ed-citebar-book {
+  max-width: 220px;
+  padding: 0 6px 0 4px;
+  color: var(--muted);
+}
+.ed-citebar-gone {
+  padding: 0 8px;
+  color: var(--danger);
+}

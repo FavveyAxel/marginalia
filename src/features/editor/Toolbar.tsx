@@ -42,6 +42,8 @@ import { FontPicker } from './FontPicker';
 import { ColorButton, KEYS, MenuRow, NumField, SizeControl, TbButton, keepFocus, tip } from './controls';
 import { STYLE_LABEL, STYLE_ORDER, StyleEditor } from './StyleEditor';
 import { PageSetupPanel } from './PageSetup';
+import { PrivateNoteTools } from './privateNotesUi';
+import { useTypography } from './FindReplace';
 
 export type StructuralOp = (label: string, run: () => Promise<ArrayBuffer>) => Promise<void>;
 
@@ -341,6 +343,8 @@ export function Toolbar(p: ToolbarProps) {
           </span>
           Note
         </button>
+        <PrivateNoteTools engine={p.engine} fmt={fmt} editable={editable} refresh={p.refresh} notify={p.notify} />
+        <TypoToggle />
         <MenuButton label="Insérer" tb="insert" icon={<Plus size={15} />} disabled={!editable} menuClass="ed-insert-menu">
           {(close) => (
             <>
@@ -498,5 +502,23 @@ export function Toolbar(p: ToolbarProps) {
         )}
       </Popover>
     </div>
+  );
+}
+
+/** Interrupteur « Typographie française » (espaces insécables, guillemets, apostrophe…). */
+function TypoToggle() {
+  const [on, setOn] = useTypography();
+  return (
+    <button
+      className={`ed-tb-text ${on ? 'ed-typo-on' : ''}`}
+      onMouseDown={keepFocus}
+      onClick={() => setOn(!on)}
+      title={`Typographie française : ${on ? 'activée' : 'désactivée'} (espaces insécables, « », ’, …, –)`}
+      aria-label="Typographie française"
+      aria-pressed={on}
+      data-tb="typo"
+    >
+      FR
+    </button>
   );
 }

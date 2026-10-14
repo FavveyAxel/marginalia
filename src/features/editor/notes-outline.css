@@ -1,0 +1,124 @@
+/* ── Notes privées : teinte du paragraphe peint par le moteur, selon le thème ─────────── */
+:root {
+  --pn-bg: #fff3c4;
+  --pn-rule: #d9a400;
+  --pn-ink: #6b5310;
+}
+:root[data-theme='sepia'] {
+  --pn-bg: #f3e2b8;
+  --pn-rule: #b8862b;
+  --pn-ink: #5e4520;
+}
+:root[data-theme='dark'] {
+  /* la page reste blanche (papier) : teinte plus franche pour se détacher de l'interface sombre */
+  --pn-bg: #fbe7a6;
+  --pn-rule: #c08a00;
+  --pn-ink: #5a440a;
+}
+.ed-engine .superdoc-fragment[data-style-id='MarginaliaNotePrivee'] > .superdoc-paragraph-shading {
+  background-color: var(--pn-bg) !important;
+  border-radius: 3px;
+}
+.ed-engine .superdoc-fragment[data-style-id='MarginaliaNotePrivee'] > .superdoc-paragraph-border {
+  border-left-color: var(--pn-rule) !important;
+}
+.ed-engine .superdoc-fragment[data-style-id='MarginaliaNotePrivee'] .superdoc-text-run {
+  color: var(--pn-ink) !important;
+}
+
+.ed-engine.ed-pn-hidden .superdoc-fragment[data-style-id='MarginaliaNotePrivee'] {
+  visibility: hidden;
+}
+
+/* Bouton « Privée » de la barre d'outils */
+.ed-pn-btn {
+  gap: 5px;
+}
+.ed-pn-btn.active {
+  background: var(--bg-active);
+  color: var(--ink);
+}
+.ed-pn-btn svg {
+  color: var(--pn-rule);
+}
+
+/* ── Plan déplaçable ───────────────────────────────────────── */
+.ed-ol-list {
+  position: relative;
+}
+.ed-ol-row {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  border-radius: var(--radius-sm);
+  transition: opacity var(--dur) var(--ease), background var(--dur) var(--ease);
+}
+.ed-ol-row .ed-outline-item {
+  flex: 1;
+  min-width: 0;
+}
+.ed-ol-grip {
+  position: absolute;
+  left: -13px;
+  top: 6px;
+  color: var(--faint);
+  opacity: 0;
+  cursor: grab;
+  transition: opacity var(--dur) var(--ease);
+}
+.ed-ol-row.l2 .ed-ol-grip {
+  left: -1px;
+}
+.ed-ol-row.l3 .ed-ol-grip {
+  left: 11px;
+}
+.ed-ol-row:hover .ed-ol-grip,
+.ed-ol-row:focus-within .ed-ol-grip {
+  opacity: 1;
+}
+.ed-ol-row[draggable='true'] {
+  cursor: grab;
+}
+.ed-ol-row.is-drag {
+  opacity: 0.4;
+}
+.ed-ol-list.dragging .ed-outline-item:hover {
+  background: transparent;
+}
+.ed-ol-row.drop-before::before,
+.ed-ol-row.drop-after::after {
+  content: '';
+  position: absolute;
+  left: 4px;
+  right: 4px;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--focus);
+  pointer-events: none;
+}
+.ed-ol-row.drop-before::before {
+  top: -1px;
+}
+.ed-ol-row.drop-after::after {
+  bottom: -1px;
+}
+.ed-ol-row.is-moved .ed-outline-item {
+  animation: ed-ol-flash 900ms var(--ease);
+}
+@keyframes ed-ol-flash {
+  0% {
+    background: color-mix(in srgb, var(--focus) 22%, transparent);
+  }
+  100% {
+    background: transparent;
+  }
+}
+.ed-outline-item:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: -2px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .ed-ol-row.is-moved .ed-outline-item {
+    animation: none;
+  }
+}

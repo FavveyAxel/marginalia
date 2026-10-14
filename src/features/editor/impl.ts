@@ -6,6 +6,7 @@ import { uid, useStore } from '../../lib/store';
 import type { CreateDraftOptions } from './api';
 import { countDocxWords, ensureA4SectPr, htmlToDocx } from './docx';
 import { templateByKey, templateInfo, type TemplateKey } from './templates';
+import { hasPrivateNotes, isExportOf } from './privateNotes';
 
 export const DRAFT_FILE = 'document.docx';
 /** G3 : copie de la version précédente dans la bibliothèque. */
@@ -74,6 +75,13 @@ export async function openDocxFromDiskImpl(): Promise<Draft | null> {
       // Copie de travail à jour : on la remplace par la version du disque (modifiée ailleurs, p. ex. dans Word),
       // après avoir gardé la précédente (G3).
       const fixed = (await ensureA4SectPr(f.data)).data;
+      // Notes privées : le fichier externe n'en a jamais. S'il est exactement ce que Marginalia y a
+      // écrit, la copie de la bibliothèque (qui garde les notes) reste la copie de travail.
+      const lib = await host.readFile(existing.id, existing.fileName).catch(() => null);
+      if (lib && (await hasPrivateNotes(lib).catch(() => false))) {
+        if (await isExportOf(lib, fixed)) return existing;
+        s.toast('Ce fichier a été modifié hors de Marginalia : ses notes privées ne sont plus dans la copie de travail (elles restent dans la version précédente).', 'info');
+      }
       try {
         await host.storeFile(existing.id, PREV_FILE, await host.readFile(existing.id, existing.fileName));
       } catch {

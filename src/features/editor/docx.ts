@@ -6,6 +6,7 @@
 //  - comptage de mots (garde-fou G2).
 // ─────────────────────────────────────────────────────────────
 import JSZip from 'jszip';
+import { PRIVATE_STYLE_DEF, PRIVATE_STYLE_ID } from './privateNotes';
 
 export const W_NS = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main';
 
@@ -312,6 +313,13 @@ export async function parseDocx(data: ArrayBuffer): Promise<DocModel> {
     const outline = ppr ? wattr(first(ppr, 'outlineLvl'), 'val') : null;
     if (kind === 'p' && outline !== null && Number(outline) < 9) kind = headingKind(Number(outline) + 1);
     const numPr = ppr ? first(ppr, 'numPr') : null;
+    if (styleId === PRIVATE_STYLE_ID) {
+      // Note privée : comptée (G2 compare avec l'éditeur, qui l'affiche) mais jamais exportée,
+      // ni elle ni les notes de bas de page qu'elle appellerait.
+      parseInlines(p, [], counter);
+      counter.words.push('\n');
+      return;
+    }
     const block: Block = { kind, inlines: parseInlines(p, noteOrder, counter) };
     counter.words.push('\n');
     if (numPr && (kind === 'p' || kind === 'quote')) {
@@ -527,6 +535,7 @@ ${heading(3, 24, 240, '<w:i/><w:iCs/>')}
 <w:style w:type="paragraph" w:styleId="ListParagraph"><w:name w:val="List Paragraph"/><w:basedOn w:val="Normal"/><w:uiPriority w:val="34"/><w:qFormat/><w:pPr><w:spacing w:after="60"/><w:ind w:left="720" w:firstLine="0"/><w:jc w:val="left"/></w:pPr></w:style>
 <w:style w:type="paragraph" w:styleId="FootnoteText"><w:name w:val="footnote text"/><w:basedOn w:val="Normal"/><w:uiPriority w:val="99"/><w:pPr><w:spacing w:after="0" w:line="240" w:lineRule="auto"/><w:ind w:firstLine="0"/><w:jc w:val="${ac ? 'both' : 'left'}"/></w:pPr><w:rPr><w:sz w:val="20"/><w:szCs w:val="20"/></w:rPr></w:style>
 <w:style w:type="character" w:styleId="FootnoteReference"><w:name w:val="footnote reference"/><w:uiPriority w:val="99"/><w:rPr><w:vertAlign w:val="superscript"/></w:rPr></w:style>
+${PRIVATE_STYLE_DEF}
 </w:styles>`;
 }
 

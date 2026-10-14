@@ -18,9 +18,14 @@ import {
   ChevronRight,
   ChevronLeft,
   FileDown,
+  Library as LibraryIcon,
+  Cloud,
+  Lock,
+  Check,
 } from 'lucide-react';
 import { useStore } from '../../lib/store';
-import { host, ACCEPTED_EXTENSIONS } from '../../lib/platform';
+import { host, ACCEPTED_EXTENSIONS, type AppleBook } from '../../lib/platform';
+import { appleBooksAvailable, importAppleBooks } from './appleBooks';
 import type { Book, BookFormat, Database } from '../../lib/types';
 import { relativeTime } from '../../components/ui';
 import { importViaDialog } from '../../App';
@@ -109,6 +114,7 @@ export function LibraryView() {
   const [menu, setMenu] = useState<{ bookId: string; x: number; y: number } | null>(null);
   const [infoId, setInfoId] = useState<string | null>(null);
   const [deleteId, setDeleteId] = useState<string | null>(null);
+  const [booksOpen, setBooksOpen] = useState(false);
 
   const counts = useMemo(() => {
     const m: Record<string, number> = {};
@@ -235,6 +241,11 @@ export function LibraryView() {
             <Loader2 size={13} className="lib-spin" /> Import en cours{importing > 1 ? ` (${importing})` : ''}…
           </span>
         )}
+        {appleBooksAvailable() && (
+          <button className="btn" onClick={() => setBooksOpen(true)} title="Importer et synchroniser les livres sans DRM de l’app Livres (iCloud)">
+            <LibraryIcon size={14} /> Depuis Livres
+          </button>
+        )}
         <button className="btn btn-primary" onClick={() => importViaDialog()}>
           <Plus size={14} /> Importer
         </button>
@@ -260,6 +271,17 @@ export function LibraryView() {
               >
                 <Plus size={14} /> Importer
               </button>
+              {appleBooksAvailable() && (
+                <button
+                  className="btn"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setBooksOpen(true);
+                  }}
+                >
+                  <LibraryIcon size={14} /> Récupérer mes livres de l’app Livres
+                </button>
+              )}
               <div className="lib-formats">
                 {['EPUB', 'PDF', 'DOCX', 'Markdown', 'TXT', 'HTML'].map((f) => (
                   <span key={f} className="lib-format-tag">
@@ -449,6 +471,7 @@ export function LibraryView() {
           onExport={exportNotes}
         />
       )}
+      {booksOpen && <AppleBooksDialog onClose={() => setBooksOpen(false)} />}
       {infoBook && <InfoDialog book={infoBook} onClose={() => setInfoId(null)} />}
       {deleteBook && <DeleteDialog book={deleteBook} nExtracts={counts[deleteBook.id] ?? 0} onClose={() => setDeleteId(null)} />}
     </div>
@@ -759,6 +782,149 @@ function DeleteDialog({ book, nExtracts, onClose }: { book: Book; nExtracts: num
           </p>
         </div>
       </div>
+    </Modal>
+  );
+}
+
+function AppleBooksDialog({ onClose }: { onClose(): void }) {
+  const books = useStore((s) => s.books);
+  const settings = useStore((s) => s.settings);
+  const [list, setList] = useState<AppleBook[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [picked, setPicked] = useState<Set<string>>(new Set());
+  const [sync, setSync] = useState(settings.appleBooksSync ?? true);
+  const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
+  const inLibrary = useMemo(() => new Set(books.map((b) => b.originalName)), [books]);
+
+  useEffect(() => {
+    let alive = true;
+    host.appleBooksScan!()
+      .then((l) => {
+        if (!alive) return;
+        setList(l);
+        const seen = new Set(settings.appleBooksSeen ?? []);
+        setPicked(new Set(l.filter((b) => !b.drm && !b.pending && !inLibrary.has(b.name) && !seen.has(b.name)).map((b) => b.name)));
+      })
+      .catch((e) => alive && setError(String(e?.message ?? e)));
+    return () => {
+      alive = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const importable = (list ?? []).filter((b) => !b.drm && !b.pending && !inLibrary.has(b.name));
+  const nDrm = (list ?? []).filter((b) => b.drm).length;
+  const toggle = (name: string) =>
+    setPicked((p) => {
+      const n = new Set(p);
+      if (n.has(name)) n.delete(name);
+      else n.add(name);
+      return n;
+    });
+  const allOn = importable.length > 0 && importable.every((b) => picked.has(b.name));
+
+  const go = async () => {
+    const s = useStore.getState();
+    // Tout ce qui est listé est « vu » : la synchro n'importera ensuite que les nouveaux livres.
+    s.updateSettings({ appleBooksSync: sync, appleBooksSeen: [...new Set([...(s.settings.appleBooksSeen ?? []), ...(list ?? []).filter((b) => !b.pending).map((b) => b.name)])] });
+    const todo = importable.filter((b) => picked.has(b.name));
+    if (todo.length) {
+      setProgress({ done: 0, total: todo.length });
+      const n = await importAppleBooks(todo, (done, total) => setProgress({ done, total }));
+      s.toast(n === 1 ? '1 livre importé depuis Livres' : `${n} livres importés depuis Livres`, n ? 'success' : 'error');
+    } else if (sync) s.toast('Synchronisation avec Livres activée', 'success');
+    onClose();
+  };
+
+  return (
+    <Modal
+      title="Livres d’Apple"
+      onClose={progress ? () => undefined : onClose}
+      width={560}
+      footer={
+        <>
+          <label className="lib-books-sync">
+            <input type="checkbox" checked={sync} onChange={(e) => setSync(e.target.checked)} disabled={!!progress} />
+            <span>
+              <strong>Synchroniser automatiquement</strong>
+              <small>Les livres sans DRM ajoutés dans Livres (iPhone, iPad, Mac) arriveront ici tout seuls.</small>
+            </span>
+          </label>
+          <span className="spacer" />
+          <button className="btn" onClick={onClose} disabled={!!progress}>
+            Annuler
+          </button>
+          <button className="btn btn-primary" onClick={go} disabled={!list || !!progress}>
+            {progress ? (
+              <>
+                <Loader2 size={13} className="lib-spin" /> {progress.done}/{progress.total}
+              </>
+            ) : picked.size ? (
+              `Importer ${picked.size} livre${picked.size > 1 ? 's' : ''}`
+            ) : (
+              'Valider'
+            )}
+          </button>
+        </>
+      }
+    >
+      {error ? (
+        <p className="lib-books-note">Impossible de lire le dossier de Livres : {error}</p>
+      ) : !list ? (
+        <div className="lib-books-loading">
+          <Loader2 size={16} className="lib-spin" /> Recherche des livres…
+        </div>
+      ) : list.length === 0 ? (
+        <p className="lib-books-note">
+          Aucun livre trouvé. Vérifie que « Livres » est activé dans Réglages système › Identifiant Apple › iCloud › iCloud Drive, puis autorise Marginalia à accéder à iCloud Drive si macOS le demande.
+        </p>
+      ) : (
+        <>
+          <div className="lib-books-head">
+            <span>
+              {list.length} livre{list.length > 1 ? 's' : ''}
+              {nDrm ? ` · ${nDrm} protégé${nDrm > 1 ? 's' : ''} par DRM (non importable${nDrm > 1 ? 's' : ''})` : ''}
+            </span>
+            {importable.length > 0 && (
+              <button className="btn btn-ghost sm" onClick={() => setPicked(allOn ? new Set() : new Set(importable.map((b) => b.name)))}>
+                {allOn ? 'Tout désélectionner' : 'Tout sélectionner'}
+              </button>
+            )}
+          </div>
+          <ul className="lib-books-list">
+            {list.map((b) => {
+              const have = inLibrary.has(b.name);
+              const disabled = !!b.drm || !!b.pending || have || !!progress;
+              return (
+                <li key={b.path} className={disabled ? 'off' : ''}>
+                  <label>
+                    <input type="checkbox" checked={!disabled && picked.has(b.name)} disabled={disabled} onChange={() => toggle(b.name)} />
+                    <span className="lib-books-meta">
+                      <span className="lib-books-title">{b.title}</span>
+                      <span className="lib-books-sub">
+                        {b.author || (b.kind === 'pdf' ? 'PDF' : 'EPUB')}
+                      </span>
+                    </span>
+                    {b.drm ? (
+                      <span className="lib-books-tag warn">
+                        <Lock size={11} /> DRM {b.drm}
+                      </span>
+                    ) : b.pending ? (
+                      <span className="lib-books-tag">
+                        <Cloud size={11} /> Dans iCloud
+                      </span>
+                    ) : have ? (
+                      <span className="lib-books-tag ok">
+                        <Check size={11} /> Déjà là
+                      </span>
+                    ) : null}
+                  </label>
+                </li>
+              );
+            })}
+          </ul>
+        </>
+      )}
     </Modal>
   );
 }

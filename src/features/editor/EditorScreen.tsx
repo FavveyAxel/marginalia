@@ -1,6 +1,6 @@
 // Éditeur pleine page d'un écrit (route { name: 'write', draftId }).
 import { useCallback, useEffect, useMemo, useRef, useState, type MutableRefObject } from 'react';
-import { AlertTriangle, ChevronLeft, ChevronDown, Download, FileDown, FileText, Maximize2, PanelRight } from 'lucide-react';
+import { AlertTriangle, ChevronLeft, ChevronDown, Download, FileDown, FileText, Maximize2, PanelRight, SearchCheck } from 'lucide-react';
 import { useStore } from '../../lib/store';
 import { host, type ExportFormat } from '../../lib/platform';
 import type { Book, Draft, Highlight } from '../../lib/types';
@@ -28,6 +28,19 @@ import { Popover, usePop } from './Popover';
 import { Toolbar } from './Toolbar';
 import { SelectionBar } from './SelectionBar';
 import { LinkEditor } from './LinkEditor';
+import { usePrivateNotes } from './privateNotesUi';
+import { stripForExport } from './privateNotes';
+import { Outline, useSectionKeys } from './Outline';
+import { SpellMenu, SpellToggle, useSpellcheck } from './spell/useSpellcheck';
+import { StyleReview } from './StyleReview';
+import { WordGoal } from './WordGoal';
+import { FindReplace } from './FindReplace';
+import { History as HistoryIcon } from 'lucide-react';
+import type { DraftVersion } from '../../lib/types';
+import { VersionsPanel } from './VersionsPanel';
+import { CiteBar } from './CiteBar';
+import { attachCiteLinks, tagInsertedCitation, type CiteHover } from './citeLink';
+import { ActiveClock, addVersion, addVersionFromLibrary, registerSnapshotter, restoredTitle, fullDate, versionTitle, versionsOf } from './versions';
 
 type Phase = 'loading' | 'ready' | 'error';
 type Status = 'saved' | 'dirty' | 'saving' | 'blocked' | 'error';
@@ -142,6 +155,7 @@ function Editor({ draft }: { draft: Draft }) {
   const [stats, setStats] = useState<EngineStats>({ words: draft.wordCount, chars: 0, charsNoSpaces: 0 });
   const [focusMode, setFocusMode] = useState(false);
   const [extractsOpen, setExtractsOpen] = useState(() => readPref(EXTRACTS_KEY, true));
+  const [styleOpen, setStyleOpen] = useState(false);
   const [title, setTitle] = useState(draft.title);
   const [busyExport, setBusyExport] = useState(false);
 
@@ -166,6 +180,12 @@ function Editor({ draft }: { draft: Draft }) {
   const session = useRef<SaveSession>({ prevSaved: false });
   const guardRef = useRef(false); // chargement incomplet : aucun enregistrement
   const blockedRef = useRef(false);
+  // Historique de versions (versions.ts) et lien citation → extrait (citeLink.ts)
+  const versionClock = useRef(new ActiveClock());
+  const versionChain = useRef<Promise<unknown>>(Promise.resolve());
+  const [versionsOpen, setVersionsOpen] = useState(false);
+  const [versionNonce, setVersionNonce] = useState(0);
+  const [citeHover, setCiteHover] = useState<CiteHover | null>(null);
 
   const setExtDirty = useCallback((v: boolean) => {
     setExternalDirty(draftRef.current.id, v);
@@ -179,6 +199,12 @@ function Editor({ draft }: { draft: Draft }) {
     setStats(e.stats());
     setFmt(e.state());
   }, []);
+
+  // Notes privées (⌘⌥N, affichage, presse-papiers) et ⌥⇧↑/↓ (sections) : avant les autres raccourcis.
+  const [reloadTick, setReloadTick] = useState(0);
+  const notesNotify = useCallback((m: string, t?: 'info' | 'error' | 'success') => toast(m, t ?? 'info'), [toast]);
+  usePrivateNotes(engineRef, phase === 'ready', phase === 'ready' && !loadGuard, reloadTick, notesNotify, refreshUi);
+  useSectionKeys(engineRef, phase === 'ready' && !loadGuard, notesNotify, refreshUi);
 
   /** Enregistrement dans la bibliothèque (et, si `external`, dans le fichier d'origine). */
   const save = useCallback(
@@ -213,7 +239,8 @@ function Editor({ draft }: { draft: Draft }) {
           savedSeq.current = target;
           if (d.externalPath) {
             if (external) {
-              await writeExternalFile(d.externalPath, g.data);
+              // Fichier de l'utilisateur : sans notes privées (la copie de la bibliothèque les garde).
+              await writeExternalFile(d.externalPath, (await stripForExport(g.data)).data);
               setExtDirty(false);
               toast(`Enregistré dans « ${baseName(d.externalPath)} »`, 'success');
             } else if (changed) setExtDirty(true);
@@ -252,6 +279,7 @@ function Editor({ draft }: { draft: Draft }) {
 
   const onChange = useCallback(() => {
     seq.current++;
+    versionClock.current.touch();
     setStatus((s) => (s === 'blocked' ? s : 'dirty'));
     if (uiTimer.current) clearTimeout(uiTimer.current);
     uiTimer.current = setTimeout(refreshUi, 180);
@@ -276,6 +304,7 @@ function Editor({ draft }: { draft: Draft }) {
   const onReload = useCallback(() => {
     const e = engineRef.current;
     if (e) setZoomState(e.zoom());
+    setReloadTick((t) => t + 1); // préférence « notes privées masquées » réappliquée
     setTimeout(() => {
       const x = engineRef.current;
       if (!x) return;
@@ -319,6 +348,8 @@ function Editor({ draft }: { draft: Draft }) {
       refreshUi();
       setZoomState(eng.zoom());
       if (!guardRef.current && Math.abs(editorWords - d.wordCount) > 0) patch('drafts', d.id, { wordCount: editorWords });
+      // Historique : première ouverture → version de départ (le fichier tel qu'il a été ouvert).
+      if (!guardRef.current && !versionsOf(d.id).length) versionChain.current = versionChain.current.then(() => addVersion(d.id, raw, { kind: 'auto' })).catch((err) => console.warn('version', err));
     })().catch((e) => {
       console.error(e);
       if (cancelled) return;
@@ -334,7 +365,13 @@ function Editor({ draft }: { draft: Draft }) {
       if (!e) return;
       // Dernier enregistrement (bibliothèque) avant de fermer, si nécessaire et autorisé.
       const pending = seq.current !== savedSeq.current && !guardRef.current;
-      const finish = () => e.destroy();
+      // Historique : version « à la fermeture » du fichier enregistré, s'il y a eu des modifications.
+      const draftId = draftRef.current.id;
+      const versionAtClose = !guardRef.current && versionClock.current.dirty;
+      const finish = () => {
+        e.destroy();
+        if (versionAtClose) void versionChain.current.then(() => addVersionFromLibrary(draftId, { kind: 'close' })).catch((err) => console.warn('version', err));
+      };
       if (!pending) {
         finish();
         return;
@@ -406,6 +443,133 @@ function Editor({ draft }: { draft: Draft }) {
     e.redo();
     setFmt(e.state());
   }, []);
+
+  // ── Historique de versions (versions.ts, VersionsPanel.tsx) ──
+  /** Enregistre puis copie le fichier enregistré comme version (file d'attente : une à la fois). */
+  const takeVersion = useCallback(
+    async (kind: DraftVersion['kind'], name: string | null = null): Promise<DraftVersion | null> => {
+      const d = draftRef.current;
+      if (!engineRef.current) return null;
+      const run = versionChain.current.then(async () => {
+        const ok = guardRef.current ? false : await save(false);
+        if (!ok && name) toast('Version créée à partir du dernier enregistrement réussi.', 'info');
+        const v = await addVersionFromLibrary(d.id, { kind, name, force: !!name });
+        versionClock.current.reset();
+        return v;
+      });
+      versionChain.current = run.catch(() => null);
+      try {
+        return await run;
+      } catch (err) {
+        console.error(err);
+        toast('La version n’a pas pu être créée.', 'error');
+        return null;
+      }
+    },
+    [save, toast],
+  );
+
+  const currentDocx = useCallback(async () => {
+    const e = engineRef.current;
+    if (!e) throw new Error('Éditeur fermé');
+    return e.exportDocx();
+  }, []);
+
+  /** Restaure une version : version de l'état actuel d'abord, puis ⌘Z (ou « Annuler ») possible. */
+  const restoreVersion = useCallback(
+    async (v: DraftVersion, data: ArrayBuffer): Promise<boolean> => {
+      const e = engineRef.current;
+      if (!e || guardRef.current) return false;
+      await takeVersion('restore');
+      setLayoutBusy(true);
+      try {
+        const before = await e.exportDocx();
+        await e.restore(data.slice(0));
+        await new Promise((r) => setTimeout(r, 700));
+        structuralRef.current = { snap: before, seq: seq.current };
+        toast(`Version « ${versionTitle(v)} » (${fullDate(v.createdAt)}) restaurée. ⌘Z pour annuler.`, 'success', {
+          label: 'Annuler',
+          run: () => {
+            if (engineRef.current !== e) return;
+            structuralRef.current = null;
+            setLayoutBusy(true);
+            void e
+              .restore(before)
+              .then(() => toast('Restauration annulée', 'info'))
+              .catch((err) => {
+                console.error(err);
+                toast('Impossible d’annuler la restauration : retrouvez l’état précédent dans les versions.', 'error');
+              })
+              .finally(() => {
+                setLayoutBusy(false);
+                refreshUi();
+              });
+          },
+        });
+        return true;
+      } catch (err) {
+        console.error(err);
+        toast('La restauration a échoué. Le document n’a pas changé.', 'error');
+        return false;
+      } finally {
+        setLayoutBusy(false);
+        refreshUi();
+      }
+    },
+    [takeVersion, toast, refreshUi],
+  );
+
+  const restoreAsNew = useCallback(
+    async (v: DraftVersion, data: ArrayBuffer) => {
+      try {
+        const { createDraft } = await import('./api');
+        const nd = await createDraft({ title: restoredTitle(draftRef.current, v), docx: data.slice(0) });
+        toast(`Nouvel écrit « ${nd.title} » créé`, 'success');
+        navigate({ name: 'write', draftId: nd.id });
+      } catch (err) {
+        console.error(err);
+        toast('Impossible de créer l’écrit à partir de cette version.', 'error');
+      }
+    },
+    [navigate, toast],
+  );
+
+  // Instantané automatique après ~10 min d'écriture active.
+  useEffect(() => {
+    if (phase !== 'ready') return;
+    const t = setInterval(() => {
+      if (!guardRef.current && versionClock.current.due) void takeVersion('auto');
+    }, 30_000);
+    return () => clearInterval(t);
+  }, [phase, takeVersion]);
+
+  // « Tout remplacer » et autres opérations en masse : snapshotActiveDraft('replace').
+  useEffect(() => registerSnapshotter((kind, name) => takeVersion(kind, name ?? null)), [takeVersion]);
+
+  // ⌘⌥S : « Créer une version… »
+  useEffect(() => {
+    const onKey = (ev: KeyboardEvent) => {
+      if ((ev.metaKey || ev.ctrlKey) && ev.altKey && !ev.shiftKey && ev.code === 'KeyS') {
+        ev.preventDefault();
+        ev.stopPropagation();
+        setVersionsOpen(true);
+        setVersionNonce((n) => n + 1);
+      }
+    };
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
+  }, []);
+
+  // Lien citation → extrait : ⌘-clic et barre au survol.
+  useEffect(() => {
+    const h = hostRef.current;
+    if (!h || phase !== 'ready') return;
+    const off = attachCiteLinks(h, () => engineRef.current, setCiteHover);
+    return () => {
+      off();
+      setCiteHover(null);
+    };
+  }, [phase]);
 
   const openLink = useCallback(
     (anchor: HTMLElement) => {
@@ -554,7 +718,8 @@ function Editor({ draft }: { draft: Draft }) {
         const d = draftRef.current;
         const name = safeFileName(d.title);
         let path: string | null = null;
-        if (format === 'docx') path = await host.saveBinary(`${name}.docx`, g.data, 'docx');
+        // notes privées : retirées du .docx ; absentes du modèle (parseDocx) pour PDF, MD, HTML, TXT
+        if (format === 'docx') path = await host.saveBinary(`${name}.docx`, (await stripForExport(g.data)).data, 'docx');
         else if (format === 'pdf') {
           let pdf: ArrayBuffer;
           try {
@@ -587,7 +752,9 @@ function Editor({ draft }: { draft: Draft }) {
   const exportOriginal = async () => {
     const d = draftRef.current;
     try {
-      const data = await host.readFile(d.id, d.fileName);
+      const raw = await host.readFile(d.id, d.fileName);
+      // sans notes privées ; si le paquet est illisible, l'original tel quel (c'est le but de ce secours)
+      const data = await stripForExport(raw).then((r) => r.data).catch(() => raw);
       const p = await host.saveBinary(`${safeFileName(d.title)} (original).docx`, data, 'docx');
       if (p) toast(`Exporté : ${baseName(p)}`, 'success');
     } catch (err) {
@@ -600,6 +767,8 @@ function Editor({ draft }: { draft: Draft }) {
     const e = engineRef.current;
     if (!e || guardRef.current) return;
     const ok = e.insertCitation(quoteText(h), formatFootnote(h, b));
+    // Lien citation → extrait : signet _mglHl_<id> autour du texte cité.
+    tagInsertedCitation(e, h.id, quoteText(h));
     if (!ok) toast('Citation insérée sans sa note : ajoutez-la avec le bouton Note de bas de page.', 'error');
   };
 
@@ -642,6 +811,7 @@ function Editor({ draft }: { draft: Draft }) {
         : 'Enregistrement automatique dans Marginalia';
 
   const editable = phase === 'ready' && !loadGuard;
+  const spell = useSpellcheck(() => engineRef.current, phase === 'ready', editable);
 
   return (
     <div className={`ed-root ed-root-in ${focusMode ? 'ed-focus' : ''} ${extractsOpen ? 'ed-has-extracts' : ''}`}>
@@ -671,7 +841,32 @@ function Editor({ draft }: { draft: Draft }) {
           </span>
         )}
         <div className="spacer" />
-        <button className={`icon-btn ${extractsOpen ? 'active' : ''}`} onClick={toggleExtracts} title="Extraits" aria-label="Afficher les extraits" aria-pressed={extractsOpen}>
+        <SpellToggle spell={spell} disabled={phase !== 'ready'} />
+        <button className={`icon-btn ${styleOpen ? 'active' : ''}`} onClick={() => setStyleOpen((v) => !v)} title="Revue de style" aria-label="Revue de style" aria-pressed={styleOpen} disabled={phase !== 'ready'}>
+          <SearchCheck size={16} />
+        </button>
+        <button
+          className={`icon-btn ${versionsOpen ? 'active' : ''}`}
+          onClick={() => setVersionsOpen((v) => !v)}
+          title="Versions (⌘⌥S : créer une version)"
+          aria-label="Afficher les versions"
+          aria-pressed={versionsOpen}
+          disabled={phase !== 'ready'}
+          data-tb="versions"
+        >
+          <HistoryIcon size={16} />
+        </button>
+        <button
+          className={`icon-btn ${extractsOpen && !versionsOpen ? 'active' : ''}`}
+          onClick={() => {
+            if (!versionsOpen) return toggleExtracts();
+            setVersionsOpen(false);
+            if (!extractsOpen) toggleExtracts();
+          }}
+          title="Extraits"
+          aria-label="Afficher les extraits"
+          aria-pressed={extractsOpen && !versionsOpen}
+        >
           <PanelRight size={16} />
         </button>
         <button className="icon-btn" onClick={() => setFocusMode(true)} title="Mode concentration (⌘⇧F)" aria-label="Mode concentration">
@@ -796,18 +991,7 @@ function Editor({ draft }: { draft: Draft }) {
       </Popover>
 
       <div className="ed-body">
-        <nav className="ed-outline" aria-label="Plan de l’écrit">
-          <div className="ed-outline-title">Plan</div>
-          {outline.length === 0 ? (
-            <p className="ed-outline-empty">Les titres de votre écrit apparaîtront ici.</p>
-          ) : (
-            outline.map((o, i) => (
-              <button key={`${o.pos}-${i}`} className={`ed-outline-item l${o.level} ${i === activeHeading ? 'active' : ''}`} onClick={() => engineRef.current?.goTo(o.pos)} title={o.text}>
-                {o.text}
-              </button>
-            ))
-          )}
-        </nav>
+        <Outline items={outline} caretActive={activeHeading} engine={() => engineRef.current} editable={editable && !layoutBusy} notify={notesNotify} refresh={refreshUi} />
         {phase === 'ready' && (
           <>
             <button className={`ed-count ${countPop.isOpen ? 'open' : ''}`} onClick={(e) => countPop.toggle(e.currentTarget)} aria-label="Statistiques de l’écrit">
@@ -831,6 +1015,7 @@ function Editor({ draft }: { draft: Draft }) {
         )}
 
         <div className="ed-center">
+          <FindReplace engine={() => engineRef.current} ready={phase === 'ready' && !loadGuard} />
           <div className="ed-scroll">
             <div ref={hostRef} className={`ed-engine selectable ${phase === 'ready' ? 'ed-engine-in' : ''}`} />
             {phase === 'loading' && (
@@ -859,16 +1044,32 @@ function Editor({ draft }: { draft: Draft }) {
               </div>
             )}
           </div>
+          {phase === 'ready' && <WordGoal draft={draft} stats={stats} fmt={fmt} engine={() => engineRef.current} editable={editable} />}
         </div>
 
-        {extractsOpen && <ExtractsPane disabled={!editable} onInsert={insertExtract} onClose={toggleExtracts} />}
+        {styleOpen && phase === 'ready' && <StyleReview draft={draft} stats={stats} engine={() => engineRef.current} onClose={() => setStyleOpen(false)} />}
+        {extractsOpen && !versionsOpen && <ExtractsPane disabled={!editable} onInsert={insertExtract} onClose={toggleExtracts} />}
+        {versionsOpen && phase === 'ready' && (
+          <VersionsPanel
+            draft={draft}
+            currentDocx={currentDocx}
+            createVersion={(name) => takeVersion('manual', name)}
+            restore={restoreVersion}
+            restoreAsNew={restoreAsNew}
+            createNonce={versionNonce}
+            editable={editable && !layoutBusy}
+            onClose={() => setVersionsOpen(false)}
+          />
+        )}
       </div>
+      {citeHover && phase === 'ready' && !focusMode && <CiteBar hover={citeHover} />}
 
       {focusMode && (
         <button className="ed-focus-exit" onClick={() => setFocusMode(false)}>
           Quitter la concentration <Kbd>Échap</Kbd>
         </button>
       )}
+      {spell.enabled && editable && <SpellMenu spell={spell} />}
       {import.meta.env.DEV && <DevHandle engineRef={engineRef} save={save} exportAs={exportAs} undo={undo} />}
     </div>
   );

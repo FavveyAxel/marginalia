@@ -32,6 +32,8 @@ import {
   type StylePatch,
 } from './ooxml';
 import { familyName } from './fonts';
+import { PRIVATE_STYLE_DEF, PRIVATE_STYLE_ID, VIEW_META, inPrivateNote, privateParagraphs, setNotesHidden, stripClipboard, textblocksOf, togglePrivateNote } from './privateNotes';
+import { moveSection as moveSectionOp, stepSection, type LevelOf } from './outlineMove';
 
 export type ParaStyle = 'title' | 'h1' | 'h2' | 'h3' | 'body' | 'quote' | 'caption';
 export type MarkName = 'bold' | 'italic' | 'underline' | 'strike' | 'superscript' | 'subscript' | 'smallCaps';
@@ -101,7 +103,7 @@ export interface DocEngine {
   /** Exporte le document courant en .docx (OOXML natif, normalisé). */
   exportDocx(): Promise<ArrayBuffer>;
   /** Texte brut du corps, paragraphes séparés par des sauts de ligne (secours, G2). */
-  plainText(): string;
+  plainText(opts?: { privateNotes?: boolean }): string;
   wordCount(): number;
   stats(): EngineStats;
   outline(): OutlineItem[];
@@ -179,6 +181,25 @@ export interface DocEngine {
   destroy(): void;
   /** Développement / tests uniquement : éditeur brut du moteur. */
   debugEditor(): unknown;
+  // ── Notes privées (privateNotes.ts) et plan déplaçable (outlineMove.ts) ──
+  /** Insère une note privée, transforme la sélection en note, ou repasse la note du curseur en texte. */
+  togglePrivateNote(): Promise<'inserted' | 'converted' | 'reverted' | null>;
+  inPrivateNote(): boolean;
+  privateNoteCount(): number;
+  /** Masque / affiche les notes privées (affichage seulement : pas une modification de l'écrit). */
+  setPrivateNotesHidden(hidden: boolean): void;
+  /** Évènement `copy` : retire les notes privées des données copiées. */
+  stripCopy(ev: ClipboardEvent): boolean;
+  /** Déplace la section dont le titre est en `from` vers `target` (début du titre visé, ou fin). Une étape d'annulation. */
+  moveSection(from: number, target: number): boolean;
+  /** Monte / descend la section (titre en `pos`, ou celle du curseur) d'un rang parmi ses sœurs. */
+  stepSection(dir: -1 | 1, pos?: number): boolean;
+  /** Fin de document (cible « après le dernier titre »). */
+  docEnd(): number;
+  /** Correcteur orthographique (config `proofing` de SuperDoc, voir spell/) ; null le coupe. Réappliqué après réouverture. */
+  setProofing(cfg: object | null): void;
+  /** Éditeur de présentation de SuperDoc (correcteur : hitTest, proofingManager, editor). */
+  presentation(): unknown;
 }
 
 export interface EngineOptions {
@@ -249,6 +270,8 @@ export async function openDocEngine(host: HTMLElement, data: ArrayBuffer, opts: 
   // mais une saisie de l'utilisateur pendant cette fenêtre doit compter (sinon elle ne serait
   // jamais enregistrée). Le ProseMirror caché de SuperDoc vit hors de `host` : écoute globale.
   let touched = false;
+  /** Transactions d'affichage (notes privées masquées) : ne comptent pas comme modifications. */
+  let silent = 0;
   const onUserInput = (e: Event) => {
     const t = e.target as Element | null;
     if (t && typeof t.closest === 'function' && t.closest('.ProseMirror')) touched = true;
@@ -286,12 +309,12 @@ export async function openDocEngine(host: HTMLElement, data: ArrayBuffer, opts: 
             resolve(inst);
           },
           onEditorUpdate: () => {
-            if (live()) opts.onChange?.();
+            if (live() && !silent) opts.onChange?.();
           },
           onTransaction: (p: Any) => {
             if (!live()) return;
             // couvre aussi les éditeurs de notes (sessions de saisie de note de bas de page)
-            if (p?.transaction?.docChanged) opts.onChange?.();
+            if (p?.transaction?.docChanged && !silent && !p.transaction.getMeta?.(VIEW_META)) opts.onChange?.();
             opts.onSelection?.();
           },
           onContentError: (p: Any) => {
@@ -334,6 +357,41 @@ export async function openDocEngine(host: HTMLElement, data: ArrayBuffer, opts: 
     return docs?.[0]?.getPresentationEditor?.() ?? body()?.presentationEditor ?? null;
   };
   const body_ = () => body();
+  // Correcteur (spell/) : configuration conservée pour la réappliquer après une réouverture ;
+  // le correcteur natif de Chromium est coupé quand le nôtre est actif (pas de double soulignement).
+  let proofingCfg: Any = null;
+  const applyProofing = () => {
+    try {
+      body()?.view?.dom?.setAttribute('spellcheck', proofingCfg?.enabled ? 'false' : 'true');
+      pres()?.updateProofingConfig?.(proofingCfg ?? { enabled: false });
+      // SuperDoc 1.47 ne recale que les fautes des paragraphes modifiés : celles des paragraphes
+      // suivants restaient décalées après une insertion. On étend la zone modifiée jusqu'à la fin
+      // (le fournisseur de spell/ répond depuis son cache pour les paragraphes inchangés).
+      // De même, les spans découpés pour peindre une faute gardent leurs positions d'origine hors de
+      // portée du recalage du peintre : on les recolle avant le rendu (qui suit la transaction).
+      const mgr = pres()?.proofingManager;
+      if (mgr && !mgr.__mgPatched) {
+        const orig = mgr.onDocumentChanged.bind(mgr);
+        mgr.onDocumentChanged = (doc: Any, ranges: { from: number; to: number }[], mapping: Any) => {
+          for (const s of Array.from(host.querySelectorAll('[data-sd-proofing-split]'))) s.remove();
+          for (const o of Array.from(host.querySelectorAll<HTMLElement>('[data-sd-proofing="original"]'))) {
+            o.style.display = '';
+            if (!o.style.cssText) o.removeAttribute('style');
+            o.removeAttribute('data-sd-proofing');
+            for (const k of ['start', 'end']) {
+              const v = o.getAttribute(`data-sd-orig-pm-${k}`);
+              if (v) o.setAttribute(`data-pm-${k}`, v);
+              o.removeAttribute(`data-sd-orig-pm-${k}`);
+            }
+          }
+          return orig(doc, ranges.length ? [{ from: Math.min(...ranges.map((r) => r.from)), to: doc.content.size }] : ranges, mapping);
+        };
+        mgr.__mgPatched = true;
+      }
+    } catch (e) {
+      console.warn('correcteur', e);
+    }
+  };
   const changed = () => {
     touched = true;
     if (!destroyed) opts.onChange?.();
@@ -503,6 +561,7 @@ export async function openDocEngine(host: HTMLElement, data: ArrayBuffer, opts: 
     dropStray();
     sd = await create(buf);
     await waitPainted();
+    if (proofingCfg) applyProofing();
     stylesXml = await readStylesXml(buf).catch(() => stylesXml);
     if (zoomValue !== 'fit') engine.setZoom(zoomValue);
     const e2 = body();
@@ -567,16 +626,30 @@ export async function openDocEngine(host: HTMLElement, data: ArrayBuffer, opts: 
     stray.clear();
   };
 
+  /** Niveau de titre (1 à 3) d'un paragraphe (plan déplaçable). */
+  const levelOf: LevelOf = (n: Any) => {
+    const pp = n.attrs?.paragraphProperties;
+    const k = kindOfStyle(pp?.styleId, pp);
+    return k === 'h1' ? 1 : k === 'h2' ? 2 : k === 'h3' ? 3 : 0;
+  };
+
   const engine: DocEngine = {
     exportDocx,
-    plainText() {
+    plainText(o) {
+      if (o?.privateNotes === false) {
+        const d = body()?.state.doc;
+        return d ? textblocksOf(d, false).join('\n') : '';
+      }
       return textblocks().join('\n');
     },
     wordCount() {
+      // notes privées comprises : G2 compare avec le .docx de la bibliothèque, qui les garde
       return countWords(textblocks().join('\n'));
     },
     stats() {
-      const t = textblocks().join('\n');
+      // statistiques affichées : sans les notes privées (texte réellement exporté)
+      const d = body()?.state.doc;
+      const t = d ? textblocksOf(d, false).join('\n') : '';
       return { words: countWords(t), chars: t.replace(/\n/g, '').length, charsNoSpaces: t.replace(/\s/g, '').length };
     },
     outline() {
@@ -1365,6 +1438,67 @@ export async function openDocEngine(host: HTMLElement, data: ArrayBuffer, opts: 
     },
     debugEditor() {
       return { editor: body(), superdoc: sd, stylesXml };
+    },
+
+    // ── Notes privées ──
+    async togglePrivateNote() {
+      touched = true;
+      let ed = body();
+      if (!ed) return null;
+      if (!inPrivateNote(ed.state) && !styleMap().has(PRIVATE_STYLE_ID)) {
+        // document venu d'ailleurs : style ajouté d'abord (réouverture, curseur conservé)
+        await transformDoc((d) => transformStyles(d, (x) => ensureStylesXml(x, { [PRIVATE_STYLE_ID]: PRIVATE_STYLE_DEF })));
+        ed = body();
+      }
+      const r = togglePrivateNote(ed);
+      ed.view.focus();
+      return r;
+    },
+    inPrivateNote() {
+      const ed = body();
+      return !!ed && inPrivateNote(ed.state);
+    },
+    privateNoteCount() {
+      const ed = body();
+      return ed ? privateParagraphs(ed.state.doc).length : 0;
+    },
+    setPrivateNotesHidden(hidden) {
+      const ed = body();
+      if (!ed) return;
+      silent++;
+      try {
+        setNotesHidden(ed, hidden);
+      } finally {
+        silent--;
+      }
+    },
+    stripCopy(ev) {
+      const ed = body();
+      return !!ed && stripClipboard(ed, ev);
+    },
+
+    // ── Plan déplaçable ──
+    moveSection(from, target) {
+      const ed = body();
+      if (!ed) return false;
+      touched = true;
+      return moveSectionOp(ed, levelOf, from, target) !== null;
+    },
+    stepSection(dir, pos) {
+      const ed = body();
+      if (!ed) return false;
+      touched = true;
+      return stepSection(ed, levelOf, pos ?? ed.state.selection.from, dir, pos !== undefined) !== null;
+    },
+    docEnd() {
+      return body()?.state.doc.content.size ?? 0;
+    },
+    setProofing(cfg) {
+      proofingCfg = cfg;
+      applyProofing();
+    },
+    presentation() {
+      return pres();
     },
   };
   return engine;

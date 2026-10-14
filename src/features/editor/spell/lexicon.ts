@@ -1,0 +1,43 @@
+// Lexique de philosophie ajouté au dictionnaire français (noms d'auteurs, termes techniques).
+// Les mots déjà connus de dictionary-fr sont inoffensifs : nspell les ajoute sans doublon.
+
+export const PHILO_LEXICON: readonly string[] = [
+  // ── Auteurs ──
+  'Kant', 'Hegel', 'Nietzsche', 'Spinoza', 'Husserl', 'Heidegger', 'Merleau-Ponty', 'Bergson', 'Descartes',
+  'Platon', 'Aristote', 'Épicure', 'Epicure', 'Rousseau', 'Montesquieu', 'Tocqueville', 'Sartre', 'Beauvoir',
+  'Lévinas', 'Levinas', 'Arendt', 'Foucault', 'Deleuze', 'Guattari', 'Wittgenstein', 'Hume', 'Locke', 'Hobbes',
+  'Leibniz', 'Pascal', 'Montaigne', 'Freud', 'Marx', 'Engels', 'Schopenhauer', 'Kierkegaard', 'Comte', 'Durkheim',
+  'Bachelard', 'Canguilhem', 'Ricœur', 'Ricoeur', 'Alain', 'Simone', 'Weil', 'Socrate', 'Parménide', 'Héraclite',
+  'Démocrite', 'Pythagore', 'Protagoras', 'Gorgias', 'Calliclès', 'Thrasymaque', 'Diogène', 'Zénon', 'Sénèque',
+  'Épictète', 'Epictète', 'Marc-Aurèle', 'Cicéron', 'Lucrèce', 'Plotin', 'Augustin', 'Boèce', 'Anselme', 'Abélard',
+  'Thomas', 'Aquin', 'Ockham', 'Machiavel', 'Érasme', 'Bacon', 'Galilée', 'Malebranche', 'Berkeley', 'Condillac',
+  'Diderot', 'Voltaire', 'Helvétius', "d'Holbach", 'Condorcet', 'Fichte', 'Schelling', 'Feuerbach', 'Stirner',
+  'Mill', 'Bentham', 'Frege', 'Russell', 'Carnap', 'Quine', 'Popper', 'Kuhn', 'Feyerabend', 'Bourdieu', 'Lacan',
+  'Althusser', 'Derrida', 'Lyotard', 'Baudrillard', 'Camus', 'Weber', 'Simmel', 'Mauss', 'Lévi-Strauss',
+  'Habermas', 'Adorno', 'Horkheimer', 'Benjamin', 'Marcuse', 'Rawls', 'Nozick', 'Jonas', 'Jankélévitch',
+  'Badiou', 'Rancière', 'Ricardo', 'Smith', 'Malraux', 'Valéry', 'Pessoa', 'Hölderlin', 'Goethe', 'Novalis',
+  'Cassirer', 'Scheler', 'Jaspers', 'Gadamer', 'Bataille', 'Blanchot', 'Weil', 'Stein', 'Merleau',
+  // ── Termes ──
+  'eudémonisme', 'eudémoniste', 'eudémonie', 'phénoménologie', 'phénoménologique', 'phénoménologiques',
+  'transcendantal', 'transcendantale', 'transcendantaux', 'transcendantales', 'aporie', 'apories', 'aporétique',
+  'maïeutique', 'conatus', 'ataraxie', 'épochè', 'épochê', 'noumène', 'noumènes', 'nouménal', 'nouménale',
+  'aponie', 'akrasia', 'acrasie', 'apeiron', 'arété', 'arètè', 'logos', 'nous', 'ousia', 'physis', 'praxis',
+  'poïesis', 'poièsis', 'technè', 'téchnè', 'épistémè', 'doxa', 'telos', 'télos', 'agapè', 'éros', 'philia',
+  'hubris', 'hybris', 'kairos', 'mimésis', 'catharsis', 'dianoia', 'noèse', 'noème', 'noétique', 'noématique',
+  'hylétique', 'eidétique', 'eidos', 'intentionnalité', 'intersubjectivité', 'intersubjectif', 'facticité',
+  'ipséité', 'mêmeté', 'altérité', 'ecceité', 'haeccéité', 'quiddité', 'entéléchie', 'hylémorphisme',
+  'apodictique', 'synthétique', 'analytique', 'aprioriste', 'aposteriori', 'apriorique',
+  'téléologie', 'téléologique', 'ontologie', 'ontologique', 'ontique', 'déontologie', 'déontologique',
+  'conséquentialisme', 'conséquentialiste', 'utilitarisme', 'utilitariste', 'contractualisme', 'jusnaturalisme',
+  'jusnaturaliste', 'épiphénomène', 'épiphénoménisme', 'monadologie', 'monade', 'monades', 'théodicée',
+  'Dasein', 'Mitsein', 'Umwelt', 'Lebenswelt', 'Aufhebung', 'Geist', 'Zeitgeist', 'Weltanschauung',
+  'ressentiment', 'surhomme', 'nihilisme', 'perspectivisme', 'solipsisme', 'pyrrhonisme', 'scepticisme',
+  'stoïcisme', 'stoïcien', 'stoïciens', 'épicurisme', 'épicurien', 'épicuriens', 'cynisme', 'sophistique',
+  'dialectique', 'herméneutique', 'herméneutiques', 'aléthéia', 'alètheia', 'différance', 'déconstruction',
+  'biopolitique', 'biopouvoir', 'épistémologie', 'épistémologique', 'axiologie', 'axiologique', 'eudaimonia',
+  'acosmisme', 'panthéisme', 'immanence', 'immanent', 'transcendance', 'réification', 'aliénation',
+  'praxéologie', 'performatif', 'performative', 'illocutoire', 'perlocutoire', 'sémiotique', 'sémiologie',
+  'cogito', 'causa', 'sui', 'natura', 'naturans', 'naturata', 'sub', 'specie', 'aeternitatis', 'tabula', 'rasa',
+  'mos', 'geometrico', 'ad', 'hoc', 'hominem', 'absurdum', 'ex', 'nihilo', 'per', 'se', 'qua',
+  'anamnèse', 'réminiscence', 'parrêsia', 'parrhêsia', 'askèsis', 'ascèse', 'apathéia', 'prohairesis',
+];

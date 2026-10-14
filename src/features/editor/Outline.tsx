@@ -212,7 +212,7 @@ export function Outline({
                 title={editable ? `${o.text}\nGlisser pour déplacer la section (${MOVE_KEYS.up} / ${MOVE_KEYS.down})` : o.text}
                 aria-keyshortcuts="Alt+Shift+ArrowUp Alt+Shift+ArrowDown"
               >
-                {o.text}
+                <span className="ed-outline-text">{o.text}</span>
               </button>
             </div>
           ))}

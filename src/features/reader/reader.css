@@ -175,6 +175,7 @@
   width: 100%;
 }
 .reader-side-switch .segmented button {
+  white-space: nowrap;
   flex: 1;
 }
 .reader-side-body {

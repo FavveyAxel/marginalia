@@ -34,7 +34,7 @@
 }
 
 .html-doc {
-  --html-gutter: clamp(22px, 7cqi, 88px);
+  --html-gutter: clamp(40px, 9cqi, 96px);
   font-size: var(--html-fs, 19px);
   color: var(--ink);
   padding: 56px 0 34vh;

@@ -26,6 +26,7 @@
 .toc-item {
   position: relative;
   display: block;
+  flex: none; /* sinon la liste (flex) écrase les titres sur deux lignes, qui se chevauchent */
   width: 100%;
   min-height: 28px;
   padding: 5px 10px 5px 10px;

@@ -182,6 +182,16 @@ export interface State extends Database {
   addToWorkspace(workspaceId: string, groupId: string | null, kind: WorkspaceItemKind, refId: string): WorkspaceItem;
   moveWsItem(itemId: string, groupId: string | null, order?: number): void;
   removeFromWorkspace(itemId: string): void;
+  /**
+   * Retrait groupé (sélection multiple) : les documents restent dans la bibliothèque. Une seule
+   * transaction (un ⌘Z), un toast « N éléments retirés — Annuler ». Renvoie le nombre retiré.
+   */
+  removeManyFromWorkspace(itemIds: string[]): number;
+  /**
+   * Suppression groupée d'éléments de natures mêlées (livres, écrits, plans…) : comme trashDeleteMany,
+   * une entrée de corbeille par élément, un seul ⌘Z et un toast « N éléments placés dans la corbeille — Annuler ».
+   */
+  trashDeleteMixed(targets: { kind: TrashKind; id: string }[]): TrashEntry[];
 
   // ── Écrits ──
   removeDraft(id: string): Promise<void>;
@@ -191,6 +201,12 @@ export interface State extends Database {
   // ── Corbeille ──
   /** Place un élément et tout ce qui en dépend dans la corbeille (rien n'est effacé du disque). */
   trashDelete(kind: TrashKind, id: string, opts?: { mode?: 'lift' | 'tree'; silent?: boolean }): TrashEntry | null;
+  /**
+   * Suppression groupée (sélection multiple) : une entrée de corbeille par élément (restaurables un à un),
+   * mais une seule opération pour l'utilisateur : un toast « N … placés dans la corbeille — Annuler »
+   * qui restaure tout, et un seul pas d'annulation (⌘Z).
+   */
+  trashDeleteMany(kind: TrashKind, ids: string[], opts?: { silent?: boolean }): TrashEntry[];
   /** Remet un élément de la corbeille exactement en place. */
   restoreFromTrash(entryId: string, opts?: { silent?: boolean }): RestoreResult;
   /** Supprime définitivement (fichiers compris). Sans argument : vide la corbeille. */
@@ -520,6 +536,32 @@ function detailOf(kind: TrashKind, changes: ItemChange[], rootId: string): strin
   return out.join(' ; ');
 }
 
+/** « livres », « écrits »… (accord au masculin : « placés », « restaurés »). */
+function pluralKind(kind: TrashKind, n: number): string {
+  const L: Partial<Record<TrashKind, [string, string]>> = {
+    book: ['livre', 'livres'],
+    draft: ['écrit', 'écrits'],
+    plan: ['plan', 'plans'],
+    argument: ['argument', 'arguments'],
+    concept: ['concept', 'concepts'],
+    highlight: ['extrait', 'extraits'],
+    workspace: ['espace', 'espaces'],
+    group: ['groupe', 'groupes'],
+  };
+  const [one, many] = L[kind] ?? ['élément', 'éléments'];
+  return n > 1 ? many : one;
+}
+
+/** Fusionne en un seul pas d'annulation les transactions empilées depuis `before` (opération groupée). */
+function mergeNewTx(before: Set<Tx>, label: string) {
+  const added = undoStack.filter((t) => !before.has(t));
+  if (added.length < 2) return;
+  const keep = undoStack.filter((t) => before.has(t));
+  // Annuler applique les changements dans l'ordre : la dernière transaction passe en premier.
+  const changes = [...added].reverse().flatMap((t) => t.changes);
+  undoStack = [...keep, { label, changes, at: Date.now() }];
+}
+
 function trashToastText(e: TrashEntry): string {
   if (e.kind === 'highlight') return 'Extrait placé dans la corbeille';
   if (e.kind === 'card') return 'Carte placée dans la corbeille';
@@ -799,6 +841,67 @@ export const useStore = create<State>()(tracked((set, get) => ({
     const change: ItemChange = { col: 'wsItems', id: itemId, before: item, after: null, prevId: s.wsItems[index - 1]?.id ?? null, index };
     get().toast('Retiré de l’espace', 'info', { label: 'Annuler', run: () => applyChanges([change], 'undo', false, { action: 'restore', kind: 'wsItem', refId: itemId, title: titleOf('wsItems', item, get()), summary: 'Remis dans l’espace' }) });
   },
+  removeManyFromWorkspace(itemIds) {
+    const s = get();
+    const wanted = new Set(itemIds);
+    // Positions d'origine (ordre du tableau) : remis dans cet ordre, chacun retrouve sa place.
+    const changes: ItemChange[] = [];
+    s.wsItems.forEach((item, index) => {
+      if (wanted.has(item.id)) changes.push({ col: 'wsItems', id: item.id, before: item, after: null, prevId: s.wsItems[index - 1]?.id ?? null, index });
+    });
+    const n = changes.length;
+    if (n <= 1) {
+      if (n) get().removeFromWorkspace(changes[0].id);
+      return n;
+    }
+    flushNow();
+    set({ wsItems: s.wsItems.filter((i) => !wanted.has(i.id)) });
+    const wsId = (changes[0].before as WorkspaceItem).workspaceId;
+    const ws = s.workspaces.find((w) => w.id === wsId);
+    get().toast(`${n} éléments retirés de l’espace`, 'info', {
+      label: 'Annuler',
+      run: () => {
+        flushNow();
+        applyChanges(changes, 'undo', false, { action: 'restore', kind: 'wsItem', refId: changes[0].id, title: ws?.name ?? 'Espace', summary: `${n} éléments remis dans l’espace` });
+        dropActionToasts();
+        get().toast(`${n} éléments remis dans l’espace`, 'success');
+      },
+    });
+    return n;
+  },
+  trashDeleteMixed(targets) {
+    const kinds = new Set(targets.map((t) => t.kind));
+    if (kinds.size <= 1) return targets.length ? get().trashDeleteMany(targets[0].kind, targets.map((t) => t.id)) : [];
+    flushNow();
+    const before = new Set(undoStack);
+    const entries: TrashEntry[] = [];
+    const seen = new Set<string>();
+    for (const t of targets) {
+      if (seen.has(t.kind + ':' + t.id)) continue;
+      seen.add(t.kind + ':' + t.id);
+      // Un élément déjà emporté par la cascade d'un autre (fiche-texte d'un livre supprimé) est ignoré.
+      const e = get().trashDelete(t.kind, t.id, { silent: true });
+      if (e) entries.push(e);
+    }
+    flushNow();
+    const n = entries.length;
+    if (!n) return entries;
+    mergeNewTx(before, `${n} élément${n > 1 ? 's' : ''} placé${n > 1 ? 's' : ''} dans la corbeille`);
+    const restoreAll = () => {
+      flushNow();
+      const mark = new Set(undoStack);
+      let ok = 0;
+      for (const e of [...entries].reverse()) if (get().restoreFromTrash(e.id, { silent: true }).ok) ok++;
+      flushNow();
+      mergeNewTx(mark, `${ok} élément${ok > 1 ? 's' : ''} restauré${ok > 1 ? 's' : ''}`);
+      dropActionToasts();
+      if (ok === n) get().toast(`${n} élément${n > 1 ? 's' : ''} restauré${n > 1 ? 's' : ''}`, 'success');
+      else get().toast(`${ok} sur ${n} restaurés : les autres ne peuvent plus revenir`, ok ? 'info' : 'error');
+    };
+    get().toast(n === 1 ? trashToastText(entries[0]) : `${n} éléments placés dans la corbeille`, 'info', { label: 'Annuler', run: restoreAll });
+    lastTrashToastAt = Date.now();
+    return entries;
+  },
 
   async removeDraft(id) {
     // Le .docx reste sur le disque jusqu'au vidage de la corbeille (ou 30 jours).
@@ -843,6 +946,42 @@ export const useStore = create<State>()(tracked((set, get) => ({
       lastTrashToastAt = Date.now();
     }
     return entry;
+  },
+
+  trashDeleteMany(kind, ids, opts = {}) {
+    const unique = [...new Set(ids)];
+    if (unique.length <= 1) {
+      const one = unique.length ? get().trashDelete(kind, unique[0], opts) : null;
+      return one ? [one] : [];
+    }
+    flushNow();
+    const before = new Set(undoStack);
+    const entries: TrashEntry[] = [];
+    for (const id of unique) {
+      const e = get().trashDelete(kind, id, { silent: true });
+      if (e) entries.push(e);
+    }
+    flushNow();
+    const n = entries.length;
+    if (!n) return entries;
+    mergeNewTx(before, `${n} ${pluralKind(kind, n)} placé${n > 1 ? 's' : ''} dans la corbeille`);
+    if (!opts.silent) {
+      const restoreAll = () => {
+        flushNow();
+        const mark = new Set(undoStack);
+        let ok = 0;
+        // Ordre inverse : chaque élément retrouve sa place exacte (positions dans les espaces).
+        for (const e of [...entries].reverse()) if (get().restoreFromTrash(e.id, { silent: true }).ok) ok++;
+        flushNow();
+        mergeNewTx(mark, `${ok} ${pluralKind(kind, ok)} restauré${ok > 1 ? 's' : ''}`);
+        dropActionToasts();
+        if (ok === n) get().toast(`${n} ${pluralKind(kind, n)} restauré${n > 1 ? 's' : ''}`, 'success');
+        else get().toast(`${ok} sur ${n} restaurés : les autres ne peuvent plus revenir`, ok ? 'info' : 'error');
+      };
+      get().toast(n === 1 ? trashToastText(entries[0]) : `${n} ${pluralKind(kind, n)} placés dans la corbeille`, 'info', { label: 'Annuler', run: restoreAll });
+      lastTrashToastAt = Date.now();
+    }
+    return entries;
   },
 
   restoreFromTrash(entryId, opts = {}) {

@@ -867,3 +867,170 @@
     padding-bottom: 64px;
   }
 }
+
+/* ── Sélection multiple ───────────────────────────────────── */
+.ws-row:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 2px var(--focus);
+}
+.ws-row-item.selected {
+  background: var(--selection);
+  color: var(--ink);
+}
+.ws-row-item.selected.active {
+  background: color-mix(in srgb, var(--focus) 30%, transparent);
+}
+.ws-card-main:focus-visible {
+  outline: none;
+}
+.ws-card:has(.ws-card-main:focus-visible) {
+  box-shadow: 0 0 0 2px var(--focus), var(--shadow-sm);
+}
+.ws-card.selected {
+  background: color-mix(in srgb, var(--focus) 9%, var(--bg-panel));
+  box-shadow: 0 0 0 2px var(--focus), var(--shadow-sm);
+}
+.ws-card.selected .ws-card-preview {
+  background: color-mix(in srgb, var(--focus) 10%, var(--bg-inset));
+}
+.ws-check-box {
+  position: absolute;
+  z-index: 2;
+  top: 14px;
+  left: 14px;
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--bg-panel);
+  box-shadow: inset 0 0 0 1.5px var(--border-strong), var(--shadow-sm);
+  color: #fff;
+  transition: background var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out);
+}
+.ws-check-box.on {
+  background: var(--focus);
+  box-shadow: var(--shadow-sm);
+}
+.ws-scroll.select-mode .ws-card-main {
+  cursor: pointer;
+}
+.ws-select-toggle.on {
+  background: var(--selection);
+  color: var(--ink);
+}
+.ws-lasso {
+  z-index: 50;
+  border: 1px solid var(--focus);
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--focus) 12%, transparent);
+  pointer-events: none;
+}
+
+/* Barre d'actions flottante (centrée sur la zone principale) */
+.ws-selbar {
+  position: fixed;
+  z-index: 120;
+  bottom: 20px;
+  left: calc(var(--sidebar-w) + (100vw - var(--sidebar-w)) / 2);
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  max-width: calc(100vw - var(--sidebar-w) - 32px);
+  padding: 6px 6px 6px 14px;
+  border-radius: var(--radius-lg);
+  background: var(--bg-panel);
+  box-shadow: var(--shadow-lg);
+  white-space: nowrap;
+  animation: ws-selbar-in var(--dur-med, 200ms) var(--ease-out, ease-out);
+}
+@keyframes ws-selbar-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 10px);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ws-selbar {
+    animation: none;
+  }
+}
+.ws-selbar-count {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  margin-right: 4px;
+}
+.ws-selbar-sep {
+  width: 1px;
+  height: 20px;
+  margin: 0 4px;
+  background: var(--border);
+}
+.ws-selbar-btn {
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
+}
+.ws-selbar-btn:hover {
+  background: var(--bg-hover);
+}
+.ws-selbar-danger {
+  color: var(--danger);
+}
+.ws-selbar-close {
+  margin-left: 2px;
+}
+/* Les toasts passent au-dessus de la barre. */
+body:has(.ws-selbar) .toasts {
+  bottom: 78px;
+}
+
+/* Aperçu de glissement d'une sélection : pile + badge « N » */
+.ws-drag-ghost {
+  position: fixed;
+  top: -2000px;
+  left: -2000px;
+  pointer-events: none;
+}
+.ws-drag-ghost-back {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  border-radius: var(--radius-md);
+  background: var(--bg-panel);
+  box-shadow: var(--shadow-md);
+  transform: rotate(3deg);
+}
+.ws-drag-ghost-front {
+  position: absolute !important;
+  top: 0;
+  left: 0;
+  margin: 0 !important;
+  overflow: hidden;
+  background: var(--bg-panel);
+  box-shadow: var(--shadow-md);
+  animation: none !important;
+}
+.ws-drag-badge {
+  position: absolute;
+  top: -6px;
+  right: 2px;
+  min-width: 24px;
+  height: 24px;
+  padding: 0 7px;
+  border-radius: 12px;
+  background: var(--focus);
+  color: #fff;
+  font: 600 12px/24px var(--font-ui);
+  text-align: center;
+  box-shadow: var(--shadow-sm);
+}
+.ws-menu {
+  max-height: min(70vh, 560px);
+  overflow-y: auto;
+}
+.ws-menu .menu-item:disabled {
+  opacity: 0.45;
+  cursor: default;
+}

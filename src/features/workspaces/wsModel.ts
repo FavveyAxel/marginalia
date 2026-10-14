@@ -219,7 +219,11 @@ export function placeGroup(groupId: string, parentId: string | null, beforeId: s
   return true;
 }
 
-export type DragPayload = { type: 'item' | 'group'; id: string; workspaceId: string };
+/** `ids` : glisser d'une sélection multiple d'éléments (`id` = l'élément saisi, inclus dans `ids`). */
+export type DragPayload = { type: 'item' | 'group'; id: string; workspaceId: string; ids?: string[] };
+
+/** Éléments déplacés par un glisser (un seul, ou toute la sélection). */
+export const dragIds = (d: DragPayload): string[] => (d.type === 'item' && d.ids && d.ids.length ? d.ids : [d.id]);
 export type DropTarget =
   | { kind: 'workspace'; workspaceId: string }
   | { kind: 'group'; groupId: string; pos: 'before' | 'after' | 'into' }
@@ -231,11 +235,12 @@ function resolveTarget(drag: DragPayload, t: DropTarget): { parentId: string | n
   if (t.kind === 'workspace') return t.workspaceId === drag.workspaceId ? { parentId: null, beforeId: null } : null;
   if (t.kind === 'item') {
     if (drag.type !== 'item') return null;
+    const moving = new Set(dragIds(drag));
     const target = s.wsItems.find((i) => i.id === t.itemId);
-    if (!target || target.workspaceId !== drag.workspaceId || target.id === drag.id) return null;
+    if (!target || target.workspaceId !== drag.workspaceId || moving.has(target.id)) return null;
     if (t.pos === 'before') return { parentId: target.groupId, beforeId: target.id };
     const sibs = s.wsItems
-      .filter((i) => i.workspaceId === target.workspaceId && i.groupId === target.groupId && i.id !== drag.id)
+      .filter((i) => i.workspaceId === target.workspaceId && i.groupId === target.groupId && !moving.has(i.id))
       .sort(byOrder);
     const at = sibs.findIndex((i) => i.id === target.id);
     return { parentId: target.groupId, beforeId: sibs[at + 1]?.id ?? null };
@@ -259,9 +264,79 @@ export const canDrop = (drag: DragPayload, t: DropTarget) => !!resolveTarget(dra
 export function dropOnto(drag: DragPayload, t: DropTarget): boolean {
   const r = resolveTarget(drag, t);
   if (!r) return false;
-  if (drag.type === 'item') placeItem(drag.id, r.parentId, r.beforeId);
-  else return placeGroup(drag.id, r.parentId, r.beforeId);
+  if (drag.type === 'item') {
+    // Sélection multiple : chacun est posé avant la même cible, dans l'ordre affiché (une seule transaction).
+    for (const id of sortForMove(dragIds(drag))) placeItem(id, r.parentId, r.beforeId);
+  } else return placeGroup(drag.id, r.parentId, r.beforeId);
   return true;
+}
+
+// ── Opérations groupées (sélection multiple) ───────────────
+
+/** Ordre stable pour déplacer plusieurs éléments : groupe d'origine, puis rang. */
+function sortForMove(ids: string[]): string[] {
+  const items = useStore.getState().wsItems;
+  const at = new Map(items.map((x, i) => [x.id, i]));
+  const byId = new Map(items.map((x) => [x.id, x]));
+  return ids
+    .filter((id) => byId.has(id))
+    .sort((a, b) => {
+      const x = byId.get(a)!;
+      const y = byId.get(b)!;
+      if (x.groupId !== y.groupId) return at.get(a)! - at.get(b)!;
+      return x.order - y.order;
+    });
+}
+
+/**
+ * Déplace des éléments vers un groupe (ou la racine) d'un espace, éventuellement un autre espace.
+ * Dans un autre espace, un document déjà présent n'est pas dupliqué : sa référence d'origine est retirée.
+ * Tout se fait dans le même tour de boucle : une seule entrée d'historique, un seul ⌘Z.
+ */
+export function moveItems(ids: string[], workspaceId: string, groupId: string | null): number {
+  const ordered = sortForMove(ids);
+  if (!ordered.length) return 0;
+  const s = useStore.getState();
+  const fromWs = new Set(ordered.map((id) => s.wsItems.find((x) => x.id === id)!.workspaceId));
+  const same = ordered.filter((id) => s.wsItems.find((x) => x.id === id)!.workspaceId === workspaceId);
+  const other = ordered.filter((id) => !same.includes(id));
+  for (const id of same) placeItem(id, groupId, null);
+  if (other.length) {
+    useStore.setState((st) => {
+      let next = st.wsItems;
+      let order = next.filter((x) => x.workspaceId === workspaceId && x.groupId === groupId).length;
+      const drop = new Set<string>();
+      const patch = new Map<string, Partial<WorkspaceItem>>();
+      for (const id of other) {
+        const it = next.find((x) => x.id === id)!;
+        const dup = next.find((x) => x.workspaceId === workspaceId && x.kind === it.kind && x.refId === it.refId);
+        if (dup) drop.add(id);
+        else patch.set(id, { workspaceId, groupId, order: order++ });
+      }
+      next = next.filter((x) => !drop.has(x.id)).map((x) => (patch.has(x.id) ? { ...x, ...patch.get(x.id)! } : x));
+      return {
+        wsItems: next,
+        groups: groupId ? st.groups.map((g) => (g.id === groupId && g.collapsed ? { ...g, collapsed: false } : g)) : st.groups,
+      };
+    });
+    normalizeOrders(workspaceId);
+    for (const w of fromWs) normalizeOrders(w);
+  }
+  return ordered.length;
+}
+
+/** Crée un groupe sous `parentId` et y range les éléments ; renvoie le groupe (à renommer). */
+export function groupItems(ids: string[], workspaceId: string, parentId: string | null, name = 'Nouveau groupe'): WorkspaceGroup {
+  const g = useStore.getState().createGroup(workspaceId, parentId, name);
+  moveItems(ids, workspaceId, g.id);
+  return g;
+}
+
+/** Parent commun des éléments (même groupe pour tous), sinon la racine. */
+export function commonParent(ids: string[]): string | null {
+  const items = useStore.getState().wsItems.filter((x) => ids.includes(x.id));
+  const g = items[0]?.groupId ?? null;
+  return items.every((x) => x.groupId === g) ? g : null;
 }
 
 // ── Suppressions / dégroupage ───────────────────────────────

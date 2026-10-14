@@ -1,6 +1,7 @@
 // Vue d'un espace (ou d'un de ses groupes) : sous-groupes en tuiles, éléments en cartes.
 import { useEffect, useMemo, useRef, useState, type DragEvent } from 'react';
-import { ChevronRight, FilePen, Folder, FolderPlus, MoreHorizontal, PackagePlus, Pencil, Upload } from 'lucide-react';
+import { Check, CheckSquare, ChevronRight, FilePen, Folder, FolderPlus, MoreHorizontal, PackagePlus, Pencil, Upload } from 'lucide-react';
+import { LassoBox, useLasso, useMultiSelect, useSelectionKeys, type MultiSelect } from '../../lib/useMultiSelect';
 import { useStore } from '../../lib/store';
 import type { WorkspaceGroup } from '../../lib/types';
 import { BookCover } from '../library/BookCover';
@@ -23,6 +24,7 @@ import { ContextMenu, InlineName, ItemIcon, dragSource, dropProps, useMenu, type
 import { groupMenu, itemMenu, workspaceMenu } from './wsMenus';
 import { useWsDialogs } from './wsDialogs';
 import { importHere, newDraftHere } from './wsActions';
+import { SelectionBar, useSelOwner, useSelectionActions } from './wsSelection';
 import './workspaces.css';
 
 const plural = (n: number, one: string, many: string) => `${n} ${n > 1 ? many : one}`;
@@ -40,7 +42,9 @@ export function WorkspaceView({ workspaceId, groupId }: { workspaceId: string; g
   const [editTitle, setEditTitle] = useState(false);
   const [newGroup, setNewGroup] = useState(false);
   const [renamingTile, setRenamingTile] = useState<string | null>(null);
+  const [selectMode, setSelectMode] = useState(false);
   const m = useMenu();
+  const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (ws && activeWs !== workspaceId) useStore.getState().updateSettings({ activeWorkspaceId: workspaceId });
@@ -69,6 +73,36 @@ export function WorkspaceView({ workspaceId, groupId }: { workspaceId: string; g
     },
     importHere: (w, g) => void importHere(w, g),
     newDraftHere: (w, g) => void newDraftHere(w, g),
+  });
+
+  // ── Sélection multiple (éléments affichés ici, dans l'ordre affiché) ──
+  const here = useMemo(() => items.filter((i) => i.item.groupId === effGroupId), [items, effGroupId]);
+  const order = useMemo(() => here.map((r) => r.item.id), [here]);
+  const sel = useMultiSelect(order);
+  const owner = useSelOwner((s) => s.owner);
+  const claim = useSelOwner((s) => s.claim);
+  useEffect(() => {
+    if (sel.size && owner !== 'view') claim('view');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sel.size]);
+  useEffect(() => {
+    if (owner === 'tree' && sel.size) sel.clear();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [owner]);
+  useEffect(() => () => {
+    if (useSelOwner.getState().owner === 'view') useSelOwner.getState().claim(null);
+  }, []);
+  useEffect(() => {
+    if (!here.length) setSelectMode(false);
+  }, [here.length]);
+  useSelectionKeys(sel, { enabled: !!ws, onEscape: selectMode ? () => setSelectMode(false) : undefined });
+  const lasso = useLasso({ container: scrollRef, sel, disabled: !ws });
+  const actions = useSelectionActions({
+    ids: sel.ids,
+    workspaceId,
+    parentForNewGroup: effGroupId,
+    clear: sel.clear,
+    onGrouped: (id) => setRenamingTile(id),
   });
 
   const scope = useMemo(() => {
@@ -105,7 +139,6 @@ export function WorkspaceView({ workspaceId, groupId }: { workspaceId: string; g
   }
 
   const subGroups = sortedGroups(groups, workspaceId, effGroupId);
-  const here = items.filter((i) => i.item.groupId === effGroupId);
   const fullyEmpty = !effGroupId && groups.filter((g) => g.workspaceId === workspaceId).length === 0 && items.length === 0;
   const title = group ? group.name : ws.name;
 
@@ -156,7 +189,13 @@ export function WorkspaceView({ workspaceId, groupId }: { workspaceId: string; g
         </button>
       </header>
 
-      <div className={`ws-scroll ${page.mark ? 'drop-page' : ''}`} {...page.props} onContextMenu={(e) => ctxMenu(e, menuEntries(), 'Menu')}>
+      <div
+        ref={scrollRef}
+        className={`ws-scroll ${page.mark ? 'drop-page' : ''} ${selectMode ? 'select-mode' : ''}`}
+        {...page.props}
+        onMouseDown={lasso.onMouseDown}
+        onContextMenu={(e) => ctxMenu(e, menuEntries(), 'Menu')}
+      >
         <div className="ws-page">
           <div className="ws-title-block">
             {editTitle ? (
@@ -203,6 +242,19 @@ export function WorkspaceView({ workspaceId, groupId }: { workspaceId: string; g
               <button className="btn" onClick={() => void newDraftHere(workspaceId, effGroupId)}>
                 <FilePen size={14} /> Nouvel écrit ici
               </button>
+              {here.length > 0 && (
+                <button
+                  className={`btn ws-select-toggle ${selectMode ? 'on' : ''}`}
+                  aria-pressed={selectMode}
+                  title="Cocher plusieurs éléments (ou ⌘-clic, ⇧-clic, ⌘A)"
+                  onClick={() => {
+                    if (selectMode) sel.clear();
+                    setSelectMode(!selectMode);
+                  }}
+                >
+                  {selectMode ? <Check size={14} /> : <CheckSquare size={14} />} {selectMode ? 'Terminer' : 'Sélectionner'}
+                </button>
+              )}
             </div>
           )}
 
@@ -265,7 +317,7 @@ export function WorkspaceView({ workspaceId, groupId }: { workspaceId: string; g
 
           {here.length > 0 && (
             <section aria-label="Éléments" className="ws-section">
-              <div className="ws-grid anim-stagger">
+              <div className="ws-grid anim-stagger" role="listbox" aria-multiselectable="true" aria-label="Éléments">
                 {here.map((r, i) => (
                   <ItemCard
                     key={r.item.id}
@@ -273,7 +325,10 @@ export function WorkspaceView({ workspaceId, groupId }: { workspaceId: string; g
                     index={i}
                     drop={drop}
                     setDrop={setDrop}
-                    onMenu={(e, entries) => ctxMenu(e, entries, `Menu de ${r.title}`)}
+                    sel={sel}
+                    selectMode={selectMode}
+                    selEntries={actions.entries}
+                    onMenu={(e, entries) => ctxMenu(e, entries, sel.has(r.item.id) && sel.size > 1 ? `Menu de la sélection (${sel.size})` : `Menu de ${r.title}`)}
                     onMenuAt={(el, entries) => openMenuAt(el, entries, `Menu de ${r.title}`)}
                     ctx={ctx}
                   />
@@ -290,6 +345,9 @@ export function WorkspaceView({ workspaceId, groupId }: { workspaceId: string; g
           )}
         </div>
       </div>
+      {lasso.box && <LassoBox box={lasso.box} className="ws-lasso" />}
+      {owner === 'view' && sel.size > 0 && <SelectionBar actions={actions} onClear={sel.clear} />}
+      {actions.dialog}
       {m.menu && <ContextMenu x={m.menu.x} y={m.menu.y} entries={m.menu.entries} label={m.menu.label} onClose={m.close} />}
       {dialogs}
     </div>
@@ -372,6 +430,7 @@ function Tile({ g, index, items, renaming, stopRenaming, drop, setDrop, onMenu, 
   );
   return (
     <div
+      data-no-lasso
       className={`ws-tile lift ${dh.mark?.pos === 'into' ? 'drop-into' : ''} ${dh.mark?.pos === 'before' ? 'drop-before' : ''} ${dh.mark?.pos === 'after' ? 'drop-after' : ''}`}
       style={{ ['--i' as string]: index }}
       onContextMenu={(e) => onMenu(e, entries())}
@@ -399,10 +458,26 @@ function Tile({ g, index, items, renaming, stopRenaming, drop, setDrop, onMenu, 
   );
 }
 
-function ItemCard({ r, index, drop, setDrop, onMenu, onMenuAt, ctx }: CommonProps & { r: ResolvedItem; index: number }) {
+function ItemCard({
+  r,
+  index,
+  drop,
+  setDrop,
+  sel,
+  selectMode,
+  selEntries,
+  onMenu,
+  onMenuAt,
+  ctx,
+}: CommonProps & { r: ResolvedItem; index: number; sel: MultiSelect; selectMode: boolean; selEntries(): MenuEntry[] }) {
   const { item } = r;
   const book = useStore((s) => (item.kind === 'book' ? s.books.find((b) => b.id === item.refId) : undefined));
-  const payload: DragPayload = { type: 'item', id: item.id, workspaceId: item.workspaceId };
+  const selected = sel.has(item.id);
+  // Glisser un élément sélectionné emporte toute la sélection.
+  const payload = (): DragPayload =>
+    sel.has(item.id) && sel.size > 1
+      ? { type: 'item', id: item.id, workspaceId: item.workspaceId, ids: sel.ids }
+      : { type: 'item', id: item.id, workspaceId: item.workspaceId };
   const dh = dropProps({
     key: `card:${item.id}`,
     drop,
@@ -412,18 +487,42 @@ function ItemCard({ r, index, drop, setDrop, onMenu, onMenuAt, ctx }: CommonProp
     zone: xZone,
     target: (pos) => ({ kind: 'item', itemId: item.id, pos: pos === 'after' ? 'after' : 'before' }),
   });
-  const entries = () => itemMenu(ctx, item);
+  const entries = () => {
+    // Clic droit sur un élément de la sélection : le menu agit sur toute la sélection.
+    if (selected && sel.size > 1) return selEntries();
+    // Sur un élément hors sélection : la sélection devient cet élément (comme le Finder).
+    if (sel.size && !selected) sel.clear();
+    return itemMenu(ctx, item);
+  };
   const ref = useRef<HTMLDivElement>(null);
   return (
     <div
       ref={ref}
-      className={`ws-card lift kind-${item.kind} ${dh.mark?.pos === 'before' ? 'drop-before' : ''} ${dh.mark?.pos === 'after' ? 'drop-after' : ''}`}
+      data-sel-id={item.id}
+      role="option"
+      aria-selected={selected}
+      className={`ws-card lift kind-${item.kind} ${selected ? 'selected' : ''} ${dh.mark?.pos === 'before' ? 'drop-before' : ''} ${dh.mark?.pos === 'after' ? 'drop-after' : ''}`}
       style={{ ['--i' as string]: index }}
       onContextMenu={(e) => onMenu(e, entries())}
       {...dragSource(payload, () => setDrop(null))}
       {...dh.props}
     >
-      <button className="ws-card-main" title={r.title} onClick={() => openItem(item)}>
+      <button
+        className="ws-card-main"
+        title={r.title}
+        // ⇧-clic : pas de sélection de texte.
+        onMouseDown={(e) => e.shiftKey && e.preventDefault()}
+        onClick={(e) => {
+          if (sel.click(item.id, e, { toggle: selectMode })) return;
+          sel.clear();
+          openItem(item);
+        }}
+      >
+        {(selectMode || selected) && (
+          <span className={`ws-check-box ${selected ? 'on' : ''}`} aria-hidden="true">
+            {selected && <Check size={12} strokeWidth={3} />}
+          </span>
+        )}
         <span className="ws-card-preview">{book ? <BookCover book={book} size="md" /> : <DocPreview r={r} />}</span>
         <span className="ws-card-body">
           <span className="ws-card-kind">

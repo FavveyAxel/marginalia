@@ -1,5 +1,6 @@
 // Section « Espaces » de la barre latérale : espaces, groupes, sous-groupes et éléments.
-import { createContext, useContext, useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
+import { createContext, useContext, useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react';
+import { useMultiSelect, type MultiSelect } from '../../lib/useMultiSelect';
 import { ChevronRight, Folder, FolderOpen, MoreHorizontal, Plus } from 'lucide-react';
 import { useStore } from '../../lib/store';
 import type { WorkspaceGroup } from '../../lib/types';
@@ -19,6 +20,7 @@ import { ContextMenu, InlineName, ItemIcon, dragSource, dropProps, useMenu, type
 import { groupMenu, itemMenu, workspaceMenu } from './wsMenus';
 import { useWsDialogs } from './wsDialogs';
 import { importHere, newDraftHere } from './wsActions';
+import { SelectionBar, useSelOwner, useSelectionActions } from './wsSelection';
 import './workspaces.css';
 
 type Editing = { t: 'newWs' } | { t: 'newGroup'; workspaceId: string; parentId: string | null } | { t: 'rename'; kind: 'ws' | 'group'; id: string };
@@ -38,6 +40,11 @@ interface Env {
   cancelExpand(): void;
   route: ReturnType<typeof useStore.getState>['route'];
   activeWs: string | null;
+  /** Sélection multiple des éléments (⌘-clic, ⇧-clic), limitée à un espace à la fois. */
+  sel: MultiSelect;
+  /** Clic sur un élément : true si consommé par la sélection. */
+  selClick(itemId: string, workspaceId: string, e: ReactMouseEvent): boolean;
+  selEntries(): MenuEntry[];
 }
 const EnvCtx = createContext<Env>(null as unknown as Env);
 
@@ -69,6 +76,31 @@ export function WorkspaceTree() {
   const [collapsedWs, setCollapsedWs] = useState<Set<string>>(readCollapsed);
   const m = useMenu();
   const timer = useRef<{ key: string; id: ReturnType<typeof setTimeout> } | null>(null);
+  const listRef = useRef<HTMLDivElement>(null);
+  const wsItems = useStore((s) => s.wsItems);
+
+  // Ordre affiché des éléments (lignes visibles : espaces et groupes dépliés), relu dans le DOM.
+  const [order, setOrder] = useState<string[]>([]);
+  useLayoutEffect(() => {
+    const el = listRef.current;
+    if (!el) return;
+    const ids = Array.from(el.querySelectorAll<HTMLElement>('[data-sel-id]'))
+      .filter((x) => !x.closest('[aria-hidden="true"]'))
+      .map((x) => x.dataset.selId!);
+    if (ids.join('|') !== order.join('|')) setOrder(ids);
+  });
+  const sel = useMultiSelect(order);
+  const selWs = sel.size ? (wsItems.find((i) => i.id === sel.ids[0])?.workspaceId ?? null) : null;
+  const owner = useSelOwner((s) => s.owner);
+  const claim = useSelOwner((s) => s.claim);
+  useEffect(() => {
+    if (sel.size && owner !== 'tree') claim('tree');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sel.size]);
+  useEffect(() => {
+    if (owner === 'view' && sel.size) sel.clear();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [owner]);
 
   const toggleWs = (id: string, open?: boolean) =>
     setCollapsedWs((prev) => {
@@ -95,7 +127,26 @@ export function WorkspaceTree() {
     newDraftHere: (w, g) => void newDraftHere(w, g),
   });
 
+  const actions = useSelectionActions({
+    ids: sel.ids,
+    workspaceId: selWs ?? '',
+    clear: sel.clear,
+    onGrouped: (id, parentId) => {
+      if (parentId) useStore.getState().patch('groups', parentId, { collapsed: false });
+      else if (selWs) toggleWs(selWs, true);
+      setEditing({ t: 'rename', kind: 'group', id });
+    },
+  });
+
   const env: Env = {
+    sel,
+    selClick: (itemId, workspaceId, e) => {
+      if (!(e.metaKey || e.ctrlKey || e.shiftKey)) return false;
+      // Une sélection ne mélange pas deux espaces : on repart de zéro dans le nouvel espace.
+      if (selWs && selWs !== workspaceId) sel.clear();
+      return sel.click(itemId, e);
+    },
+    selEntries: actions.entries,
     groups,
     editing,
     setEditing,
@@ -142,14 +193,33 @@ export function WorkspaceTree() {
 
   return (
     <EnvCtx.Provider value={env}>
-      <section className="ws-tree" aria-label="Espaces de travail">
+      <section
+        className="ws-tree"
+        aria-label="Espaces de travail"
+        onKeyDown={(e) => {
+          if ((e.target as HTMLElement).closest('input, textarea')) return;
+          const mod = e.metaKey || e.ctrlKey;
+          if (mod && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'a') {
+            // ⌘A dans l'arbre : tous les éléments visibles de l'espace de la ligne qui a le focus.
+            const row = (e.target as HTMLElement).closest<HTMLElement>('[data-ws-id]');
+            const wsId = row?.dataset.wsId;
+            if (!wsId) return;
+            e.preventDefault();
+            const inWs = new Set(wsItems.filter((i) => i.workspaceId === wsId).map((i) => i.id));
+            sel.set(order.filter((id) => inWs.has(id)));
+          } else if (e.key === 'Escape' && sel.size) {
+            e.preventDefault();
+            sel.clear();
+          }
+        }}
+      >
         <div className="sidebar-section ws-head">
           <span>Espaces</span>
           <button className="icon-btn sm ws-add" aria-label="Nouvel espace" title="Nouvel espace" onClick={() => setEditing({ t: 'newWs' })}>
             <Plus size={14} />
           </button>
         </div>
-        <div role="tree" aria-label="Espaces" className="ws-list">
+        <div role="tree" aria-label="Espaces" aria-multiselectable="true" className="ws-list" ref={listRef}>
           {editing?.t === 'newWs' && (
             <div className="ws-row ws-row-edit anim-in" style={{ ['--d' as string]: 0 }}>
               <span className="ws-chev-slot" />
@@ -177,6 +247,8 @@ export function WorkspaceTree() {
         </div>
       </section>
       {m.menu && <ContextMenu x={m.menu.x} y={m.menu.y} entries={m.menu.entries} label={m.menu.label} onClose={m.close} />}
+      {owner === 'tree' && sel.size > 0 && selWs && <SelectionBar actions={actions} onClear={sel.clear} />}
+      {actions.dialog}
       {dialogs}
     </EnvCtx.Provider>
   );
@@ -255,9 +327,13 @@ function WsNode({ id }: { id: string }) {
         aria-expanded={open}
         aria-selected={active}
         tabIndex={0}
+        data-ws-id={id}
         className={`ws-row ws-row-ws ${active ? 'active' : ''} ${isRoute && !active ? 'in-route' : ''} ${dh.mark?.pos === 'into' ? 'drop-into' : ''} ${dh.mark?.file ? 'drop-file' : ''}`}
         style={{ ['--d' as string]: 0 }}
-        onClick={() => goToWorkspace(id, null)}
+        onClick={() => {
+          env.sel.clear();
+          goToWorkspace(id, null);
+        }}
         onDoubleClick={() => env.setEditing({ t: 'rename', kind: 'ws', id })}
         onContextMenu={(e) => env.menu(e, entries(), `Menu de l’espace ${ws.name}`)}
         onKeyDown={onKey}
@@ -383,9 +459,13 @@ function GroupNode({ g, depth, items }: { g: WorkspaceGroup; depth: number; item
         aria-expanded={open}
         aria-selected={active}
         tabIndex={0}
+        data-ws-id={g.workspaceId}
         className={`ws-row ws-row-group ${active ? 'active' : ''} ${dh.mark?.pos === 'into' ? 'drop-into' : ''} ${dh.mark?.pos === 'before' ? 'drop-before' : ''} ${dh.mark?.pos === 'after' ? 'drop-after' : ''} ${dh.mark?.file ? 'drop-file' : ''}`}
         style={{ ['--d' as string]: depth }}
-        onClick={() => goToWorkspace(g.workspaceId, g.id)}
+        onClick={() => {
+          env.sel.clear();
+          goToWorkspace(g.workspaceId, g.id);
+        }}
         onDoubleClick={() => env.setEditing({ t: 'rename', kind: 'group', id: g.id })}
         onContextMenu={(e) => env.menu(e, entries(), `Menu du groupe ${g.name}`)}
         onKeyDown={onKey}
@@ -449,8 +529,16 @@ function ItemRow({ r, depth }: { r: ResolvedItem; depth: number }) {
     (item.kind === 'draft' && route.name === 'write' && route.draftId === item.refId) ||
     (item.kind === 'plan' && route.name === 'plans' && route.planId === item.refId) ||
     (item.kind === 'argument' && route.name === 'arguments' && route.argumentId === item.refId);
-  const entries = () => itemMenu(env.ctx, item);
-  const payload: DragPayload = { type: 'item', id: item.id, workspaceId: item.workspaceId };
+  const selected = env.sel.has(item.id);
+  const entries = () => {
+    if (selected && env.sel.size > 1) return env.selEntries();
+    if (env.sel.size && !selected) env.sel.clear();
+    return itemMenu(env.ctx, item);
+  };
+  const payload = (): DragPayload =>
+    env.sel.has(item.id) && env.sel.size > 1
+      ? { type: 'item', id: item.id, workspaceId: item.workspaceId, ids: env.sel.ids }
+      : { type: 'item', id: item.id, workspaceId: item.workspaceId };
   const dh = useDropHandlers({
     key: `item:${item.id}`,
     workspaceId: item.workspaceId,
@@ -464,17 +552,29 @@ function ItemRow({ r, depth }: { r: ResolvedItem; depth: number }) {
   return (
     <div
       role="treeitem"
-      aria-selected={active}
+      aria-selected={selected || active}
+      aria-current={active ? 'page' : undefined}
       tabIndex={0}
       title={r.title}
-      className={`ws-row ws-row-item ${active ? 'active' : ''} ${dh.mark?.pos === 'before' ? 'drop-before' : ''} ${dh.mark?.pos === 'after' ? 'drop-after' : ''}`}
+      data-sel-id={item.id}
+      data-ws-id={item.workspaceId}
+      className={`ws-row ws-row-item ${active ? 'active' : ''} ${selected ? 'selected' : ''} ${dh.mark?.pos === 'before' ? 'drop-before' : ''} ${dh.mark?.pos === 'after' ? 'drop-after' : ''}`}
       style={{ ['--d' as string]: depth }}
-      onClick={() => openItem(item)}
-      onContextMenu={(e) => env.menu(e, entries(), `Menu de ${r.title}`)}
+      onMouseDown={(e) => e.shiftKey && e.preventDefault()}
+      onClick={(e) => {
+        if (env.selClick(item.id, item.workspaceId, e)) return;
+        env.sel.clear();
+        openItem(item);
+      }}
+      onContextMenu={(e) => env.menu(e, entries(), selected && env.sel.size > 1 ? `Menu de la sélection (${env.sel.size})` : `Menu de ${r.title}`)}
       onKeyDown={(e) => {
         if (e.target !== e.currentTarget) return;
         if (e.key === 'Enter') openItem(item);
-        else if (e.key === 'ContextMenu' || (e.shiftKey && e.key === 'F10')) {
+        else if (e.key === ' ') {
+          // Espace : ajoute / retire de la sélection l'élément qui a le focus (⇧Espace : plage).
+          e.preventDefault();
+          env.selClick(item.id, item.workspaceId, { metaKey: !e.shiftKey, shiftKey: e.shiftKey } as ReactMouseEvent);
+        } else if (e.key === 'ContextMenu' || (e.shiftKey && e.key === 'F10')) {
           e.preventDefault();
           env.menuFrom(e.currentTarget as HTMLElement, entries(), `Menu de ${r.title}`);
         }

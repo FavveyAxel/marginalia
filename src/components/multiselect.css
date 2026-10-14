@@ -1,0 +1,133 @@
+/* Sélection multiple (Bibliothèque, Écrits) — classes préfixées .msel- */
+
+/* Barre d'actions flottante (centrée dans la vue : le conteneur porte .msel-host) */
+.msel-host {
+  position: relative;
+}
+.msel-dock {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 22px;
+  z-index: 90;
+  display: flex;
+  justify-content: center;
+  pointer-events: none;
+}
+.msel-bar {
+  pointer-events: auto;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 6px 6px 10px;
+  border-radius: 999px;
+  background: var(--bg-panel);
+  box-shadow: var(--shadow-lg);
+  border: 1px solid var(--border);
+  white-space: nowrap;
+  max-width: calc(100% - 32px);
+}
+.msel-bar .btn {
+  border-radius: 999px;
+}
+.msel-count {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding-right: 6px;
+  font-size: var(--fs-md);
+  font-weight: 500;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+.msel-badge {
+  display: inline-grid;
+  place-items: center;
+  min-width: 22px;
+  height: 22px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--focus);
+  color: #fff;
+  font-size: var(--fs-xs);
+  font-weight: 700;
+}
+.msel-sep {
+  width: 1px;
+  height: 18px;
+  margin: 0 4px;
+  background: var(--border);
+}
+.msel-bar .msel-danger {
+  color: var(--danger);
+}
+/* La dernière rangée reste atteignable sous la barre. */
+.msel-host:has(.msel-dock) .lib-page,
+.msel-host:has(.msel-dock) .ed-list-inner {
+  padding-bottom: 112px;
+}
+/* Les toasts remontent au-dessus de la barre. */
+:root:has(.msel-dock) .toasts {
+  bottom: 78px;
+}
+
+/* Case à cocher sur les cartes */
+.msel-check {
+  display: inline-grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border-radius: 999px;
+  border: 1.5px solid var(--border-strong);
+  background: var(--bg-panel);
+  color: #fff;
+  box-shadow: var(--shadow-sm);
+  cursor: default;
+  transition: background var(--dur) var(--ease), border-color var(--dur) var(--ease), transform 80ms;
+}
+.msel-check:hover {
+  border-color: var(--focus);
+}
+.msel-check.on {
+  background: var(--focus);
+  border-color: var(--focus);
+  animation: scale-in var(--dur-fast) var(--ease-spring) both;
+}
+
+/* Lasso */
+.msel-lasso {
+  z-index: 80;
+  pointer-events: none;
+  border: 1px solid var(--focus);
+  background: color-mix(in srgb, var(--focus) 12%, transparent);
+  border-radius: 3px;
+}
+
+/* Bouton « Sélectionner » actif */
+.msel-toggle.active {
+  background: var(--bg-active);
+}
+
+/* Choix d'espace */
+.msel-ws-list {
+  max-height: 380px;
+}
+.msel-ws-root {
+  font-weight: 600;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .msel-check.on {
+    animation: none;
+  }
+}
+
+.msel-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}

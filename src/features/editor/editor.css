@@ -1566,3 +1566,25 @@
   border: 1px solid var(--border);
   background: var(--bg-inset);
 }
+
+/* ── Sélection multiple (liste des écrits) ─────────────────── */
+.ed-card-check {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  z-index: 1;
+  animation: fade-in var(--dur-fast) var(--ease-out) both;
+}
+.ed-card.selected {
+  box-shadow: 0 0 0 2px var(--focus), var(--shadow-sm);
+}
+.ed-card.selected .ed-thumb {
+  background: color-mix(in srgb, var(--focus) 12%, transparent);
+}
+.ed-card-open:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: -2px;
+}
+.ed-selecting .ed-card {
+  user-select: none;
+}

@@ -315,9 +315,50 @@ export function buildEntries(changes: ItemChange[], meta: Meta | null, d: Partia
       changes: TRASHABLE.has(kind) ? undefined : list,
     });
   }
+  // Opérations groupées sur les références d'un espace (sélection multiple) : une seule entrée
+  // « 43 éléments retirés de l'espace », « 12 éléments déplacés dans « Lectures » ».
+  const bulk = new Set<ItemChange>();
+  const wsRemoved = new Map<string, ItemChange[]>();
+  const wsMoved = new Map<string, ItemChange[]>();
+  for (const c of data) {
+    if (c.col !== 'wsItems' || c.before == null) continue;
+    const b = c.before as any;
+    if (c.after == null) wsRemoved.set(b.workspaceId, [...(wsRemoved.get(b.workspaceId) ?? []), c]);
+    else {
+      const a = c.after as any;
+      if (a.groupId !== b.groupId || a.workspaceId !== b.workspaceId) {
+        const k = `${a.workspaceId}|${a.groupId}`;
+        wsMoved.set(k, [...(wsMoved.get(k) ?? []), c]);
+      }
+    }
+  }
+  for (const list of wsRemoved.values()) {
+    if (list.length < 2) continue;
+    const ws = d.workspaces?.find((w) => w.id === (list[0].before as any).workspaceId);
+    list.forEach((c) => bulk.add(c));
+    out.push({ action: 'delete', kind: 'wsItem', refId: list[0].id, refIds: list.map((c) => c.id), bookId: null, title: ws?.name ?? 'Espace', summary: `${list.length} éléments retirés de l’espace`, changes: list });
+  }
+  for (const list of wsMoved.values()) {
+    if (list.length < 2) continue;
+    const a = list[0].after as any;
+    const ws = d.workspaces?.find((w) => w.id === a.workspaceId);
+    const g = d.groups?.find((x) => x.id === a.groupId);
+    // Les renumérotations de la même transaction (champ `order`) suivent le déplacement.
+    list.forEach((c) => bulk.add(c));
+    out.push({
+      action: 'update',
+      kind: 'wsItem',
+      refId: list[0].id,
+      refIds: list.map((c) => c.id),
+      bookId: null,
+      title: ws?.name ?? 'Espace',
+      summary: g ? `${list.length} éléments déplacés dans « ${g.name} »` : `${list.length} éléments déplacés à la racine de l’espace`,
+      changes: list,
+    });
+  }
   // Modifications et retraits hors corbeille.
   for (const c of data) {
-    if (c.before == null) continue;
+    if (c.before == null || bulk.has(c)) continue;
     const kind = COL_KIND[c.col];
     if (c.after == null) {
       const ws = c.col === 'wsItems' ? d.workspaces?.find((w) => w.id === (c.before as any).workspaceId) : null;
@@ -348,6 +389,11 @@ export function buildEntries(changes: ItemChange[], meta: Meta | null, d: Partia
 /** Libellé court d'une entrée pour « Annulé : … ». */
 export function labelOf(e: Pick<ActivityEntry, 'action' | 'title' | 'kind' | 'refIds'>): string {
   const t = e.refIds && e.refIds.length > 1 ? plural(e.refIds.length, e.kind) : `« ${e.title} »`;
+  // Opérations groupées sur les références d'un espace (sélection multiple).
+  if (e.kind === 'wsItem' && e.refIds && e.refIds.length > 1) {
+    if (e.action === 'delete') return `retrait de ${e.refIds.length} éléments de l’espace`;
+    if (e.action === 'update') return `déplacement de ${e.refIds.length} éléments`;
+  }
   switch (e.action) {
     case 'create':
       return `ajout de ${t}`;

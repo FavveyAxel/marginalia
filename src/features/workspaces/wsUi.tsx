@@ -42,22 +42,62 @@ export const getDrag = () => current;
 
 export const hasFiles = (e: DragEvent | globalThis.DragEvent) => Array.from(e.dataTransfer?.types ?? []).includes('Files');
 
-/** Props à étaler sur une source déplaçable. */
-export function dragSource(payload: DragPayload, onEnd?: () => void) {
+/**
+ * Props à étaler sur une source déplaçable. `payload` peut être une fonction, évaluée au début du
+ * glisser (sélection multiple : la sélection du moment).
+ */
+export function dragSource(payload: DragPayload | (() => DragPayload), onEnd?: () => void) {
   return {
     draggable: true,
     onDragStart: (e: DragEvent) => {
       e.stopPropagation();
-      current = payload;
+      const p = typeof payload === 'function' ? payload() : payload;
+      current = p;
       e.dataTransfer.effectAllowed = 'move';
-      e.dataTransfer.setData('application/x-marginalia-ws', payload.id);
-      e.dataTransfer.setData('text/plain', payload.id);
+      e.dataTransfer.setData('application/x-marginalia-ws', p.id);
+      e.dataTransfer.setData('text/plain', p.id);
+      const n = p.ids?.length ?? 0;
+      if (n > 1) setBadgeImage(e, e.currentTarget as HTMLElement, n);
     },
     onDragEnd: () => {
       current = null;
       onEnd?.();
     },
   };
+}
+
+/** Aperçu de glissement d'une sélection : l'élément saisi, une pile derrière et un badge « N ». */
+function setBadgeImage(e: DragEvent, src: HTMLElement, n: number) {
+  try {
+    const r = src.getBoundingClientRect();
+    const w = Math.min(r.width, 240);
+    const h = Math.min(r.height, 300);
+    const box = document.createElement('div');
+    box.className = 'ws-drag-ghost';
+    box.style.width = `${w + 16}px`;
+    box.style.height = `${h + 16}px`;
+    const back = document.createElement('div');
+    back.className = 'ws-drag-ghost-back';
+    back.style.width = `${w}px`;
+    back.style.height = `${h}px`;
+    const front = src.cloneNode(true) as HTMLElement;
+    front.classList.add('ws-drag-ghost-front');
+    front.classList.remove('selected', 'lift');
+    front.removeAttribute('id');
+    front.style.width = `${w}px`;
+    front.style.height = `${h}px`;
+    const badge = document.createElement('span');
+    badge.className = 'ws-drag-badge';
+    badge.textContent = String(n);
+    box.append(back, front, badge);
+    document.body.appendChild(box);
+    const ox = Math.max(0, Math.min(w, e.clientX - r.left));
+    const oy = Math.max(0, Math.min(h, e.clientY - r.top));
+    e.dataTransfer.setDragImage(box, ox, oy);
+    setTimeout(() => box.remove(), 0);
+  } catch {
+    /* aperçu par défaut */
+  }
 }
 
 export { dropOnto, canDrop };
@@ -272,6 +312,9 @@ export interface MenuEntry {
   swatch?: string;
   checked?: boolean;
   hint?: string;
+  /** Retrait (arborescence de groupes dans « Déplacer vers… »). */
+  indent?: number;
+  disabled?: boolean;
 }
 
 export function ContextMenu({ x, y, entries, onClose, label }: { x: number; y: number; entries: MenuEntry[]; onClose: () => void; label: string }) {
@@ -297,7 +340,7 @@ export function ContextMenu({ x, y, entries, onClose, label }: { x: number; y: n
       if (!ref.current?.contains(e.target as Node)) onClose();
     };
     const key = (e: KeyboardEvent) => {
-      const acts = view.map((en, i) => (en.sep || !en.label ? -1 : i)).filter((i) => i >= 0);
+      const acts = view.map((en, i) => (en.sep || !en.label || en.disabled ? -1 : i)).filter((i) => i >= 0);
       if (e.key === 'Escape') {
         e.preventDefault();
         e.stopPropagation();
@@ -327,6 +370,7 @@ export function ContextMenu({ x, y, entries, onClose, label }: { x: number; y: n
   });
 
   const activate = (en: MenuEntry) => {
+    if (en.disabled) return;
     if (en.children) {
       setStack((s) => [...s, { title: en.label ?? '', entries: en.children! }]);
       setFocus(-1);
@@ -358,7 +402,10 @@ export function ContextMenu({ x, y, entries, onClose, label }: { x: number; y: n
             key={i}
             role="menuitem"
             className={`menu-item ${focus === i ? 'focused' : ''} ${en.danger ? 'ws-danger' : ''}`}
-            onMouseEnter={() => setFocus(i)}
+            disabled={en.disabled}
+            aria-disabled={en.disabled || undefined}
+            style={en.indent ? { paddingLeft: 10 + en.indent * 14 } : undefined}
+            onMouseEnter={() => !en.disabled && setFocus(i)}
             onClick={() => activate(en)}
           >
             {en.swatch ? <span className="ws-swatch" style={{ background: `var(${en.swatch})` }} /> : <span className="ws-menu-ico">{en.icon}</span>}

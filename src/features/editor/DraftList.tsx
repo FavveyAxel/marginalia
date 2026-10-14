@@ -1,6 +1,6 @@
 // Liste des écrits (route { name: 'write', draftId: null }).
-import { useState, type CSSProperties } from 'react';
-import { BookOpenText, ChevronDown, FileText, FolderOpen, GraduationCap, MoreHorizontal, NotebookPen, Pencil, Plus, ScrollText, Trash2 } from 'lucide-react';
+import { useMemo, useRef, useState, type CSSProperties, type MouseEvent as ReactMouseEvent } from 'react';
+import { BookOpenText, CheckSquare, ChevronDown, FileText, FolderOpen, FolderPlus, GraduationCap, MoreHorizontal, NotebookPen, Pencil, Plus, ScrollText, Trash2 } from 'lucide-react';
 import { useShallow } from 'zustand/react/shallow';
 import { useStore } from '../../lib/store';
 import type { Draft } from '../../lib/types';
@@ -9,6 +9,9 @@ import { createFromTemplateImpl, openDocxFromDiskImpl } from './impl';
 import { TEMPLATES, type TemplateId, type TemplateKey } from './templates';
 import { Popover, usePop } from './Popover';
 import { setExternalDirty, words } from './save';
+import { useMultiSelect, useLasso, useSelectionKeys, LassoBox, type ClickMods } from '../../lib/useMultiSelect';
+import { SelectionActionBar, SelectCheck, AddToWorkspaceDialog } from '../../components/MultiSelect';
+import { ContextMenu } from '../workspaces/wsUi';
 
 const TEMPLATE_ICON: Record<TemplateId, typeof FileText> = {
   vide: FileText,
@@ -80,7 +83,16 @@ export function OpenDocxButton({ className = 'btn btn-ghost' }: { className?: st
   );
 }
 
-function DraftCard({ draft, index }: { draft: Draft; index: number }) {
+interface CardSel {
+  selected: boolean;
+  showCheck: boolean;
+  /** Clic avec modificateurs (ou en mode « Sélectionner ») : true si traité par la sélection. */
+  click(e: ClickMods): boolean;
+  toggle(): void;
+  onContextMenu(e: ReactMouseEvent): void;
+}
+
+function DraftCard({ draft, index, sel }: { draft: Draft; index: number; sel: CardSel }) {
   const navigate = useStore((s) => s.navigate);
   const patch = useStore((s) => s.patch);
   const menu = usePop();
@@ -105,8 +117,37 @@ function DraftCard({ draft, index }: { draft: Draft; index: number }) {
   };
 
   return (
-    <article className="ed-card lift" data-draft={draft.id} style={{ '--i': index } as CSSProperties}>
-      <button className="ed-card-open" onClick={() => !renaming && navigate({ name: 'write', draftId: draft.id })} aria-label={`Ouvrir ${draft.title}`}>
+    <article
+      className={`ed-card lift ${sel.selected ? 'selected' : ''}`}
+      data-draft={draft.id}
+      data-sel-id={draft.id}
+      role="option"
+      aria-selected={sel.selected}
+      style={{ '--i': index } as CSSProperties}
+      onContextMenu={sel.onContextMenu}
+    >
+      {sel.showCheck && (
+        <span className="ed-card-check">
+          <SelectCheck checked={sel.selected} onToggle={sel.toggle} label={`Sélectionner « ${draft.title} »`} />
+        </span>
+      )}
+      <button
+        className="ed-card-open"
+        onMouseDown={(e) => e.shiftKey && e.preventDefault()}
+        onClick={(e) => {
+          if (renaming) return;
+          // Clavier (Entrée) : detail = 0 ; les modificateurs restent ceux de l'évènement.
+          if (sel.click(e)) return;
+          navigate({ name: 'write', draftId: draft.id });
+        }}
+        onKeyDown={(e) => {
+          if (e.key === ' ') {
+            e.preventDefault();
+            sel.click({ metaKey: !e.shiftKey, shiftKey: e.shiftKey });
+          }
+        }}
+        aria-label={`Ouvrir ${draft.title}`}
+      >
         <div className="ed-thumb" aria-hidden>
           <div className="ed-thumb-page">
             <Icon size={18} className="ed-thumb-icon" />
@@ -201,14 +242,56 @@ function DraftCard({ draft, index }: { draft: Draft; index: number }) {
 
 export function DraftList() {
   const drafts = useStore(useShallow((s) => [...s.drafts].sort((a, b) => b.updatedAt - a.updatedAt)));
+  // Sélection multiple (⌘-clic, ⇧-clic, ⌘A, lasso, mode « Sélectionner »)
+  const ids = useMemo(() => drafts.map((d) => d.id), [drafts]);
+  const sel = useMultiSelect(ids);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const lasso = useLasso({ container: scrollRef, sel });
+  const [selectMode, setSelectMode] = useState(false);
+  const [multiMenu, setMultiMenu] = useState<{ x: number; y: number } | null>(null);
+  const [addIds, setAddIds] = useState<string[] | null>(null);
+  useSelectionKeys(sel, { onEscape: selectMode ? () => setSelectMode(false) : undefined });
+  const exitSelect = () => {
+    sel.clear();
+    setSelectMode(false);
+  };
+  const showChecks = selectMode || sel.size > 0;
+  const removeMany = (list: string[]) => {
+    for (const id of list) setExternalDirty(id, false);
+    // Un seul toast « N écrits placés dans la corbeille — Annuler » qui remet tout.
+    useStore.getState().trashDeleteMany('draft', list);
+  };
+  const cardSel = (d: Draft): CardSel => ({
+    selected: sel.has(d.id),
+    showCheck: showChecks,
+    click: (e) => sel.click(d.id, e, { toggle: selectMode }),
+    toggle: () => sel.toggle(d.id),
+    onContextMenu: (e) => {
+      if (sel.has(d.id) && sel.size > 1) {
+        e.preventDefault();
+        setMultiMenu({ x: e.clientX, y: e.clientY });
+      } else if (sel.size && !sel.has(d.id)) sel.clear();
+    },
+  });
+
   return (
-    <div className="ed-list">
+    <div className="ed-list msel-host">
       <header className="topbar">
         <div className="spacer" />
+        {drafts.length > 0 && (
+          <button
+            className={`btn btn-ghost msel-toggle ${selectMode ? 'active' : ''}`}
+            aria-pressed={selectMode}
+            onClick={() => (selectMode ? exitSelect() : setSelectMode(true))}
+            title={selectMode ? 'Quitter la sélection (Échap)' : 'Sélectionner plusieurs écrits (⌘-clic, ⇧-clic, ⌘A)'}
+          >
+            <CheckSquare size={14} /> {selectMode ? 'Terminé' : 'Sélectionner'}
+          </button>
+        )}
         <OpenDocxButton />
         <NewDraftButton />
       </header>
-      <div className="ed-list-scroll">
+      <div className="ed-list-scroll" ref={scrollRef} onMouseDown={lasso.onMouseDown}>
         <div className="ed-list-inner anim-view">
           <div className="ed-list-head">
             <h1 className="page-title">Écrits</h1>
@@ -237,14 +320,37 @@ export function DraftList() {
               </div>
             </div>
           ) : (
-            <div className="ed-grid anim-stagger">
+            <div className={`ed-grid anim-stagger ${showChecks ? 'ed-selecting' : ''}`} role="listbox" aria-multiselectable="true" aria-label="Écrits">
               {drafts.map((d, i) => (
-                <DraftCard key={d.id} draft={d} index={i} />
+                <DraftCard key={d.id} draft={d} index={i} sel={cardSel(d)} />
               ))}
             </div>
           )}
         </div>
       </div>
+      {lasso.box && <LassoBox box={lasso.box} />}
+      <SelectionActionBar count={sel.size} label={sel.size > 1 ? 'écrits sélectionnés' : 'écrit sélectionné'} onClear={exitSelect}>
+        <button className="btn btn-ghost btn-sm" onClick={() => setAddIds(sel.ids)}>
+          <FolderPlus size={14} /> Ajouter à un espace…
+        </button>
+        <button className="btn btn-ghost btn-sm msel-danger" onClick={() => removeMany(sel.ids)}>
+          <Trash2 size={14} /> Supprimer
+        </button>
+      </SelectionActionBar>
+      {multiMenu && sel.size > 1 && (
+        <ContextMenu
+          x={multiMenu.x}
+          y={multiMenu.y}
+          label={`${sel.size} écrits sélectionnés`}
+          onClose={() => setMultiMenu(null)}
+          entries={[
+            { label: 'Ajouter à un espace…', icon: <FolderPlus size={14} />, onClick: () => setAddIds(sel.ids) },
+            { sep: true },
+            { label: `Supprimer ${sel.size} écrits`, icon: <Trash2 size={14} />, danger: true, onClick: () => removeMany(sel.ids) },
+          ]}
+        />
+      )}
+      {addIds && <AddToWorkspaceDialog kind="draft" refIds={addIds} onClose={() => setAddIds(null)} />}
     </div>
   );
 }

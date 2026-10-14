@@ -22,6 +22,7 @@ import {
   Cloud,
   Lock,
   Check,
+  CheckSquare,
 } from 'lucide-react';
 import { useStore } from '../../lib/store';
 import { host, ACCEPTED_EXTENSIONS, type AppleBook } from '../../lib/platform';
@@ -31,6 +32,9 @@ import { relativeTime } from '../../components/ui';
 import { importViaDialog } from '../../App';
 import { bookToMarkdown } from '../../lib/exportMarkdown';
 import { BookCover } from './BookCover';
+import { useMultiSelect, useLasso, useSelectionKeys, LassoBox } from '../../lib/useMultiSelect';
+import { SelectionActionBar, SelectCheck, AddToWorkspaceDialog, selectedLabel } from '../../components/MultiSelect';
+import { ContextMenu, type MenuEntry } from '../workspaces/wsUi';
 import './library.css';
 
 type SortKey = 'recent' | 'title' | 'author' | 'added';
@@ -115,6 +119,12 @@ export function LibraryView() {
   const [infoId, setInfoId] = useState<string | null>(null);
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [booksOpen, setBooksOpen] = useState(false);
+  // Sélection multiple
+  const [selectMode, setSelectMode] = useState(false);
+  const [multiMenu, setMultiMenu] = useState<{ x: number; y: number } | null>(null);
+  const [addIds, setAddIds] = useState<string[] | null>(null);
+  const [deleteIds, setDeleteIds] = useState<string[] | null>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
 
   const counts = useMemo(() => {
     const m: Record<string, number> = {};
@@ -149,6 +159,16 @@ export function LibraryView() {
     return [...list].sort(cmp[sort]);
   }, [books, query, filter, sort]);
 
+  const visibleIds = useMemo(() => visible.map((b) => b.id), [visible]);
+  const sel = useMultiSelect(visibleIds);
+  const lasso = useLasso({ container: scrollRef, sel });
+  const exitSelect = () => {
+    sel.clear();
+    setSelectMode(false);
+  };
+  useSelectionKeys(sel, { onEscape: selectMode ? () => setSelectMode(false) : undefined });
+  const showChecks = selectMode || sel.size > 0;
+
   const resume = useMemo(
     () => books.filter((b) => b.lastOpenedAt && b.format !== 'image').sort((a, b) => (b.lastOpenedAt ?? 0) - (a.lastOpenedAt ?? 0))[0] ?? null,
     [books],
@@ -168,12 +188,63 @@ export function LibraryView() {
     }
   };
 
+  /** Notes de plusieurs livres : un seul fichier Markdown, un livre après l'autre. */
+  const exportMany = async (ids: string[]) => {
+    const list = ids.map((id) => books.find((b) => b.id === id)).filter((b): b is Book => !!b);
+    if (list.length === 1) return exportNotes(list[0]);
+    try {
+      const db = snapshotDb();
+      const md = list.map((b) => bookToMarkdown(b.id, db)).join('\n\n---\n\n');
+      const ok = await host.saveText(`notes-${list.length}-livres.md`, md);
+      if (ok) useStore.getState().toast(`Notes de ${list.length} livres exportées`, 'success');
+    } catch (e) {
+      console.error(e);
+      useStore.getState().toast('Export impossible', 'error');
+    }
+  };
+  /** Suppression groupée : confirmation seulement si des extraits partent avec les livres. */
+  const deleteMany = (ids: string[]) => {
+    if (ids.reduce((n, id) => n + (counts[id] ?? 0), 0) > 0) setDeleteIds(ids);
+    else useStore.getState().trashDeleteMany('book', ids);
+  };
+
+  /** Clic sur un livre : ⌘ / ⇧ / mode « Sélectionner » → sélection ; sinon ouvrir. */
+  const onItemClick = (e: React.MouseEvent, b: Book) => {
+    if (sel.click(b.id, e, { toggle: selectMode })) return;
+    open(b);
+  };
+  const onItemKey = (e: React.KeyboardEvent, b: Book) => {
+    if (e.target !== e.currentTarget) return;
+    if (e.key === ' ') {
+      e.preventDefault();
+      sel.click(b.id, { metaKey: !e.shiftKey, shiftKey: e.shiftKey });
+    } else if (e.key === 'Enter') {
+      if (selectMode) sel.toggle(b.id);
+      else open(b);
+    }
+  };
+  const onItemContext = (e: React.MouseEvent, b: Book) => {
+    e.preventDefault();
+    if (sel.has(b.id) && sel.size > 1) {
+      setMultiMenu({ x: e.clientX, y: e.clientY });
+      return;
+    }
+    if (sel.size && !sel.has(b.id)) sel.clear();
+    openMenu(b.id, e.clientX, e.clientY);
+  };
+  const multiEntries = (ids: string[]): MenuEntry[] => [
+    { label: 'Ajouter à un espace…', icon: <FolderPlus size={14} />, onClick: () => setAddIds(ids) },
+    { label: 'Exporter les notes', icon: <FileDown size={14} />, onClick: () => void exportMany(ids) },
+    { sep: true },
+    { label: `Supprimer ${ids.length} livres…`, icon: <Trash2 size={14} />, danger: true, onClick: () => deleteMany(ids) },
+  ];
+
   const empty = books.length === 0 && importing === 0;
   const infoBook = books.find((b) => b.id === infoId) ?? null;
   const deleteBook = books.find((b) => b.id === deleteId) ?? null;
 
   return (
-    <div className="lib-root">
+    <div className="lib-root msel-host">
       <header className="topbar">
         {!empty && (
           <>
@@ -233,6 +304,14 @@ export function LibraryView() {
                 <ListIcon size={13} style={{ verticalAlign: -2 }} />
               </button>
             </div>
+            <button
+              className={`btn btn-ghost msel-toggle ${selectMode ? 'active' : ''}`}
+              aria-pressed={selectMode}
+              onClick={() => (selectMode ? exitSelect() : setSelectMode(true))}
+              title={selectMode ? 'Quitter la sélection (Échap)' : 'Sélectionner plusieurs documents (⌘-clic, ⇧-clic, ⌘A)'}
+            >
+              <CheckSquare size={14} /> {selectMode ? 'Terminé' : 'Sélectionner'}
+            </button>
           </>
         )}
         <span className="spacer" />
@@ -251,7 +330,7 @@ export function LibraryView() {
         </button>
       </header>
 
-      <div className="lib-scroll">
+      <div className="lib-scroll" ref={scrollRef} onMouseDown={lasso.onMouseDown}>
         <div className="lib-page anim-view">
           <h1 className="page-title lib-title">Bibliothèque</h1>
 
@@ -345,7 +424,7 @@ export function LibraryView() {
                   </button>
                 </div>
               ) : view === 'grid' ? (
-                <div className="lib-grid anim-stagger">
+                <div className={`lib-grid anim-stagger ${showChecks ? 'lib-selecting' : ''}`} role="listbox" aria-multiselectable="true" aria-label="Documents">
                   {Array.from({ length: importing }).map((_, i) => (
                     <div key={'sk' + i} className="lib-card lib-skeleton" aria-hidden="true">
                       <span className="lib-skel-cover" />
@@ -356,17 +435,24 @@ export function LibraryView() {
                   {visible.map((b, i) => (
                     <div
                       key={b.id}
-                      className="lib-card"
+                      className={`lib-card ${sel.has(b.id) ? 'selected' : ''}`}
                       style={{ ['--i' as string]: i }}
                       tabIndex={0}
-                      onClick={() => open(b)}
-                      onKeyDown={(e) => e.key === 'Enter' && open(b)}
-                      onContextMenu={(e) => {
-                        e.preventDefault();
-                        openMenu(b.id, e.clientX, e.clientY);
-                      }}
+                      role="option"
+                      aria-selected={sel.has(b.id)}
+                      aria-label={`${b.title}${b.author ? ', ' + b.author : ''}`}
+                      data-sel-id={b.id}
+                      onMouseDown={(e) => e.shiftKey && e.preventDefault()}
+                      onClick={(e) => onItemClick(e, b)}
+                      onKeyDown={(e) => onItemKey(e, b)}
+                      onContextMenu={(e) => onItemContext(e, b)}
                     >
                       <div className="lib-card-cover">
+                        {showChecks && (
+                          <span className="lib-check">
+                            <SelectCheck checked={sel.has(b.id)} onToggle={() => sel.toggle(b.id)} label={`Sélectionner « ${b.title} »`} />
+                          </span>
+                        )}
                         <BookCover book={b} size="md" />
                         <button
                           className="icon-btn sm lib-more"
@@ -398,7 +484,7 @@ export function LibraryView() {
                   ))}
                 </div>
               ) : (
-                <div className="lib-list anim-fade" role="table">
+                <div className={`lib-list anim-fade ${showChecks ? 'lib-selecting' : ''}`} role="grid" aria-multiselectable="true" aria-label="Documents">
                   <div className="lib-row lib-row-head" role="row">
                     <span />
                     <span>Titre</span>
@@ -419,17 +505,21 @@ export function LibraryView() {
                   {visible.map((b) => (
                     <div
                       key={b.id}
-                      className="lib-row"
+                      className={`lib-row ${sel.has(b.id) ? 'selected' : ''}`}
                       role="row"
                       tabIndex={0}
-                      onClick={() => open(b)}
-                      onKeyDown={(e) => e.key === 'Enter' && open(b)}
-                      onContextMenu={(e) => {
-                        e.preventDefault();
-                        openMenu(b.id, e.clientX, e.clientY);
-                      }}
+                      aria-selected={sel.has(b.id)}
+                      data-sel-id={b.id}
+                      onMouseDown={(e) => e.shiftKey && e.preventDefault()}
+                      onClick={(e) => onItemClick(e, b)}
+                      onKeyDown={(e) => onItemKey(e, b)}
+                      onContextMenu={(e) => onItemContext(e, b)}
                     >
-                      <BookCover book={b} size="xs" />
+                      {showChecks ? (
+                        <SelectCheck checked={sel.has(b.id)} onToggle={() => sel.toggle(b.id)} label={`Sélectionner « ${b.title} »`} />
+                      ) : (
+                        <BookCover book={b} size="xs" />
+                      )}
                       <span className="lib-row-title truncate">{b.title}</span>
                       <span className="truncate muted">{b.author || '—'}</span>
                       <span className="muted">{FORMAT_LABEL[b.format]}</span>
@@ -469,6 +559,29 @@ export function LibraryView() {
           onInfo={(id) => setInfoId(id)}
           onDelete={(id) => setDeleteId(id)}
           onExport={exportNotes}
+        />
+      )}
+      {lasso.box && <LassoBox box={lasso.box} />}
+      <SelectionActionBar count={sel.size} label={sel.size > 1 ? 'livres sélectionnés' : 'livre sélectionné'} onClear={exitSelect}>
+        <button className="btn btn-ghost btn-sm" onClick={() => setAddIds(sel.ids)}>
+          <FolderPlus size={14} /> Ajouter à un espace…
+        </button>
+        <button className="btn btn-ghost btn-sm" onClick={() => void exportMany(sel.ids)}>
+          <FileDown size={14} /> Exporter les notes
+        </button>
+        <button className="btn btn-ghost btn-sm msel-danger" onClick={() => deleteMany(sel.ids)}>
+          <Trash2 size={14} /> Supprimer
+        </button>
+      </SelectionActionBar>
+      {multiMenu && sel.size > 1 && (
+        <ContextMenu x={multiMenu.x} y={multiMenu.y} entries={multiEntries(sel.ids)} onClose={() => setMultiMenu(null)} label={selectedLabel(sel.size, 'livre', 'livres')} />
+      )}
+      {addIds && <AddToWorkspaceDialog kind="book" refIds={addIds} onClose={() => setAddIds(null)} />}
+      {deleteIds && (
+        <DeleteManyDialog
+          books={deleteIds.map((id) => books.find((b) => b.id === id)).filter((b): b is Book => !!b)}
+          nExtracts={deleteIds.reduce((n, id) => n + (counts[id] ?? 0), 0)}
+          onClose={() => setDeleteIds(null)}
         />
       )}
       {booksOpen && <AppleBooksDialog onClose={() => setBooksOpen(false)} />}
@@ -779,6 +892,58 @@ function DeleteDialog({ book, nExtracts, onClose }: { book: Book; nExtracts: num
             {nExtracts > 0
               ? `Le fichier, ses ${nExtracts} extrait${nExtracts > 1 ? 's' : ''}, sa carte, ses fiches-texte et ses cartes de révision iront avec lui dans la corbeille, où vous pourrez tout restaurer pendant 30 jours.`
               : 'Le document et ses données associées iront dans la corbeille, où vous pourrez tout restaurer pendant 30 jours.'}
+          </p>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+function DeleteManyDialog({ books, nExtracts, onClose }: { books: Book[]; nExtracts: number; onClose(): void }) {
+  const n = books.length;
+  return (
+    <Modal
+      title={`Supprimer ${n} documents ?`}
+      onClose={onClose}
+      width={440}
+      footer={
+        <>
+          <span className="spacer" />
+          <button className="btn" onClick={onClose} autoFocus>
+            Annuler
+          </button>
+          <button
+            className="btn btn-danger"
+            onClick={() => {
+              useStore.getState().trashDeleteMany('book', books.map((b) => b.id));
+              onClose();
+            }}
+          >
+            <Trash2 size={14} /> Supprimer {n} documents
+          </button>
+        </>
+      }
+    >
+      <div className="lib-dialog-hero">
+        <span className="lib-cover-stack" aria-hidden="true">
+          {books.slice(0, 3).map((b, i) => (
+            <span key={b.id} style={{ ['--k' as string]: i }}>
+              <BookCover book={b} size="sm" />
+            </span>
+          ))}
+        </span>
+        <div>
+          <p style={{ margin: 0 }}>
+            <strong>
+              {books
+                .slice(0, 3)
+                .map((b) => `« ${b.title} »`)
+                .join(', ')}
+              {n > 3 ? ` et ${n - 3} autre${n - 3 > 1 ? 's' : ''}` : ''}
+            </strong>
+          </p>
+          <p className="muted" style={{ margin: '6px 0 0' }}>
+            {`Les fichiers, leurs ${nExtracts} extrait${nExtracts > 1 ? 's' : ''}, leurs cartes, fiches-texte et cartes de révision iront avec eux dans la corbeille. Un seul « Annuler » remet tout en place, et chaque document reste restaurable pendant 30 jours.`}
           </p>
         </div>
       </div>

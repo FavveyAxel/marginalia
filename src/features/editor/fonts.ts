@@ -68,6 +68,18 @@ export function listSystemFonts(timeoutMs = 3000): Promise<FontList> {
       const c = read<string[]>(CACHE_KEY);
       return c?.length ? { families: c, source: 'cache' } : { families: [...BASE_FONTS].sort(cmp), source: 'base' };
     };
+    // 1) Liste native de l'app Mac (fiable, sans permission ni geste utilisateur).
+    try {
+      const native = await (await import('../../lib/platform')).host.listFonts?.();
+      if (native && native.length) {
+        const families = [...new Set(native)].sort(cmp);
+        write(CACHE_KEY, families);
+        return { families, source: 'system' };
+      }
+    } catch {
+      /* repli ci-dessous */
+    }
+    // 2) API du navigateur (peut exiger un geste utilisateur et une permission).
     if (!q) return fallback();
     let timer: ReturnType<typeof setTimeout> | undefined;
     try {

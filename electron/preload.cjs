@@ -30,6 +30,7 @@ const api = {
   writeExternal: (path, data) => ipcRenderer.invoke('marginalia:writeExternal', path, data),
 
   saveBinary: (defaultName, data, format) => ipcRenderer.invoke('marginalia:saveBinary', defaultName, data, format),
+  listFonts: () => ipcRenderer.invoke('marginalia:listFonts'),
   printToPdf: async (html) => toArrayBuffer(await ipcRenderer.invoke('marginalia:printToPdf', html)),
   convertImage: async (data, ext) => toArrayBuffer(await ipcRenderer.invoke('marginalia:convertImage', data, ext)),
 

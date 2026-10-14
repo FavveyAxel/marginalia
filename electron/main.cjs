@@ -240,6 +240,35 @@ const SAVE_FILTERS = {
   txt: { name: 'Texte', extensions: ['txt'] },
 };
 
+// Polices installées : liste native de macOS (NSFontManager via JavaScript for Automation),
+// repli sur system_profiler. Aucun accès réseau ; résultat mis en cache pour la session.
+let fontCache = null;
+handle('marginalia:listFonts', async () => {
+  if (fontCache) return fontCache;
+  const { execFile } = require('child_process');
+  const run = (cmd, args, timeout) =>
+    new Promise((resolve) => execFile(cmd, args, { timeout, maxBuffer: 32 * 1024 * 1024 }, (err, out) => resolve(err ? '' : String(out))));
+  let families = [];
+  if (process.platform === 'darwin') {
+    const jxa = "ObjC.import('AppKit'); JSON.stringify(ObjC.deepUnwrap($.NSFontManager.sharedFontManager.availableFontFamilies))";
+    try { families = JSON.parse((await run('/usr/bin/osascript', ['-l', 'JavaScript', '-e', jxa], 15000)) || '[]'); } catch { families = []; }
+    if (!families.length) {
+      try {
+        const data = JSON.parse((await run('/usr/sbin/system_profiler', ['SPFontsDataType', '-json'], 60000)) || '{}');
+        const set = new Set();
+        for (const f of data.SPFontsDataType || []) for (const t of f.typefaces || []) if (t.family) set.add(t.family);
+        families = [...set];
+      } catch { families = []; }
+    }
+  } else {
+    const out = await run('fc-list', [':', 'family'], 15000);
+    families = [...new Set(out.split('\n').map((l) => l.split(',')[0].trim()).filter(Boolean))];
+  }
+  families = [...new Set(families.filter((f) => typeof f === 'string' && f && !f.startsWith('.')))];
+  if (families.length) fontCache = families;
+  return families;
+});
+
 handle('marginalia:saveBinary', async (_e, defaultName, data, format) => {
   const filter = SAVE_FILTERS[format] || SAVE_FILTERS.txt;
   const r = await dialog.showSaveDialog(parentWindow(), {

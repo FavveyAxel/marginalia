@@ -23,13 +23,13 @@ function markSeen(names: Iterable<string>) {
 }
 
 /** Importe une liste de livres de Livres, un par un ; renvoie le nombre de livres importés. */
-export async function importAppleBooks(list: AppleBook[], onProgress?: (done: number, total: number) => void): Promise<number> {
+export async function importAppleBooks(list: AppleBook[], onProgress?: (done: number, total: number) => void, toWorkspace = true): Promise<number> {
   let n = 0;
   let done = 0;
   for (const b of list) {
     try {
       const file = await host.appleBooksRead!(b.path);
-      const books = await useStore.getState().importFiles([file]);
+      const books = await useStore.getState().importFiles([file], { toWorkspace });
       if (books.length) n++;
       markSeen([b.name]);
     } catch (e) {
@@ -54,7 +54,7 @@ export function syncAppleBooks(): Promise<number> {
     markSeen(fresh.filter((b) => inLibrary.has(b.name)).map((b) => b.name));
     const todo = fresh.filter((b) => !inLibrary.has(b.name));
     if (!todo.length) return 0;
-    const n = await importAppleBooks(todo);
+    const n = await importAppleBooks(todo, undefined, false);
     if (n) useStore.getState().toast(n === 1 ? '1 livre ajouté depuis Livres' : `${n} livres ajoutés depuis Livres`, 'success');
     return n;
   })().finally(() => (running = null));

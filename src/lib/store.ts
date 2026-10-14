@@ -143,7 +143,8 @@ export interface State extends Database {
   remove<C extends CollectionName>(col: C, id: string): void;
 
   // ── Livres ──
-  importFiles(files: PickedFile[]): Promise<Book[]>;
+  /** `toWorkspace: false` : jamais rangé dans un espace (synchro en arrière-plan). */
+  importFiles(files: PickedFile[], opts?: { toWorkspace?: boolean }): Promise<Book[]>;
   updateBook(id: string, patch: Partial<Book>): void;
   removeBook(id: string): Promise<void>;
   /** Ouvre un livre dans le lecteur. `split` : second livre côte à côte. */
@@ -603,7 +604,9 @@ export const useStore = create<State>()(tracked((set, get) => ({
     if (TRASHABLE.has(kind)) get().trashDelete(kind, id);
   },
 
-  async importFiles(files) {
+  async importFiles(files, opts) {
+    const r0 = get().route;
+    const target = opts?.toWorkspace !== false && r0.name === 'workspace' ? { workspaceId: r0.workspaceId, groupId: r0.groupId } : null;
     const added: Book[] = [];
     set((s) => ({ importing: s.importing + files.length }));
     for (const f of files) {
@@ -631,9 +634,8 @@ export const useStore = create<State>()(tracked((set, get) => ({
         added.push(book);
         nextMeta = { action: 'import' };
         set((s) => ({ books: [book, ...s.books] }));
-        // Ajout automatique à l'espace actif
-        const ws = get().settings.activeWorkspaceId;
-        if (ws && get().workspaces.some((w) => w.id === ws)) get().addToWorkspace(ws, null, 'book', id);
+        // Ajout à un espace seulement si l'import a été lancé depuis cet espace (pas depuis la bibliothèque).
+        if (target && get().workspaces.some((w) => w.id === target.workspaceId)) get().addToWorkspace(target.workspaceId, target.groupId, 'book', id);
       } catch (e) {
         console.error(e);
         get().toast(`Impossible d’importer « ${f.name} »`, 'error');

@@ -9,6 +9,7 @@ import type { Draft } from '../../lib/types';
 import { useStore } from '../../lib/store';
 import { htmlToDocx, parseDocx, type DocModel } from './docx';
 import type { DocEngine } from './engine';
+import { checkDocxXml } from './ooxml';
 import { DRAFT_FILE, PREV_FILE } from './impl';
 
 /** Écart toléré entre deux comptages (2 %, au moins 2 mots) — recommandation de la recherche. */
@@ -46,6 +47,17 @@ export async function guardedExport(engine: DocEngine): Promise<GuardedExport> {
   let data = await engine.exportDocx();
   if (testHooks().corruptExport) data = await htmlToDocx('<p></p>', 'vide');
   let model: DocModel | null = null;
+  // XML bien formé dans chaque partie (après normalisation) : sinon Word refuserait le fichier.
+  let bad: string[] = [];
+  try {
+    bad = await checkDocxXml(data);
+  } catch {
+    bad = ['(archive)'];
+  }
+  if (bad.length) {
+    console.error('XML invalide dans', bad);
+    return { ok: false, data, model: null, editorWords, exportedWords: 0, reason: 'Le fichier produit contenait du XML invalide : Word ne pourrait pas l’ouvrir.' };
+  }
   try {
     model = await parseDocx(data);
   } catch (e) {

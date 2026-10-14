@@ -35,12 +35,28 @@ const MemoTocPanel = memo(TocPanel);
 
 /** Bouton principal enfoncé (glissé de sélection en cours) : les sauvegardes de position attendent. */
 let pointerHeld = false;
+/** Instant du dernier relâchement : la barre de sélection apparaît juste après, rien ne doit la retarder. */
+let pointerUpAt = 0;
 if (typeof window !== 'undefined') {
   window.addEventListener('pointerdown', (e) => e.button === 0 && (pointerHeld = true), true);
-  window.addEventListener('pointerup', () => (pointerHeld = false), true);
-  window.addEventListener('pointercancel', () => (pointerHeld = false), true);
+  const up = () => {
+    pointerHeld = false;
+    pointerUpAt = performance.now();
+  };
+  window.addEventListener('pointerup', up, true);
+  window.addEventListener('pointercancel', up, true);
   window.addEventListener('blur', () => (pointerHeld = false));
 }
+/**
+ * Moment de sélectionner : glissé en cours ou relâché à l'instant (la barre de sélection apparaît).
+ * Une sauvegarde de position à ce moment-là modifie le livre dans le store et re-rend ses abonnés
+ * (la liste des extraits entière) juste quand la barre doit s'afficher : elle attend ~½ s
+ * (au plus POS_MAX_DEFER_MS au total, pour ne jamais perdre la position).
+ */
+function selecting(): boolean {
+  return pointerHeld || performance.now() - pointerUpAt < 500;
+}
+const POS_MAX_DEFER_MS = 10_000;
 
 /** Champs de Book que les moteurs n'utilisent pas et qui changent pendant la lecture. */
 const VOLATILE_BOOK_KEYS = new Set<keyof Book>(['position', 'progress', 'lastOpenedAt']);
@@ -183,6 +199,7 @@ const ReaderPane = memo(function ReaderPane({
   }, [book?.id]);
 
   const lastPos = useRef(0);
+  const deferSince = useRef(0);
   const posTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingPos = useRef<(() => void) | null>(null);
   const onPosition = useCallback(
@@ -190,19 +207,23 @@ const ReaderPane = memo(function ReaderPane({
       onState({ label, progress });
       // Chaque sauvegarde modifie le livre dans le store (et re-rend ses abonnés) : jamais pendant
       // un glissé de sélection, au plus toutes les 1,5 s pendant un défilement continu.
-      const save = () => {
+      const save = (force = false) => {
         posTimer.current = null;
-        if (pointerHeld) {
-          posTimer.current = setTimeout(save, 400);
-          return;
+        if (!force) {
+          deferSince.current ||= Date.now();
+          if (selecting() && Date.now() - deferSince.current < POS_MAX_DEFER_MS) {
+            posTimer.current = setTimeout(save, 250);
+            return;
+          }
         }
+        deferSince.current = 0;
         pendingPos.current = null;
         lastPos.current = Date.now();
         updateBook(bookId, { position: pos, progress });
       };
-      pendingPos.current = save;
+      pendingPos.current = () => save(true);
       if (posTimer.current) clearTimeout(posTimer.current);
-      if (Date.now() - lastPos.current > 1500 && !pointerHeld) save();
+      if (Date.now() - lastPos.current > 1500 && !selecting()) save();
       else posTimer.current = setTimeout(save, 900);
     },
     [bookId],
@@ -213,10 +234,7 @@ const ReaderPane = memo(function ReaderPane({
       if (posTimer.current) clearTimeout(posTimer.current);
       const p = pendingPos.current;
       pendingPos.current = null;
-      if (p) {
-        pointerHeld = false;
-        p();
-      }
+      if (p) p();
     },
     [bookId],
   );
@@ -369,7 +387,11 @@ function SplitPicker({ anchor, currentId, onPick, onClose }: { anchor: DOMRect; 
 }
 
 export function ReaderView({ bookId, tab, splitBookId }: Props) {
-  const book = useStore(selectBook(bookId));
+  // Seuls le titre et l'auteur s'affichent ici : pas de re-rendu à chaque sauvegarde de position.
+  const book = useStore(useShallow((s) => {
+    const b = selectBook(bookId)(s);
+    return b ? { title: b.title, author: b.author, format: b.format } : null;
+  }));
   const settings = useStore((s) => s.settings);
   const jump = useStore((s) => s.jump);
   const navigate = useStore((s) => s.navigate);
@@ -380,7 +402,7 @@ export function ReaderView({ bookId, tab, splitBookId }: Props) {
   const engineB = useRef<EngineHandle | null>(null);
   const [focus, setFocus] = useState<PaneKey>('a');
   const [panes, setPanes] = useState<Record<PaneKey, PaneState>>({
-    a: { toc: [], label: '', progress: book?.progress ?? 0, ready: false },
+    a: { toc: [], label: '', progress: selectBook(bookId)(useStore.getState())?.progress ?? 0, ready: false },
     b: { toc: [], label: '', progress: 0, ready: false },
   });
   const [popover, setPopover] = useState<{ id: string; rect: DOMRect } | null>(null);
@@ -488,7 +510,7 @@ export function ReaderView({ bookId, tab, splitBookId }: Props) {
           <button className="btn btn-ghost btn-sm reader-back" onClick={() => goBack(navigate)} title={`Revenir : ${returnLabel()} (⌘[)`}>
             <ChevronLeft size={16} /> <span className="truncate">{returnLabel()}</span>
           </button>
-          {tab === 'lecture' && (
+          {tab === 'lecture' && book.format !== 'image' && (
             <button className={`icon-btn ${settings.showToc ? 'active' : ''}`} onClick={() => updateSettings({ showToc: !settings.showToc })} title="Sommaire">
               <PanelLeft size={16} />
             </button>
@@ -543,7 +565,8 @@ export function ReaderView({ bookId, tab, splitBookId }: Props) {
 
       <div className="reader-body">
         <div className={`reader-lecture ${tab === 'lecture' ? '' : 'is-hidden'}`}>
-          {settings.showToc && !split && (
+          {/* Une image (photo, scan) n'a pas de sommaire : pas de panneau vide. */}
+          {settings.showToc && !split && book.format !== 'image' && (
             <aside className="panel reader-side reader-toc">
               <MemoTocPanel items={pane.toc} currentLabel={pane.label} progress={pane.progress} onSelect={onTocSelect} />
             </aside>

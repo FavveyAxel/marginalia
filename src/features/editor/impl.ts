@@ -5,7 +5,7 @@ import { host } from '../../lib/platform';
 import { uid, useStore } from '../../lib/store';
 import type { CreateDraftOptions } from './api';
 import { countDocxWords, ensureA4SectPr, htmlToDocx } from './docx';
-import { templateInfo } from './templates';
+import { templateByKey, templateInfo, type TemplateKey } from './templates';
 
 export const DRAFT_FILE = 'document.docx';
 /** G3 : copie de la version précédente dans la bibliothèque. */
@@ -46,6 +46,16 @@ export async function createDraftImpl(opts: CreateDraftOptions): Promise<Draft> 
   const ws = s.settings.activeWorkspaceId;
   if (ws && s.workspaces.some((w) => w.id === ws)) s.addToWorkspace(ws, null, 'draft', id);
   return draft;
+}
+
+/** Nouvel écrit depuis un modèle (y compris « Présentation universitaire », hors Draft['template']). */
+export async function createFromTemplateImpl(key: TemplateKey): Promise<Draft> {
+  const t = templateByKey(key);
+  if (!t.layout) return createDraftImpl({ title: t.defaultTitle, template: t.id });
+  const data = await htmlToDocx(t.html, t.defaultTitle, t.layout);
+  const d = await createDraftImpl({ title: t.defaultTitle, docx: data });
+  useStore.getState().patch('drafts', d.id, { template: t.id });
+  return useStore.getState().drafts.find((x) => x.id === d.id) ?? d;
 }
 
 export async function openDocxFromDiskImpl(): Promise<Draft | null> {

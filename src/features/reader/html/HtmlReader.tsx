@@ -706,7 +706,7 @@ export const HtmlReader = forwardRef<EngineHandle, EngineProps>(function HtmlRea
       if (!mouseDownRef.current) return;
       mouseDownRef.current = false;
       if (timer) clearTimeout(timer);
-      timer = setTimeout(readSelection, 10);
+      timer = setTimeout(readSelection, 0);
     };
     document.addEventListener('selectionchange', onSelChange);
     sc.addEventListener('mousedown', onDown);

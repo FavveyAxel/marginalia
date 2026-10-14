@@ -530,7 +530,7 @@ await withApp(PORT, async (page, errors) => {
       await page.keyboard.press('Escape');
       await page.waitForTimeout(300);
       check(`concentration : Échap pour sortir (${suf.slice(1)})`, !(await page.$('.ed-focus')));
-      await page.click('.ed-style-btn');
+      await page.click('.ed-toolbar [data-tb="style"]');
       await page.waitForTimeout(200);
       await shot(page, `shots/editor/styles${suf}.png`);
       await page.keyboard.press('Escape');

@@ -55,6 +55,9 @@ export const EXPORT_MIME: Record<ExportFormat, string> = {
 /** Images importées comme documents (photo ou scan d'une page : texte reconnu par OCR). */
 export const IMAGE_EXTENSIONS = ['jpg', 'jpeg', 'png', 'webp', 'heic', 'heif', 'tif', 'tiff'];
 
+/** Fichiers dérivés d'un document image, rangés à côté de la source (supprimés avec elle). */
+export const DERIVED_FILES = ['ocr.json', 'display.jpg'];
+
 export const ACCEPTED_EXTENSIONS = ['epub', 'pdf', 'docx', 'md', 'markdown', 'txt', 'html', 'htm', ...IMAGE_EXTENSIONS];
 
 declare global {
@@ -134,6 +137,8 @@ const browserHost: HostApi = {
   },
   async deleteFile(bookId, fileName) {
     await idbDel('files', `${bookId}/${fileName}`);
+    // Comme l'app Mac : les fichiers dérivés d'une image (texte reconnu, copie affichable) partent avec la source.
+    if (fileName.startsWith('source.')) for (const d of DERIVED_FILES) await idbDel('files', `${bookId}/${d}`).catch(() => undefined);
   },
   async saveText(defaultName, content) {
     const blob = new Blob([content], { type: 'text/markdown;charset=utf-8' });

@@ -7,6 +7,11 @@
 // On charge donc la build autonome IIFE `superdoc.min.js` (copiée telle quelle comme
 // asset par Vite via `?url`) dans une balise <script>, à la demande.
 // G4 : télémétrie coupée, aucune police distante, aucun service de correction.
+//
+// Commandes utilisées : voir research/9 (chaque appel y est vérifié : XML écrit, relu).
+// Tout export passe par `normalizeDocx` (ooxml.ts) : espaces de noms, ordre du schéma…
+// Les opérations que SuperDoc n'annule pas (mise en page, modification d'un style) prennent
+// un instantané : `restore(snapshot)` rouvre la version précédente.
 // ─────────────────────────────────────────────────────────────
 import superdocUrl from '../../../node_modules/superdoc/dist/superdoc.min.js?url';
 // CSS du moteur : chargé seulement avec ce module (chunk paresseux), dans `@layer superdoc`
@@ -14,9 +19,25 @@ import superdocUrl from '../../../node_modules/superdoc/dist/superdoc.min.js?url
 // des variables --sd-* (vérifié).
 import 'superdoc/style.layered.css';
 import { countWords } from './docx';
+import {
+  defaultParagraphStyle,
+  effectiveStyleProps,
+  ensureStylesXml,
+  normalizeDocx,
+  patchStylesXml,
+  readStylesXml,
+  replaceThemeFonts,
+  styleDefinition,
+  transformStyles,
+  type StylePatch,
+} from './ooxml';
+import { familyName } from './fonts';
 
-export type ParaStyle = 'h1' | 'h2' | 'h3' | 'body' | 'quote';
-export type MarkName = 'bold' | 'italic' | 'underline';
+export type ParaStyle = 'title' | 'h1' | 'h2' | 'h3' | 'body' | 'quote' | 'caption';
+export type MarkName = 'bold' | 'italic' | 'underline' | 'strike' | 'superscript' | 'subscript' | 'smallCaps';
+export type Align = 'left' | 'center' | 'right' | 'justify';
+export type PageNumbers = 'none' | 'n' | 'n-of-total';
+export type TableOp = 'rowBefore' | 'rowAfter' | 'colBefore' | 'colAfter' | 'deleteRow' | 'deleteCol' | 'merge' | 'split' | 'headerRow' | 'deleteTable';
 
 export interface OutlineItem {
   level: 1 | 2 | 3;
@@ -28,8 +49,33 @@ export interface EngineState {
   bold: boolean;
   italic: boolean;
   underline: boolean;
+  strike: boolean;
+  superscript: boolean;
+  subscript: boolean;
+  smallCaps: boolean;
+  /** Police du texte sélectionné (famille), null si inconnue. */
+  fontFamily: string | null;
+  /** Taille en points. */
+  fontSize: number | null;
+  color: string | null;
+  highlight: string | null;
+  align: Align;
+  /** Interligne multiple (1,5…), null si exact / inconnu. */
+  lineHeight: number | null;
+  /** Espacements avant / après (twips). */
+  spaceBefore: number;
+  spaceAfter: number;
+  /** Retraits (twips). */
+  indentLeft: number;
+  firstLine: number;
   style: ParaStyle | 'other';
-  list: boolean;
+  styleId: string | null;
+  list: 'bullet' | 'ordered' | null;
+  listLevel: number;
+  inTable: boolean;
+  link: string | null;
+  /** Sélection vide (curseur). */
+  empty: boolean;
   /** Position du curseur (pour surligner le titre courant du plan). */
   pos: number;
 }
@@ -40,8 +86,19 @@ export interface EngineStats {
   charsNoSpaces: number;
 }
 
+export interface PageSetup {
+  /** Dimensions en cm (orientées). */
+  width: number;
+  height: number;
+  orientation: 'portrait' | 'landscape';
+  /** Marges en cm. */
+  margins: { top: number; right: number; bottom: number; left: number };
+  titlePage: boolean;
+  pageNumbers: PageNumbers;
+}
+
 export interface DocEngine {
-  /** Exporte le document courant en .docx (OOXML natif). */
+  /** Exporte le document courant en .docx (OOXML natif, normalisé). */
   exportDocx(): Promise<ArrayBuffer>;
   /** Texte brut du corps, paragraphes séparés par des sauts de ligne (secours, G2). */
   plainText(): string;
@@ -49,13 +106,68 @@ export interface DocEngine {
   stats(): EngineStats;
   outline(): OutlineItem[];
   state(): EngineState;
-  setParagraphStyle(s: ParaStyle): void;
+  // ── Caractères ──
   toggleMark(m: MarkName): void;
+  setFontFamily(family: string): void;
+  /** Taille en points. */
+  setFontSize(pt: number): void;
+  /** Taille suivante / précédente de l'échelle usuelle. */
+  stepFontSize(dir: 1 | -1): void;
+  setColor(hex: string | null): void;
+  setHighlight(hex: string | null): void;
+  /** Efface la mise en forme des caractères (le style de paragraphe est conservé). */
+  clearInlineFormatting(): void;
+  // ── Paragraphes ──
+  setParagraphStyle(s: ParaStyle): Promise<void>;
+  setAlign(a: Align): void;
+  setLineHeight(v: number): void;
+  /** Espacements avant / après (twips). */
+  setParagraphSpacing(v: { before?: number; after?: number }): void;
+  /** Retraits (twips). */
+  setIndent(v: { left?: number; firstLine?: number }): void;
+  changeIndent(dir: 1 | -1): void;
   toggleList(kind: 'bullet' | 'ordered'): void;
-  /** Insère une note à l'emplacement du curseur et place la saisie dans la note. */
+  /** Liste numérotée hiérarchique 1. / 1.1. / 1.1.1. */
+  outlineList(): void;
+  listLevel(dir: 1 | -1): boolean;
+  // ── Styles ──
+  /** Propriétés effectives d'un style (préremplissage du dialogue). */
+  styleProps(s: ParaStyle): StylePatch;
+  /** Modifie un style pour tout le document (export → styles.xml → réouverture). Renvoie l'instantané précédent. */
+  modifyStyle(s: ParaStyle, patch: StylePatch): Promise<ArrayBuffer>;
+  // ── Insertion ──
   insertFootnote(): boolean;
   /** Insère `quote` en paragraphe de style Citation suivi d'une note portant `note`. */
   insertCitation(quote: string, note: string): boolean;
+  insertText(text: string): void;
+  insertPageBreak(): void;
+  insertTable(rows: number, cols: number): boolean;
+  tableOp(op: TableOp): boolean;
+  /** Image en ligne (data URI) ; largeur ramenée à celle du texte. */
+  insertImage(src: string, width: number, height: number, alt: string): boolean;
+  setLink(href: string, text?: string): boolean;
+  unsetLink(): void;
+  /** Table des matières avant le paragraphe du curseur (numéros de page calculés ensuite). */
+  insertToc(): Promise<boolean>;
+  /** Met à jour les tables des matières (entrées puis numéros de page) ; renvoie leur nombre. */
+  updateToc(): Promise<number>;
+  tocCount(): number;
+  // ── Mise en page (non annulable par ⌘Z : instantané renvoyé) ──
+  pageSetup(): PageSetup;
+  setPageSize(size: { width: number; height: number }): Promise<ArrayBuffer>;
+  setOrientation(o: 'portrait' | 'landscape'): Promise<ArrayBuffer>;
+  setMargins(m: { top: number; right: number; bottom: number; left: number }): Promise<ArrayBuffer>;
+  setPageNumbers(mode: PageNumbers): Promise<ArrayBuffer>;
+  setTitlePage(on: boolean): Promise<ArrayBuffer>;
+  /** Présentation universitaire (styles, marges, numéros, page de garde) ; renvoie l'instantané d'avant. */
+  applyAcademicLayout(): Promise<ArrayBuffer>;
+  /** Rouvre un instantané (annulation d'une opération non annulable). */
+  restore(snapshot: ArrayBuffer): Promise<void>;
+  // ── Vue ──
+  zoom(): number;
+  setZoom(z: number | 'fit'): void;
+  /** Rectangle (coordonnées écran) de la sélection, pour la barre flottante. */
+  selectionRect(): DOMRect | null;
   /** Insère des paragraphes de corps (texte brut) à la fin du document — tests et outils. */
   appendParagraph(text: string): void;
   undo(): void;
@@ -65,6 +177,8 @@ export interface DocEngine {
   setEditable(on: boolean): void;
   focus(): void;
   destroy(): void;
+  /** Développement / tests uniquement : éditeur brut du moteur. */
+  debugEditor(): unknown;
 }
 
 export interface EngineOptions {
@@ -72,6 +186,8 @@ export interface EngineOptions {
   onChange?: () => void;
   /** Sélection / mise en forme courante changée. */
   onSelection?: () => void;
+  /** Le document vient d'être rouvert (modification de style, annulation de mise en page). */
+  onReload?: () => void;
 }
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -98,13 +214,35 @@ function loadSuperDoc(): Promise<Any> {
 
 const QUOTE_IDS = ['Quote', 'BlockText', 'IntenseQuote', 'Citation'];
 const QUOTE_NAMES = ['quote', 'block text', 'intense quote', 'citation'];
+const BODY_IDS = ['Normal', 'BodyText', 'FirstParagraph', 'Compact', 'Corpsdetexte'];
+
+/** Échelle des tailles (points). */
+export const FONT_SIZES = [8, 9, 10, 10.5, 11, 12, 13, 14, 16, 18, 20, 22, 24, 28, 32, 36, 40, 48, 56, 64, 72];
+
+const IN = 2.54; // cm par pouce
+const r2 = (n: number) => Math.round(n * 100) / 100;
+
+/** Définitions ajoutées si le document n'a pas le style demandé. */
+const STYLE_DEFS: Record<string, string> = {
+  Title:
+    '<w:style w:type="paragraph" w:styleId="Title"><w:name w:val="Title"/><w:basedOn w:val="Normal"/><w:next w:val="Normal"/><w:qFormat/><w:pPr><w:spacing w:before="0" w:after="360"/><w:ind w:firstLine="0"/><w:jc w:val="center"/></w:pPr><w:rPr><w:sz w:val="40"/><w:szCs w:val="40"/></w:rPr></w:style>',
+  Quote:
+    '<w:style w:type="paragraph" w:styleId="Quote"><w:name w:val="Quote"/><w:basedOn w:val="Normal"/><w:next w:val="Normal"/><w:uiPriority w:val="29"/><w:qFormat/><w:pPr><w:spacing w:before="120" w:after="200"/><w:ind w:left="851" w:right="567" w:firstLine="0"/></w:pPr><w:rPr><w:sz w:val="22"/><w:szCs w:val="22"/></w:rPr></w:style>',
+  Heading1:
+    '<w:style w:type="paragraph" w:styleId="Heading1"><w:name w:val="heading 1"/><w:basedOn w:val="Normal"/><w:next w:val="Normal"/><w:uiPriority w:val="9"/><w:qFormat/><w:pPr><w:keepNext/><w:spacing w:before="480" w:after="120"/><w:ind w:firstLine="0"/><w:jc w:val="left"/><w:outlineLvl w:val="0"/></w:pPr><w:rPr><w:b/><w:bCs/><w:sz w:val="32"/><w:szCs w:val="32"/></w:rPr></w:style>',
+  Heading2:
+    '<w:style w:type="paragraph" w:styleId="Heading2"><w:name w:val="heading 2"/><w:basedOn w:val="Normal"/><w:next w:val="Normal"/><w:uiPriority w:val="9"/><w:qFormat/><w:pPr><w:keepNext/><w:spacing w:before="360" w:after="120"/><w:ind w:firstLine="0"/><w:jc w:val="left"/><w:outlineLvl w:val="1"/></w:pPr><w:rPr><w:b/><w:bCs/><w:sz w:val="28"/><w:szCs w:val="28"/></w:rPr></w:style>',
+  Heading3:
+    '<w:style w:type="paragraph" w:styleId="Heading3"><w:name w:val="heading 3"/><w:basedOn w:val="Normal"/><w:next w:val="Normal"/><w:uiPriority w:val="9"/><w:qFormat/><w:pPr><w:keepNext/><w:spacing w:before="240" w:after="120"/><w:ind w:firstLine="0"/><w:jc w:val="left"/><w:outlineLvl w:val="2"/></w:pPr><w:rPr><w:b/><w:bCs/><w:i/><w:iCs/><w:sz w:val="24"/><w:szCs w:val="24"/></w:rPr></w:style>',
+  Normal: '<w:style w:type="paragraph" w:default="1" w:styleId="Normal"><w:name w:val="Normal"/><w:qFormat/></w:style>',
+  FootnoteText:
+    '<w:style w:type="paragraph" w:styleId="FootnoteText"><w:name w:val="footnote text"/><w:basedOn w:val="Normal"/><w:uiPriority w:val="99"/><w:pPr><w:spacing w:after="0" w:line="240" w:lineRule="auto"/><w:ind w:firstLine="0"/></w:pPr><w:rPr><w:sz w:val="20"/><w:szCs w:val="20"/></w:rPr></w:style>',
+};
+const styleDef = (id: string) => STYLE_DEFS[id] ?? styleDefinition(id);
 
 /** Ouvre `data` (.docx) dans `host`. Rejette si le moteur ne devient pas prêt. */
 export async function openDocEngine(host: HTMLElement, data: ArrayBuffer, opts: EngineOptions = {}): Promise<DocEngine> {
   const SuperDoc = await loadSuperDoc();
-  const file = new File([data], 'document.docx', {
-    type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-  });
   let destroyed = false;
   let ready = false;
   // Les transactions de normalisation qui suivent l'ouverture ne sont pas des modifications ;
@@ -118,60 +256,72 @@ export async function openDocEngine(host: HTMLElement, data: ArrayBuffer, opts: 
   const INPUT_EVENTS = ['beforeinput', 'paste', 'drop', 'cut'] as const;
   for (const ev of INPUT_EVENTS) document.addEventListener(ev, onUserInput, true);
   const live = () => !destroyed && (ready || touched);
-  const sd: Any = await new Promise((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error('Le document met trop de temps à s’ouvrir')), 45000);
-    let inst: Any = null;
-    try {
-      inst = new SuperDoc({
-        selector: host,
-        document: file,
-        documentMode: 'editing',
-        telemetry: { enabled: false },
-        proofing: { enabled: false },
-        disablePiniaDevtools: true,
-        disableContextMenu: true,
-        rulers: false,
-        user: { name: 'Marginalia', email: '' },
-        zoom: { mode: 'fit-width', fitWidth: { min: 55, max: 100, padding: 32 } },
-        onReady: () => {
-          clearTimeout(timer);
-          // les transactions de normalisation qui suivent l'ouverture ne comptent pas comme modifications
-          setTimeout(() => (ready = true), 600);
-          resolve(inst);
-        },
-        onEditorUpdate: () => {
-          if (live()) opts.onChange?.();
-        },
-        onTransaction: (p: Any) => {
-          if (!live()) return;
-          // couvre aussi les éditeurs de notes (sessions de saisie de note de bas de page)
-          if (p?.transaction?.docChanged) opts.onChange?.();
-          opts.onSelection?.();
-        },
-        onContentError: (p: Any) => {
-          clearTimeout(timer);
-          reject(p?.error instanceof Error ? p.error : new Error('Document illisible'));
-        },
-      });
-    } catch (e) {
-      clearTimeout(timer);
-      reject(e);
-    }
-  }).catch((e) => {
+  /** Copie de styles.xml (pour les valeurs héritées des styles et le dialogue « Modifier le style »). */
+  let stylesXml = await readStylesXml(data).catch(() => '');
+  let zoomValue: number | 'fit' = 'fit';
+
+  const create = (buf: ArrayBuffer): Promise<Any> => {
+    const file = new File([buf], 'document.docx', {
+      type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    });
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error('Le document met trop de temps à s’ouvrir')), 45000);
+      let inst: Any = null;
+      try {
+        inst = new SuperDoc({
+          selector: host,
+          document: file,
+          documentMode: 'editing',
+          telemetry: { enabled: false },
+          proofing: { enabled: false },
+          disablePiniaDevtools: true,
+          disableContextMenu: true,
+          rulers: false,
+          user: { name: 'Marginalia', email: '' },
+          zoom: { mode: 'fit-width', fitWidth: { min: 55, max: 100, padding: 32 } },
+          onReady: () => {
+            clearTimeout(timer);
+            // les transactions de normalisation qui suivent l'ouverture ne comptent pas comme modifications
+            setTimeout(() => (ready = true), 600);
+            resolve(inst);
+          },
+          onEditorUpdate: () => {
+            if (live()) opts.onChange?.();
+          },
+          onTransaction: (p: Any) => {
+            if (!live()) return;
+            // couvre aussi les éditeurs de notes (sessions de saisie de note de bas de page)
+            if (p?.transaction?.docChanged) opts.onChange?.();
+            opts.onSelection?.();
+          },
+          onContentError: (p: Any) => {
+            clearTimeout(timer);
+            reject(p?.error instanceof Error ? p.error : new Error('Document illisible'));
+          },
+        });
+      } catch (e) {
+        clearTimeout(timer);
+        reject(e);
+      }
+    });
+  };
+  const waitPainted = () =>
+    new Promise<void>((resolve) => {
+      // Attendre que la première page soit peinte (sinon l'interface montrerait une zone vide
+      // entre la fin du squelette et l'apparition de la page). Borné : 4 s.
+      const t0 = performance.now();
+      const tick = () => {
+        if (host.querySelector('.superdoc-page') || performance.now() - t0 > 4000) resolve();
+        else requestAnimationFrame(tick);
+      };
+      tick();
+    });
+
+  let sd: Any = await create(data).catch((e) => {
     for (const ev of INPUT_EVENTS) document.removeEventListener(ev, onUserInput, true);
     throw e;
   });
-
-  // Attendre que la première page soit peinte (sinon l'interface montrerait une zone vide
-  // entre la fin du squelette et l'apparition de la page). Borné : 4 s.
-  await new Promise<void>((resolve) => {
-    const t0 = performance.now();
-    const tick = () => {
-      if (host.querySelector('.superdoc-page') || performance.now() - t0 > 4000) resolve();
-      else requestAnimationFrame(tick);
-    };
-    tick();
-  });
+  await waitPainted();
 
   /** Éditeur du corps (pas la session de note éventuellement active). */
   const body = (): Any => {
@@ -182,6 +332,11 @@ export async function openDocEngine(host: HTMLElement, data: ArrayBuffer, opts: 
   const pres = (): Any => {
     const docs = sd.superdocStore?.documents;
     return docs?.[0]?.getPresentationEditor?.() ?? body()?.presentationEditor ?? null;
+  };
+  const body_ = () => body();
+  const changed = () => {
+    touched = true;
+    if (!destroyed) opts.onChange?.();
   };
 
   // ── Styles disponibles dans le document ──
@@ -199,10 +354,32 @@ export async function openDocEngine(host: HTMLElement, data: ArrayBuffer, opts: 
       for (const [id, name] of map) if (QUOTE_NAMES.includes(name)) return id;
       return null; // pas de style Citation : mise en forme directe
     }
+    if (s === 'title') {
+      if (map.has('Title')) return 'Title';
+      for (const [id, name] of map) if (name === 'title' || name === 'titre') return id;
+      return 'Title';
+    }
+    if (s === 'caption') {
+      if (map.has('Caption')) return 'Caption';
+      for (const [id, name] of map) if (name === 'caption' || name === 'légende') return id;
+      return 'Caption';
+    }
     const n = s === 'h1' ? 1 : s === 'h2' ? 2 : 3;
     if (map.has(`Heading${n}`)) return `Heading${n}`;
     for (const [id, name] of map) if (name === `heading ${n}` || name === `titre ${n}`) return id;
     return `Heading${n}`;
+  };
+  /** Styles à modifier pour « Corps » : tous les styles de corps présents (Normal, BodyText…). */
+  const styleIdsFor = (s: ParaStyle): string[] => {
+    if (s === 'body') {
+      const map = styleMap();
+      const ids = BODY_IDS.filter((id) => map.has(id) || new RegExp(`w:styleId="${id}"`).test(stylesXml));
+      const def = defaultParagraphStyle(stylesXml);
+      if (def && !ids.includes(def)) ids.unshift(def);
+      return ids.length ? ids : ['Normal'];
+    }
+    if (s === 'quote') return [resolveStyleId('quote') ?? 'Quote'];
+    return [resolveStyleId(s)!];
   };
   const kindOfStyle = (styleId: string | null | undefined, pp: Any): ParaStyle | 'other' => {
     if (!styleId) return pp?.indent?.left && pp?.indent?.right ? 'quote' : 'body';
@@ -214,6 +391,8 @@ export async function openDocEngine(host: HTMLElement, data: ArrayBuffer, opts: 
     if (lvl === 2) return 'h2';
     if (lvl === 3) return 'h3';
     if (lvl > 3) return 'other';
+    if (styleId === 'Title' || name === 'title' || name === 'titre') return 'title';
+    if (styleId === 'Caption' || name === 'caption' || name === 'légende') return 'caption';
     if (QUOTE_IDS.includes(styleId) || QUOTE_NAMES.includes(name)) return 'quote';
     if (/^(Normal|BodyText|FirstParagraph|Compact|Corpsdetexte)$/.test(styleId) || /^(normal|body text|first paragraph)$/.test(name)) return 'body';
     return 'other';
@@ -223,6 +402,51 @@ export async function openDocEngine(host: HTMLElement, data: ArrayBuffer, opts: 
   const paraDepth = ($pos: Any): number => {
     for (let d = $pos.depth; d > 0; d--) if ($pos.node(d).type.name === 'paragraph') return d;
     return -1;
+  };
+  /** Paragraphes de la sélection (au moins celui du curseur). */
+  const selectedParagraphs = (ed: Any): { node: Any; pos: number }[] => {
+    const out: { node: Any; pos: number }[] = [];
+    const { from, to, $from } = ed.state.selection;
+    ed.state.doc.nodesBetween(from, Math.max(to, from), (n: Any, pos: number) => {
+      if (n.type.name === 'paragraph') {
+        out.push({ node: n, pos });
+        return false;
+      }
+      return true;
+    });
+    if (!out.length) {
+      const d = paraDepth($from);
+      if (d > 0) out.push({ node: $from.node(d), pos: $from.before(d) });
+    }
+    return out;
+  };
+  const blockTargets = (ed: Any) =>
+    selectedParagraphs(ed)
+      .map((p) => p.node.attrs.sdBlockId)
+      .filter(Boolean)
+      .map((nodeId: string) => ({ kind: 'block', nodeType: 'paragraph', nodeId }));
+
+  /** Cible « sélection » de l'API documentaire (segments de texte de la sélection courante). */
+  const selectionTarget = (ed: Any): Any | null => {
+    const cur = ed.doc.selection.current({});
+    const sg: Any[] = cur?.target?.segments ?? [];
+    if (cur?.empty || !sg.length) return null;
+    const a = sg[0];
+    const b = sg[sg.length - 1];
+    return { kind: 'selection', start: { kind: 'text', blockId: a.blockId, offset: a.range.start }, end: { kind: 'text', blockId: b.blockId, offset: b.range.end } };
+  };
+
+  /** Marques des nœuds texte touchés par la sélection (le curseur : texte qui précède). */
+  const marksAtSelection = (ed: Any): Any[] => {
+    const { from, to, empty } = ed.state.selection;
+    const out: Any[] = [];
+    const a = empty ? Math.max(0, from - 1) : from;
+    const b = empty ? Math.min(ed.state.doc.content.size, from + 1) : to;
+    ed.state.doc.nodesBetween(a, b, (n: Any) => {
+      if (n.isText) out.push(...n.marks);
+      return true;
+    });
+    return out;
   };
 
   /** Ramène le curseur à l'intérieur d'un run (sinon la note serait hors <w:r>, OOXML invalide). */
@@ -255,11 +479,96 @@ export async function openDocEngine(host: HTMLElement, data: ArrayBuffer, opts: 
     return out;
   };
 
+  const exportRaw = async (): Promise<ArrayBuffer> => {
+    const blob: Blob = await sd.export({ exportType: ['docx'], commentsType: 'external', triggerDownload: false });
+    return blob.arrayBuffer();
+  };
+  const exportDocx = async (): Promise<ArrayBuffer> => normalizeDocx(await exportRaw());
+
+  /** Rouvre `buf` dans le même hôte en gardant la position du curseur et le défilement. */
+  const reload = async (buf: ArrayBuffer) => {
+    const ed = body();
+    const pos = ed?.state.selection.from ?? 1;
+    const scroller = host.closest('.ed-scroll') as HTMLElement | null;
+    const top = scroller?.scrollTop ?? 0;
+    host.classList.add('ed-reloading');
+    ready = false;
+    touched = false;
+    try {
+      sd.destroy();
+    } catch (e) {
+      console.warn(e);
+    }
+    host.innerHTML = '';
+    dropStray();
+    sd = await create(buf);
+    await waitPainted();
+    stylesXml = await readStylesXml(buf).catch(() => stylesXml);
+    if (zoomValue !== 'fit') engine.setZoom(zoomValue);
+    const e2 = body();
+    try {
+      const p = Math.max(1, Math.min(pos, e2.state.doc.content.size - 1));
+      e2.commands.setTextSelection({ from: p, to: p });
+    } catch {
+      /* position hors texte */
+    }
+    if (scroller) scroller.scrollTop = top;
+    host.classList.remove('ed-reloading');
+    opts.onReload?.();
+    changed();
+  };
+
+  /** Applique une transformation de paquet, rouvre, renvoie l'instantané d'avant. */
+  const transformDoc = async (fn: (d: ArrayBuffer) => Promise<ArrayBuffer>): Promise<ArrayBuffer> => {
+    const before = await exportDocx();
+    const after = await fn(before);
+    await reload(after);
+    return before;
+  };
+
+  // ── Sections (unités : pouces dans l'API documentaire) ──
+  const sections = (): Any[] => body()?.doc.sections.list({}).items ?? [];
+  const sectionsOp = async (fn: (target: Any, item: Any) => void): Promise<ArrayBuffer> => {
+    const before = await exportDocx();
+    for (const it of sections()) fn(it.address, it);
+    changed();
+    return before;
+  };
+  const explicitFooter = (variant: 'default' | 'first'): string | null => {
+    const items: Any[] = body()?.doc.headerFooters.list({}).items ?? [];
+    const it = items.find((i) => i.sectionIndex === 0 && i.kind === 'footer' && i.variant === variant && i.isExplicit);
+    return it?.refId ?? null;
+  };
+  const footerText = (refId: string): string => {
+    try {
+      const kids = new Set(Array.from(document.body.children));
+      const fe = pres()?.ensureHeaderFooterEditor?.('footer', refId);
+      for (const el of Array.from(document.body.children)) if (!kids.has(el)) stray.add(el as HTMLElement);
+      hideStray();
+      return fe?.state?.doc?.textContent ?? '';
+    } catch {
+      return '';
+    }
+  };
+  const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+  /** Éléments que SuperDoc ajoute à <body> (éditeurs de pied de page). */
+  const stray = new Set<HTMLElement>();
+  const hideStray = () => {
+    for (const el of stray) {
+      el.style.setProperty('left', '-20000px', 'important');
+      el.style.setProperty('top', '0', 'important');
+      el.style.setProperty('position', 'fixed', 'important');
+      el.style.setProperty('visibility', 'hidden', 'important');
+      el.setAttribute('aria-hidden', 'true');
+    }
+  };
+  const dropStray = () => {
+    for (const el of stray) el.remove();
+    stray.clear();
+  };
+
   const engine: DocEngine = {
-    async exportDocx() {
-      const blob: Blob = await sd.export({ exportType: ['docx'], commentsType: 'external', triggerDownload: false });
-      return blob.arrayBuffer();
-    },
+    exportDocx,
     plainText() {
       return textblocks().join('\n');
     },
@@ -280,44 +589,208 @@ export async function openDocEngine(host: HTMLElement, data: ArrayBuffer, opts: 
           if (text && (k === 'h1' || k === 'h2' || k === 'h3')) out.push({ level: Number(k[1]) as 1 | 2 | 3, text, pos });
           return false;
         }
+        if (n.type.name === 'tableOfContents') return false;
         return true;
       });
       return out;
     },
     state() {
       const ed = body();
-      const st: EngineState = { bold: false, italic: false, underline: false, style: 'body', list: false, pos: 0 };
+      const st: EngineState = {
+        bold: false,
+        italic: false,
+        underline: false,
+        strike: false,
+        superscript: false,
+        subscript: false,
+        smallCaps: false,
+        fontFamily: null,
+        fontSize: null,
+        color: null,
+        highlight: null,
+        align: 'left',
+        lineHeight: null,
+        spaceBefore: 0,
+        spaceAfter: 0,
+        indentLeft: 0,
+        firstLine: 0,
+        style: 'body',
+        styleId: null,
+        list: null,
+        listLevel: 0,
+        inTable: false,
+        link: null,
+        empty: true,
+        pos: 0,
+      };
       if (!ed) return st;
-      const { selection, storedMarks } = ed.state;
+      const { selection } = ed.state;
       st.pos = selection.from;
-      const marks: Any[] = storedMarks ?? selection.$from.marks();
-      for (const m of marks) {
-        const n = m.type.name;
-        if (n === 'bold') st.bold = true;
-        if (n === 'italic') st.italic = true;
-        if (n === 'underline') st.underline = true;
+      st.empty = selection.empty;
+      let af: Any[] = [];
+      try {
+        af = SuperDoc.getActiveFormatting(ed) ?? [];
+      } catch {
+        af = [];
+      }
+      const get = (n: string) => af.find((x) => x.name === n)?.attrs;
+      st.bold = !!get('bold') && get('bold').value !== false;
+      st.italic = !!get('italic') && get('italic').value !== false;
+      st.underline = !!get('underline') && get('underline').underlineType !== 'none';
+      st.strike = !!get('strike') && get('strike').value !== false;
+      const rp = get('runProperties')?.runProperties ?? {};
+      const va = rp.vertAlign ?? get('vertAlign')?.vertAlign;
+      st.superscript = va === 'superscript';
+      st.subscript = va === 'subscript';
+      st.smallCaps = !!rp.smallCaps;
+      st.fontFamily = familyName(get('fontFamily')?.fontFamily);
+      const fs = get('fontSize')?.fontSize;
+      st.fontSize = fs ? parseFloat(String(fs)) || null : null;
+      st.color = get('color')?.color ?? null;
+      st.highlight = get('highlight')?.color ?? null;
+      const linkMark = marksAtSelection(ed).find((m: Any) => m.type.name === 'link');
+      st.link = linkMark?.attrs?.href ?? null;
+      // valeurs héritées des marques résolues (styles) si rien d'explicite
+      if (!st.fontFamily || !st.fontSize) {
+        const ts = (selection.$from.marks() as Any[]).find((m) => m.type.name === 'textStyle')?.attrs;
+        st.fontFamily ??= familyName(ts?.fontFamily);
+        if (!st.fontSize && ts?.fontSize) st.fontSize = parseFloat(String(ts.fontSize)) || null;
       }
       const d = paraDepth(selection.$from);
       if (d > 0) {
         const p = selection.$from.node(d);
-        const pp = p.attrs.paragraphProperties;
-        st.style = kindOfStyle(pp?.styleId, pp);
-        st.list = !!pp?.numberingProperties;
+        const pp = p.attrs.paragraphProperties ?? {};
+        st.styleId = pp.styleId ?? null;
+        st.style = kindOfStyle(pp.styleId, pp);
+        const eff = effectiveStyleProps(stylesXml, pp.styleId ?? null);
+        const np = pp.numberingProperties;
+        if (np) {
+          st.listLevel = Number(np.ilvl ?? 0);
+          const listType = p.attrs.listRendering?.numberingType ?? p.attrs.listRendering?.markerType;
+          st.list = /bullet/i.test(String(listType ?? '')) ? 'bullet' : 'ordered';
+          if (!listType) {
+            const txt = String(p.attrs.listRendering?.markerText ?? '');
+            st.list = /^[\d\w]+[.)]?$/.test(txt) ? 'ordered' : 'bullet';
+          }
+        }
+        const jc = pp.justification ?? eff.align;
+        st.align = jc === 'both' || jc === 'justify' ? 'justify' : jc === 'center' ? 'center' : jc === 'right' || jc === 'end' ? 'right' : 'left';
+        const sp = pp.spacing ?? {};
+        if (sp.line != null && (sp.lineRule ?? 'auto') === 'auto') st.lineHeight = Math.round((Number(sp.line) / 240) * 100) / 100;
+        else if (sp.line == null) st.lineHeight = eff.lineSpacing ?? 1;
+        st.spaceBefore = Number(sp.before ?? eff.before ?? 0);
+        st.spaceAfter = Number(sp.after ?? eff.after ?? 0);
+        const ind = pp.indent ?? {};
+        st.indentLeft = Number(ind.left ?? 0);
+        st.firstLine = ind.firstLine != null ? Number(ind.firstLine) : ind.hanging != null ? -Number(ind.hanging) : Number(eff.firstLine ?? 0);
+        if (!st.fontFamily) st.fontFamily = eff.fontFamily ?? null;
+        if (!st.fontSize) st.fontSize = eff.fontSize ?? null;
       }
+      // (sélection de cellules : $from est entre les cellules, hors paragraphe)
+      for (let k = selection.$from.depth; k > 0; k--) if (selection.$from.node(k).type.name === 'table') st.inTable = true;
       return st;
     },
-    setParagraphStyle(s) {
+
+    // ── Caractères ──
+    toggleMark(m) {
       touched = true;
       const ed = body();
       if (!ed) return;
+      if (m === 'bold') ed.commands.toggleBold();
+      else if (m === 'italic') ed.commands.toggleItalic();
+      else if (m === 'underline') ed.commands.toggleUnderline();
+      else if (m === 'strike') ed.commands.toggleStrike();
+      else {
+        const st = engine.state();
+        const target = selectionTarget(ed);
+        if (!target) return;
+        if (m === 'smallCaps') ed.doc.format.smallCaps({ target, value: !st.smallCaps });
+        else {
+          const on = m === 'superscript' ? st.superscript : st.subscript;
+          ed.doc.format.vertAlign({ target, value: on ? 'baseline' : m });
+        }
+        changed();
+      }
+      ed.view.focus();
+    },
+    setFontFamily(family) {
+      touched = true;
+      const ed = body();
+      if (!ed) return;
+      ed.commands.setFontFamily(family);
+      ed.view.focus();
+    },
+    setFontSize(pt) {
+      touched = true;
+      const ed = body();
+      if (!ed) return;
+      const v = Math.min(400, Math.max(1, Math.round(pt * 2) / 2));
+      ed.commands.setFontSize(`${v}pt`);
+      ed.view.focus();
+    },
+    stepFontSize(dir) {
+      const cur = engine.state().fontSize ?? 12;
+      const next = dir > 0 ? FONT_SIZES.find((s) => s > cur + 0.01) ?? Math.min(400, cur + 8) : [...FONT_SIZES].reverse().find((s) => s < cur - 0.01) ?? Math.max(1, cur - 1);
+      engine.setFontSize(next);
+    },
+    setColor(hex) {
+      touched = true;
+      const ed = body();
+      if (!ed) return;
+      if (hex) ed.commands.setColor(hex);
+      else ed.commands.unsetColor();
+      ed.view.focus();
+    },
+    setHighlight(hex) {
+      touched = true;
+      const ed = body();
+      if (!ed) return;
+      if (hex) ed.commands.setHighlight(hex);
+      else ed.commands.unsetHighlight();
+      ed.view.focus();
+    },
+    clearInlineFormatting() {
+      touched = true;
+      const ed = body();
+      if (!ed) return;
+      // NB : commands.clearFormat retire aussi le style de paragraphe (research/9 §1.1) : jamais utilisé.
+      let ok = false;
+      try {
+        const target = selectionTarget(ed);
+        if (target) {
+          const r = ed.doc.format.apply({
+            target,
+            inline: { bold: null, italic: null, underline: null, strike: null, color: null, fontFamily: null, fontSize: null, highlight: null, vertAlign: null, smallCaps: null, caps: null },
+          });
+          ok = r?.success !== false;
+        }
+      } catch (e) {
+        console.warn(e);
+      }
+      if (!ok) ed.commands.unsetAllMarks();
+      changed();
+      ed.view.focus();
+    },
+
+    // ── Paragraphes ──
+    async setParagraphStyle(s) {
+      touched = true;
+      let ed = body();
+      if (!ed) return;
+      let styleId = resolveStyleId(s);
+      // Style absent du document (Titre, Légende, Titre N d'un fichier externe) : on l'ajoute d'abord.
+      if (styleId && !styleMap().has(styleId)) {
+        const def = styleDef(styleId);
+        if (def) {
+          await transformDoc((d) => transformStyles(d, (x) => ensureStylesXml(x, { [styleId!]: def })));
+          ed = body();
+          styleId = resolveStyleId(s);
+        }
+      }
       // NB : commands.setStyleById efface gras / italique du paragraphe (constaté) ;
       // on ne change donc que l'identifiant de style du ou des paragraphes sélectionnés.
-      const styleId = resolveStyleId(s);
-      const { state } = ed;
-      const { from, to } = state.selection;
-      let tr = state.tr;
-      state.doc.nodesBetween(from, to, (n: Any, pos: number) => {
-        if (n.type.name !== 'paragraph') return true;
+      let tr = ed.state.tr;
+      for (const { node: n, pos } of selectedParagraphs(ed)) {
         const pp = { ...(n.attrs.paragraphProperties ?? {}) };
         if (styleId) pp.styleId = styleId;
         else delete pp.styleId;
@@ -329,19 +802,58 @@ export async function openDocEngine(host: HTMLElement, data: ArrayBuffer, opts: 
         }
         if (s !== 'body' && pp.numberingProperties && s !== 'quote') delete pp.numberingProperties;
         tr = tr.setNodeMarkup(pos, undefined, { ...n.attrs, paragraphProperties: pp });
-        return false;
-      });
+      }
       if (tr.docChanged) ed.view.dispatch(tr);
       ed.view.focus();
     },
-    toggleMark(m) {
+    setAlign(a) {
       touched = true;
       const ed = body();
       if (!ed) return;
-      if (m === 'bold') ed.commands.toggleBold();
-      else if (m === 'italic') ed.commands.toggleItalic();
-      else ed.commands.toggleUnderline();
+      ed.commands.setTextAlign(a);
       ed.view.focus();
+    },
+    setLineHeight(v) {
+      touched = true;
+      const ed = body();
+      if (!ed) return;
+      ed.commands.setLineHeight(v);
+      ed.view.focus();
+    },
+    setParagraphSpacing(v) {
+      touched = true;
+      const ed = body();
+      if (!ed) return;
+      for (const target of blockTargets(ed)) ed.doc.format.paragraph.setSpacing({ target, ...v });
+      changed();
+      ed.view.focus();
+    },
+    setIndent(v) {
+      touched = true;
+      const ed = body();
+      if (!ed) return;
+      for (const target of blockTargets(ed)) {
+        const args: Any = { target };
+        if (v.left !== undefined) args.left = Math.max(0, Math.round(v.left));
+        if (v.firstLine !== undefined) {
+          if (v.firstLine >= 0) args.firstLine = Math.round(v.firstLine);
+          else args.hanging = Math.round(-v.firstLine);
+        }
+        ed.doc.format.paragraph.setIndentation(args);
+      }
+      changed();
+      ed.view.focus();
+    },
+    changeIndent(dir) {
+      touched = true;
+      const ed = body();
+      if (!ed) return;
+      const st = engine.state();
+      if (st.list) {
+        engine.listLevel(dir);
+        return;
+      }
+      engine.setIndent({ left: Math.max(0, st.indentLeft + dir * 709), firstLine: st.firstLine });
     },
     toggleList(kind) {
       touched = true;
@@ -351,6 +863,54 @@ export async function openDocEngine(host: HTMLElement, data: ArrayBuffer, opts: 
       else ed.commands.toggleOrderedList();
       ed.view.focus();
     },
+    outlineList() {
+      touched = true;
+      const ed = body();
+      if (!ed) return;
+      const st = engine.state();
+      if (st.list !== 'ordered') ed.commands.toggleOrderedList();
+      // niveaux 2 et 3 : 1.1. et 1.1.1. (research/9 §1.3 : lists.setLevelText)
+      try {
+        const para = selectedParagraphs(ed)[0];
+        const paraId = para?.node.attrs.paraId;
+        const lists: Any[] = ed.doc.lists.list({}).items ?? [];
+        const item = lists.find((x) => x.address?.nodeId === paraId)?.address;
+        if (!item) throw new Error('élément de liste introuvable');
+        ed.doc.lists.setLevelText({ target: item, level: 0, text: '%1.' });
+        ed.doc.lists.setLevelText({ target: item, level: 1, text: '%1.%2.' });
+        ed.doc.lists.setLevelText({ target: item, level: 2, text: '%1.%2.%3.' });
+      } catch (e) {
+        console.warn('numérotation hiérarchique', e);
+      }
+      changed();
+      ed.view.focus();
+    },
+    listLevel(dir) {
+      touched = true;
+      const ed = body();
+      if (!ed) return false;
+      const ok = dir > 0 ? ed.commands.increaseListIndent() : ed.commands.decreaseListIndent();
+      ed.view.focus();
+      return !!ok;
+    },
+
+    // ── Styles ──
+    styleProps(s) {
+      const ids = styleIdsFor(s);
+      return effectiveStyleProps(stylesXml, ids.includes('Normal') && s === 'body' ? 'Normal' : ids[0]);
+    },
+    async modifyStyle(s, patch) {
+      touched = true;
+      const ids = styleIdsFor(s);
+      const defs: Record<string, string> = {};
+      for (const id of ids) {
+        const d = styleDef(id);
+        if (d) defs[id] = d;
+      }
+      return transformDoc((d) => transformStyles(d, (x) => patchStylesXml(x, ids, patch, defs)));
+    },
+
+    // ── Insertion ──
     insertFootnote() {
       touched = true;
       const ed = body();
@@ -413,6 +973,346 @@ export async function openDocEngine(host: HTMLElement, data: ArrayBuffer, opts: 
       ed.view.focus();
       return ok;
     },
+    insertText(text) {
+      touched = true;
+      const ed = body();
+      if (!ed) return;
+      // Transaction directe : insertContent(chaîne) passe par l'analyse HTML, qui change les
+      // espaces insécables (U+00A0, U+202F) en espaces ordinaires.
+      caretIntoRun(ed);
+      if (ed.state.selection.$from.parent.type.name === 'run') ed.view.dispatch(ed.state.tr.insertText(text));
+      else ed.commands.insertContent({ type: 'text', text });
+      ed.view.focus();
+    },
+    insertPageBreak() {
+      touched = true;
+      const ed = body();
+      if (!ed) return;
+      ed.commands.insertPageBreak();
+      ed.view.focus();
+    },
+    insertTable(rows, cols) {
+      touched = true;
+      const ed = body();
+      if (!ed) return false;
+      const ok = !!ed.commands.insertTable({ rows, cols, withHeaderRow: false });
+      if (!ok) return false;
+      // SuperDoc n'écrit pas de bordures par défaut : tableau invisible dans Word. Bordures fines.
+      try {
+        const $f = ed.state.selection.$from;
+        let tbl: Any = null;
+        for (let k = $f.depth; k > 0; k--) if ($f.node(k).type.name === 'table') tbl = $f.node(k);
+        const nodeId = tbl?.attrs?.sdBlockId ?? tbl?.attrs?.paraId;
+        if (nodeId) ed.doc.tables.applyBorderPreset({ target: { kind: 'block', nodeType: 'table', nodeId }, preset: 'all', size: 4, color: '000000' });
+      } catch (e) {
+        console.warn('bordures du tableau', e);
+      }
+      changed();
+      ed.view.focus();
+      return true;
+    },
+    tableOp(op) {
+      touched = true;
+      const ed = body();
+      if (!ed) return false;
+      const c = ed.commands;
+      const ok =
+        op === 'rowBefore'
+          ? c.addRowBefore()
+          : op === 'rowAfter'
+            ? c.addRowAfter()
+            : op === 'colBefore'
+              ? c.addColumnBefore()
+              : op === 'colAfter'
+                ? c.addColumnAfter()
+                : op === 'deleteRow'
+                  ? c.deleteRow()
+                  : op === 'deleteCol'
+                    ? c.deleteColumn()
+                    : op === 'merge'
+                      ? c.mergeCells()
+                      : op === 'split'
+                        ? c.splitCell()
+                        : op === 'headerRow'
+                          ? c.toggleHeaderRow()
+                          : c.deleteTable();
+      ed.view.focus();
+      return !!ok;
+    },
+    insertImage(src, width, height, alt) {
+      touched = true;
+      const ed = body();
+      if (!ed) return false;
+      // largeur du texte en px (96 px par pouce) d'après la première section
+      const sec = sections()[0];
+      const maxW = sec ? (sec.pageSetup.width - sec.margins.left - sec.margins.right) * 96 : 600;
+      const k = width > maxW ? maxW / width : 1;
+      const ok = !!ed.commands.setImage({ src, alt, size: { width: Math.round(width * k), height: Math.round(height * k) } });
+      ed.view.focus();
+      return ok;
+    },
+    setLink(href, text) {
+      touched = true;
+      const ed = body();
+      if (!ed) return false;
+      const { empty, from } = ed.state.selection;
+      if (empty) {
+        const label = text || href;
+        ed.commands.insertContent(label);
+        ed.commands.setTextSelection({ from, to: from + label.length });
+      }
+      const ok = !!ed.commands.setLink({ href });
+      const to = ed.state.selection.to;
+      ed.commands.setTextSelection({ from: to, to });
+      ed.view.focus();
+      return ok;
+    },
+    unsetLink() {
+      touched = true;
+      const ed = body();
+      if (!ed) return;
+      // étend la sélection au lien entier si le curseur y est seulement posé
+      const { empty, from } = ed.state.selection;
+      if (empty) {
+        const $p = ed.state.doc.resolve(from);
+        let start = from;
+        let end = from;
+        ed.state.doc.nodesBetween($p.start(), $p.end(), (n: Any, pos: number) => {
+          if (n.isText && n.marks.some((m: Any) => m.type.name === 'link') && pos <= from && pos + n.nodeSize >= from) {
+            start = pos;
+            end = pos + n.nodeSize;
+          }
+          return true;
+        });
+        ed.commands.setTextSelection({ from: start, to: end });
+      }
+      ed.commands.unsetLink();
+      ed.view.focus();
+    },
+    async insertToc() {
+      touched = true;
+      const ed = body();
+      if (!ed) return false;
+      let ok = false;
+      const para = selectedParagraphs(ed)[0];
+      const nodeId = para?.node.attrs.sdBlockId;
+      try {
+        if (nodeId) ok = !!ed.doc.create.tableOfContents({ at: { kind: 'before', target: { kind: 'block', nodeType: 'paragraph', nodeId } } })?.success;
+      } catch (e) {
+        console.warn(e);
+      }
+      if (!ok) {
+        try {
+          ok = !!ed.commands.insertTableOfContents();
+        } catch (e) {
+          console.warn(e);
+        }
+      }
+      if (!ok) {
+        try {
+          ok = !!ed.doc.create.tableOfContents({ at: { kind: 'documentStart' } })?.success;
+        } catch (e) {
+          console.error(e);
+        }
+      }
+      if (ok) await engine.updateToc();
+      changed();
+      ed.view.focus();
+      return ok;
+    },
+    async updateToc() {
+      touched = true;
+      const ed = body();
+      if (!ed) return 0;
+      const list = (): Any[] => ed.doc.toc.list({}).items ?? [];
+      let n = 0;
+      for (const it of list()) {
+        try {
+          ed.doc.toc.update({ target: it.address, mode: 'all' });
+          n++;
+        } catch (e) {
+          console.warn(e);
+        }
+      }
+      // numéros de page : calculés d'après la mise en page, une fois celle-ci recalculée
+      await sleep(500);
+      for (const it of list()) {
+        try {
+          ed.doc.toc.update({ target: it.address, mode: 'pageNumbers' });
+        } catch (e) {
+          console.warn(e);
+        }
+      }
+      if (n) changed();
+      return n;
+    },
+    tocCount() {
+      try {
+        return body()?.doc.toc.list({}).total ?? 0;
+      } catch {
+        return 0;
+      }
+    },
+
+    // ── Mise en page ──
+    pageSetup() {
+      const s = sections()[0];
+      const def: PageSetup = { width: 21, height: 29.7, orientation: 'portrait', margins: { top: 2.5, right: 2.5, bottom: 2.5, left: 2.5 }, titlePage: false, pageNumbers: 'none' };
+      if (!s) return def;
+      const ref = explicitFooter('default');
+      let pageNumbers: PageNumbers = 'none';
+      if (ref) {
+        const t = footerText(ref);
+        pageNumbers = /\//.test(t) ? 'n-of-total' : 'n';
+      }
+      return {
+        width: r2(s.pageSetup.width * IN),
+        height: r2(s.pageSetup.height * IN),
+        orientation: s.pageSetup.orientation === 'landscape' || s.pageSetup.width > s.pageSetup.height ? 'landscape' : 'portrait',
+        margins: { top: r2(s.margins.top * IN), right: r2(s.margins.right * IN), bottom: r2(s.margins.bottom * IN), left: r2(s.margins.left * IN) },
+        titlePage: !!s.titlePage,
+        pageNumbers,
+      };
+    },
+    setPageSize(size) {
+      const land = engine.pageSetup().orientation === 'landscape';
+      const w = (land ? Math.max(size.width, size.height) : Math.min(size.width, size.height)) / IN;
+      const h = (land ? Math.min(size.width, size.height) : Math.max(size.width, size.height)) / IN;
+      return sectionsOp((target) => body().doc.sections.setPageSetup({ target, width: w, height: h }));
+    },
+    setOrientation(o) {
+      return sectionsOp((target) => body().doc.sections.setPageSetup({ target, orientation: o }));
+    },
+    setMargins(m) {
+      return sectionsOp((target) => body().doc.sections.setPageMargins({ target, top: m.top / IN, right: m.right / IN, bottom: m.bottom / IN, left: m.left / IN }));
+    },
+    async setPageNumbers(mode) {
+      const before = await exportDocx();
+      const d = body().doc;
+      const secs = sections();
+      const old = explicitFooter('default');
+      if (old) {
+        for (const s of secs) {
+          try {
+            d.sections.clearHeaderFooterRef({ target: s.address, kind: 'footer', variant: 'default' });
+          } catch (e) {
+            console.warn(e);
+          }
+        }
+        try {
+          d.headerFooters.parts.delete({ target: { kind: 'headerFooterPart', refId: old } });
+        } catch {
+          /* partie conservée (sans effet) */
+        }
+      }
+      if (mode !== 'none') {
+        const f = d.headerFooters.parts.create({ kind: 'footer' });
+        for (const s of secs) d.sections.setHeaderFooterRef({ target: s.address, kind: 'footer', variant: 'default', refId: f.refId });
+        await sleep(400);
+        const kids = new Set(Array.from(document.body.children));
+        const fe = pres()?.ensureHeaderFooterEditor?.('footer', f.refId);
+        // SuperDoc crée l'éditeur du pied dans <body> faute d'hôte (avertissement « No editorHost ») :
+        // on le sort de l'écran (il reste nécessaire à l'export) et on le retire à la fermeture.
+        for (const el of Array.from(document.body.children)) if (!kids.has(el)) stray.add(el as HTMLElement);
+        hideStray();
+        if (!fe) throw new Error('Pied de page indisponible');
+        if (mode === 'n-of-total') {
+          fe.commands.insertContent('Page ');
+          fe.commands.addAutoPageNumber();
+          fe.commands.insertContent(' / ');
+          fe.commands.addTotalPageCount();
+        } else fe.commands.addAutoPageNumber();
+        fe.commands.setTextAlign('center');
+        try {
+          pres()?.exitActiveStorySurface?.();
+        } catch {
+          /* pas de session active */
+        }
+      }
+      changed();
+      return before;
+    },
+    async setTitlePage(on) {
+      const before = await exportDocx();
+      const d = body().doc;
+      const s0 = sections()[0];
+      if (!s0) return before;
+      d.sections.setTitlePage({ target: s0.address, enabled: on });
+      // pied de 1re page vide explicite (sinon certains logiciels reprennent le pied courant)
+      if (on && !explicitFooter('first')) {
+        const f = d.headerFooters.parts.create({ kind: 'footer' });
+        d.sections.setHeaderFooterRef({ target: s0.address, kind: 'footer', variant: 'first', refId: f.refId });
+      }
+      changed();
+      return before;
+    },
+    async applyAcademicLayout() {
+      touched = true;
+      const before = await exportDocx();
+      const TNR = 'Times New Roman';
+      const body = styleIdsFor('body');
+      const quote = resolveStyleId('quote') ?? 'Quote';
+      const defs: Record<string, string> = {};
+      for (const id of [...body, quote, 'FootnoteText']) {
+        const d = styleDef(id);
+        if (d) defs[id] = d;
+      }
+      const after = await transformStyles(before, (x) => {
+        let y = patchStylesXml(x, body, { fontFamily: TNR, fontSize: 12, lineSpacing: 1.5, align: 'both', firstLine: 709 }, defs);
+        y = patchStylesXml(y, ['FootnoteText'], { fontFamily: TNR, fontSize: 10, lineSpacing: 1, align: 'both', firstLine: 0 }, defs);
+        y = patchStylesXml(y, [quote], { fontSize: 10, lineSpacing: 1, firstLine: 0 }, defs);
+        // titres, légendes, sommaire : pas d'alinéa hérité du corps (styles existants seulement)
+        y = patchStylesXml(y, ['Title', 'Subtitle', 'Heading1', 'Heading2', 'Heading3', 'Caption', 'TOC1', 'TOC2', 'TOC3', 'ListParagraph'], { firstLine: 0 }, {});
+        // titres : même police que le corps (les styles de Word ou de pandoc utilisent souvent la police du thème)
+        y = patchStylesXml(y, ['Title', 'Subtitle', 'Heading1', 'Heading2', 'Heading3', 'Heading4', 'Caption'], { fontFamily: TNR }, {});
+        return replaceThemeFonts(y, TNR);
+      });
+      await reload(after);
+      for (const it of sections()) body_().doc.sections.setPageMargins({ target: it.address, top: 2.5 / IN, right: 2.5 / IN, bottom: 2.5 / IN, left: 2.5 / IN });
+      if (engine.pageSetup().pageNumbers === 'none') await engine.setPageNumbers('n');
+      if (!engine.pageSetup().titlePage) await engine.setTitlePage(true);
+      changed();
+      return before;
+    },
+    async restore(snapshot) {
+      await reload(snapshot);
+    },
+
+    // ── Vue ──
+    zoom() {
+      try {
+        return Number(sd.getZoomState?.()?.value ?? sd.getZoom?.() ?? 100);
+      } catch {
+        return 100;
+      }
+    },
+    setZoom(z) {
+      zoomValue = z;
+      try {
+        if (z === 'fit') sd.setZoomMode?.('fit-width');
+        else sd.setZoom(Math.max(50, Math.min(200, z)));
+      } catch (e) {
+        console.warn(e);
+      }
+    },
+    selectionRect() {
+      const ed = body();
+      if (!ed || ed.state.selection.empty) return null;
+      try {
+        const rects: Any[] = pres()?.getSelectionRects?.() ?? [];
+        if (!rects.length) return null;
+        // coordonnées déjà exprimées dans la fenêtre (vérifié contre les spans peints)
+        const r0 = rects[0];
+        const same = rects.filter((r) => r.pageIndex === r0.pageIndex);
+        const left = Math.min(...same.map((r) => r.left));
+        const right = Math.max(...same.map((r) => r.right));
+        const top = Math.min(...same.map((r) => r.top));
+        const bottom = Math.max(...same.map((r) => r.bottom));
+        return new DOMRect(left, top, right - left, bottom - top);
+      } catch {
+        return null;
+      }
+    },
     appendParagraph(text) {
       touched = true;
       const ed = body();
@@ -461,6 +1361,10 @@ export async function openDocEngine(host: HTMLElement, data: ArrayBuffer, opts: 
       } catch (e) {
         console.warn(e);
       }
+      dropStray();
+    },
+    debugEditor() {
+      return { editor: body(), superdoc: sd, stylesXml };
     },
   };
   return engine;

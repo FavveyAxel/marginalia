@@ -1,13 +1,12 @@
 // Liste des écrits (route { name: 'write', draftId: null }).
 import { useState, type CSSProperties } from 'react';
-import { BookOpenText, ChevronDown, FileText, FolderOpen, MoreHorizontal, NotebookPen, Pencil, Plus, ScrollText, Trash2 } from 'lucide-react';
+import { BookOpenText, ChevronDown, FileText, FolderOpen, GraduationCap, MoreHorizontal, NotebookPen, Pencil, Plus, ScrollText, Trash2 } from 'lucide-react';
 import { useShallow } from 'zustand/react/shallow';
 import { useStore } from '../../lib/store';
-import { host } from '../../lib/platform';
 import type { Draft } from '../../lib/types';
 import { relativeTime } from '../../components/ui';
-import { createDraftImpl, openDocxFromDiskImpl, PREV_FILE } from './impl';
-import { TEMPLATES, templateInfo, type TemplateId } from './templates';
+import { createFromTemplateImpl, openDocxFromDiskImpl } from './impl';
+import { TEMPLATES, type TemplateId, type TemplateKey } from './templates';
 import { Popover, usePop } from './Popover';
 import { setExternalDirty, words } from './save';
 
@@ -17,6 +16,7 @@ const TEMPLATE_ICON: Record<TemplateId, typeof FileText> = {
   explication: BookOpenText,
   fiche: NotebookPen,
 };
+const KEY_ICON: Record<TemplateKey, typeof FileText> = { ...TEMPLATE_ICON, universitaire: GraduationCap };
 
 function baseName(p: string): string {
   return p.split(/[\\/]/).pop() ?? p;
@@ -26,11 +26,11 @@ export function NewDraftButton({ primary = true }: { primary?: boolean }) {
   const pop = usePop();
   const navigate = useStore((s) => s.navigate);
   const [busy, setBusy] = useState(false);
-  const create = async (id: TemplateId) => {
+  const create = async (key: TemplateKey) => {
     pop.close();
     setBusy(true);
     try {
-      const d = await createDraftImpl({ title: templateInfo(id).defaultTitle, template: id });
+      const d = await createFromTemplateImpl(key);
       navigate({ name: 'write', draftId: d.id });
     } catch (e) {
       console.error(e);
@@ -47,9 +47,9 @@ export function NewDraftButton({ primary = true }: { primary?: boolean }) {
       <Popover pop={pop} label="Modèles" className="ed-tpl-menu">
         <div className="ed-pop-title">Choisir un modèle</div>
         {TEMPLATES.map((t) => {
-          const Icon = TEMPLATE_ICON[t.id];
+          const Icon = KEY_ICON[t.key];
           return (
-            <button key={t.id} className="ed-tpl-item" onClick={() => create(t.id)}>
+            <button key={t.key} className="ed-tpl-item" onClick={() => create(t.key)} data-template={t.key}>
               <span className="ed-tpl-icon">
                 <Icon size={16} />
               </span>
@@ -97,14 +97,11 @@ function DraftCard({ draft, index }: { draft: Draft; index: number }) {
   };
   const remove = async () => {
     confirm.close();
-    try {
-      await host.deleteFile(draft.id, PREV_FILE);
-    } catch {
-      /* pas de copie */
-    }
+    // L'écrit part dans la corbeille (30 jours) : ses fichiers, dont la copie de sauvegarde
+    // document.prev.docx, restent sur le disque pour pouvoir le restaurer.
     setExternalDirty(draft.id, false);
+    // (la corbeille affiche elle-même la confirmation, avec « Annuler »)
     await useStore.getState().removeDraft(draft.id);
-    useStore.getState().toast(`« ${draft.title} » supprimé`);
   };
 
   return (
@@ -186,8 +183,8 @@ function DraftCard({ draft, index }: { draft: Draft; index: number }) {
         <p className="ed-confirm-q">Supprimer « {draft.title} » ?</p>
         <p className="ed-confirm-note">
           {draft.externalPath
-            ? 'La copie de travail est effacée de Marginalia. Le fichier d’origine sur le disque n’est pas touché.'
-            : 'L’écrit est effacé de Marginalia. Exportez-le d’abord si vous voulez le garder.'}
+            ? 'L’écrit ira dans la corbeille, où vous pourrez le restaurer pendant 30 jours. Le fichier d’origine sur le disque n’est pas touché.'
+            : 'L’écrit ira dans la corbeille, où vous pourrez le restaurer pendant 30 jours.'}
         </p>
         <div className="ed-confirm-actions">
           <button className="btn btn-sm" onClick={confirm.close}>

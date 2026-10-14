@@ -197,8 +197,10 @@
   gap: 2px;
   padding: 4px 6px;
   border-radius: 999px;
-  background: color-mix(in srgb, var(--bg-panel) 92%, transparent);
-  backdrop-filter: blur(10px);
+  /* Fond presque opaque, SANS backdrop-filter : un flou d'arrière-plan au-dessus des pages oblige
+     à recomposer tout ce qui défile dessous à chaque image (mesuré : −20 % de fil principal
+     pendant un glissé de sélection, plus de tâches longues). */
+  background: color-mix(in srgb, var(--bg-panel) 97%, transparent);
   box-shadow: var(--shadow-md);
   font-size: var(--fs-sm);
   color: var(--ink-2);

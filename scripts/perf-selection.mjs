@@ -1,5 +1,5 @@
 // Mesure de la sélection de texte (EPUB long, PDF long, vue simple et côte à côte, dizaines de surlignages).
-// Port 5218. Lancer : timeout 400 node scripts/perf-selection.mjs [--renders] [--profile] [--throttle=4]
+// Port 5218. Lancer : timeout 400 node scripts/perf-selection.mjs [--renders] [--profile] [--trace] [--throttle=4] [--dpr=2] [--dark] [--only=PDF] [--verbose]
 // Sortie : latence d'apparition de la barre de sélection, coût du glissé (script / style / mise en page,
 // images longues), temps de création d'un surlignage, nombre de rendus React par composant.
 import { createServer } from 'vite';
@@ -19,6 +19,9 @@ const ONLY = (ARGS.find((a) => a.startsWith('--only=')) ?? '').split('=')[1] ?? 
 const TRACE = ARGS.includes('--trace');
 const RUNS = TRACE ? 2 : 5;
 const CSS = (ARGS.find((a) => a.startsWith('--css=')) ?? '').slice(6);
+const DPR = Number((ARGS.find((a) => a.startsWith('--dpr=')) ?? '--dpr=1').split('=')[1]);
+const VERBOSE = ARGS.includes('--verbose');
+const DARK = ARGS.includes('--dark');
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'marg-perf-'));
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -77,7 +80,10 @@ const RENDER_HOOK = () => {
           if (n) rc.by[n] = (rc.by[n] || 0) + 1;
         }
         if (f.sibling) stack.push(f.sibling);
-        if (f.child) stack.push(f.child);
+        // Sous-arbre sauté par React (enfants identiques à ceux du rendu précédent) : pas rendu.
+        // (Sans ce test, les fibres d'un sous-arbre inchangé gardent leur drapeau PerformedWork
+        // d'un ancien rendu et sont comptées à tort.)
+        if (f.child && (f.alternate === null || f.child !== f.alternate.child)) stack.push(f.child);
       }
     },
     isDisabled: false,
@@ -139,7 +145,7 @@ async function launch(fn) {
 }
 
 async function newApp(browser) {
-  const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+  const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: DPR, colorScheme: DARK ? 'dark' : 'light' });
   const page = await ctx.newPage();
   const errors = [];
   page.on('pageerror', (e) => errors.push(e.message));
@@ -148,8 +154,16 @@ async function newApp(browser) {
   await page.goto(`http://localhost:${PORT}/`);
   await page.waitForFunction(() => window.__store && window.__store.getState().ready, null, { timeout: 60000 });
   if (CSS) await page.addStyleTag({ content: CSS });
-  page.on('console', (m) => m.text().startsWith('ROUTE') && console.log(m.text()));
-  await page.evaluate(() => window.__store.subscribe((s, p) => s.route !== p.route && console.log('ROUTE ' + JSON.stringify(s.route) + ' ' + new Error().stack.split('\n').slice(2, 9).join(' | '))));
+  if (DARK) await page.evaluate(() => window.__store.getState().updateSettings({ theme: 'dark' }));
+  if (VERBOSE)
+    await page.evaluate(() => {
+      window.__changes = [];
+      window.__store.subscribe((s, p) => {
+        if (!window.__perf?.recording) return;
+        const keys = Object.keys(s).filter((k) => s[k] !== p[k] && typeof s[k] !== 'function');
+        window.__changes.push(Math.round(performance.now()) + ':' + keys.join('+'));
+      });
+    });
   const cdp = await ctx.newCDPSession(page);
   await cdp.send('Performance.enable');
   if (THROTTLE > 1) await cdp.send('Emulation.setCPUThrottlingRate', { rate: THROTTLE });
@@ -298,9 +312,11 @@ async function measureScenario(browser, label, kind, file, { split = false, seed
     await cdp.send('Profiler.setSamplingInterval', { interval: 200 });
   }
   for (let run = 0; run < RUNS; run++) {
-    console.log("  run", run, JSON.stringify(await page.evaluate(() => window.__store.getState().route)), await page.evaluate(() => document.querySelectorAll(".reader-page").length));
     const pts = await dragPoints(page, kind, run);
-    console.log("  pts", JSON.stringify(pts));
+    if (VERBOSE) {
+      console.log('  run', run, JSON.stringify(pts));
+      console.log('  animations :', await page.evaluate(() => document.getAnimations().map((a) => `${a.animationName ?? a.constructor.name}@${a.effect?.target?.className?.baseVal ?? a.effect?.target?.className ?? '?'}(${a.playState})`).join(', ')));
+    }
     if (kind === 'pdf') await page.waitForSelector(`.reader-page[data-pane="a"] .pdf-page[data-page="${2 + (run % 3)}"] .textLayer[data-ready="1"]`, { timeout: 20000 });
     // Laisse finir le rendu des pages voisines (sinon il pollue la mesure du glissé).
     await sleep(kind === 'pdf' ? 600 * THROTTLE : 500);
@@ -338,8 +354,9 @@ async function measureScenario(browser, label, kind, file, { split = false, seed
     await page.mouse.up();
     await page.waitForFunction(() => window.__perf.toolbar > 0, null, { timeout: 5000 }).catch(() => null);
     const t = await page.evaluate(() => ({ tb: window.__perf.toolbar - window.__perf.up, tbDom: window.__perf.toolbarDom - window.__perf.up }));
-    res.toolbar.push(t.tb);
-    res.toolbarDom.push(t.tbDom);
+    // Barre jamais apparue (sélection perdue) : comptée dans « échecs », pas dans la latence.
+    if (t.tb > 0) res.toolbar.push(t.tb);
+    if (t.tbDom > 0) res.toolbarDom.push(t.tbDom);
     res.dragScript.push((m1.ScriptDuration - m0.ScriptDuration) * 1000);
     res.dragLayout.push((m1.LayoutDuration - m0.LayoutDuration) * 1000);
     res.dragStyle.push((m1.RecalcStyleDuration - m0.RecalcStyleDuration) * 1000);
@@ -367,6 +384,7 @@ async function measureScenario(browser, label, kind, file, { split = false, seed
         }
       });
     });
+    if (VERBOSE) console.log('  store (glissé + relâché) :', await page.evaluate(() => { const c = window.__changes.join(' '); window.__changes = []; return c; }), '| relâché à', await page.evaluate(() => Math.round(window.__perf.up)));
     const rcUp = RENDERS && run === RUNS - 1 ? await page.evaluate(() => { const r = JSON.parse(JSON.stringify(window.__rc)); Object.assign(window.__rc, { commits: 0, by: {} }); return r; }) : null;
     if (PROFILE && run === RUNS - 1 && process.env.PROFILE_HL) await cdp.send('Profiler.start');
     const h0 = await metric(cdp);
@@ -376,8 +394,11 @@ async function measureScenario(browser, label, kind, file, { split = false, seed
     const h1 = await metric(cdp);
     const hl = await page.evaluate(() => ({ d: window.__perf.hl - window.__perf.key, long: window.__perf.longtasks.slice() }));
     const after = await page.evaluate(() => window.__store.getState().highlights.length);
-    if (after !== before + 1) { console.log("  ! surlignage non créé", label, run, JSON.stringify(t)); await page.screenshot({ path: "/tmp/claude-0/-home-claude-marginalia/20780725-4b55-55db-8901-1877c1efdc09/scratchpad/fail.png" }); }
-    res.hl.push(hl.d);
+    if (after !== before + 1) {
+      console.log('  ! surlignage non créé', label, 'essai', run, JSON.stringify(t));
+      res.failed = (res.failed ?? 0) + 1;
+    }
+    if (after === before + 1 && hl.d > 0) res.hl.push(hl.d);
     res.hlTask.push((h1.TaskDuration - h0.TaskDuration) * 1000);
     res.hlLong.push(hl.long.length);
     if (PROFILE && run === RUNS - 1) {
@@ -399,6 +420,7 @@ async function measureScenario(browser, label, kind, file, { split = false, seed
     'glissé : tâches longues': med(res.longDrag),
     'surlignage (ms, touche → peint)': r1(med(res.hl)),
     'surlignage : tâches (ms)': r1(med(res.hlTask)),
+    'échecs': res.failed ?? 0,
   };
   console.log(JSON.stringify(out));
   if (renders) {
@@ -449,7 +471,7 @@ await launch(async (browser) => {
   const epub = await longEpub();
   const pdf = await longPdf(browser);
   const epub1 = await longEpub(500, ['EPUB/text/ch002.xhtml'], path.join(TMP, 'discours-un-chapitre.epub'));
-  console.log(`fixtures : ${epub} (${fs.statSync(epub).size} o), ${pdf} (${fs.statSync(pdf).size} o) ; throttle ×${THROTTLE}`);
+  console.log(`fixtures : ${epub} (${fs.statSync(epub).size} o), ${pdf} (${fs.statSync(pdf).size} o) ; throttle ×${THROTTLE} ; dpr ${DPR}`);
   const scen = [
     ['EPUB long, vue simple', 'html', epub, false],
     ['EPUB long, côte à côte', 'html', epub, true],

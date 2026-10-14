@@ -5,6 +5,13 @@
   height: 100%;
   background: var(--bg-app);
 }
+/* Le fondu d'entrée (.anim-fade, remplissage `both`) resterait « en vigueur » sur tout le lecteur
+   après sa fin : Chromium recalcule alors l'animation à chaque image et garde le lecteur dans un
+   calque animé (repeint en entier à chaque changement de sélection). `backwards` : même entrée,
+   puis plus rien. */
+.reader.anim-fade {
+  animation-fill-mode: backwards;
+}
 .reader-topbar {
   padding-left: 84px; /* feux tricolores macOS */
   gap: 6px;

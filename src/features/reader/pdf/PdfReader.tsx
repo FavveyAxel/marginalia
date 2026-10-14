@@ -384,6 +384,9 @@ export const PdfReader = forwardRef<EngineHandle, EngineProps>(function PdfReade
   }, [applyZoom]);
 
   // ── Surlignages et mouvements par page ──
+  // Listes par page STABLES : une page dont les surlignages n'ont pas changé garde le même tableau
+  // (PdfPage est mémoïsée) ; créer un surlignage ne re-rend que sa page, pas toutes les pages annotées.
+  const prevHlByPage = useRef(new Map<number, PageHl[]>());
   const hlByPage = useMemo(() => {
     const m = new Map<number, PageHl[]>();
     for (const h of props.highlights) {
@@ -392,6 +395,12 @@ export const PdfReader = forwardRef<EngineHandle, EngineProps>(function PdfReade
       list.push({ id: h.id, category: h.category, rects: h.anchor.rects });
       m.set(h.anchor.page, list);
     }
+    const prev = prevHlByPage.current;
+    m.forEach((list, page) => {
+      const old = prev.get(page);
+      if (old && old.length === list.length && old.every((o, i) => o.id === list[i].id && o.category === list[i].category && o.rects === list[i].rects)) m.set(page, old);
+    });
+    prevHlByPage.current = m;
     return m;
   }, [props.highlights]);
   const hlRef = useRef(hlByPage);

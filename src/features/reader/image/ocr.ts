@@ -2,7 +2,7 @@
 // cœur WebAssembly et modèles fra + eng embarqués dans public/ocr/ (aucun CDN).
 // Le résultat (mots + boîtes normalisées) est mis en cache dans la bibliothèque, à côté du
 // fichier source : library/<id>/ocr.json. Il n'est jamais recalculé sans demande explicite.
-import { createWorker, type Worker } from 'tesseract.js';
+import type { Worker } from 'tesseract.js';
 import { host } from '../../../lib/platform';
 
 export const OCR_FILE = 'ocr.json';
@@ -77,10 +77,10 @@ export function averageConfidence(paras: OcrPara[]): number {
 const asset = (rel: string) => new URL(rel, document.baseURI).href;
 
 const STEPS: Record<string, [number, number, string]> = {
-  'loading tesseract core': [0, 0.08, 'Chargement du moteur'],
-  'initializing tesseract': [0.08, 0.1, 'Chargement du moteur'],
-  'loading language traineddata': [0.1, 0.18, 'Chargement des langues'],
-  'initializing api': [0.18, 0.22, 'Préparation'],
+  'loading tesseract core': [0, 0.08, 'Préparation de la reconnaissance'],
+  'initializing tesseract': [0.08, 0.1, 'Préparation de la reconnaissance'],
+  'loading language traineddata': [0.1, 0.18, 'Préparation de la reconnaissance'],
+  'initializing api': [0.18, 0.22, 'Préparation de la reconnaissance'],
   'recognizing text': [0.22, 1, 'Reconnaissance du texte'],
 };
 
@@ -107,7 +107,9 @@ export async function recognize(source: ImageBitmap, onProgress: (p: OcrProgress
   const abort = () => void worker?.terminate().catch(() => undefined);
   signal?.addEventListener('abort', abort);
   try {
-    onProgress({ value: 0, label: 'Chargement du moteur' });
+    onProgress({ value: 0, label: 'Préparation de la reconnaissance' });
+    // Chargé à la première image seulement (hors du paquet principal de l'app).
+    const { createWorker } = await import('tesseract.js');
     worker = await createWorker(OCR_LANGS, 1 /* OEM.LSTM_ONLY */, {
       workerPath: asset('ocr/worker.min.js'),
       corePath: asset('ocr/tesseract-core-simd-lstm.wasm.js'),
@@ -166,6 +168,72 @@ export async function recognize(source: ImageBitmap, onProgress: (p: OcrProgress
     signal?.removeEventListener('abort', abort);
     if (worker) await worker.terminate().catch(() => undefined);
   }
+}
+
+// ── Travaux en cours (un seul par image) ─────────────────────
+// Une reconnaissance appartient à l'image, pas au volet qui l'a lancée : deux volets sur la même
+// image la partagent, et fermer le lecteur ne la perd pas (rouvrir l'image reprend la progression
+// au lieu de tout recommencer). Le résultat est enregistré par le travail lui-même.
+
+export interface OcrJob {
+  readonly bookId: string;
+  readonly promise: Promise<OcrData>;
+  /** Dernière progression connue. */
+  progress: OcrProgress;
+  subscribe(fn: (p: OcrProgress) => void): () => void;
+  cancel(): void;
+}
+
+const jobs = new Map<string, OcrJob>();
+
+export const runningOcr = (bookId: string): OcrJob | null => jobs.get(bookId) ?? null;
+
+/**
+ * Lance (ou rejoint) la reconnaissance d'une image. `keep()` est consulté avant l'enregistrement :
+ * faux si le document a été supprimé entre-temps (rien n'est alors écrit dans la bibliothèque).
+ * `restart` : interrompt un travail en cours et recommence (« Relancer la reconnaissance »).
+ */
+export function startOcr(bookId: string, source: ImageBitmap, keep: () => boolean, restart = false): OcrJob {
+  const cur = jobs.get(bookId);
+  if (cur && !restart) return cur;
+  cur?.cancel();
+  const ac = new AbortController();
+  const listeners = new Set<(p: OcrProgress) => void>();
+  const job: OcrJob = {
+    bookId,
+    progress: { value: 0, label: 'Préparation de la reconnaissance' },
+    promise: null as unknown as Promise<OcrData>,
+    subscribe(fn) {
+      listeners.add(fn);
+      fn(job.progress);
+      return () => listeners.delete(fn);
+    },
+    cancel() {
+      ac.abort();
+      if (jobs.get(bookId) === job) jobs.delete(bookId);
+    },
+  };
+  (job as { promise: Promise<OcrData> }).promise = (async () => {
+    try {
+      const data = await recognize(
+        source,
+        (p) => {
+          job.progress = p;
+          listeners.forEach((fn) => fn(p));
+        },
+        ac.signal,
+      );
+      if (ac.signal.aborted) throw new DOMException('Interrompu', 'AbortError');
+      if (keep()) await saveOcr(bookId, data).catch((e) => console.warn('[image] cache OCR', e));
+      return data;
+    } finally {
+      if (jobs.get(bookId) === job) jobs.delete(bookId);
+    }
+  })();
+  // Personne n'attend forcément le résultat (lecteur fermé) : pas de rejet non géré.
+  job.promise.catch(() => undefined);
+  jobs.set(bookId, job);
+  return job;
 }
 
 /**

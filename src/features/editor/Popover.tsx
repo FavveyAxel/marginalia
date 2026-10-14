@@ -42,6 +42,8 @@ export function Popover({
       const t = e.target as Node;
       if (local.current?.contains(t)) return;
       if (anchorEl && anchorEl.contains(t)) return; // le bouton d'ancrage gère lui-même la bascule
+      // popover imbriqué (sélecteur de police dans « Modifier un style »…) : rendu dans un autre portail
+      if ((t as Element).closest?.('.ed-pop')) return;
       close();
     };
     const key = (e: KeyboardEvent) => {

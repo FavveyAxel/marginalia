@@ -9,8 +9,9 @@ import { host } from '../../../lib/platform';
 import type { CategoryId, NormRect, PdfAnchor, ReaderPosition } from '../../../lib/types';
 import type { EngineHandle, EngineProps, SearchHit } from '../engine';
 import { findAll, makeSnippet, normalizeQuery, spanOf } from '../pdf/textindex';
-import { displayableBlob, ImageDecodeError } from './decode';
-import { averageConfidence, editLine, loadOcr, recognize, saveOcr, type OcrData, type OcrProgress, type OcrWord } from './ocr';
+import { displayableBlob, ImageDecodeError, ORIENT } from './decode';
+import { averageConfidence, editLine, loadOcr, runningOcr, saveOcr, startOcr, type OcrData, type OcrJob, type OcrProgress, type OcrWord } from './ocr';
+import { useStore } from '../../../lib/store';
 import { buildTextLayer, readImageSelection, rectsForWords, wordAtRaw, wordModel, wordsInRect, type ImageSelection } from './textlayer';
 import './image-reader.css';
 
@@ -22,7 +23,10 @@ const MIN_ZOOM = 0.1;
 const MAX_ZOOM = 6;
 const ZOOM_STEPS = [0.1, 0.15, 0.25, 0.33, 0.5, 0.67, 0.75, 0.8, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2, 2.5, 3, 4, 5, 6];
 const DISPLAY_FILE = 'display.jpg';
-const ZONE_TEXT = '[Zone de l’image]';
+const ZONE_TEXT = '[Zone sans texte]';
+/** Libellé de lieu des extraits : passage de texte reconnu, ou zone tracée (dessinée en cadre). */
+const LABEL_TEXT = 'Image';
+const LABEL_ZONE = 'Zone de l’image';
 
 type Zoom = 'fit' | number;
 type OcrPhase = 'idle' | 'running' | 'done' | 'error';
@@ -48,7 +52,8 @@ export const ImageReader = forwardRef<EngineHandle, EngineProps>(function ImageR
 
   const [url, setUrl] = useState<string | null>(null);
   const [nat, setNat] = useState<{ w: number; h: number } | null>(null);
-  const bitmapRef = useRef<ImageBitmap | null>(null);
+  /** Image affichable (Blob) : redécodée seulement pour une nouvelle reconnaissance (pas de bitmap de 50 Mo gardé en mémoire). */
+  const blobRef = useRef<Blob | null>(null);
   const [ocr, setOcr] = useState<OcrData | null>(null);
   const [phase, setPhase] = useState<OcrPhase>('idle');
   const [progress, setProgress] = useState<OcrProgress>({ value: 0, label: '' });
@@ -66,7 +71,6 @@ export const ImageReader = forwardRef<EngineHandle, EngineProps>(function ImageR
   const [confirmRerun, setConfirmRerun] = useState(false);
 
   const selRef = useRef<ImageSelection | null>(null);
-  const abortRef = useRef<AbortController | null>(null);
   const readyRef = useRef(false);
   const restoredRef = useRef(false);
   const posRef = useRef(0);
@@ -76,41 +80,62 @@ export const ImageReader = forwardRef<EngineHandle, EngineProps>(function ImageR
   modelRef.current = model;
 
   // ── Chargement de l'image et du texte reconnu (cache) ──
-  const runOcr = useCallback(async (bmp: ImageBitmap) => {
-    abortRef.current?.abort();
-    const ac = new AbortController();
-    abortRef.current = ac;
-    setPhase('running');
-    setOcrError(null);
-    setProgress({ value: 0, label: 'Chargement du moteur' });
+  // La reconnaissance est un travail partagé (ocr.ts) : ce volet s'y abonne, et s'en désabonne
+  // en se fermant sans l'interrompre.
+  const jobUnsub = useRef<(() => void) | null>(null);
+  const follow = useCallback(function follow(job: OcrJob) {
+    jobUnsub.current?.();
+    let alive = true;
     let raf = 0;
     let latest: OcrProgress | null = null;
-    try {
-      const data = await recognize(
-        bmp,
-        (p) => {
-          latest = p;
-          if (!raf)
-            raf = requestAnimationFrame(() => {
-              raf = 0;
-              if (latest && !ac.signal.aborted) setProgress(latest);
-            });
-        },
-        ac.signal,
-      );
-      if (ac.signal.aborted) return;
-      await saveOcr(bookId, data).catch((e) => console.warn('[image] cache OCR', e));
-      setOcr(data);
-      setPhase('done');
-    } catch (e) {
-      if (ac.signal.aborted) return;
-      console.warn('[image] OCR', e);
-      setOcrError(e instanceof Error ? e.message : String(e));
-      setPhase('error');
-    } finally {
+    setPhase('running');
+    setOcrError(null);
+    const unsub = job.subscribe((p) => {
+      latest = p;
+      if (!raf)
+        raf = requestAnimationFrame(() => {
+          raf = 0;
+          if (alive && latest) setProgress(latest);
+        });
+    });
+    jobUnsub.current = () => {
+      alive = false;
       cancelAnimationFrame(raf);
-    }
-  }, [bookId]);
+      unsub();
+    };
+    job.promise.then(
+      (data) => {
+        if (!alive) return;
+        jobUnsub.current?.();
+        jobUnsub.current = null;
+        setOcr(data);
+        setPhase('done');
+      },
+      (e) => {
+        if (!alive) return;
+        jobUnsub.current?.();
+        jobUnsub.current = null;
+        if (e?.name === 'AbortError') {
+          // Relancée depuis l'autre volet : suivre le nouveau travail.
+          const next = runningOcr(job.bookId);
+          if (next && next !== job) follow(next);
+          else setPhase('idle');
+          return;
+        }
+        console.warn('[image] OCR', e);
+        setOcrError(e instanceof Error ? e.message : String(e));
+        setPhase('error');
+      },
+    );
+  }, []);
+  const runOcr = useCallback(
+    (bmp: ImageBitmap, restart = false) => {
+      const keep = () => useStore.getState().books.some((b) => b.id === bookId);
+      follow(startOcr(bookId, bmp, keep, restart));
+    },
+    [bookId, follow],
+  );
+  useEffect(() => () => jobUnsub.current?.(), []);
 
   useEffect(() => {
     let alive = true;
@@ -135,36 +160,41 @@ export const ImageReader = forwardRef<EngineHandle, EngineProps>(function ImageR
         blob = r.blob;
         if (r.converted) host.storeFile(book.id, DISPLAY_FILE, await blob.arrayBuffer()).catch(() => undefined);
       }
-      const bmp = await createImageBitmap(blob);
+      const bmp = await createImageBitmap(blob, ORIENT);
       if (!alive) {
         bmp.close();
         return;
       }
-      bitmapRef.current?.close();
-      bitmapRef.current = bmp;
+      blobRef.current = blob;
       objectUrl = URL.createObjectURL(blob);
       setNat({ w: bmp.width, h: bmp.height });
       setUrl(objectUrl);
       P.current.onToc([]);
-      const cached = await loadOcr(book.id);
-      if (!alive) return;
-      if (cached) {
+      const job = runningOcr(book.id);
+      const cached = job ? null : await loadOcr(book.id);
+      if (!alive) {
+        bmp.close();
+        return;
+      }
+      if (job) follow(job);
+      else if (cached) {
         setOcr(cached);
         setPhase('done');
-      } else void runOcr(bmp);
+      } else runOcr(bmp); // l'image est copiée dans le travail de reconnaissance dès son lancement
+      bmp.close();
     })().catch((e) => {
       if (!alive) return;
       P.current.onError(e instanceof ImageDecodeError ? e.message : `Impossible d’ouvrir cette image${e?.message ? ` (${e.message})` : ''}.`);
     });
     return () => {
       alive = false;
-      abortRef.current?.abort();
+      jobUnsub.current?.();
+      jobUnsub.current = null;
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [bookId, props.data]);
 
-  useEffect(() => () => bitmapRef.current?.close(), []);
 
   // ── Géométrie ──
   useEffect(() => {
@@ -217,7 +247,7 @@ export const ImageReader = forwardRef<EngineHandle, EngineProps>(function ImageR
     const max = el.scrollHeight - el.clientHeight;
     const progress = max <= 2 ? 1 : clamp(el.scrollTop / max, 0, 1);
     const pos: ReaderPosition = { kind: 'pdf', page: 1, offset: Math.round(posRef.current * 10000) / 10000 };
-    P.current.onPosition(pos, progress, 'Image');
+    P.current.onPosition(pos, progress, LABEL_TEXT);
   }, []);
 
   const onScroll = () => {
@@ -372,15 +402,15 @@ export const ImageReader = forwardRef<EngineHandle, EngineProps>(function ImageR
   };
 
   /** Sélection de texte, ou zone tracée, prête à devenir un extrait. */
-  const takePending = (): { anchor: PdfAnchor; text: string } | null => {
+  const takePending = (): { anchor: PdfAnchor; text: string; label: string } | null => {
     if (zone) {
       const inside = wordsInRect(modelRef.current, zone);
       const text = inside.map((w) => w.t).join(' ').trim() || ZONE_TEXT;
-      return { anchor: { kind: 'pdf', page: 1, rects: [zone] }, text };
+      return { anchor: { kind: 'pdf', page: 1, rects: [zone] }, text, label: LABEL_ZONE };
     }
     const layer = textHost.current?.firstElementChild;
     const s = (layer && readImageSelection(layer, modelRef.current)) || selRef.current;
-    return s ? { anchor: { kind: 'pdf', page: 1, rects: s.rects }, text: s.text } : null;
+    return s ? { anchor: { kind: 'pdf', page: 1, rects: s.rects }, text: s.text, label: LABEL_TEXT } : null;
   };
 
   const onPick = (category: CategoryId | null, withNote: boolean) => {
@@ -388,14 +418,14 @@ export const ImageReader = forwardRef<EngineHandle, EngineProps>(function ImageR
     if (!t) return;
     clearSelection();
     setZoneMode(false);
-    P.current.onCreateHighlight({ anchor: t.anchor, text: t.text, locationLabel: 'Image', category, printedPage: printedPage() }, withNote);
+    P.current.onCreateHighlight({ anchor: t.anchor, text: t.text, locationLabel: t.label, category, printedPage: printedPage() }, withNote);
   };
   const onMovementPick = () => {
     const t = takePending();
     if (!t) return;
     clearSelection();
     setZoneMode(false);
-    P.current.onCreateMovement({ anchor: t.anchor, text: t.text.slice(0, 80), locationLabel: 'Image' });
+    P.current.onCreateMovement({ anchor: t.anchor, text: t.text.slice(0, 80), locationLabel: t.label });
   };
   const onCopy = () => {
     const t = takePending();
@@ -444,7 +474,7 @@ export const ImageReader = forwardRef<EngineHandle, EngineProps>(function ImageR
     () =>
       props.highlights
         .filter((h) => h.anchor.kind === 'pdf' && h.anchor.page === 1)
-        .map((h) => ({ id: h.id, category: h.category, rects: (h.anchor as PdfAnchor).rects })),
+        .map((h) => ({ id: h.id, category: h.category, rects: (h.anchor as PdfAnchor).rects, zone: h.locationLabel === LABEL_ZONE })),
     [props.highlights],
   );
   const hlRef = useRef(hlList);
@@ -548,7 +578,7 @@ export const ImageReader = forwardRef<EngineHandle, EngineProps>(function ImageR
             snippet: sn.snippet,
             matchStart: sn.matchStart,
             matchLength: sn.matchLength,
-            locationLabel: 'Image',
+            locationLabel: LABEL_TEXT,
             payload: { a, b, aOff: sp.rawStart - m.starts[a], bOff: sp.rawEnd - m.starts[b] } satisfies SearchPayload,
           };
         });
@@ -605,8 +635,17 @@ export const ImageReader = forwardRef<EngineHandle, EngineProps>(function ImageR
 
   const rerun = () => {
     setConfirmRerun(false);
-    const bmp = bitmapRef.current;
-    if (bmp) void runOcr(bmp);
+    const blob = blobRef.current;
+    if (!blob) return;
+    createImageBitmap(blob, ORIENT)
+      .then((bmp) => {
+        runOcr(bmp, true);
+        bmp.close();
+      })
+      .catch((e) => {
+        setOcrError(e instanceof Error ? e.message : String(e));
+        setPhase('error');
+      });
   };
 
   const focusRect = useMemo(() => {
@@ -645,7 +684,7 @@ export const ImageReader = forwardRef<EngineHandle, EngineProps>(function ImageR
                       hl.rects.map((r, i) => (
                         <div
                           key={`${hl.id}:${i}`}
-                          className={`hl ${hl.category ? `hl-${hl.category}` : 'hl-note'}${props.activeHighlightId === hl.id ? ' active' : ''}${pulse?.id === hl.id ? ' pulse' : ''}`}
+                          className={`hl ${hl.category ? `hl-${hl.category}` : 'hl-note'}${hl.zone ? ' is-zone' : ''}${props.activeHighlightId === hl.id ? ' active' : ''}${pulse?.id === hl.id ? ' pulse' : ''}`}
                           data-hl-id={hl.id}
                           style={{ left: pct(r.x), top: pct(r.y), width: pct(r.w), height: pct(r.h) }}
                         />
@@ -701,7 +740,7 @@ export const ImageReader = forwardRef<EngineHandle, EngineProps>(function ImageR
         )}
         {phase === 'error' && (
           <div className="img-ocr-chip is-error anim-in" role="alert">
-            <span className="img-ocr-label">La reconnaissance du texte a échoué. L’image reste annotable par zones.</span>
+            <span className="img-ocr-label">Le texte de l’image n’a pas pu être reconnu. Réessayez, ou annotez l’image par zones.</span>
             <button className="btn btn-sm" onClick={rerun}>
               Réessayer
             </button>
@@ -710,7 +749,7 @@ export const ImageReader = forwardRef<EngineHandle, EngineProps>(function ImageR
         {showEmpty && (
           <div className="img-empty anim-in">
             <strong>Aucun texte reconnu</strong>
-            <span>Tracez une zone sur l’image pour y attacher une note.</span>
+            <span>Tracez une zone sur l’image pour l’annoter.</span>
             <button className="btn btn-sm" onClick={() => setZoneMode(true)}>
               <SquareDashed size={14} /> Tracer une zone
             </button>
@@ -718,7 +757,7 @@ export const ImageReader = forwardRef<EngineHandle, EngineProps>(function ImageR
         )}
         {zoneMode && !zone && !draft && (
           <div className="img-hint anim-in" role="status">
-            Tracez un rectangle sur l’image <span className="kbd">Échap</span>
+            Tracez un rectangle sur l’image <span className="img-hint-esc"><span className="kbd">Échap</span> pour annuler</span>
           </div>
         )}
 
@@ -775,7 +814,7 @@ export const ImageReader = forwardRef<EngineHandle, EngineProps>(function ImageR
                   ? 'Reconnaissance en cours…'
                   : ocr
                     ? nWords
-                      ? `${nWords} mots · fiabilité moyenne ${ocr.confidence} %${ocr.editedAt ? ' · corrigé' : ''}`
+                      ? `${nWords} mots · fiabilité ${ocr.confidence} %${ocr.editedAt ? ' · corrigé à la main' : ''}`
                       : 'Aucun mot reconnu dans cette image.'
                     : phase === 'error'
                       ? 'La reconnaissance a échoué.'
@@ -793,12 +832,17 @@ export const ImageReader = forwardRef<EngineHandle, EngineProps>(function ImageR
               </div>
             ) : (
               <>
-                {lines.length > 0 && <p className="img-panel-tip muted">Cliquez sur une ligne pour la corriger. Les mots incertains sont soulignés.</p>}
+                {lines.length > 0 && <p className="img-panel-tip muted">Cliquez sur une ligne pour la corriger (Entrée pour valider). Les mots incertains sont soulignés.</p>}
                 <div className="img-lines">
                   {lines.map((l, idx) => (
+                    // Numéro de ligne de la page (explication de texte : « l. 12 ») ; hors du texte éditable.
+                    <div key={`${ocr?.editedAt ?? 0}:${l.key}`} className={`img-row${idx > 0 && lines[idx - 1].para !== l.para ? ' is-para' : ''}${focusLine === l.key ? ' is-focus' : ''}`}>
+                    <span className="img-line-no" aria-hidden="true">
+                      {idx + 1}
+                    </span>
                     <div
-                      key={`${ocr?.editedAt ?? 0}:${l.key}`}
-                      className={`img-line${idx > 0 && lines[idx - 1].para !== l.para ? ' is-para' : ''}`}
+                      className="img-line"
+                      aria-label={`Ligne ${idx + 1}`}
                       contentEditable
                       suppressContentEditableWarning
                       spellCheck={false}
@@ -829,6 +873,7 @@ export const ImageReader = forwardRef<EngineHandle, EngineProps>(function ImageR
                         </span>
                       ))}
                     </div>
+                    </div>
                   ))}
                 </div>
               </>
@@ -837,10 +882,10 @@ export const ImageReader = forwardRef<EngineHandle, EngineProps>(function ImageR
           <footer className="img-panel-foot">
             {confirmRerun ? (
               <div className="img-confirm anim-in">
-                <span>Relancer la reconnaissance effacera vos corrections.</span>
+                <span>Une nouvelle reconnaissance remplacera vos corrections. Les extraits restent en place.</span>
                 <div className="img-confirm-actions">
                   <button className="btn btn-sm btn-ghost" onClick={() => setConfirmRerun(false)}>
-                    Annuler
+                    Garder mes corrections
                   </button>
                   <button className="btn btn-sm btn-primary" onClick={rerun}>
                     Relancer

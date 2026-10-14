@@ -39,6 +39,35 @@ const MAX_CANVAS_PIXELS = 12_000_000;
 
 const pct = (v: number) => `${Math.round(v * 100000) / 1000}%`;
 
+/**
+ * Fige la page rendue : son image passe dans un canvas « bitmaprenderer » (transfert sans copie).
+ * Pourquoi : un canvas 2D est ré-instantané (ProduceCanvasResource, copie de toute la page) chaque
+ * fois que la page est repeinte — c'est-à-dire à CHAQUE mouvement de souris pendant une sélection
+ * de texte (mesuré : ~1,2 s de fil principal sur un glissé de 40 mouvements, images à 66 ms).
+ * Une image figée est simplement redessinée. Repli : le canvas 2D tel quel.
+ */
+async function freeze(canvas: HTMLCanvasElement): Promise<HTMLCanvasElement> {
+  try {
+    if (typeof createImageBitmap !== 'function') return canvas;
+    const bmp = await createImageBitmap(canvas);
+    const out = document.createElement('canvas');
+    out.width = canvas.width;
+    out.height = canvas.height;
+    const ctx = out.getContext('bitmaprenderer');
+    if (!ctx) {
+      bmp.close();
+      return canvas;
+    }
+    ctx.transferFromImageBitmap(bmp);
+    Object.assign(out.dataset, canvas.dataset);
+    canvas.width = 0;
+    canvas.height = 0;
+    return out;
+  } catch {
+    return canvas;
+  }
+}
+
 function release(host: HTMLElement | null) {
   if (!host) return;
   host.querySelectorAll('canvas').forEach((c) => {
@@ -108,7 +137,13 @@ export const PdfPage = memo(function PdfPage({ n, doc, w, h, scale, near, hls, m
 
       await task.promise;
       if (cancelled) return;
-      canvasHost.current?.replaceChildren(canvas);
+      const frozen = await freeze(canvas);
+      if (cancelled) {
+        frozen.width = 0;
+        frozen.height = 0;
+        return;
+      }
+      canvasHost.current?.replaceChildren(frozen);
       await textDone;
       if (!cancelled) cbRef.current(n);
     })().catch((e) => {

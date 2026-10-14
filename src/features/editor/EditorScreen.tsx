@@ -1,29 +1,12 @@
 // Éditeur pleine page d'un écrit (route { name: 'write', draftId }).
 import { useCallback, useEffect, useMemo, useRef, useState, type MutableRefObject } from 'react';
-import {
-  AlertTriangle,
-  ChevronLeft,
-  Bold,
-  ChevronDown,
-  Download,
-  FileDown,
-  FileText,
-  Italic,
-  List,
-  ListOrdered,
-  Maximize2,
-  PanelRight,
-  Redo2,
-  Superscript,
-  Underline,
-  Undo2,
-} from 'lucide-react';
+import { AlertTriangle, ChevronLeft, ChevronDown, Download, FileDown, FileText, Maximize2, PanelRight } from 'lucide-react';
 import { useStore } from '../../lib/store';
 import { host, type ExportFormat } from '../../lib/platform';
 import type { Book, Draft, Highlight } from '../../lib/types';
 import { formatFootnote } from '../../lib/citation';
 import { Kbd, Skeleton } from '../../components/ui';
-import type { DocEngine, EngineState, EngineStats, OutlineItem, ParaStyle } from './engine';
+import type { DocEngine, EngineState, EngineStats, OutlineItem } from './engine';
 import { ensureA4SectPr, parseDocx } from './docx';
 import { exportText, safeFileName, toPrintHtml } from './exporters';
 import {
@@ -42,19 +25,12 @@ import {
 } from './save';
 import { ExtractsPane, quoteText } from './ExtractsPane';
 import { Popover, usePop } from './Popover';
+import { Toolbar } from './Toolbar';
+import { SelectionBar } from './SelectionBar';
+import { LinkEditor } from './LinkEditor';
 
 type Phase = 'loading' | 'ready' | 'error';
 type Status = 'saved' | 'dirty' | 'saving' | 'blocked' | 'error';
-
-const STYLE_LABEL: Record<ParaStyle | 'other', string> = {
-  h1: 'Titre 1',
-  h2: 'Titre 2',
-  h3: 'Titre 3',
-  body: 'Corps',
-  quote: 'Citation',
-  other: 'Autre style',
-};
-const STYLE_ORDER: ParaStyle[] = ['h1', 'h2', 'h3', 'body', 'quote'];
 
 const EXPORTS: { fmt: ExportFormat; label: string; ext: string }[] = [
   { fmt: 'docx', label: 'Word', ext: '.docx' },
@@ -85,7 +61,41 @@ function baseName(p: string): string {
   return p.split(/[\\/]/).pop() ?? p;
 }
 
-const EMPTY_STATE: EngineState = { bold: false, italic: false, underline: false, style: 'body', list: false, pos: 0 };
+const EMPTY_STATE: EngineState = {
+  bold: false,
+  italic: false,
+  underline: false,
+  strike: false,
+  superscript: false,
+  subscript: false,
+  smallCaps: false,
+  fontFamily: null,
+  fontSize: null,
+  color: null,
+  highlight: null,
+  align: 'left',
+  lineHeight: null,
+  spaceBefore: 0,
+  spaceAfter: 0,
+  indentLeft: 0,
+  firstLine: 0,
+  style: 'body',
+  styleId: null,
+  list: null,
+  listLevel: 0,
+  inTable: false,
+  link: null,
+  empty: true,
+  pos: 0,
+};
+
+/** La cible du clavier est-elle le texte du document (et non un champ de l'interface) ? */
+function inDocument(t: EventTarget | null): boolean {
+  const el = t as HTMLElement | null;
+  if (!el || typeof el.closest !== 'function') return false;
+  if (el.closest('.ProseMirror')) return true;
+  return false;
+}
 
 export function EditorScreen({ draftId }: { draftId: string }) {
   const draft = useStore((s) => s.drafts.find((d) => d.id === draftId) ?? null);
@@ -136,8 +146,16 @@ function Editor({ draft }: { draft: Draft }) {
   const [busyExport, setBusyExport] = useState(false);
 
   const exportPop = usePop();
-  const stylePop = usePop();
   const countPop = usePop();
+  const linkPop = usePop();
+  const [linkCtx, setLinkCtx] = useState<{ current: string | null; needsText: boolean }>({ current: null, needsText: false });
+  const [selRect, setSelRect] = useState<DOMRect | null>(null);
+  const [zoom, setZoomState] = useState(100);
+  const [layoutBusy, setLayoutBusy] = useState(false);
+  const dragging = useRef(false);
+  const selFrame = useRef(0);
+  /** Dernière opération non annulable par le moteur (mise en page, style) : instantané pour ⌘Z. */
+  const structuralRef = useRef<{ snap: ArrayBuffer; seq: number } | null>(null);
 
   // références mutables pour les rappels du moteur
   const seq = useRef(0);
@@ -240,9 +258,31 @@ function Editor({ draft }: { draft: Draft }) {
     scheduleSave();
   }, [refreshUi, scheduleSave]);
 
+  const updateSelBar = useCallback(() => {
+    cancelAnimationFrame(selFrame.current);
+    selFrame.current = requestAnimationFrame(() => {
+      const e = engineRef.current;
+      if (!e || dragging.current || guardRef.current) return setSelRect(null);
+      setSelRect(e.selectionRect());
+    });
+  }, []);
+
   const onSelection = useCallback(() => {
     const e = engineRef.current;
     if (e) setFmt(e.state());
+    updateSelBar();
+  }, [updateSelBar]);
+
+  const onReload = useCallback(() => {
+    const e = engineRef.current;
+    if (e) setZoomState(e.zoom());
+    setTimeout(() => {
+      const x = engineRef.current;
+      if (!x) return;
+      setOutline(x.outline());
+      setStats(x.stats());
+      setFmt(x.state());
+    }, 50);
   }, []);
 
   // ── Ouverture du document ──
@@ -262,7 +302,7 @@ function Editor({ draft }: { draft: Draft }) {
       }
       const { openDocEngine } = await import('./engine');
       if (cancelled || !hostRef.current) return;
-      eng = await openDocEngine(hostRef.current, data, { onChange, onSelection });
+      eng = await openDocEngine(hostRef.current, data, { onChange, onSelection, onReload });
       if (cancelled) {
         eng.destroy();
         return;
@@ -277,6 +317,7 @@ function Editor({ draft }: { draft: Draft }) {
       }
       setPhase('ready');
       refreshUi();
+      setZoomState(eng.zoom());
       if (!guardRef.current && Math.abs(editorWords - d.wordCount) > 0) patch('drafts', d.id, { wordCount: editorWords });
     })().catch((e) => {
       console.error(e);
@@ -314,7 +355,86 @@ function Editor({ draft }: { draft: Draft }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [draft.id]);
 
-  // ── Raccourcis : ⌘S, Échap (concentration) ──
+  // ── Opérations non annulables par le moteur (mise en page, modification de style) ──
+  const structural = useCallback(
+    async (label: string, run: () => Promise<ArrayBuffer>) => {
+      if (!engineRef.current || guardRef.current) return;
+      setLayoutBusy(true);
+      try {
+        const snap = await run();
+        // les transactions qui suivent l'opération (mise en page, réouverture) se terminent d'abord
+        await new Promise((r) => setTimeout(r, 700));
+        structuralRef.current = { snap, seq: seq.current };
+        toast(`${label}. ⌘Z pour annuler.`, 'success');
+      } catch (err) {
+        console.error(err);
+        toast('Ce réglage n’a pas pu être appliqué. Le document n’a pas changé.', 'error');
+      } finally {
+        setLayoutBusy(false);
+        refreshUi();
+      }
+    },
+    [toast, refreshUi],
+  );
+
+  const undo = useCallback(() => {
+    const e = engineRef.current;
+    if (!e || guardRef.current) return;
+    const st = structuralRef.current;
+    if (st && st.seq === seq.current) {
+      structuralRef.current = null;
+      setLayoutBusy(true);
+      void e
+        .restore(st.snap)
+        .then(() => toast('Réglage annulé', 'info'))
+        .catch((err) => {
+          console.error(err);
+          toast('Impossible d’annuler ce réglage.', 'error');
+        })
+        .finally(() => {
+          setLayoutBusy(false);
+          refreshUi();
+        });
+      return;
+    }
+    e.undo();
+    setFmt(e.state());
+  }, [toast, refreshUi]);
+  const redo = useCallback(() => {
+    const e = engineRef.current;
+    if (!e || guardRef.current) return;
+    e.redo();
+    setFmt(e.state());
+  }, []);
+
+  const openLink = useCallback(
+    (anchor: HTMLElement) => {
+      const e = engineRef.current;
+      if (!e || guardRef.current) return;
+      const st = e.state();
+      setLinkCtx({ current: st.link, needsText: st.empty && !st.link });
+      setSelRect(null);
+      linkPop.open(anchor);
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [],
+  );
+
+  const insertFootnote = useCallback(() => {
+    const e = engineRef.current;
+    if (!e || guardRef.current) return;
+    if (!e.insertFootnote()) toast('Placez le curseur dans le texte pour ajouter une note.', 'info');
+    setFmt(e.state());
+  }, [toast]);
+
+  const setZoom = useCallback((z: number | 'fit') => {
+    const e = engineRef.current;
+    if (!e) return;
+    e.setZoom(z);
+    setTimeout(() => setZoomState(e.zoom()), 250);
+  }, []);
+
+  // ── Raccourcis : ⌘S, Échap (concentration), mise en forme (Word / Google Docs pour Mac) ──
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 's') {
@@ -330,6 +450,84 @@ function Editor({ draft }: { draft: Draft }) {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [save, focusMode]);
+
+  useEffect(() => {
+    // Phase de capture : avant le ProseMirror de SuperDoc et avant la palette (⌘K) de l'app.
+    const onKey = (ev: KeyboardEvent) => {
+      const eng = engineRef.current;
+      if (!eng || guardRef.current || !(ev.metaKey || ev.ctrlKey) || !inDocument(ev.target)) return;
+      const k = ev.key;
+      const lk = k.toLowerCase();
+      const code = ev.code;
+      const act = (fn: () => void) => {
+        ev.preventDefault();
+        ev.stopPropagation();
+        fn();
+        setFmt(eng.state());
+      };
+      if (ev.altKey && !ev.shiftKey && /^Digit[0-3]$/.test(code)) {
+        const n = Number(code.slice(5));
+        act(() => void eng.setParagraphStyle(n === 0 ? 'body' : (`h${n}` as 'h1' | 'h2' | 'h3')).then(() => setFmt(eng.state())));
+      } else if (ev.altKey && !ev.shiftKey && code === 'KeyF') act(() => insertFootnote());
+      else if (ev.altKey) return;
+      else if (k === '>' || (ev.shiftKey && code === 'Period' && k !== '.')) act(() => eng.stepFontSize(1));
+      else if (k === '<' || (ev.shiftKey && code === 'Comma' && k !== ',')) act(() => eng.stepFontSize(-1));
+      else if (k === '.') act(() => eng.toggleMark('superscript'));
+      else if (k === ',') act(() => eng.toggleMark('subscript'));
+      else if (ev.shiftKey && lk === 'x') act(() => eng.toggleMark('strike'));
+      else if (ev.shiftKey && lk === 'k') {
+        ev.preventDefault();
+        ev.stopPropagation();
+        const b = document.querySelector<HTMLElement>('.ed-selbar [data-sb="link"]') ?? document.querySelector<HTMLElement>('.ed-toolbar [data-tb="insert"]');
+        if (b) openLink(b);
+      } else if (k === '\\' || code === 'Backslash') act(() => eng.clearInlineFormatting());
+      else if (!ev.shiftKey && lk === 'l') act(() => eng.setAlign('left'));
+      else if (!ev.shiftKey && lk === 'e') act(() => eng.setAlign('center'));
+      else if (!ev.shiftKey && lk === 'r') act(() => eng.setAlign('right'));
+      else if (!ev.shiftKey && lk === 'j') act(() => eng.setAlign('justify'));
+      else if (ev.shiftKey && (code === 'Digit7' || code === 'Numpad7')) act(() => eng.toggleList('ordered'));
+      else if (ev.shiftKey && (code === 'Digit8' || code === 'Numpad8')) act(() => eng.toggleList('bullet'));
+      else if (!ev.shiftKey && k === 'Enter') act(() => eng.insertPageBreak());
+      else if (!ev.shiftKey && lk === 'z') {
+        const st = structuralRef.current;
+        if (st && st.seq === seq.current) act(() => undo());
+      }
+    };
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
+  }, [insertFootnote, openLink, undo]);
+
+  // Barre flottante : masquée pendant le glisser, recalculée au défilement et au redimensionnement.
+  useEffect(() => {
+    const down = (e: PointerEvent) => {
+      if ((e.target as HTMLElement).closest?.('.ed-engine')) {
+        dragging.current = true;
+        setSelRect(null);
+      }
+    };
+    const up = () => {
+      if (!dragging.current) return;
+      dragging.current = false;
+      updateSelBar();
+    };
+    const move = () => updateSelBar();
+    document.addEventListener('pointerdown', down, true);
+    document.addEventListener('pointerup', up, true);
+    const scroller = hostRef.current?.closest('.ed-scroll');
+    scroller?.addEventListener('scroll', move, { passive: true });
+    const resize = () => {
+      updateSelBar();
+      const e = engineRef.current;
+      if (e) setTimeout(() => setZoomState(e.zoom()), 200);
+    };
+    window.addEventListener('resize', resize);
+    return () => {
+      document.removeEventListener('pointerdown', down, true);
+      document.removeEventListener('pointerup', up, true);
+      scroller?.removeEventListener('scroll', move);
+      window.removeEventListener('resize', resize);
+    };
+  }, [updateSelBar, phase]);
 
   // Titre : synchronisé si renommé ailleurs
   useEffect(() => setTitle(draft.title), [draft.title]);
@@ -403,14 +601,6 @@ function Editor({ draft }: { draft: Draft }) {
     if (!e || guardRef.current) return;
     const ok = e.insertCitation(quoteText(h), formatFootnote(h, b));
     if (!ok) toast('Citation insérée sans sa note : ajoutez-la avec le bouton Note de bas de page.', 'error');
-  };
-
-  const run = (fn: (e: DocEngine) => void) => () => {
-    const e = engineRef.current;
-    if (e && !guardRef.current) {
-      fn(e);
-      setFmt(e.state());
-    }
   };
 
   const activeHeading = useMemo(() => {
@@ -547,54 +737,62 @@ function Editor({ draft }: { draft: Draft }) {
       )}
 
       <div className="ed-toolbar-row">
-        <div className="ed-toolbar" role="toolbar" aria-label="Mise en forme">
-          <button className="ed-style-btn" disabled={!editable} onClick={(e) => stylePop.toggle(e.currentTarget)} aria-haspopup="menu" aria-label="Style de paragraphe">
-            {STYLE_LABEL[fmt.style]} <ChevronDown size={13} />
-          </button>
-          <span className="ed-sep" />
-          <button className={`icon-btn sm ${fmt.bold ? 'active' : ''}`} disabled={!editable} onMouseDown={(e) => e.preventDefault()} onClick={run((e) => e.toggleMark('bold'))} title="Gras (⌘B)" aria-label="Gras" aria-pressed={fmt.bold}>
-            <Bold size={15} />
-          </button>
-          <button className={`icon-btn sm ${fmt.italic ? 'active' : ''}`} disabled={!editable} onMouseDown={(e) => e.preventDefault()} onClick={run((e) => e.toggleMark('italic'))} title="Italique (⌘I)" aria-label="Italique" aria-pressed={fmt.italic}>
-            <Italic size={15} />
-          </button>
-          <button className={`icon-btn sm ${fmt.underline ? 'active' : ''}`} disabled={!editable} onMouseDown={(e) => e.preventDefault()} onClick={run((e) => e.toggleMark('underline'))} title="Souligné (⌘U)" aria-label="Souligné" aria-pressed={fmt.underline}>
-            <Underline size={15} />
-          </button>
-          <span className="ed-sep" />
-          <button className="icon-btn sm" disabled={!editable} onMouseDown={(e) => e.preventDefault()} onClick={run((e) => e.toggleList('bullet'))} title="Liste à puces" aria-label="Liste à puces">
-            <List size={15} />
-          </button>
-          <button className="icon-btn sm" disabled={!editable} onMouseDown={(e) => e.preventDefault()} onClick={run((e) => e.toggleList('ordered'))} title="Liste numérotée" aria-label="Liste numérotée">
-            <ListOrdered size={15} />
-          </button>
-          <span className="ed-sep" />
-          <button className="icon-btn sm" disabled={!editable} onMouseDown={(e) => e.preventDefault()} onClick={run((e) => void e.insertFootnote())} title="Note de bas de page" aria-label="Note de bas de page">
-            <Superscript size={15} />
-          </button>
-          <span className="ed-sep" />
-          <button className="icon-btn sm" disabled={!editable} onMouseDown={(e) => e.preventDefault()} onClick={run((e) => e.undo())} title="Annuler (⌘Z)" aria-label="Annuler">
-            <Undo2 size={15} />
-          </button>
-          <button className="icon-btn sm" disabled={!editable} onMouseDown={(e) => e.preventDefault()} onClick={run((e) => e.redo())} title="Rétablir (⌘⇧Z)" aria-label="Rétablir">
-            <Redo2 size={15} />
-          </button>
-        </div>
+        <Toolbar
+          engine={() => engineRef.current}
+          fmt={fmt}
+          editable={editable && !layoutBusy}
+          refresh={() => {
+            const e = engineRef.current;
+            if (e) setFmt(e.state());
+          }}
+          structural={structural}
+          openLink={openLink}
+          insertFootnote={insertFootnote}
+          zoom={zoom}
+          setZoom={setZoom}
+          undo={undo}
+          redo={redo}
+          notify={(m, t) => toast(m, t ?? 'info')}
+        />
       </div>
-      <Popover pop={stylePop} label="Style de paragraphe" className="ed-menu ed-style-menu">
-        {STYLE_ORDER.map((s) => (
-          <button
-            key={s}
-            className={`menu-item ed-style-${s} ${fmt.style === s ? 'focused' : ''}`}
-            onMouseDown={(e) => e.preventDefault()}
-            onClick={() => {
-              stylePop.close();
-              run((e) => e.setParagraphStyle(s))();
-            }}
-          >
-            {STYLE_LABEL[s]}
-          </button>
-        ))}
+      {layoutBusy && <div className="progress-indeterminate ed-progress" role="progressbar" aria-label="Mise en page en cours" />}
+      {selRect && editable && !layoutBusy && !linkPop.isOpen && (
+        <SelectionBar
+          engine={() => engineRef.current}
+          fmt={fmt}
+          rect={selRect}
+          refresh={() => {
+            const e = engineRef.current;
+            if (e) setFmt(e.state());
+          }}
+          openLink={openLink}
+        />
+      )}
+      <Popover pop={linkPop} label="Lien" className="ed-menu ed-link-pop">
+        <LinkEditor
+          current={linkCtx.current}
+          needsText={linkCtx.needsText}
+          onCancel={() => {
+            linkPop.close();
+            engineRef.current?.focus();
+          }}
+          onRemove={() => {
+            linkPop.close();
+            const e = engineRef.current;
+            if (e) {
+              e.unsetLink();
+              setFmt(e.state());
+            }
+          }}
+          onApply={(href, text) => {
+            linkPop.close();
+            const e = engineRef.current;
+            if (e) {
+              if (!e.setLink(href, text)) toast('Sélectionnez le texte à transformer en lien.', 'info');
+              setFmt(e.state());
+            }
+          }}
+        />
       </Popover>
 
       <div className="ed-body">
@@ -671,7 +869,7 @@ function Editor({ draft }: { draft: Draft }) {
           Quitter la concentration <Kbd>Échap</Kbd>
         </button>
       )}
-      {import.meta.env.DEV && <DevHandle engineRef={engineRef} save={save} exportAs={exportAs} />}
+      {import.meta.env.DEV && <DevHandle engineRef={engineRef} save={save} exportAs={exportAs} undo={undo} />}
     </div>
   );
 }
@@ -681,17 +879,19 @@ function DevHandle({
   engineRef,
   save,
   exportAs,
+  undo,
 }: {
   engineRef: MutableRefObject<DocEngine | null>;
   save: (external: boolean) => Promise<boolean>;
   exportAs: (f: ExportFormat) => Promise<void>;
+  undo: () => void;
 }) {
   useEffect(() => {
     const w = window as unknown as { __ed?: unknown };
-    w.__ed = { engine: () => engineRef.current, save, exportAs };
+    w.__ed = { engine: () => engineRef.current, save, exportAs, undo };
     return () => {
       if (w.__ed) w.__ed = undefined;
     };
-  }, [engineRef, save, exportAs]);
+  }, [engineRef, save, exportAs, undo]);
   return null;
 }

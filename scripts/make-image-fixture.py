@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 """Fixture image pour le moteur image (OCR) : photo simulée d'une page du Discours de la méthode.
 
-Usage : python3 -I scripts/make-image-fixture.py <sortie.jpg> <verite.txt> [--clean]
+Usage : python3 -I scripts/make-image-fixture.py <sortie.jpg> <verite.txt> [--clean] [--exif-rotated]
 - page papier légèrement jaunie, éclairage inégal, posée sur un fond plus sombre ;
 - rotation de 1,2°, bruit gaussien, léger flou, JPEG qualité 82 (comme une photo de téléphone) ;
-- --clean : même page sans rotation ni bruit (pour comparer).
+- --clean : même page sans rotation ni bruit (pour comparer) ;
+- --exif-rotated : pixels enregistrés couchés (90° à gauche) avec l'étiquette EXIF Orientation = 6,
+  comme une photo de téléphone tenu en paysage : un lecteur correct l'affiche droite.
 Écrit aussi le texte exact rendu (vérité terrain) dans <verite.txt>.
 """
 import random
@@ -17,6 +19,7 @@ from PIL import Image, ImageDraw, ImageFilter, ImageFont
 ROOT = __file__.rsplit('/scripts/', 1)[0]
 out_img, out_txt = sys.argv[1], sys.argv[2]
 clean = '--clean' in sys.argv
+exif_rotated = '--exif-rotated' in sys.argv
 random.seed(7)
 np.random.seed(7)
 
@@ -82,6 +85,11 @@ if not clean:
 else:
     img = page.convert('RGB')
 
-img.save(out_img, 'JPEG', quality=82)
+if exif_rotated:
+    exif = Image.Exif()
+    exif[0x0112] = 6  # Orientation : faire pivoter de 90° dans le sens horaire pour afficher
+    img.rotate(90, expand=True).save(out_img, 'JPEG', quality=82, exif=exif.tobytes())
+else:
+    img.save(out_img, 'JPEG', quality=82)
 open(out_txt, 'w', encoding='utf-8').write('\n'.join(truth_lines).strip() + '\n')
 print(out_img, img.size)

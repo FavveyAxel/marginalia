@@ -143,8 +143,15 @@ const errors = [];
 const requests = [];
 page.on('pageerror', (e) => errors.push('pageerror: ' + e.message));
 page.on('console', (m) => m.type() === 'error' && errors.push('console: ' + m.text()));
-page.on('request', (r) => requests.push(r.url()));
-ctx.on('request', (r) => requests.push(r.url()));
+// Une requête de worker peut être signalée par la page ET par le contexte : chaque requête une seule fois.
+const seenReq = new WeakSet();
+const onReq = (r) => {
+  if (seenReq.has(r)) return;
+  seenReq.add(r);
+  requests.push(r.url());
+};
+page.on('request', onReq);
+ctx.on('request', onReq);
 const ready = () => page.waitForFunction(() => window.__store && window.__store.getState().ready, null, { timeout: 60000 });
 
 try {
@@ -196,6 +203,11 @@ try {
   const acc = wordAccuracy(fs.readFileSync(TRUTH, 'utf8'), ocrText);
   const rate = acc.ok / acc.total;
   ok(rate >= 0.95, 'taux de mots corrects sur la page connue', `${acc.ok}/${acc.total} = ${(rate * 100).toFixed(1)} %, confiance moyenne ${ocr.confidence} %`);
+  {
+    const truthWords = new Set(fs.readFileSync(TRUTH, 'utf8').replace(/[’‘`]/g, "'").split(/\s+/));
+    const extra = ocr.paras.flatMap((p) => p.lines.flatMap((l) => l.words)).filter((w) => !truthWords.has(w.t.replace(/[’‘`]/g, "'")));
+    console.log('     mots absents de la vérité :', extra.map((w) => `${JSON.stringify(w.t)}(${w.c})`).join(' ') || 'aucun');
+  }
   const external = [...new Set(requests.filter((u) => !u.startsWith(`http://localhost:${PORT}`) && !u.startsWith('data:') && !u.startsWith('blob:')))];
   ok(external.length === 0, 'aucune requête hors de l’app (OCR hors ligne)', external.slice(0, 3).join(' '));
   ok(requests.some((u) => u.includes('/ocr/lang/fra.traineddata.gz')) && requests.some((u) => u.includes('/ocr/tesseract-core-simd-lstm.wasm.js')), 'modèles et cœur chargés depuis l’app');
@@ -361,6 +373,58 @@ try {
   const err = await page.waitForSelector('.reader-page .empty', { timeout: 10000 }).catch(() => null);
   ok(!!err && /HEIC/.test(await err.textContent()), 'HEIC sans convertisseur : message explicite', err ? (await err.textContent()).slice(0, 90) : '');
 
+  // 13b. Photo de téléphone tenue en paysage (EXIF Orientation = 6), ouverte côte à côte avec elle-même
+  //      pendant la reconnaissance : affichée droite, UNE seule reconnaissance partagée par les deux volets,
+  //      qui continue quand on ferme le lecteur et reprend sa progression à la réouverture.
+  {
+    const ROT = path.join(TMP, 'photo-paysage.jpg');
+    const g = spawnSync('python3', ['-I', path.join(ROOT, 'scripts/make-image-fixture.py'), ROT, path.join(TMP, 'rot.txt'), '--exif-rotated'], { encoding: 'utf8' });
+    if (g.status !== 0) throw new Error('fixture EXIF : ' + g.stderr);
+    requests.length = 0;
+    const idRot = await importFile(page, ROT);
+    const cover = await page.evaluate((id) => {
+      const b = window.__store.getState().books.find((x) => x.id === id);
+      return new Promise((res) => {
+        const im = new Image();
+        im.onload = () => res({ w: im.naturalWidth, h: im.naturalHeight });
+        im.src = b.cover;
+      });
+    }, idRot);
+    ok(cover.h > cover.w, 'miniature droite (orientation EXIF appliquée)', `${cover.w}×${cover.h}`);
+    await page.evaluate((id) => window.__store.getState().navigate({ name: 'reader', bookId: id, tab: 'lecture', splitBookId: id }), idRot);
+    await page.waitForFunction(() => document.querySelectorAll('.img-ocr-chip').length === 2, null, { timeout: 20000 }).catch(() => null);
+    const dims = await page.evaluate(() => [...document.querySelectorAll('.img-page')].map((e) => ({ w: e.clientWidth, h: e.clientHeight })));
+    ok(dims.length === 2 && dims.every((d) => d.h > d.w), 'photo affichée droite dans les deux volets', JSON.stringify(dims));
+    await page.waitForFunction(() => Number(document.querySelector('.img-ocr-pct')?.textContent.replace(/\D/g, '') || 0) >= 30, null, { timeout: 60000 }).catch(() => null);
+    const pctA = await page.evaluate(() => Number(document.querySelector('.img-ocr-pct')?.textContent.replace(/\D/g, '') || 0));
+    await shot(page, '13-cote-a-cote-ocr.png');
+    await page.evaluate(() => window.__store.getState().navigate({ name: 'library' }));
+    await page.waitForTimeout(300);
+    await page.evaluate((id) => window.__store.getState().openBook(id), idRot);
+    const chip2 = await page.waitForSelector('.img-ocr-chip', { timeout: 5000 }).catch(() => null);
+    const pctB = chip2 ? await page.evaluate(() => Number(document.querySelector('.img-ocr-pct')?.textContent.replace(/\D/g, '') || 0)) : -1;
+    // Si la reconnaissance s'est terminée pendant la fermeture, le résultat enregistré est repris
+    // (le décompte des chargements des modèles, plus bas, vérifie qu'elle n'a pas recommencé).
+    const doneMeanwhile = !chip2 && (await page.evaluate(() => document.querySelectorAll('.img-text span[data-i]').length > 200));
+    ok((!!chip2 && pctB >= pctA) || doneMeanwhile, 'lecteur fermé puis rouvert : la reconnaissance continue (pas de nouveau départ)', chip2 ? `${pctA} % → ${pctB} %` : 'terminée pendant la fermeture');
+    await page.waitForFunction(() => document.querySelectorAll('.img-text span[data-i]').length > 200, null, { timeout: 120000 });
+    const langLoads = requests.filter((u) => u.includes('fra.traineddata.gz')).length;
+    ok(langLoads === 1, 'une seule reconnaissance pour deux volets et une réouverture', `${langLoads} chargement(s) des modèles`);
+    const ocrR = await readOcr(page, idRot);
+    const textR = ocrR.paras.map((p) => p.lines.map((l) => l.words.map((w) => w.t).join(' ')).join('\n')).join('\n\n');
+    const accR = wordAccuracy(fs.readFileSync(TRUTH, 'utf8'), textR);
+    ok(accR.ok / accR.total >= 0.95, 'photo EXIF : texte reconnu dans le bon sens', `${accR.ok}/${accR.total} = ${((accR.ok / accR.total) * 100).toFixed(1)} %`);
+    const boxR = await wordsBox(page, ['puissance', 'de', 'bien', 'juger']);
+    await dragOver(page, boxR);
+    await page.waitForSelector('.sel-toolbar', { timeout: 4000 }).catch(() => null);
+    const beforeR = await page.evaluate(() => window.__store.getState().highlights.length);
+    await page.keyboard.press('3');
+    const hR = await newHighlight(page, beforeR);
+    await page.waitForTimeout(200);
+    const hbR = await hlBox(page, hR.id);
+    ok(hR.text === 'puissance de bien juger' && hbR && iou(hbR, boxR) > 0.6, 'photo EXIF : sélection et surlignage alignés', `${JSON.stringify(hR.text)} IoU ${hbR ? iou(hbR, boxR).toFixed(2) : '—'}`);
+  }
+
   // 14. Captures : clair, sombre, côte à côte
   await page.evaluate((id) => window.__store.getState().openBook(id), id);
   await page.waitForSelector(`.hl[data-hl-id="${h1.id}"]`);
@@ -378,6 +442,13 @@ try {
   await page.waitForSelector('.reader-page[data-pane="b"] .textLayer', { timeout: 20000 }).catch(() => null);
   await page.waitForTimeout(600);
   await shot(page, '12-cote-a-cote.png');
+
+  // 15. Corbeille : le texte reconnu reste tant que l'image est restaurable, puis part avec elle.
+  await page.evaluate((id) => window.__store.getState().removeBook(id), idBlank);
+  await page.waitForTimeout(200);
+  ok((await readOcr(page, idBlank)) !== null, 'image en corbeille : texte reconnu conservé (restauration exacte)');
+  await page.evaluate(() => window.__store.getState().purgeTrash());
+  ok((await readOcr(page, idBlank)) === null, 'corbeille vidée : texte reconnu effacé avec l’image');
 
   const own = errors.filter((e) => !/Failed to load resource/.test(e));
   ok(own.length === 0, 'aucune erreur navigateur', own.slice(0, 3).join(' | '));

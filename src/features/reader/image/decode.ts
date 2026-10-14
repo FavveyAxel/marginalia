@@ -18,6 +18,13 @@ const MIME: Record<string, string> = {
 
 export class ImageDecodeError extends Error {}
 
+/**
+ * Orientation EXIF appliquée (photo de téléphone tenue de travers) : l'image décodée pour l'OCR
+ * et la miniature sont dans le même sens que l'<img> affichée (`image-orientation: from-image`),
+ * donc les boîtes des mots et les surlignages tombent au bon endroit.
+ */
+export const ORIENT: ImageBitmapOptions = { imageOrientation: 'from-image' };
+
 /** Type réel d'après les premiers octets (le nom de fichier peut mentir). */
 function sniff(bytes: Uint8Array): string | null {
   const b = bytes;
@@ -39,7 +46,7 @@ export async function displayableBlob(data: ArrayBuffer, name: string): Promise<
   const blob = new Blob([data], { type: MIME[kind] ?? MIME[extOf(name)] ?? 'application/octet-stream' });
   if (kind !== 'heic' && kind !== 'tiff') {
     try {
-      (await createImageBitmap(blob)).close();
+      (await createImageBitmap(blob, ORIENT)).close();
       return { blob, converted: false };
     } catch {
       /* format annoncé mais non décodable : on tente la conversion */
@@ -50,7 +57,7 @@ export async function displayableBlob(data: ArrayBuffer, name: string): Promise<
       const jpeg = await host.convertImage(data, kind === 'tiff' || kind === 'heic' ? kind : extOf(name));
       return { blob: new Blob([jpeg], { type: 'image/jpeg' }), converted: true };
     } catch (e) {
-      throw new ImageDecodeError(`Cette image n’a pas pu être convertie (${e instanceof Error ? e.message : String(e)}).`);
+      throw new ImageDecodeError(`Cette image n’a pas pu être convertie (${e instanceof Error ? e.message : String(e)}). Exportez-la en JPEG ou en PNG, puis importez-la de nouveau.`);
     }
   }
   const label = kind === 'heic' ? 'HEIC' : kind === 'tiff' ? 'TIFF' : extOf(name).toUpperCase() || 'inconnu';
@@ -61,7 +68,7 @@ export async function displayableBlob(data: ArrayBuffer, name: string): Promise<
 export async function imageThumbnail(data: ArrayBuffer, name: string): Promise<string | null> {
   try {
     const { blob } = await displayableBlob(data, name);
-    const bmp = await createImageBitmap(blob);
+    const bmp = await createImageBitmap(blob, ORIENT);
     const scale = Math.min(1, 600 / bmp.height, 400 / bmp.width);
     const w = Math.max(1, Math.round(bmp.width * scale));
     const h = Math.max(1, Math.round(bmp.height * scale));

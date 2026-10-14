@@ -41,7 +41,10 @@ Désinstallation : Paramètres › Applications.
 
 ```bash
 git tag v3.2 && git push origin v3.2
+# ou, sans étiquette locale (l'étiquette est créée par le workflow) :
+gh workflow run release.yml -f version=3.2
 ```
+On peut aussi passer par l'onglet Actions › Release › « Run workflow » en saisissant la version.
 
 L'étiquette déclenche `.github/workflows/release.yml` : GitHub Actions fixe la version de l'app d'après
 l'étiquette (`v3.2` → 3.2.0, affichée dans « À propos »), fabrique les .dmg (arm64, x64) sur un Mac et les .exe

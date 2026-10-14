@@ -239,6 +239,11 @@ const ExtractCard = memo(function ExtractCard({ h, active, conceptName, onJump, 
       <div className="ann-card-top">
         <span className="ann-card-cat">{label}</span>
         {loc && <span className="ann-card-loc truncate">{loc}</span>}
+        {h.source?.app === 'livres' && (
+          <span className="src-livres" title="Venu de l’app Livres (synchronisé)">
+            Livres
+          </span>
+        )}
       </div>
       <blockquote className="ann-card-text">{h.text}</blockquote>
       {h.note.trim() && (

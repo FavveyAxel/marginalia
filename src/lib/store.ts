@@ -245,6 +245,11 @@ export interface State extends Database {
   revertActivity(entryId: string): RestoreResult;
   /** Ajoute une entrée au journal (export, etc.). */
   logActivity(e: Omit<ActivityEntry, 'id' | 'at' | 'startedAt'>): void;
+  /**
+   * Écriture venue d'une synchro externe (Livres) : hors de ⌘Z et du journal ligne par ligne.
+   * `update` reçoit l'état courant et renvoie les collections à remplacer ; `log` : une entrée groupée.
+   */
+  applyExternal(update: (s: State) => Partial<Pick<Database, 'books' | 'highlights' | 'bookmarks' | 'settings'>> | null, log?: Omit<ActivityEntry, 'id' | 'at' | 'startedAt'>): void;
 }
 
 export interface RestoreResult {
@@ -1276,6 +1281,20 @@ export const useStore = create<State>()(tracked((set, get) => ({
   logActivity(e) {
     const s = get();
     rawSet({ activity: mergeActivity(s.activity, [e], Date.now(), s, uid) });
+  },
+
+  applyExternal(update, log) {
+    flushNow();
+    const patch = update(get());
+    if (patch && Object.keys(patch).length) {
+      quiet++;
+      try {
+        set(patch as Partial<State>);
+      } finally {
+        quiet--;
+      }
+    }
+    if (log) get().logActivity(log);
   },
 })));
 

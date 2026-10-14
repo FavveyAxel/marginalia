@@ -411,7 +411,8 @@ handle('marginalia:appleBooksWatch', async () => {
       for (const w of BrowserWindow.getAllWindows()) if (!w.isDestroyed()) w.webContents.send('marginalia:appleBooksChanged');
     }, 2500);
   };
-  for (const base of BOOKS_DIRS()) {
+  // Dossier des annotations (AEAnnotation) : surlignages, notes, signets et position reçus par iCloud.
+  for (const base of [...BOOKS_DIRS(), AE_DIR()]) {
     try {
       booksWatchers.push(fs.watch(base, { persistent: false }, notify));
     } catch {
@@ -443,6 +444,177 @@ handle('marginalia:appleBooksRead', async (_e, p) => {
     return { name: path.basename(p), data: buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength) };
   } finally {
     fsp.unlink(tmp).catch(() => {});
+  }
+});
+
+// ── Annotations de Livres (surlignages, notes, signets, position) ──
+// Lecture seule des bases de Livres : on copie la base (+ -wal, -shm) dans un dossier temporaire,
+// puis on l'interroge avec l'outil système sqlite3 (aucun module natif). L'original n'est jamais
+// ouvert par sqlite3, donc jamais modifié. Schéma non documenté par Apple : colonnes vérifiées
+// (PRAGMA table_info), valeurs inconnues ignorées, écarts consignés dans le journal de diagnostic.
+const IBOOKSX_DOCS = () => path.join(os.homedir(), 'Library/Containers/com.apple.iBooksX/Data/Documents');
+const AE_DIR = () => path.join(IBOOKSX_DOCS(), 'AEAnnotation');
+const BK_DIR = () => path.join(IBOOKSX_DOCS(), 'BKLibrary');
+const APPLE_EPOCH_S = 978307200; // 1er janvier 2001, en secondes Unix
+const BOOKS_DENIED =
+  'macOS refuse l’accès aux données de Livres. Autorisez Marginalia dans Réglages système › Confidentialité et sécurité › Accès complet au disque (ou acceptez la demande d’accès aux données d’autres apps), puis relancez la synchronisation.';
+let sqliteBinCache = null;
+function sqliteBin() {
+  if (sqliteBinCache) return sqliteBinCache;
+  const candidates = process.platform === 'darwin' ? ['/usr/bin/sqlite3'] : ['/usr/bin/sqlite3', '/usr/local/bin/sqlite3', '/bin/sqlite3'];
+  sqliteBinCache = candidates.find((c) => fs.existsSync(c)) || 'sqlite3';
+  return sqliteBinCache;
+}
+const isDenied = (e) => !!e && (e.code === 'EPERM' || e.code === 'EACCES');
+/** Base la plus récente d'un dossier (« AEAnnotation_v10312011_1727_local.sqlite »…). */
+async function newestDb(dir, prefix) {
+  const names = await fsp.readdir(dir); // ENOENT / EPERM remontent à l'appelant
+  let best = null;
+  for (const n of names) {
+    if (!n.startsWith(prefix) || !n.endsWith('.sqlite')) continue;
+    const st = await fsp.stat(path.join(dir, n)).catch(() => null);
+    if (st && st.isFile() && (!best || st.mtimeMs > best.mtime)) best = { file: path.join(dir, n), mtime: st.mtimeMs };
+  }
+  return best ? best.file : null;
+}
+/** Copie la base et ses fichiers -wal / -shm (même nom de base) dans `tmp`. */
+async function snapshotDb(file, tmp) {
+  const dst = path.join(tmp, path.basename(file));
+  await fsp.copyFile(file, dst);
+  for (const ext of ['-wal', '-shm']) await fsp.copyFile(file + ext, dst + ext).catch(() => {});
+  return dst;
+}
+function sqlJson(db, sql) {
+  const { execFile } = require('child_process');
+  const run = (args) =>
+    new Promise((resolve, reject) =>
+      execFile(sqliteBin(), args, { timeout: 60000, maxBuffer: 128 * 1024 * 1024 }, (err, out, errOut) => (err ? reject(new Error(String(errOut || err.message).trim())) : resolve(String(out)))),
+    );
+  // -readonly d'abord ; sur la COPIE seulement, nouvel essai sans (WAL sans -shm, vieux sqlite3).
+  return run(['-readonly', '-json', db, sql])
+    .catch(() => run(['-json', db, sql]))
+    .then((out) => (out.trim() ? JSON.parse(out) : []));
+}
+async function tableColumns(db, table) {
+  const rows = await sqlJson(db, `PRAGMA table_info(${table})`);
+  return new Set(rows.map((r) => String(r.name).toUpperCase()));
+}
+/** SELECT des colonnes voulues ; une colonne absente vaut NULL (et c'est noté au diagnostic). */
+function selectCols(cols, wanted, table) {
+  const missing = wanted.filter((c) => !cols.has(c));
+  if (missing.length) diag('livres', 'colonnes absentes', table, missing);
+  return wanted.map((c) => (cols.has(c) ? c : `NULL AS ${c}`)).join(', ');
+}
+const appleDate = (v) => (typeof v === 'number' && isFinite(v) && v > 0 ? Math.round((v + APPLE_EPOCH_S) * 1000) : null);
+const str = (v) => (typeof v === 'string' ? v : v == null ? '' : String(v));
+
+handle('marginalia:appleBooksAnnotations', async () => {
+  let aeFile = null;
+  let bkFile = null;
+  try {
+    aeFile = await newestDb(AE_DIR(), 'AEAnnotation');
+    bkFile = await newestDb(BK_DIR(), 'BKLibrary').catch((e) => {
+      if (isDenied(e)) throw e;
+      return null;
+    });
+  } catch (e) {
+    if (isDenied(e)) return { status: 'denied', message: BOOKS_DENIED, books: [] };
+    if (e && e.code === 'ENOENT') return { status: 'absent', message: 'Aucune donnée de Livres sur ce Mac.', books: [] };
+    diag('livres', 'lecture du dossier', e && e.message);
+    return { status: 'error', message: String((e && e.message) || e), books: [] };
+  }
+  if (!aeFile) return { status: 'absent', message: 'Aucune donnée d’annotation de Livres sur ce Mac.', books: [] };
+  const tmp = await fsp.mkdtemp(path.join(os.tmpdir(), 'marginalia-livres-'));
+  try {
+    let ae;
+    let bk = null;
+    try {
+      ae = await snapshotDb(aeFile, tmp);
+      if (bkFile) bk = await snapshotDb(bkFile, tmp).catch((e) => (isDenied(e) ? Promise.reject(e) : null));
+    } catch (e) {
+      if (isDenied(e)) return { status: 'denied', message: BOOKS_DENIED, books: [] };
+      throw e;
+    }
+    // Annotations
+    const aCols = await tableColumns(ae, 'ZAEANNOTATION');
+    if (!aCols.has('ZANNOTATIONASSETID') || !aCols.has('ZANNOTATIONLOCATION')) {
+      diag('livres', 'schéma inattendu (ZAEANNOTATION)', [...aCols]);
+      return { status: 'error', message: 'Format des données de Livres non reconnu (version de Livres trop récente ?).', books: [] };
+    }
+    const A = ['ZANNOTATIONASSETID', 'ZANNOTATIONUUID', 'ZANNOTATIONSELECTEDTEXT', 'ZANNOTATIONREPRESENTATIVETEXT', 'ZANNOTATIONNOTE', 'ZANNOTATIONLOCATION', 'ZANNOTATIONSTYLE', 'ZANNOTATIONISUNDERLINE', 'ZANNOTATIONTYPE', 'ZANNOTATIONDELETED', 'ZANNOTATIONCREATIONDATE', 'ZANNOTATIONMODIFICATIONDATE'];
+    const rows = await sqlJson(ae, `SELECT ${selectCols(aCols, A, 'ZAEANNOTATION')} FROM ZAEANNOTATION WHERE ZANNOTATIONASSETID IS NOT NULL`);
+    const byAsset = new Map();
+    const unknownTypes = new Set();
+    for (const r of rows) {
+      const text = str(r.ZANNOTATIONSELECTEDTEXT);
+      const t = Number(r.ZANNOTATIONTYPE);
+      let type = null;
+      if (t === 2) type = 'highlight';
+      else if (t === 1) type = text.trim() ? 'highlight' : 'bookmark';
+      else if (t === 3) type = 'position';
+      else if (text.trim()) type = 'highlight';
+      else unknownTypes.add(r.ZANNOTATIONTYPE);
+      const cfi = str(r.ZANNOTATIONLOCATION);
+      if (!type || !cfi.startsWith('epubcfi(')) continue;
+      const uuid = str(r.ZANNOTATIONUUID) || `${r.ZANNOTATIONASSETID}|${cfi}|${type}`;
+      const style = Number.isInteger(r.ZANNOTATIONSTYLE) ? r.ZANNOTATIONSTYLE : null;
+      const created = appleDate(r.ZANNOTATIONCREATIONDATE);
+      const a = {
+        uuid,
+        type,
+        text,
+        note: str(r.ZANNOTATIONNOTE),
+        cfi,
+        style,
+        underline: Number(r.ZANNOTATIONISUNDERLINE) === 1,
+        created,
+        modified: appleDate(r.ZANNOTATIONMODIFICATIONDATE) || created,
+        deleted: Number(r.ZANNOTATIONDELETED) === 1,
+      };
+      const key = str(r.ZANNOTATIONASSETID);
+      if (!byAsset.has(key)) byAsset.set(key, []);
+      byAsset.get(key).push(a);
+    }
+    if (unknownTypes.size) diag('livres', 'types d’annotation ignorés', [...unknownTypes]);
+    // Bibliothèque de Livres : titre, auteur, chemin, progression, protection.
+    const assets = new Map();
+    if (bk) {
+      const bCols = await tableColumns(bk, 'ZBKLIBRARYASSET');
+      if (bCols.has('ZASSETID')) {
+        const B = ['ZASSETID', 'ZTITLE', 'ZAUTHOR', 'ZPATH', 'ZREADINGPROGRESS', 'ZLASTOPENDATE', 'ZISPROTECTED', 'ZDRMS'];
+        for (const r of await sqlJson(bk, `SELECT ${selectCols(bCols, B, 'ZBKLIBRARYASSET')} FROM ZBKLIBRARYASSET`)) assets.set(str(r.ZASSETID), r);
+      } else diag('livres', 'schéma inattendu (ZBKLIBRARYASSET)', [...bCols]);
+    }
+    const books = [];
+    for (const id of new Set([...assets.keys(), ...byAsset.keys()])) {
+      const r = assets.get(id) || {};
+      const p = str(r.ZPATH);
+      let prot = Number(r.ZISPROTECTED) === 1 || (r.ZDRMS != null && r.ZDRMS !== 0 && r.ZDRMS !== '');
+      // Paquet EPUB présent sur le disque : la détection de DRM de l'import fait foi aussi.
+      if (!prot && p && p.toLowerCase().endsWith('.epub')) {
+        const st = await fsp.stat(p).catch(() => null);
+        if (st && st.isDirectory()) prot = !!(await epubPackageInfo(p)).drm;
+      }
+      const prog = typeof r.ZREADINGPROGRESS === 'number' && r.ZREADINGPROGRESS >= 0 && r.ZREADINGPROGRESS <= 1 ? r.ZREADINGPROGRESS : null;
+      books.push({
+        assetId: id,
+        title: str(r.ZTITLE),
+        author: str(r.ZAUTHOR),
+        path: p,
+        fileName: p ? path.basename(p) : '',
+        progress: prog,
+        lastOpened: appleDate(r.ZLASTOPENDATE),
+        protected: prot,
+        annotations: byAsset.get(id) || [],
+      });
+    }
+    return { status: 'ok', books };
+  } catch (e) {
+    diag('livres', 'lecture des annotations', e && e.message);
+    if (isDenied(e)) return { status: 'denied', message: BOOKS_DENIED, books: [] };
+    return { status: 'error', message: String((e && e.message) || e), books: [] };
+  } finally {
+    fsp.rm(tmp, { recursive: true, force: true }).catch(() => {});
   }
 });
 
@@ -644,7 +816,8 @@ function createWindow() {
   });
 
   if (DEV_URL) win.loadURL(DEV_URL);
-  else win.loadURL(`${APP_ORIGIN}/index.html`);
+  // Tests de bout en bout (MARGINALIA_E2E=1) : le rendu expose son store (window.__store).
+  else win.loadURL(`${APP_ORIGIN}/index.html${process.env.MARGINALIA_E2E === '1' ? '?e2e=1' : ''}`);
   return win;
 }
 

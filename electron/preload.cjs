@@ -37,6 +37,7 @@ const api = {
     return { name: r.name, data: toArrayBuffer(r.data) };
   },
   appleBooksWatch: () => ipcRenderer.invoke('marginalia:appleBooksWatch'),
+  appleBooksAnnotations: () => ipcRenderer.invoke('marginalia:appleBooksAnnotations'),
   onAppleBooksChanged: (cb) => {
     const handler = () => cb();
     ipcRenderer.on('marginalia:appleBooksChanged', handler);

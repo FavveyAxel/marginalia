@@ -49,7 +49,8 @@ export interface Book {
 }
 
 export type ReaderPosition =
-  | { kind: 'html'; chapter: number; scroll: number }
+  /** `offset` (facultatif) : caractère à placer en haut à la réouverture (position venue de Livres). */
+  | { kind: 'html'; chapter: number; scroll: number; offset?: number }
   | { kind: 'pdf'; page: number; offset: number };
 
 /**
@@ -81,6 +82,49 @@ export interface PdfAnchor {
 
 export type Anchor = HtmlAnchor | PdfAnchor;
 
+/**
+ * Provenance d'un extrait ou d'un signet synchronisé depuis une autre app (Livres d'Apple).
+ * Les valeurs « telles que synchronisées » permettent de savoir ce que l'utilisateur a changé
+ * dans Marginalia (catégorie, note, libellé) : ces changements ne sont jamais écrasés.
+ */
+export interface ExternalSource {
+  app: 'livres';
+  /** Identifiant de l'annotation dans Livres. */
+  uuid: string;
+  /** Date de modification dans Livres (ms) à la dernière synchro. */
+  modified: number;
+  /** Catégorie posée par la dernière synchro. */
+  category?: CategoryId | null;
+  /** Note de Livres à la dernière synchro. */
+  note?: string;
+  /** Texte sélectionné dans Livres à la dernière synchro. */
+  text?: string;
+  /** Libellé posé par la dernière synchro (signets). */
+  label?: string;
+}
+
+/** Couleurs de surlignage de Livres. */
+export type AppleBooksColor = 'jaune' | 'vert' | 'bleu' | 'rose' | 'violet' | 'souligne';
+/** Destination d'une couleur de Livres : une catégorie, une note de marge, ou rien (non importé). */
+export type AppleBooksColorTarget = CategoryId | 'note' | 'skip';
+
+/** Dernier résultat de synchro des annotations de Livres. */
+export interface AppleBooksSyncReport {
+  at: number;
+  /** Totaux d'éléments liés à Livres après la synchro. */
+  highlights: number;
+  bookmarks: number;
+  positions: number;
+  /** Changements de cette synchro. */
+  created: number;
+  updated: number;
+  removed: number;
+  /** Passages introuvables (ignorés). */
+  notFound: number;
+  /** Message d'erreur (accès refusé…). */
+  error?: string;
+}
+
 /** Teintes proposées pour un signet (null : teinte par défaut). */
 export type BookmarkColor = 'rouge' | 'orange' | 'jaune' | 'vert' | 'bleu' | 'violet';
 
@@ -105,6 +149,8 @@ export interface Bookmark {
   note?: string;
   color?: BookmarkColor | null;
   createdAt: number;
+  /** Signet venu de Livres (synchro). */
+  source?: ExternalSource;
 }
 
 /**
@@ -132,6 +178,8 @@ export interface Highlight {
   printedPage: string;
   createdAt: number;
   updatedAt: number;
+  /** Extrait venu de Livres (synchro). */
+  source?: ExternalSource;
 }
 
 /** Un sens d'un concept, propre à un auteur / un livre. */
@@ -387,6 +435,14 @@ export interface Settings {
   appleBooksSync?: boolean;
   /** Livres de l'app Livres déjà traités (importés ou écartés), par nom de fichier. */
   appleBooksSeen?: string[];
+  /** Synchro des annotations de Livres (absent : suit appleBooksSync). */
+  appleBooksAnnotations?: { highlights?: boolean; bookmarks?: boolean; position?: boolean };
+  /** Couleur de Livres → catégorie (absent : correspondance par défaut). */
+  appleBooksColorMap?: Partial<Record<AppleBooksColor, AppleBooksColorTarget>>;
+  /** Annotations de Livres déjà importées (uuid) : une suppression dans Marginalia n'est pas défaite. */
+  appleBooksKnown?: string[];
+  /** Dernier résultat de synchro des annotations. */
+  appleBooksLastSync?: AppleBooksSyncReport;
   /** Anciens .docx importés comme livres déjà convertis en écrits. */
   docxMigrated?: boolean;
   /** Barre latérale repliée en rail d'icônes. */

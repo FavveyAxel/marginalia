@@ -7,6 +7,7 @@
 import { useEffect } from 'react';
 import { useStore } from '../../lib/store';
 import { host, type AppleBook } from '../../lib/platform';
+import { annotationToggles, appleBooksAnnotationsAvailable, syncAppleBooksAnnotations } from './appleBooksAnnotations';
 
 export const appleBooksAvailable = () => !!(host.appleBooksScan && host.appleBooksRead);
 
@@ -38,6 +39,8 @@ export async function importAppleBooks(list: AppleBook[], onProgress?: (done: nu
     }
     onProgress?.(++done, list.length);
   }
+  // Nouveaux livres : leurs surlignages, signets et position de Livres suivent.
+  if (n) void syncAppleBooksAnnotations();
   return n;
 }
 
@@ -61,13 +64,26 @@ export function syncAppleBooks(): Promise<number> {
   return running;
 }
 
-/** Synchro au lancement, à chaque changement du dossier de Livres et au retour sur l'app. */
+/**
+ * Synchro au lancement, à chaque changement du dossier de Livres (livres ou annotations reçus par
+ * iCloud) et au retour sur l'app : livres d'abord, puis surlignages, signets et position.
+ */
 export function useAppleBooksSync() {
   const ready = useStore((s) => s.ready);
   const enabled = useStore((s) => !!s.settings.appleBooksSync);
+  const annotations = useStore((s) => {
+    const t = annotationToggles(s.settings);
+    return t.highlights || t.bookmarks || t.position;
+  });
   useEffect(() => {
-    if (!ready || !enabled || !appleBooksAvailable()) return;
-    const run = () => void syncAppleBooks().catch((e) => console.error(e));
+    const books = enabled && appleBooksAvailable();
+    const notes = annotations && appleBooksAnnotationsAvailable();
+    if (!ready || (!books && !notes)) return;
+    const run = () =>
+      void (async () => {
+        if (books) await syncAppleBooks().catch((e) => console.error(e));
+        if (notes) await syncAppleBooksAnnotations();
+      })();
     run();
     void host.appleBooksWatch?.();
     const off = host.onAppleBooksChanged?.(run);
@@ -82,5 +98,5 @@ export function useAppleBooksSync() {
       off?.();
       window.removeEventListener('focus', onFocus);
     };
-  }, [ready, enabled]);
+  }, [ready, enabled, annotations]);
 }

@@ -10,7 +10,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
   </React.StrictMode>,
 );
 
-// Accès de test (dev uniquement)
-if (import.meta.env.DEV) {
+// Accès de test (dev, ou app lancée par un test de bout en bout avec MARGINALIA_E2E=1)
+if (import.meta.env.DEV || new URLSearchParams(location.search).has('e2e')) {
   import('./lib/store').then((m) => ((window as any).__store = m.useStore));
 }

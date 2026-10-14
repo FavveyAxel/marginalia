@@ -309,7 +309,14 @@ const BookmarkRow = memo(function BookmarkRow({ b, current, index, onGo }: { b: 
               {b.label}
             </span>
           )}
-          <span className="bm-row-where">{whereOf(b)}</span>
+          <span className="bm-row-where">
+            {whereOf(b)}
+            {b.source?.app === 'livres' && (
+              <span className="src-livres" title="Venu de l’app Livres (synchronisé)">
+                Livres
+              </span>
+            )}
+          </span>
           {showExcerpt && <span className="bm-row-excerpt">« {excerpt} »</span>}
           {b.note && <span className="bm-row-note">{b.note}</span>}
         </span>

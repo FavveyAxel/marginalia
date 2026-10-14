@@ -22,6 +22,45 @@ export interface AppleBook {
   pending?: boolean;
 }
 
+/** Annotation de Livres, normalisée par le processus principal (dates en ms Unix). */
+export interface AppleBooksAnnotation {
+  uuid: string;
+  type: 'highlight' | 'bookmark' | 'position';
+  /** Texte sélectionné (surlignage) ; vide pour un signet ou une position. */
+  text: string;
+  note: string;
+  /** Emplacement EPUB CFI (« epubcfi(/6/14[ch1]!/4/2/10,/1:0,/1:120) »). */
+  cfi: string;
+  /** ZANNOTATIONSTYLE : 0 souligné, 1 vert, 2 bleu, 3 jaune, 4 rose, 5 violet (null : inconnu). */
+  style: number | null;
+  underline: boolean;
+  created: number | null;
+  modified: number | null;
+  deleted: boolean;
+}
+
+/** Livre de la bibliothèque de Livres et ses annotations. */
+export interface AppleBooksAsset {
+  assetId: string;
+  title: string;
+  author: string;
+  path: string;
+  /** Nom de fichier côté Livres (basename du chemin), comparé à Book.originalName. */
+  fileName: string;
+  /** Avancement 0–1 selon Livres (null : inconnu). */
+  progress: number | null;
+  lastOpened: number | null;
+  protected: boolean;
+  annotations: AppleBooksAnnotation[];
+}
+
+export interface AppleBooksAnnotationsResult {
+  /** 'denied' : macOS refuse l'accès (message à montrer tel quel). */
+  status: 'ok' | 'absent' | 'denied' | 'error';
+  message?: string;
+  books: AppleBooksAsset[];
+}
+
 export interface HostApi {
   /** Base complète, ou null au premier lancement. */
   loadDb(): Promise<Database | null>;
@@ -52,6 +91,8 @@ export interface HostApi {
   /** Surveille les dossiers de Livres ; renvoie false si aucun n'est accessible. */
   appleBooksWatch?(): Promise<boolean>;
   onAppleBooksChanged?(cb: () => void): () => void;
+  /** Surlignages, notes, signets et positions de Livres (lecture seule, copie de la base). */
+  appleBooksAnnotations?(): Promise<AppleBooksAnnotationsResult>;
   /** Déplacement de la fenêtre par la barre du haut (app Mac). */
   windowDragStart?(): Promise<void>;
   windowDragEnd?(): Promise<void>;

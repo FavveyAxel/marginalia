@@ -646,6 +646,24 @@ async function fromEpub(data: ArrayBuffer, book: Book): Promise<ParsedDoc> {
   return { chapters, toc: toc.length ? toc : tocFromHeadings(chapters), pages, urls, lang };
 }
 
+// ── Accès bas niveau pour la synchro avec Livres (CFI → offsets) ──
+
+/** Analyse un document du spine exactement comme le lecteur. */
+export function parseSpineDoc(src: string, mediaType: string): Document {
+  return parseXml(src, mediaType.includes('html') && !mediaType.includes('xhtml') ? 'text/html' : 'application/xhtml+xml');
+}
+
+/**
+ * textContent canonique du corps d'un document EPUB, obtenu par les mêmes étapes que le lecteur
+ * (préparation, assainissement, canonisation). Le document est modifié : passer une copie.
+ */
+export function canonicalBodyText(doc: Document, path: string): string {
+  const body = bodyOf(doc);
+  prepareSource(body, { path, epub: true });
+  const root = sanitize(body);
+  return makeChapterEl(Array.from(root.childNodes)).textContent ?? '';
+}
+
 // ── Point d'entrée ───────────────────────────────────────────
 
 export async function parseBook(book: Book, data: ArrayBuffer): Promise<ParsedDoc> {

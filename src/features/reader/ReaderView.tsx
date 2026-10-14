@@ -23,6 +23,7 @@ import { BookCover } from '../library/BookCover';
 import { bookToMarkdown } from '../../lib/exportMarkdown';
 import { PageSkeleton, useFloating } from '../../components/ui';
 import './reader.css';
+import { RESUME_EVENT, type PendingResume } from '../library/appleBooksAnnotations';
 
 // ── Rendus : le lecteur reste fluide pendant la lecture et la sélection ──
 // Chaque sauvegarde de position (toutes les ~800 ms en défilant) et chaque progression remontée
@@ -238,7 +239,9 @@ export const ReaderPane = memo(function ReaderPane({
         deferSince.current = 0;
         pendingPos.current = null;
         lastPos.current = Date.now();
-        updateBook(bookId, { position: pos, progress });
+        // lastOpenedAt suit la lecture (pas seulement l'ouverture) : la synchro avec Livres
+        // compare cette date à celle de Livres (le plus récent gagne).
+        updateBook(bookId, { position: pos, progress, lastOpenedAt: Date.now() });
       };
       pendingPos.current = () => save(true);
       if (posTimer.current) clearTimeout(posTimer.current);
@@ -534,6 +537,22 @@ export function ReaderView({ bookId, tab, splitBookId }: Props) {
     (key === 'a' ? engineA : engineB).current?.goToBookmark?.(b);
     setFocus(key);
   }, [bookmarkJump?.nonce, panes.a.ready, panes.b.ready]);
+
+  // « Reprendre là où vous étiez dans Livres » (toast de la synchro) : aller à cette position.
+  useEffect(() => {
+    const onResume = (e: Event) => {
+      const d = (e as CustomEvent<PendingResume>).detail;
+      if (!d) return;
+      const key: PaneKey | null = d.bookId === bookId ? 'a' : split && d.bookId === splitBookId ? 'b' : null;
+      if (!key) return;
+      if (tab !== 'lecture') navigate({ name: 'reader', bookId, tab: 'lecture', splitBookId });
+      const pseudo: Bookmark = { id: `livres-${d.bookId}`, bookId: d.bookId, position: d.position, anchor: d.anchor, excerpt: d.excerpt, progress: d.progress, label: 'Livres', createdAt: 0 };
+      (key === 'a' ? engineA : engineB).current?.goToBookmark?.(pseudo);
+      setFocus(key);
+    };
+    window.addEventListener(RESUME_EVENT, onResume);
+    return () => window.removeEventListener(RESUME_EVENT, onResume);
+  }, [bookId, splitBookId, split, tab]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {

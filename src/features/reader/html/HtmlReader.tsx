@@ -755,8 +755,16 @@ export const HtmlReader = forwardRef<EngineHandle, EngineProps>(function HtmlRea
       }
       if (!alive) return;
       const init = propsRef.current.initialPosition;
-      if (init && init.kind === 'html' && init.chapter >= 0 && init.chapter < parsed.chapters.length && (init.chapter > 0 || init.scroll > 0)) {
-        await scrollStable(() => sectionTop(init.chapter) + init.scroll * (sectionsRef.current[init.chapter].offsetHeight || 0));
+      if (init && init.kind === 'html' && init.chapter >= 0 && init.chapter < parsed.chapters.length && (init.chapter > 0 || init.scroll > 0 || !!init.offset)) {
+        const off = init.offset;
+        if (typeof off === 'number' && off >= 0 && off <= parsed.chapters[init.chapter].text.length)
+          await scrollStable(() => {
+            const sc = scrollRef.current;
+            const rect = charRect(init.chapter, off);
+            if (!sc || !rect) return null;
+            return sc.scrollTop + rect.top - sc.getBoundingClientRect().top - Math.max(24, sc.clientHeight * 0.06);
+          });
+        else await scrollStable(() => sectionTop(init.chapter) + init.scroll * (sectionsRef.current[init.chapter].offsetHeight || 0));
       }
       if (!alive) return;
       readyRef.current = true;

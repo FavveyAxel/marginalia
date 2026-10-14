@@ -23,10 +23,14 @@ import {
   Lock,
   Check,
   CheckSquare,
+  RefreshCw,
 } from 'lucide-react';
 import { useStore } from '../../lib/store';
 import { host, ACCEPTED_EXTENSIONS, type AppleBook } from '../../lib/platform';
 import { appleBooksAvailable, importAppleBooks } from './appleBooks';
+import { APPLE_COLORS, annotationToggles, appleBooksAnnotationsAvailable, colorMapOf, reportText, syncAppleBooksAnnotations } from './appleBooksAnnotations';
+import { CATEGORIES } from '../../lib/categories';
+import type { AppleBooksColorTarget } from '../../lib/types';
 import type { Book, BookFormat, Database } from '../../lib/types';
 import { relativeTime } from '../../components/ui';
 import { importViaDialog } from '../../App';
@@ -1091,6 +1095,79 @@ function AppleBooksDialog({ onClose }: { onClose(): void }) {
           </ul>
         </>
       )}
+      {appleBooksAnnotationsAvailable() && <AppleBooksAnnotationsPanel bookSync={sync} />}
     </Modal>
+  );
+}
+
+/** Surlignages, notes, signets et position de Livres : interrupteurs, couleurs, synchro manuelle. */
+function AppleBooksAnnotationsPanel({ bookSync }: { bookSync: boolean }) {
+  const settings = useStore((s) => s.settings);
+  const updateSettings = useStore((s) => s.updateSettings);
+  const [busy, setBusy] = useState(false);
+  // Interrupteurs non réglés : ils suivent la case « Synchroniser automatiquement » de la fenêtre.
+  const tog = annotationToggles({ ...settings, appleBooksSync: bookSync });
+  const map = colorMapOf(settings);
+  const report = settings.appleBooksLastSync;
+  const setTog = (k: 'highlights' | 'bookmarks' | 'position', v: boolean) => updateSettings({ appleBooksAnnotations: { ...tog, ...(settings.appleBooksAnnotations ?? {}), [k]: v } });
+  const setColor = (c: (typeof APPLE_COLORS)[number]['id'], v: AppleBooksColorTarget) => updateSettings({ appleBooksColorMap: { ...(settings.appleBooksColorMap ?? {}), [c]: v } });
+  const now = async () => {
+    setBusy(true);
+    try {
+      // Les interrupteurs affichés (même implicites) valent pour cette synchro.
+      if (!settings.appleBooksAnnotations) updateSettings({ appleBooksAnnotations: tog });
+      const r = await syncAppleBooksAnnotations({ manual: true });
+      const st = useStore.getState();
+      if (r?.error) st.toast(r.error, 'error');
+      else if (r) st.toast(r.created + r.updated + r.removed ? `Livres : ${r.created} ajout${r.created > 1 ? 's' : ''}, ${r.updated} mise${r.updated > 1 ? 's' : ''} à jour, ${r.removed} retrait${r.removed > 1 ? 's' : ''}` : 'Livres : tout est à jour', 'success');
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <section className="lib-ann" aria-label="Annotations de Livres">
+      <h3>Annotations de Livres</h3>
+      <p className="lib-ann-hint">Pour les livres sans DRM déjà dans Marginalia. Rien n’est jamais modifié dans Livres.</p>
+      <div className="lib-ann-toggles">
+        {(
+          [
+            ['highlights', 'Surlignages et notes'],
+            ['bookmarks', 'Signets'],
+            ['position', 'Position de lecture'],
+          ] as const
+        ).map(([k, label]) => (
+          <label key={k} className="lib-ann-toggle">
+            <input type="checkbox" checked={tog[k]} onChange={(e) => setTog(k, e.target.checked)} data-testid={`livres-${k}`} />
+            <span>{label}</span>
+          </label>
+        ))}
+      </div>
+      <div className="lib-ann-colors" role="group" aria-label="Couleurs de Livres → catégories">
+        {APPLE_COLORS.map((c) => (
+          <label key={c.id} className="lib-ann-color">
+            <span className={`lib-ann-swatch ${c.id === 'souligne' ? 'is-underline' : ''}`} style={{ ['--sw' as string]: c.swatch }} aria-hidden />
+            <span className="lib-ann-color-name">{c.label}</span>
+            <select value={map[c.id]} onChange={(e) => setColor(c.id, e.target.value as AppleBooksColorTarget)} data-testid={`livres-color-${c.id}`} aria-label={`${c.label} dans Livres`}>
+              {CATEGORIES.map((cat) => (
+                <option key={cat.id} value={cat.id}>
+                  {cat.label}
+                </option>
+              ))}
+              <option value="note">Note de marge (sans catégorie)</option>
+              <option value="skip">Ne pas importer</option>
+            </select>
+          </label>
+        ))}
+      </div>
+      <div className="lib-ann-foot">
+        <button className="btn sm" onClick={now} disabled={busy || !(tog.highlights || tog.bookmarks || tog.position)} data-testid="livres-sync-now">
+          {busy ? <Loader2 size={13} className="lib-spin" /> : <RefreshCw size={13} />} Synchroniser maintenant
+        </button>
+        <span className={`lib-ann-report ${report?.error ? 'warn' : ''}`} data-testid="livres-report">
+          {reportText(report)}
+          {report && !report.error && <span className="muted"> · {relativeTime(report.at).toLowerCase()}</span>}
+        </span>
+      </div>
+    </section>
   );
 }

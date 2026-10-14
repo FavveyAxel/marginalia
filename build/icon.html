@@ -1,0 +1,73 @@
+<!doctype html>
+<meta charset="utf-8">
+<style>
+  @font-face { font-family: 'IS'; src: url('../node_modules/@fontsource/instrument-serif/files/instrument-serif-latin-400-normal.woff2') format('woff2'); }
+  @font-face { font-family: 'IS'; font-style: italic; src: url('../node_modules/@fontsource/instrument-serif/files/instrument-serif-latin-400-italic.woff2') format('woff2'); }
+  html, body { margin: 0; background: transparent; }
+  svg { display: block; width: 1024px; height: 1024px; }
+  text { font-family: 'IS', serif; }
+</style>
+<svg id="icon" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="paper" x1="0" y1="0" x2="0.35" y2="1">
+      <stop offset="0" stop-color="#f8f1e0"/>
+      <stop offset="1" stop-color="#e8dbbd"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0.3" cy="0.18" r="0.8">
+      <stop offset="0" stop-color="#fffaf0" stop-opacity="0.85"/>
+      <stop offset="1" stop-color="#fffaf0" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="125%">
+      <feDropShadow dx="0" dy="14" stdDeviation="16" flood-color="#2a1d0a" flood-opacity="0.34"/>
+    </filter>
+    <filter id="grain" x="0" y="0" width="100%" height="100%">
+      <feTurbulence type="fractalNoise" baseFrequency="0.9" numOctaves="2" seed="7" result="n"/>
+      <feColorMatrix type="matrix" values="0 0 0 0 0.35  0 0 0 0 0.26  0 0 0 0 0.12  0 0 0 0.09 0"/>
+    </filter>
+    <filter id="rough" x="-5%" y="-30%" width="110%" height="160%">
+      <feTurbulence type="fractalNoise" baseFrequency="0.035 0.12" numOctaves="2" seed="3" result="t"/>
+      <feDisplacementMap in="SourceGraphic" in2="t" scale="9"/>
+    </filter>
+    <clipPath id="body"><path id="squircle" d=""/></clipPath>
+  </defs>
+
+  <g filter="url(#shadow)"><path id="squircle2" d="" fill="url(#paper)"/></g>
+  <g clip-path="url(#body)">
+    <rect width="1024" height="1024" fill="url(#glow)"/>
+    <rect width="1024" height="1024" filter="url(#grain)"/>
+    <!-- trait de marge -->
+    <rect x="252" y="100" width="4" height="824" fill="#c9553a" opacity="0.55"/>
+    <!-- lignes de cahier très discrètes -->
+    <g stroke="#7a6a4a" stroke-opacity="0.10" stroke-width="2">
+      <line x1="100" y1="262" x2="924" y2="262"/><line x1="100" y1="342" x2="924" y2="342"/>
+      <line x1="100" y1="422" x2="924" y2="422"/><line x1="100" y1="502" x2="924" y2="502"/>
+      <line x1="100" y1="582" x2="924" y2="582"/><line x1="100" y1="662" x2="924" y2="662"/>
+      <line x1="100" y1="742" x2="924" y2="742"/><line x1="100" y1="822" x2="924" y2="822"/>
+    </g>
+    <!-- surligneur -->
+    <g filter="url(#rough)" style="mix-blend-mode:multiply">
+      <path d="M318 668 C 420 650, 640 656, 770 640 L 782 722 C 640 742, 430 738, 330 752 Z" fill="#f4bd2f" opacity="0.78"/>
+    </g>
+    <!-- glyphe -->
+    <text x="512" y="708" font-size="640" text-anchor="middle" fill="#231b11" style="font-style:italic">M</text>
+  </g>
+</svg>
+<script>
+  // Superellipse (squircle macOS) : corps 824×824 centré dans 1024×1024.
+  function squircle(cx, cy, half, n) {
+    const pts = [];
+    const N = 360;
+    for (let i = 0; i < N; i++) {
+      const t = (i / N) * Math.PI * 2;
+      const c = Math.cos(t), s = Math.sin(t);
+      const x = cx + half * Math.sign(c) * Math.pow(Math.abs(c), 2 / n);
+      const y = cy + half * Math.sign(s) * Math.pow(Math.abs(s), 2 / n);
+      pts.push(x.toFixed(2) + ' ' + y.toFixed(2));
+    }
+    return 'M' + pts.join('L') + 'Z';
+  }
+  const d = squircle(512, 512, 412, 5);
+  document.getElementById('squircle').setAttribute('d', d);
+  document.getElementById('squircle2').setAttribute('d', d);
+  document.fonts.ready.then(() => { document.body.dataset.ready = '1'; });
+</script>

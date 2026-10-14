@@ -1,0 +1,352 @@
+/* ─────────────────────────────────────────────────────────────
+   Moteur HTML (A1) — colonne de lecture façon Matter.
+
+   Choix de rendu : défilement continu de tout le livre, un <section> par chapitre en
+   `content-visibility: auto`. Pourquoi :
+   - lecture d'un seul tenant (pas de bouton « chapitre suivant ») ; la recherche, le
+     sommaire, les surlignages et les mouvements visent n'importe quel chapitre sans
+     changer de page, et deux volets peuvent montrer deux passages du même livre ;
+   - le coût reste celui des chapitres visibles : les autres ne sont ni mis en page ni
+     peints (taille estimée via contain-intrinsic-size, mémorisée par le mot-clé auto) ;
+   - les sauts de hauteur quand un chapitre apparaît sont absorbés par l'ancrage de
+     défilement du navigateur et par un recalage à l'image suivante (scrollStable).
+   ───────────────────────────────────────────────────────────── */
+
+.html-reader {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+}
+
+.html-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  position: relative;
+  outline: none;
+  container-type: inline-size;
+  container-name: html-reader;
+  background: var(--bg-page);
+  scrollbar-gutter: stable;
+}
+
+.html-doc {
+  --html-gutter: clamp(22px, 7cqi, 88px);
+  font-size: var(--html-fs, 19px);
+  color: var(--ink);
+  padding: 56px 0 34vh;
+  font-kerning: normal;
+  font-variant-ligatures: common-ligatures;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  overflow-wrap: break-word;
+  hyphens: auto;
+}
+
+/* Apparition douce une fois le texte prêt (le shell montre <PageSkeleton> avant) :
+   un seul mouvement, discret, à l'ouverture du document — jamais à chaque réglage. */
+.html-doc {
+  opacity: 0;
+}
+.html-doc.is-revealed {
+  opacity: 1;
+  animation: rise-in var(--dur-slow) var(--ease-out) both;
+}
+
+/* Le corps de l'app est en user-select: none (app.css) : le texte, lui, se sélectionne. */
+.html-doc {
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+.html-doc ::selection {
+  background: var(--selection);
+}
+
+/* Un chapitre = une section pleine largeur (les repères de marge restent dans sa boîte,
+   la containment de peinture ne les coupe donc pas). */
+.html-chapter {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 1200px;
+  padding: 0 var(--html-gutter) 24px;
+}
+.html-chapter + .html-chapter {
+  padding-top: 48px;
+}
+.html-chapter + .html-chapter::before {
+  content: '';
+  display: block;
+  width: 44px;
+  height: 1px;
+  margin: 0 auto 56px;
+  background: var(--border-strong);
+}
+
+.html-col {
+  position: relative;
+  max-width: var(--html-measure, 66ch);
+  margin: 0 auto;
+}
+
+/* ── Typographie du texte ─────────────────────────────────── */
+
+.html-chapter-text > :first-child {
+  margin-top: 0;
+}
+.html-chapter-text p {
+  margin: 0 0 1em;
+}
+/* Ouverture de chapitre à la manière d'un livre : première ligne en petites capitales
+   (pseudo-élément : le textContent, donc les ancrages, ne change pas). */
+.html-chapter-text h1 + p::first-line,
+.html-chapter-text > h2:first-child + p::first-line,
+.html-chapter-text > :first-child > h2:first-child + p::first-line {
+  font-variant-caps: small-caps;
+  letter-spacing: 0.02em;
+}
+.html-chapter-text h1,
+.html-chapter-text h2,
+.html-chapter-text h3 {
+  font-family: var(--font-display);
+  font-weight: 400;
+  color: var(--ink);
+  letter-spacing: -0.005em;
+  hyphens: manual;
+  text-wrap: balance;
+}
+.html-chapter-text h1 {
+  font-size: 2.15em;
+  line-height: 1.08;
+  margin: 0.4em 0 0.9em;
+}
+.html-chapter-text h2 {
+  font-size: 1.55em;
+  line-height: 1.15;
+  margin: 1.9em 0 0.7em;
+}
+.html-chapter-text h3 {
+  font-size: 1.25em;
+  line-height: 1.2;
+  margin: 1.7em 0 0.6em;
+}
+.html-chapter-text h4,
+.html-chapter-text h5,
+.html-chapter-text h6 {
+  font-size: 1em;
+  font-weight: 600;
+  margin: 1.6em 0 0.5em;
+}
+.html-chapter-text blockquote {
+  margin: 1.4em 0;
+  padding: 0 0 0 1.1em;
+  border-left: 2px solid var(--border-strong);
+  color: var(--ink-2);
+}
+.html-chapter-text blockquote p:last-child {
+  margin-bottom: 0;
+}
+.html-chapter-text ul,
+.html-chapter-text ol {
+  margin: 0 0 1em;
+  padding-left: 1.4em;
+}
+.html-chapter-text li {
+  margin: 0.25em 0;
+}
+.html-chapter-text li > p {
+  margin: 0;
+}
+.html-chapter-text img {
+  display: block;
+  max-width: 100%;
+  max-height: 78vh;
+  height: auto;
+  margin: 1.6em auto;
+  border-radius: var(--radius-sm);
+  object-fit: contain;
+}
+.html-chapter-text hr {
+  border: 0;
+  width: 30%;
+  height: 1px;
+  margin: 2.2em auto;
+  background: var(--border-strong);
+}
+.html-chapter-text pre,
+.html-chapter-text code {
+  font-family: var(--font-mono);
+  font-size: 0.84em;
+}
+.html-chapter-text pre {
+  white-space: pre-wrap;
+  padding: 0.9em 1em;
+  border-radius: var(--radius-md);
+  background: var(--bg-inset);
+}
+.html-chapter-text table {
+  border-collapse: collapse;
+  margin: 1.2em 0;
+  font-size: 0.9em;
+}
+.html-chapter-text th,
+.html-chapter-text td {
+  border-bottom: 1px solid var(--border);
+  padding: 0.35em 0.6em;
+  text-align: left;
+  vertical-align: top;
+}
+.html-chapter-text sup,
+.html-chapter-text sub {
+  font-size: 0.7em;
+  line-height: 0;
+}
+.html-chapter-text figure {
+  margin: 1.6em 0;
+}
+.html-chapter-text figcaption {
+  font-family: var(--font-ui);
+  font-size: var(--fs-sm);
+  color: var(--muted);
+  text-align: center;
+}
+
+.html-link {
+  color: inherit;
+  text-decoration: underline;
+  text-decoration-color: var(--border-strong);
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+.html-link:hover {
+  text-decoration-color: var(--ink-2);
+}
+.html-link-ext {
+  cursor: default;
+  text-decoration-style: dotted;
+}
+
+/* ── Repères de mouvements (marge gauche) ─────────────────── */
+
+.html-marks {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  user-select: none;
+}
+.html-mv {
+  position: absolute;
+  right: calc(100% + 18px);
+  transform: translateY(-50%);
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 22px;
+  max-width: 150px;
+  padding: 0 9px 0 7px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg-page);
+  color: var(--muted);
+  font: 500 var(--fs-xs) / 1 var(--font-ui);
+  white-space: nowrap;
+  cursor: pointer;
+  pointer-events: auto;
+  transition:
+    color var(--dur) var(--ease),
+    background var(--dur) var(--ease),
+    border-color var(--dur) var(--ease);
+}
+.html-mv::after {
+  content: '';
+  position: absolute;
+  left: 100%;
+  top: 50%;
+  width: 12px;
+  height: 1px;
+  background: var(--border-strong);
+}
+.html-mv:hover {
+  color: var(--ink);
+  border-color: var(--border-strong);
+  background: var(--bg-hover);
+}
+.html-mv-sign {
+  font-family: var(--font-display);
+  font-size: 18px;
+  line-height: 1;
+  color: var(--ink-2);
+}
+.html-mv.compact {
+  border-radius: var(--radius-sm);
+}
+.html-mv.compact:hover {
+  background: var(--bg-hover);
+}
+.html-mv-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.html-mv.compact {
+  right: calc(100% + 6px);
+  width: 22px;
+  padding: 0;
+  justify-content: center;
+  border-color: transparent;
+  background: transparent;
+}
+.html-mv.compact::after {
+  display: none;
+}
+/* Marge étroite : le titre du mouvement apparaît au survol ou au focus, en étiquette
+   posée au-dessus du repère (dans l'interligne des paragraphes), sans déplacer le texte. */
+.html-mv.compact .html-mv-label {
+  position: absolute;
+  left: 0;
+  bottom: calc(100% + 4px);
+  max-width: 220px;
+  padding: 4px 8px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-panel);
+  box-shadow: var(--shadow-sm);
+  color: var(--ink);
+  opacity: 0;
+  transform: translateY(3px);
+  pointer-events: none;
+  transition:
+    opacity var(--dur-fast) var(--ease-out),
+    transform var(--dur-med) var(--ease-out);
+}
+.html-mv.compact:hover .html-mv-label,
+.html-mv.compact:focus-visible .html-mv-label {
+  opacity: 1;
+  transform: none;
+}
+.html-mv:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 1px;
+}
+
+/* ── Volet étroit (côte à côte) ───────────────────────────── */
+
+@container html-reader (max-width: 560px) {
+  .html-doc {
+    --html-gutter: 26px;
+    padding-top: 36px;
+    font-size: calc(var(--html-fs, 19px) * 0.94);
+  }
+  .html-chapter + .html-chapter {
+    padding-top: 40px;
+  }
+  .html-chapter + .html-chapter::before {
+    margin-bottom: 48px;
+  }
+  .html-chapter-text h1 {
+    font-size: 1.85em;
+  }
+  .html-chapter-text h2 {
+    font-size: 1.4em;
+  }
+}

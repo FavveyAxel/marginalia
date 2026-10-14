@@ -1,0 +1,45 @@
+/* Vue Extraits (B2) — préfixe .ax- */
+.ax-scroll { flex: 1; min-height: 0; overflow-y: auto; }
+.ax-page { max-width: var(--page-max); margin: 0 auto; padding: var(--page-top) var(--page-x) 96px; display: flex; flex-direction: column; gap: var(--sp-5); }
+/* Colonne de lecture : alignée sur le titre, largeur confortable */
+.ax-page > :not(.ax-title) { width: 100%; max-width: var(--page-measure); }
+.ax-title { margin: 0; }
+.ax-filters { display: flex; flex-direction: column; gap: var(--sp-3); }
+.ax-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.ax-chips .chip { gap: 6px; }
+.ax-n { font-size: var(--fs-xs); color: var(--faint); font-variant-numeric: tabular-nums; margin-left: 2px; }
+.chip.active .ax-n { color: inherit; opacity: 0.7; }
+.ax-notedot { width: 8px; height: 8px; border-radius: 50%; border: 1.5px solid var(--muted); display: inline-block; flex: none; box-sizing: border-box; }
+.ax-row { display: flex; flex-wrap: wrap; gap: var(--sp-2); align-items: center; }
+.ax-search { position: relative; flex: 1 1 100%; display: flex; align-items: center; min-width: 200px; }
+.ax-search > svg { position: absolute; left: 10px; color: var(--faint); pointer-events: none; }
+.ax-search .input { padding-left: 30px; width: 100%; }
+.ax-select { width: auto; max-width: 180px; flex: none; }
+.ax-status { display: flex; align-items: center; justify-content: space-between; min-height: 28px; font-size: var(--fs-sm); }
+
+.ax-group { display: flex; flex-direction: column; gap: var(--sp-2); margin-top: var(--sp-3); }
+.ax-book { display: flex; align-items: center; gap: 8px; margin: 0 0 var(--sp-1); font-size: var(--fs-md); font-weight: 600; color: var(--ink); padding-bottom: var(--sp-2); border-bottom: 1px solid var(--border); }
+.ax-book .muted { font-weight: 400; }
+.ax-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--sp-2); }
+.ax-item { background: var(--bg-panel); border: 1px solid var(--border); border-radius: var(--radius-md); display: flex; flex-direction: column; }
+.ax-main { display: flex; flex-direction: column; gap: 8px; text-align: left; border: 0; background: transparent; padding: 14px 16px 6px; color: var(--ink); cursor: default; width: 100%; font: inherit; border-radius: var(--radius-md) var(--radius-md) 0 0; }
+.ax-main:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
+.ax-meta { display: flex; align-items: center; gap: 8px; font-size: var(--fs-xs); color: var(--ink-2); font-weight: 500; }
+.ax-meta .muted { font-weight: 400; }
+.ax-text { font-family: var(--font-read); font-size: 16px; line-height: 1.6; padding-left: 12px; border-left: 2px solid var(--ax-c, var(--border-strong)); }
+.ax-note { font-size: var(--fs-md); line-height: 1.5; color: var(--ink-2); display: flex; flex-direction: column; gap: 2px; }
+.ax-note b { font-size: var(--fs-xs); font-weight: 600; color: var(--muted); }
+.ax-foot { display: flex; align-items: center; gap: var(--sp-2); padding: 0 10px 8px 16px; min-height: 30px; }
+.ax-foot.empty-foot { display: none; }
+.ax-item:has(.empty-foot) .ax-main { padding-bottom: 14px; border-radius: var(--radius-md); }
+/* Sans concept, la seule action (copier) flotte en haut à droite : plus de bande vide sous la citation */
+.ax-item { position: relative; }
+.ax-foot.float-foot { position: absolute; top: 6px; right: 6px; padding: 0; min-height: 0; }
+.ax-foot.float-foot .ax-concepts { display: none; }
+.ax-item:has(.float-foot) .ax-main { padding-bottom: 14px; border-radius: var(--radius-md); }
+.ax-concepts { flex: 1; display: flex; flex-wrap: wrap; gap: 4px; min-width: 0; }
+.ax-concept { border: 1px solid var(--border); background: var(--bg-inset); color: var(--ink-2); border-radius: 999px; height: 20px; padding: 0 8px; font-size: var(--fs-xs); cursor: default; transition: background var(--dur) var(--ease-out); }
+.ax-concept:hover { background: var(--bg-hover); }
+.ax-copy { opacity: 0; transition: opacity var(--dur) var(--ease-out); }
+.ax-item:hover .ax-copy, .ax-item:focus-within .ax-copy { opacity: 1; }
+@media (max-width: 760px) { .ax-page { padding: 24px 20px 64px; } }

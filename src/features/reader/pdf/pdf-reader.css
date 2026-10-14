@@ -1,0 +1,240 @@
+/* Moteur PDF — classes préfixées .pdf- (le calque de texte garde les noms de pdf.js : .textLayer) */
+.pdf-reader {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  outline: none;
+}
+.pdf-scroll {
+  position: absolute;
+  inset: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  background: color-mix(in srgb, var(--ink) 5%, var(--bg-panel));
+  border-radius: inherit;
+}
+.pdf-pages {
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: max-content;
+  min-width: 100%;
+}
+
+/* ── Page ── */
+.pdf-page {
+  position: relative;
+  flex: none;
+  background: var(--bg-page);
+  box-shadow:
+    0 1px 2px color-mix(in srgb, var(--ink) 12%, transparent),
+    0 6px 18px -8px color-mix(in srgb, var(--ink) 28%, transparent),
+    0 0 0 0.5px var(--border-strong);
+  --scale-round-x: 1px;
+  --scale-round-y: 1px;
+}
+.pdf-canvas,
+.pdf-text,
+.pdf-hl-layer,
+.pdf-search-layer {
+  position: absolute;
+  inset: 0;
+}
+.pdf-canvas {
+  z-index: 0;
+  overflow: hidden;
+}
+.pdf-canvas canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+.pdf-hl-layer {
+  z-index: 1;
+  pointer-events: none;
+}
+.pdf-search-layer {
+  z-index: 2;
+  pointer-events: none;
+}
+.pdf-text {
+  z-index: 3;
+}
+.pdf-hl-layer .hl {
+  position: absolute;
+  pointer-events: none;
+  cursor: default;
+}
+.pdf-hl-layer .hl:hover {
+  filter: none;
+}
+.pdf-search-layer .search-hit {
+  position: absolute;
+}
+
+/* Thème sombre : pages inversées doucement (les calques restent à l'endroit) */
+:root[data-theme='dark'] .pdf-canvas canvas {
+  filter: invert(0.88) hue-rotate(180deg);
+}
+
+/* ── Calque de texte (repris de pdf_viewer.css, limité à ce module) ── */
+.pdf-reader .textLayer {
+  position: absolute;
+  inset: 0;
+  overflow: clip;
+  opacity: 1;
+  line-height: 1;
+  text-align: initial;
+  text-size-adjust: none;
+  forced-color-adjust: none;
+  transform-origin: 0 0;
+  z-index: 0;
+}
+.pdf-reader .textLayer :is(span, br) {
+  color: transparent;
+  position: absolute;
+  white-space: pre;
+  cursor: text;
+  transform-origin: 0% 0%;
+}
+.pdf-reader .textLayer > :not(.markedContent),
+.pdf-reader .textLayer .markedContent span:not(.markedContent) {
+  z-index: 1;
+}
+.pdf-reader .textLayer span.markedContent {
+  top: 0;
+  height: 0;
+}
+.pdf-reader .textLayer span[role='img'] {
+  user-select: none;
+  cursor: default;
+}
+.pdf-reader .textLayer ::selection {
+  background: var(--selection);
+}
+.pdf-reader .textLayer br::selection {
+  background: transparent;
+}
+.pdf-reader .textLayer .endOfContent {
+  display: block;
+  position: absolute;
+  inset: 100% 0 0;
+  z-index: 0;
+  cursor: default;
+  user-select: none;
+}
+.pdf-reader .textLayer.selecting .endOfContent {
+  top: 0;
+}
+.pdf-scroll.is-over-hl .textLayer :is(span, br) {
+  cursor: pointer;
+}
+
+/* ── Repères de mouvement (marge gauche) ── */
+.pdf-mv {
+  position: absolute;
+  left: -26px;
+  z-index: 4;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  margin-top: -2px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--focus) 14%, var(--bg-panel));
+  color: var(--focus);
+  cursor: pointer;
+  opacity: 0.78;
+  transition:
+    opacity var(--dur) var(--ease),
+    background var(--dur) var(--ease);
+}
+.pdf-mv:hover,
+.pdf-mv:focus-visible {
+  opacity: 1;
+  background: color-mix(in srgb, var(--focus) 24%, var(--bg-panel));
+}
+.pdf-mv-label {
+  position: absolute;
+  left: 26px;
+  top: 50%;
+  transform: translateY(-50%);
+  max-width: 260px;
+  padding: 3px 8px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-panel);
+  box-shadow: var(--shadow-md);
+  color: var(--ink);
+  font-family: var(--font-ui);
+  font-size: var(--fs-sm);
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity var(--dur) var(--ease);
+}
+.pdf-mv:hover .pdf-mv-label,
+.pdf-mv:focus-visible .pdf-mv-label {
+  opacity: 1;
+}
+
+/* ── Pilule de zoom ── */
+.pdf-zoombar {
+  position: absolute;
+  left: 50%;
+  bottom: 16px;
+  transform: translateX(-50%);
+  z-index: 6;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 4px 6px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--bg-panel) 92%, transparent);
+  backdrop-filter: blur(10px);
+  box-shadow: var(--shadow-md);
+  font-size: var(--fs-sm);
+  color: var(--ink-2);
+  white-space: nowrap;
+  user-select: none;
+}
+.pdf-zoom-val {
+  min-width: 46px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  color: var(--ink);
+}
+.pdf-zoom-page {
+  padding: 0 6px;
+  font-variant-numeric: tabular-nums;
+}
+.pdf-zoom-sep {
+  width: 1px;
+  height: 16px;
+  margin: 0 4px;
+  background: var(--border);
+}
+.pdf-fit {
+  gap: 5px;
+  border-radius: 999px;
+}
+.pdf-fit.is-on {
+  color: var(--ink);
+  background: var(--bg-active);
+}
+
+/* Intégration : le corps de l'app est en user-select: none ; le texte PDF doit rester sélectionnable. */
+.textLayer,
+.textLayer span,
+.textLayer br {
+  -webkit-user-select: text;
+  user-select: text;
+}

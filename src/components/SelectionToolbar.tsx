@@ -1,0 +1,74 @@
+// Barre flottante au-dessus d'une sélection de texte (FIGÉ).
+import { useEffect } from 'react';
+import { createPortal } from 'react-dom';
+import { Copy, MessageSquarePlus, Milestone } from 'lucide-react';
+import { CATEGORIES } from '../lib/categories';
+import type { CategoryId } from '../lib/types';
+import { CategoryDot, Kbd, useFloating } from './ui';
+
+interface Props {
+  rect: DOMRect;
+  /** category null = note de marge pure. */
+  onPick(category: CategoryId | null, withNote: boolean): void;
+  /** Marquer le début d'un mouvement (explication de texte). */
+  onMovement(): void;
+  onCopy(): void;
+  onDismiss(): void;
+}
+
+export function SelectionToolbar({ rect, onPick, onMovement, onCopy, onDismiss }: Props) {
+  const [ref, style] = useFloating(rect, 'above');
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      const t = e.target as HTMLElement;
+      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
+      const cat = CATEGORIES.find((c) => c.key === e.key);
+      if (cat) {
+        e.preventDefault();
+        onPick(cat.id, e.shiftKey);
+      } else if (e.key.toLowerCase() === 'n') {
+        e.preventDefault();
+        onPick(null, true);
+      } else if (e.key.toLowerCase() === 'm') {
+        e.preventDefault();
+        onMovement();
+      } else if (e.key === 'Escape') {
+        onDismiss();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onPick, onMovement, onDismiss]);
+
+  return createPortal(
+    <div
+      ref={ref}
+      className="floating sel-toolbar"
+      style={style}
+      onMouseDown={(e) => e.preventDefault()}
+      role="toolbar"
+      aria-label="Annoter la sélection"
+    >
+      {CATEGORIES.map((c) => (
+        <button key={c.id} className="cat-btn" title={`${c.label} — ${c.description} (${c.key})`} onClick={() => onPick(c.id, false)}>
+          <CategoryDot id={c.id} />
+          {c.label}
+          <Kbd>{c.key}</Kbd>
+        </button>
+      ))}
+      <span className="sep" />
+      <button className="icon-btn sm" title="Note personnelle (N)" onClick={() => onPick(null, true)}>
+        <MessageSquarePlus size={15} />
+      </button>
+      <button className="icon-btn sm" title="Début de mouvement (M)" onClick={onMovement}>
+        <Milestone size={15} />
+      </button>
+      <button className="icon-btn sm" title="Copier" onClick={onCopy}>
+        <Copy size={14} />
+      </button>
+    </div>,
+    document.body,
+  );
+}

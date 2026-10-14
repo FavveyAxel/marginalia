@@ -1,0 +1,61 @@
+// Contenu des menus contextuels (identique dans l'arbre et dans la vue).
+import { ArrowRightLeft, ExternalLink, FolderPlus, FolderX, Palette, PackagePlus, Pencil, Trash2, Ungroup, Upload, FilePen } from 'lucide-react';
+import { useStore } from '../../lib/store';
+import type { WorkspaceGroup, WorkspaceItem } from '../../lib/types';
+import { TINTS, TINT_LABEL, openItem, ungroup, type DragPayload } from './wsModel';
+import type { MenuEntry } from './wsUi';
+
+export interface MenuCtx {
+  newGroup(workspaceId: string, parentId: string | null): void;
+  rename(kind: 'ws' | 'group', id: string): void;
+  askDeleteWs(id: string): void;
+  askDeleteGroup(id: string): void;
+  openAdd(workspaceId: string, groupId: string | null): void;
+  openMove(p: DragPayload): void;
+  importHere?(workspaceId: string, groupId: string | null): void;
+  newDraftHere?(workspaceId: string, groupId: string | null): void;
+}
+
+export function workspaceMenu(ctx: MenuCtx, workspaceId: string, tint: string): MenuEntry[] {
+  const set = (t: string) => useStore.getState().patch('workspaces', workspaceId, { tint: t });
+  return [
+    { label: 'Nouveau groupe', icon: <FolderPlus size={14} />, onClick: () => ctx.newGroup(workspaceId, null) },
+    { label: 'Ajouter un élément…', icon: <PackagePlus size={14} />, onClick: () => ctx.openAdd(workspaceId, null) },
+    { sep: true },
+    { label: 'Renommer', icon: <Pencil size={14} />, onClick: () => ctx.rename('ws', workspaceId) },
+    {
+      label: 'Changer la teinte',
+      icon: <Palette size={14} />,
+      children: TINTS.map((t) => ({ label: TINT_LABEL[t], swatch: t, checked: t === tint, onClick: () => set(t) })),
+    },
+    { sep: true },
+    { label: 'Supprimer l’espace', icon: <Trash2 size={14} />, danger: true, onClick: () => ctx.askDeleteWs(workspaceId) },
+  ];
+}
+
+export function groupMenu(ctx: MenuCtx, g: WorkspaceGroup): MenuEntry[] {
+  const out: MenuEntry[] = [
+    { label: 'Nouveau sous-groupe', icon: <FolderPlus size={14} />, onClick: () => ctx.newGroup(g.workspaceId, g.id) },
+    { label: 'Ajouter un élément…', icon: <PackagePlus size={14} />, onClick: () => ctx.openAdd(g.workspaceId, g.id) },
+  ];
+  if (ctx.importHere) out.push({ label: 'Importer ici…', icon: <Upload size={14} />, onClick: () => ctx.importHere!(g.workspaceId, g.id) });
+  if (ctx.newDraftHere) out.push({ label: 'Nouvel écrit ici', icon: <FilePen size={14} />, onClick: () => ctx.newDraftHere!(g.workspaceId, g.id) });
+  out.push(
+    { sep: true },
+    { label: 'Renommer', icon: <Pencil size={14} />, onClick: () => ctx.rename('group', g.id) },
+    { label: 'Déplacer vers…', icon: <ArrowRightLeft size={14} />, onClick: () => ctx.openMove({ type: 'group', id: g.id, workspaceId: g.workspaceId }) },
+    { sep: true },
+    { label: 'Dégrouper', icon: <Ungroup size={14} />, hint: 'garde le contenu', onClick: () => ungroup(g.id) },
+    { label: 'Supprimer le groupe et son contenu', icon: <FolderX size={14} />, danger: true, onClick: () => ctx.askDeleteGroup(g.id) },
+  );
+  return out;
+}
+
+export function itemMenu(ctx: MenuCtx, item: WorkspaceItem): MenuEntry[] {
+  return [
+    { label: 'Ouvrir', icon: <ExternalLink size={14} />, onClick: () => openItem(item) },
+    { label: 'Déplacer vers…', icon: <ArrowRightLeft size={14} />, onClick: () => ctx.openMove({ type: 'item', id: item.id, workspaceId: item.workspaceId }) },
+    { sep: true },
+    { label: 'Retirer de l’espace', icon: <Trash2 size={14} />, danger: true, onClick: () => useStore.getState().removeFromWorkspace(item.id) },
+  ];
+}

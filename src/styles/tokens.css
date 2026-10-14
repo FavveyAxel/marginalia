@@ -1,0 +1,147 @@
+/* ─────────────────────────────────────────────────────────────
+   Marginalia — design tokens (FIGÉ)
+   Direction : papier chaud, typographie éditoriale, interface macOS sobre.
+   UI : police système (SF Pro). Lecture : Literata. Titres : Instrument Serif.
+   ───────────────────────────────────────────────────────────── */
+@import '@fontsource-variable/literata/index.css';
+@import '@fontsource-variable/literata/wght-italic.css';
+@import '@fontsource/instrument-serif/400.css';
+@import '@fontsource/instrument-serif/400-italic.css';
+
+:root {
+  --font-ui: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Helvetica Neue', system-ui, sans-serif;
+  --font-read: 'Literata Variable', 'Iowan Old Style', Georgia, serif;
+  --font-display: 'Instrument Serif', 'Iowan Old Style', Georgia, serif;
+  --font-mono: ui-monospace, 'SF Mono', Menlo, monospace;
+
+  /* Échelle typographique UI */
+  --fs-xs: 11px;
+  --fs-sm: 12px;
+  --fs-md: 13px;
+  --fs-lg: 15px;
+  --fs-xl: 20px;
+  --fs-display: 40px;
+
+  /* Espacements (base 4) */
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 20px;
+  --sp-6: 24px;
+  --sp-8: 32px;
+  --sp-10: 40px;
+
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-xl: 20px;
+
+  --titlebar-h: 52px;
+  --sidebar-w: 232px;
+
+  --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --dur: 160ms;
+
+  /* ── Thème clair (par défaut) ── */
+  --bg-app: #efebe3;          /* fond derrière les panneaux */
+  --bg-sidebar: #e8e3d9;
+  --bg-panel: #fbf9f4;        /* panneaux, cartes */
+  --bg-page: #fffdf8;         /* page de lecture */
+  --bg-hover: rgba(40, 32, 20, 0.06);
+  --bg-active: rgba(40, 32, 20, 0.1);
+  --bg-inset: rgba(40, 32, 20, 0.045);
+  --ink: #1d1a15;
+  --ink-2: #4a443a;
+  --muted: #7a7266;
+  --faint: #a59d90;
+  --border: rgba(40, 32, 20, 0.11);
+  --border-strong: rgba(40, 32, 20, 0.2);
+  --shadow-sm: 0 1px 2px rgba(30, 24, 14, 0.06), 0 0 0 0.5px rgba(30, 24, 14, 0.08);
+  --shadow-md: 0 6px 20px -6px rgba(30, 24, 14, 0.18), 0 0 0 0.5px rgba(30, 24, 14, 0.1);
+  --shadow-lg: 0 24px 60px -16px rgba(30, 24, 14, 0.32), 0 0 0 0.5px rgba(30, 24, 14, 0.12);
+  --primary: #1d1a15;         /* boutons principaux : encre */
+  --primary-ink: #fbf9f4;
+  --focus: #3d6fe0;
+  --danger: #c2413b;
+  --selection: rgba(61, 111, 224, 0.22);
+
+  /* Catégories philo — couleur pleine */
+  --cat-probleme: #c8693a;
+  --hl-probleme: rgba(220, 120, 70, 0.24);
+  --rel-repond: #c8693a;
+  --cat-these: #d9a21b;
+  --cat-argument: #3b9a5f;
+  --cat-objection: #d4556b;
+  --cat-concept: #3d7be0;
+  --cat-exemple: #8c63d9;
+  /* Catégories — fond de surlignage */
+  --hl-these: rgba(240, 190, 40, 0.34);
+  --hl-argument: rgba(70, 175, 110, 0.26);
+  --hl-objection: rgba(230, 95, 120, 0.24);
+  --hl-concept: rgba(70, 130, 235, 0.22);
+  --hl-exemple: rgba(150, 105, 230, 0.22);
+
+  /* Relations de la carte d'argument */
+  --rel-soutient: #3b9a5f;
+  --rel-objecte: #d4556b;
+  --rel-precise: #3d7be0;
+  --rel-illustre: #8c63d9;
+
+  color-scheme: light;
+}
+
+/* Sépia : uniquement la zone de lecture (appliqué via [data-theme="sepia"]) */
+:root[data-theme='sepia'] {
+  --bg-page: #f6eedd;
+  --bg-panel: #f8f2e5;
+  --bg-app: #ebe2cf;
+  --bg-sidebar: #e4dac5;
+  --ink: #2b2318;
+  --ink-2: #54473a;
+}
+
+:root[data-theme='dark'] {
+  --bg-app: #121110;
+  --bg-sidebar: #171614;
+  --bg-panel: #1c1b19;
+  --bg-page: #1f1e1b;
+  --bg-hover: rgba(255, 245, 225, 0.06);
+  --bg-active: rgba(255, 245, 225, 0.1);
+  --bg-inset: rgba(255, 245, 225, 0.04);
+  --ink: #ece6da;
+  --ink-2: #c4bcae;
+  --muted: #8f877a;
+  --faint: #645e55;
+  --border: rgba(255, 245, 225, 0.09);
+  --border-strong: rgba(255, 245, 225, 0.18);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4), 0 0 0 0.5px rgba(255, 245, 225, 0.08);
+  --shadow-md: 0 8px 24px -8px rgba(0, 0, 0, 0.6), 0 0 0 0.5px rgba(255, 245, 225, 0.1);
+  --shadow-lg: 0 24px 60px -16px rgba(0, 0, 0, 0.7), 0 0 0 0.5px rgba(255, 245, 225, 0.12);
+  --primary: #ece6da;
+  --primary-ink: #171614;
+  --focus: #7aa2ff;
+  --danger: #ef6a63;
+  --selection: rgba(122, 162, 255, 0.28);
+
+  --cat-probleme: #e48a5c;
+  --hl-probleme: rgba(228, 138, 92, 0.26);
+  --rel-repond: #e48a5c;
+  --cat-these: #e8b93a;
+  --cat-argument: #5cc283;
+  --cat-objection: #ec7389;
+  --cat-concept: #6b9cf5;
+  --cat-exemple: #a98af0;
+  --hl-these: rgba(232, 185, 58, 0.3);
+  --hl-argument: rgba(92, 194, 131, 0.24);
+  --hl-objection: rgba(236, 115, 137, 0.24);
+  --hl-concept: rgba(107, 156, 245, 0.24);
+  --hl-exemple: rgba(169, 138, 240, 0.24);
+
+  --rel-soutient: #5cc283;
+  --rel-objecte: #ec7389;
+  --rel-precise: #6b9cf5;
+  --rel-illustre: #a98af0;
+
+  color-scheme: dark;
+}

@@ -1,0 +1,45 @@
+{
+  "name": "marginalia",
+  "version": "1.0.0",
+  "description": "Lire et étudier des textes philosophiques",
+  "main": "electron/main.cjs",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "typecheck": "tsc --noEmit",
+    "start": "electron .",
+    "package": "node scripts/package.mjs"
+  },
+  "author": "Axel Bierne",
+  "dependencies": {
+    "@fontsource-variable/literata": "^5.3.0",
+    "@fontsource/instrument-serif": "^5.3.0",
+    "@xyflow/react": "^12.3.6",
+    "dompurify": "^3.2.3",
+    "jszip": "^3.10.1",
+    "lucide-react": "^0.460.0",
+    "mammoth": "^1.8.0",
+    "marked": "^14.1.4",
+    "pdfjs-dist": "^4.10.38",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "superdoc": "1.47.2",
+    "ts-fsrs": "5.4.2",
+    "zustand": "^4.5.5"
+  },
+  "devDependencies": {
+    "@electron/packager": "^18.3.6",
+    "@types/dompurify": "^3.0.5",
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@vitejs/plugin-react": "^4.3.4",
+    "electron": "^33.2.1",
+    "playwright-core": "^1.56.1",
+    "typescript": "^5.6.3",
+    "vite": "^5.4.11"
+  },
+  "productName": "Marginalia",
+  "overrides": {
+    "superdoc": "1.47.2"
+  }
+}

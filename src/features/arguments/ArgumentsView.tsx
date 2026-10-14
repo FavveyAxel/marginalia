@@ -344,7 +344,7 @@ function Editor({ arg, books, highlights }: { arg: ArgumentReconstruction; books
         <div className="arg-danger">
           {confirm ? (
             <div className="arg-confirm anim-in" role="alertdialog" aria-label="Confirmer la suppression">
-              <span>Supprimer « {arg.title.trim() || 'Argument sans titre'} » ? Cette action est définitive.</span>
+              <span>Supprimer « {arg.title.trim() || 'Argument sans titre'} » ? Il restera 30 jours dans la corbeille.</span>
               <button className="btn btn-sm" onClick={() => setConfirm(false)}>
                 Garder
               </button>

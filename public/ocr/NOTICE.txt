@@ -1,0 +1,8 @@
+Reconnaissance de texte hors ligne (Marginalia)
+
+worker.min.js                    tesseract.js 7.0.0 — Apache License 2.0 (LICENSE-tesseract.js.txt ; dépendances : worker.min.js.LICENSE.txt)
+tesseract-core-simd-lstm.wasm.js tesseract.js-core 7.0.0 (Tesseract OCR compilé en WebAssembly) — Apache License 2.0
+lang/fra.traineddata.gz          tessdata_best (version « best_int »), via @tesseract.js-data/fra 1.0.0 — Apache License 2.0
+lang/eng.traineddata.gz          tessdata_best (version « best_int »), via @tesseract.js-data/eng 1.0.0 — Apache License 2.0
+
+Régénérer : node scripts/ocr-assets.mjs

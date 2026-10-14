@@ -31,6 +31,7 @@ const api = {
 
   saveBinary: (defaultName, data, format) => ipcRenderer.invoke('marginalia:saveBinary', defaultName, data, format),
   printToPdf: async (html) => toArrayBuffer(await ipcRenderer.invoke('marginalia:printToPdf', html)),
+  convertImage: async (data, ext) => toArrayBuffer(await ipcRenderer.invoke('marginalia:convertImage', data, ext)),
 
   onOpenFiles: (cb) => {
     const handler = (_event, files) => cb(files.map(toFile));

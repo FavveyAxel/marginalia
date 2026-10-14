@@ -2,7 +2,8 @@
 // en dernier recours, le titre est dérivé du nom de fichier.
 import JSZip from 'jszip';
 import type { BookFormat, Edition } from '../../lib/types';
-import { extOf, type PickedFile } from '../../lib/platform';
+import { extOf, IMAGE_EXTENSIONS, type PickedFile } from '../../lib/platform';
+import { imageThumbnail } from '../reader/image/decode';
 
 export interface BookMetadata {
   title: string;
@@ -28,6 +29,7 @@ export function prettifyFileName(name: string): string {
 function formatOf(ext: string): BookFormat {
   if (ext === 'markdown') return 'md';
   if (ext === 'htm') return 'html';
+  if (IMAGE_EXTENSIONS.includes(ext)) return 'image';
   if (['epub', 'pdf', 'docx', 'md', 'txt', 'html'].includes(ext)) return ext as BookFormat;
   return 'txt';
 }
@@ -325,6 +327,10 @@ export async function extractMetadata(f: PickedFile): Promise<BookMetadata> {
     else if (format === 'docx') found = await docxMeta(f);
     else if (format === 'md') found = mdMeta(f);
     else if (format === 'html') found = htmlMeta(f);
+    else if (format === 'image') {
+      // Photo ou scan d'une page : la couverture est la miniature, le titre le nom du fichier.
+      found = { title: f.name.replace(/\.[^.]+$/, '').trim(), cover: await imageThumbnail(f.data, f.name) };
+    }
   } catch (e) {
     console.warn('métadonnées illisibles', f.name, e);
   }

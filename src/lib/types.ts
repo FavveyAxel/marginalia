@@ -2,7 +2,7 @@
 // Marginalia — modèle de données v2 (FIGÉ : ne pas modifier sans l'intégrateur)
 // ─────────────────────────────────────────────────────────────
 
-export type BookFormat = 'epub' | 'pdf' | 'docx' | 'md' | 'txt' | 'html';
+export type BookFormat = 'epub' | 'pdf' | 'docx' | 'md' | 'txt' | 'html' | 'image';
 
 /** Catégories de surlignage (ce que le passage FAIT dans le texte). */
 export type CategoryId = 'probleme' | 'these' | 'argument' | 'objection' | 'concept' | 'exemple';
@@ -352,6 +352,73 @@ export interface Database {
   groups: WorkspaceGroup[];
   wsItems: WorkspaceItem[];
   settings: Settings;
+  /** Corbeille : éléments supprimés et tout ce qui a été retiré avec eux (30 jours). */
+  trash: TrashEntry[];
+  /** Journal d'activité, du plus récent au plus ancien (plafonné). */
+  activity: ActivityEntry[];
+}
+
+// ── Corbeille, journal d'activité, annuler / rétablir ─────────
+
+/** Collections suivies par le journal et l'annulation (`maps` est indexée par bookId). */
+export type TrackedCollection = CollectionName | 'maps';
+
+/**
+ * Changement d'un élément d'une collection : état avant / après (null = absent).
+ * `prevId` / `index` : position de l'élément avant le changement, pour le remettre à sa place.
+ */
+export interface ItemChange {
+  col: TrackedCollection | 'trash';
+  id: string;
+  before: unknown;
+  after: unknown;
+  prevId?: string | null;
+  index?: number;
+}
+
+export type TrashKind = 'book' | 'highlight' | 'concept' | 'argument' | 'study' | 'plan' | 'draft' | 'card' | 'workspace' | 'group';
+
+export interface TrashEntry {
+  id: string;
+  kind: TrashKind;
+  /** Id de l'élément supprimé. */
+  refId: string;
+  title: string;
+  /** Ce qui a été retiré avec l'élément (« Avec 12 extraits et la carte d'argument »). */
+  detail: string;
+  /** Livre de rattachement éventuel (extrait, fiche-texte, carte de révision…). */
+  bookId: string | null;
+  deletedAt: number;
+  /** Suppression d'un groupe : 'lift' (le contenu remonte) ou 'tree' (le contenu part avec lui). */
+  mode?: 'lift' | 'tree';
+  /** Tout ce que la suppression a retiré ou modifié, pour une restauration exacte. */
+  changes: ItemChange[];
+  /** Fichiers effacés du disque seulement au vidage ou à l'expiration. */
+  files: { ownerId: string; fileName: string }[];
+}
+
+export type ActivityAction = 'create' | 'update' | 'delete' | 'restore' | 'import' | 'export' | 'revert' | 'purge';
+export type ActivityKind = TrashKind | 'map' | 'wsItem' | 'file';
+
+export interface ActivityEntry {
+  id: string;
+  /** Dernière modification regroupée dans l'entrée. */
+  at: number;
+  /** Première modification regroupée dans l'entrée. */
+  startedAt: number;
+  action: ActivityAction;
+  kind: ActivityKind;
+  /** Élément concerné (le premier si plusieurs). */
+  refId: string | null;
+  /** Éléments concernés quand l'entrée en regroupe plusieurs (« 3 extraits ajoutés »). */
+  refIds?: string[];
+  bookId: string | null;
+  title: string;
+  summary: string;
+  /** Changements pour « Revenir à l'état d'avant » (absents si non réversible ou trop ancien). */
+  changes?: ItemChange[];
+  /** Entrée de corbeille créée par une suppression. */
+  trashId?: string;
 }
 
 /** Collections gérées par les actions génériques du store. */
@@ -392,4 +459,6 @@ export type Route =
   | { name: 'arguments'; argumentId: string | null }
   | { name: 'revision' }
   | { name: 'plans'; planId: string | null }
-  | { name: 'write'; draftId: string | null };
+  | { name: 'write'; draftId: string | null }
+  | { name: 'trash' }
+  | { name: 'history' };

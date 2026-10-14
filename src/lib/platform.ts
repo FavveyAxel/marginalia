@@ -35,6 +35,11 @@ export interface HostApi {
   onOpenFiles(cb: (files: PickedFile[]) => void): () => void;
   /** 'electron' ou 'browser'. */
   kind: 'electron' | 'browser';
+  /**
+   * Convertit en JPEG une image que le moteur de rendu ne sait pas décoder (HEIC, TIFF).
+   * Facultatif : fourni par l'app Mac (outil système `sips`), absent dans un navigateur.
+   */
+  convertImage?(data: ArrayBuffer, ext: string): Promise<ArrayBuffer>;
 }
 
 export type ExportFormat = 'docx' | 'pdf' | 'md' | 'html' | 'txt';
@@ -47,7 +52,10 @@ export const EXPORT_MIME: Record<ExportFormat, string> = {
   txt: 'text/plain;charset=utf-8',
 };
 
-export const ACCEPTED_EXTENSIONS = ['epub', 'pdf', 'docx', 'md', 'markdown', 'txt', 'html', 'htm'];
+/** Images importées comme documents (photo ou scan d'une page : texte reconnu par OCR). */
+export const IMAGE_EXTENSIONS = ['jpg', 'jpeg', 'png', 'webp', 'heic', 'heif', 'tif', 'tiff'];
+
+export const ACCEPTED_EXTENSIONS = ['epub', 'pdf', 'docx', 'md', 'markdown', 'txt', 'html', 'htm', ...IMAGE_EXTENSIONS];
 
 declare global {
   interface Window {

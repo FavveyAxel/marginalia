@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { BookOpen, Brain, FilePen, Highlighter, Home, Lightbulb, ListTree, Plus, Search, Sigma, Upload } from 'lucide-react';
+import { BookOpen, Brain, FilePen, Highlighter, History, Home, Lightbulb, ListTree, Plus, Search, Sigma, Trash2, Upload } from 'lucide-react';
 import { useStore } from './lib/store';
 import { host, filesFromDrop } from './lib/platform';
 import type { Route, ThemeId } from './lib/types';
@@ -17,6 +17,9 @@ import { WriteView } from './features/editor/WriteView';
 import { WorkspaceTree } from './features/workspaces/WorkspaceTree';
 import { WorkspaceView } from './features/workspaces/WorkspaceView';
 import { CommandPalette } from './components/CommandPalette';
+import { TrashView } from './features/trash/TrashView';
+import { HistoryView } from './features/history/HistoryView';
+import { isTextEditingTarget } from './features/history/keys';
 
 function useTheme(theme: ThemeId) {
   useEffect(() => {
@@ -54,6 +57,7 @@ function Sidebar() {
   const nHighlights = useStore((s) => s.highlights.length);
   const nConcepts = useStore((s) => s.concepts.length);
   const nDrafts = useStore((s) => s.drafts.length);
+  const nTrash = useStore((s) => s.trash.length);
   const setCommandOpen = useStore((s) => s.setCommandOpen);
   const due = useDueCount();
 
@@ -78,6 +82,10 @@ function Sidebar() {
         <NavItem match="plans" route={{ name: 'plans', planId: null }} icon={<ListTree size={15} />} label="Plans" />
         <NavItem match="revision" route={{ name: 'revision' }} icon={<Brain size={15} />} label="Révision" count={due || undefined} />
         <WorkspaceTree />
+      </div>
+      <div className="sidebar-foot">
+        <NavItem match="history" route={{ name: 'history' }} icon={<History size={15} />} label="Historique" />
+        <NavItem match="trash" route={{ name: 'trash' }} icon={<Trash2 size={15} />} label="Corbeille" count={nTrash || undefined} />
       </div>
       <button className="btn" style={{ margin: '8px 4px 0' }} onClick={importViaDialog}>
         <Plus size={15} /> Importer <span style={{ marginLeft: 'auto' }} /> <Kbd>⌘O</Kbd>
@@ -194,6 +202,19 @@ export function App() {
       } else if (e.key.toLowerCase() === 'o') {
         e.preventDefault();
         importViaDialog();
+      } else if (e.key.toLowerCase() === 'z' && !e.altKey) {
+        // Annuler / rétablir global : hors des champs de saisie et de l'éditeur (qui ont le leur).
+        if (isTextEditingTarget(e.target)) return;
+        // Décision différée : un module qui gère lui-même ⌘Z (séance de révision…) l'a alors signalé
+        // par preventDefault, même si son écouteur a été posé après celui-ci.
+        const redo = e.shiftKey;
+        setTimeout(() => {
+          const s = useStore.getState();
+          if (e.defaultPrevented || s.commandOpen) return;
+          if (s.route.name === 'write' && s.route.draftId) return;
+          if (redo) s.redo();
+          else s.undo();
+        }, 0);
       }
     };
     window.addEventListener('keydown', onKey);
@@ -231,6 +252,8 @@ export function App() {
             {route.name === 'revision' && <RevisionView />}
             {route.name === 'plans' && <PlansView planId={route.planId} />}
             {route.name === 'write' && <WriteView key={route.draftId ?? 'list'} draftId={route.draftId} />}
+            {route.name === 'trash' && <TrashView />}
+            {route.name === 'history' && <HistoryView />}
           </main>
         </div>
       )}

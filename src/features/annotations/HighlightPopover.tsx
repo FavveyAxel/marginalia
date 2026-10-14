@@ -189,20 +189,9 @@ function PopBody({ h, onClose, concepts, ready }: { h: Highlight; onClose(): voi
 
   const del = () => {
     flush();
-    const s = st();
-    const full = s.highlights.find((x) => x.id === h.id);
-    const cards = s.cards.filter((c) => c.highlightId === h.id);
-    s.removeHighlight(h.id);
+    // Corbeille : le store propose « Annuler » (restauration exacte, cartes et liens compris).
+    st().removeHighlight(h.id);
     onClose();
-    if (full)
-      s.toast('Extrait supprimé', 'info', {
-        label: 'Annuler',
-        run: () => {
-          const t = useStore.getState();
-          t.insert('highlights', full);
-          cards.forEach((c) => t.insert('cards', c));
-        },
-      });
   };
 
   const setKind = (k: NoteKind | null) => st().updateHighlight(h.id, { noteKind: k });

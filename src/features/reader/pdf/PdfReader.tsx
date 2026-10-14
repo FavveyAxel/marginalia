@@ -397,6 +397,14 @@ export const PdfReader = forwardRef<EngineHandle, EngineProps>(function PdfReade
   const hlRef = useRef(hlByPage);
   hlRef.current = hlByPage;
 
+  /** Page de chaque surlignage : seule la page concernée reçoit activeId / pulse (PdfPage reste mémoïsée). */
+  const pageOfHl = useMemo(() => {
+    const m = new Map<string, number>();
+    hlByPage.forEach((list, page) => list.forEach((h) => m.set(h.id, page)));
+    return m;
+  }, [hlByPage]);
+  const onMovementClick = useCallback((id: string) => P.current.onMovementClick(id), []);
+
   const mvByPage = useMemo(() => {
     const m = new Map<number, PageMv[]>();
     for (const mv of props.movements) {
@@ -424,16 +432,21 @@ export const PdfReader = forwardRef<EngineHandle, EngineProps>(function PdfReade
   useEffect(() => {
     const root = rootRef.current;
     if (!root) return;
-    const layers = () => root.querySelectorAll('.textLayer');
+    // « selecting » (étend .endOfContent, comme le lecteur de pdf.js) : seulement sur le calque
+    // où commence la sélection. Le poser sur tous les calques recalculait le style de milliers
+    // de spans à chaque clic.
+    let selecting: Element | null = null;
     const onDown = (e: MouseEvent) => {
       if (e.button !== 0) return;
       dragging.current = true;
-      layers().forEach((l) => l.classList.add('selecting'));
+      selecting = (e.target as Element | null)?.closest?.('.pdf-page')?.querySelector('.textLayer') ?? null;
+      selecting?.classList.add('selecting');
       selRef.current = null;
-      setSelRect(null);
+      setSelRect((prev) => (prev ? null : prev));
     };
     const onUp = () => {
-      layers().forEach((l) => l.classList.remove('selecting'));
+      selecting?.classList.remove('selecting');
+      selecting = null;
       if (!dragging.current) return;
       dragging.current = false;
       setTimeout(refreshSelection, 0);
@@ -517,13 +530,26 @@ export const PdfReader = forwardRef<EngineHandle, EngineProps>(function PdfReade
       if (h) P.current.onHighlightClick(h.id, h.rect);
       else P.current.onBackgroundClick();
     };
+    // Curseur « main » au-dessus d'un surlignage : la classe est posée sur la seule page
+    // survolée et seulement quand l'état change (la poser sur le conteneur invalidait le style
+    // de tous les calques de texte à chaque bascule). Rien pendant un glissé de sélection.
     let moving = false;
+    let over: HTMLElement | null = null;
+    const setOver = (pageEl: HTMLElement | null) => {
+      if (pageEl === over) return;
+      over?.classList.remove('is-over-hl');
+      pageEl?.classList.add('is-over-hl');
+      over = pageEl;
+    };
     const onMove = (e: MouseEvent) => {
+      if (e.buttons & 1) return;
       if (moving) return;
       moving = true;
       requestAnimationFrame(() => {
         moving = false;
-        el.classList.toggle('is-over-hl', !!hit(e.clientX, e.clientY, e.target));
+        const pageEl = ((e.target as Element | null)?.closest?.('.pdf-page') ?? null) as HTMLElement | null;
+        const any = pageEl && (hlRef.current.get(Number(pageEl.dataset.page))?.length ?? 0) > 0;
+        setOver(any && hit(e.clientX, e.clientY, e.target) ? pageEl : null);
       });
     };
     el.addEventListener('click', onClick);
@@ -654,6 +680,7 @@ export const PdfReader = forwardRef<EngineHandle, EngineProps>(function PdfReade
   // ── Rendu ──
   const numPages = doc?.numPages ?? 0;
   const pct = Math.round(scale * 100);
+  const activePage = props.activeHighlightId ? pageOfHl.get(props.activeHighlightId) ?? 0 : 0;
 
   return (
     <div className="pdf-reader" ref={rootRef} tabIndex={-1}>
@@ -672,10 +699,10 @@ export const PdfReader = forwardRef<EngineHandle, EngineProps>(function PdfReade
                 hls={hlByPage.get(i + 1) ?? EMPTY_HL}
                 marks={marks && marks.page === i + 1 ? marks.rects : null}
                 movements={mvByPage.get(i + 1) ?? EMPTY_MV}
-                activeId={props.activeHighlightId}
-                pulse={pulse}
+                activeId={activePage === i + 1 ? props.activeHighlightId : null}
+                pulse={pulse && pageOfHl.get(pulse.id) === i + 1 ? pulse : null}
                 onRendered={onRendered}
-                onMovement={(id) => P.current.onMovementClick(id)}
+                onMovement={onMovementClick}
               />
             ))}
           </div>

@@ -1,0 +1,60 @@
+/* Historique — préfixe .hi- */
+.hi-scroll { flex: 1; min-height: 0; overflow-y: auto; }
+.hi-page { max-width: var(--page-max); margin: 0 auto; padding: var(--page-top) var(--page-x) 96px; display: flex; flex-direction: column; gap: var(--sp-6); }
+.hi-page > * { width: 100%; max-width: var(--page-measure); }
+.hi-head { display: flex; flex-direction: column; gap: var(--sp-2); }
+.hi-lede { margin: 0; color: var(--ink-2); font-size: var(--fs-lg); line-height: 1.55; max-width: 62ch; }
+.hi-lede .kbd { vertical-align: 1px; }
+
+.hi-filters { display: flex; flex-direction: column; gap: var(--sp-3); }
+.hi-seg { align-self: flex-start; flex-wrap: wrap; }
+.hi-row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2); }
+.hi-select { width: auto; max-width: 220px; }
+.hi-count { font-size: var(--fs-sm); margin-left: var(--sp-2); font-variant-numeric: tabular-nums; }
+
+/* Fil chronologique : une colonne d'heures, une épine, des entrées */
+.hi-day { display: flex; flex-direction: column; gap: var(--sp-3); }
+.hi-day-title { margin: 0; font-family: var(--font-display); font-weight: 400; font-size: 24px; line-height: 1.1; }
+.hi-list { list-style: none; margin: 0; padding: 0; position: relative; }
+.hi-list::before {
+  content: ''; position: absolute; left: 63px; top: 10px; bottom: 10px; width: 1px; background: var(--border-strong);
+}
+.hi-item {
+  --dot: var(--muted);
+  display: grid; grid-template-columns: 48px 32px minmax(0, 1fr) auto; align-items: start; column-gap: 0;
+  padding: 7px 8px 7px 0; border-radius: var(--radius-md); position: relative;
+  transition: background var(--dur-fast) var(--ease-out);
+}
+.hi-item:hover, .hi-item:focus-within { background: var(--bg-inset); }
+.hi-time { font-size: var(--fs-sm); color: var(--muted); font-variant-numeric: tabular-nums; text-align: right; padding-top: 2px; }
+.hi-dot {
+  width: 9px; height: 9px; border-radius: 50%; background: var(--dot); justify-self: center; margin-top: 6px;
+  box-shadow: 0 0 0 3px var(--bg-app); position: relative; z-index: 1;
+}
+.act-create { --dot: var(--cat-argument); }
+.act-update { --dot: var(--cat-concept); }
+.act-delete, .act-purge { --dot: var(--danger); }
+.act-restore { --dot: var(--cat-these); }
+.act-import, .act-export { --dot: var(--cat-exemple); }
+.act-revert { --dot: var(--ink-2); }
+.act-purge .hi-dot { background: transparent; border: 2px solid var(--danger); box-sizing: border-box; }
+
+.hi-body { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.hi-what { display: flex; align-items: center; gap: 5px; font-size: var(--fs-xs); color: var(--muted); font-weight: 500; }
+.hi-title {
+  border: 0; background: transparent; padding: 0; text-align: left; font: inherit; font-size: var(--fs-lg); font-weight: 500; color: var(--ink);
+  cursor: default; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; border-radius: 3px;
+}
+button.hi-title:hover { text-decoration: underline; text-decoration-color: var(--border-strong); text-underline-offset: 3px; }
+button.hi-title:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.hi-title.quote { font-family: var(--font-read); font-weight: 400; font-size: 15px; }
+.hi-title.static { color: var(--ink-2); }
+.hi-summary { font-size: var(--fs-md); color: var(--ink-2); line-height: 1.45; overflow-wrap: anywhere; }
+
+.hi-revert { align-self: center; opacity: 0; white-space: nowrap; transition: opacity var(--dur-fast) var(--ease-out); }
+.hi-item:hover .hi-revert, .hi-item:focus-within .hi-revert, .hi-revert:focus-visible { opacity: 1; }
+@media (hover: none) { .hi-revert { opacity: 1; } }
+.hi-more { align-self: flex-start; }
+
+/* Barre latérale (coquille) : Historique et Corbeille, toujours visibles sous l'arborescence */
+.sidebar-foot { border-top: 1px solid var(--border); margin: 6px 0 0; padding-top: 6px; display: flex; flex-direction: column; gap: 1px; }

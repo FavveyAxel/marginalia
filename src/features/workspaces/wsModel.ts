@@ -288,11 +288,8 @@ export function deleteGroupCascade(groupId: string) {
   const s = useStore.getState();
   const g = s.groups.find((x) => x.id === groupId);
   if (!g) return;
-  const ids = subtreeIds(s.groups, groupId);
-  useStore.setState({
-    groups: s.groups.filter((x) => !ids.has(x.id)),
-    wsItems: s.wsItems.filter((x) => !(x.groupId && ids.has(x.groupId))),
-  });
+  // Corbeille : le groupe, ses sous-groupes et leurs références restent restaurables 30 jours.
+  s.trashDelete('group', groupId, { mode: 'tree' });
   normalizeOrders(g.workspaceId);
 }
 

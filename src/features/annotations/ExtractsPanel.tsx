@@ -87,19 +87,8 @@ export function ExtractsPanel({ bookId, onJump }: { bookId: string; onJump(id: s
     useStore.getState().toast(ok ? 'Citation copiée' : 'Copie impossible', ok ? 'success' : 'error');
   };
 
-  const del = (h: Highlight) => {
-    const s = useStore.getState();
-    const cards = s.cards.filter((c) => c.highlightId === h.id);
-    s.removeHighlight(h.id);
-    s.toast('Extrait supprimé', 'info', {
-      label: 'Annuler',
-      run: () => {
-        const st = useStore.getState();
-        st.insert('highlights', h);
-        cards.forEach((c) => st.insert('cards', c));
-      },
-    });
-  };
+  // Corbeille : le store affiche « Extrait placé dans la corbeille · Annuler » (restauration exacte).
+  const del = (h: Highlight) => useStore.getState().removeHighlight(h.id);
 
   const filtered = filters.size > 0 || query.trim() !== '';
 

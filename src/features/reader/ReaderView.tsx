@@ -1,13 +1,14 @@
 // Coquille du lecteur (intégrateur) : moteur(s), panneaux, popovers, côte à côte, fiche-texte.
-import { useCallback, useEffect, useMemo, useRef, useState, type MutableRefObject } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type MutableRefObject } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { ChevronLeft, Columns2, Download, PanelLeft, PanelRight, Search, Type, X } from 'lucide-react';
 import { useStore, selectBook, uid } from '../../lib/store';
 import { host } from '../../lib/platform';
-import type { Highlight, Movement, ReaderPosition, Route, TextStudy, TocItem } from '../../lib/types';
+import type { Book, Highlight, Movement, ReaderPosition, Route, TextStudy, TocItem } from '../../lib/types';
 import type { EngineHandle, EngineProps, NewHighlightInput, NewMovementInput } from './engine';
 import { HtmlReader } from './html/HtmlReader';
 import { PdfReader } from './pdf/PdfReader';
+import { ImageReader } from './image/ImageReader';
 import { TocPanel } from './TocPanel';
 import { SearchBar } from './SearchBar';
 import { TypographyPopover } from './TypographyPopover';
@@ -19,6 +20,42 @@ import { BookCover } from '../library/BookCover';
 import { bookToMarkdown } from '../../lib/exportMarkdown';
 import { PageSkeleton, useFloating } from '../../components/ui';
 import './reader.css';
+
+// ── Rendus : le lecteur reste fluide pendant la lecture et la sélection ──
+// Chaque sauvegarde de position (toutes les ~800 ms en défilant) et chaque progression remontée
+// par un moteur re-rendaient toute la coquille : moteur(s), toutes les pages PDF, la liste des
+// extraits et la fiche-texte. Les panneaux et moteurs sont donc mémoïsés, reçoivent des rappels
+// stables et un `book` qui ne change pas quand seule la position change.
+const MemoHtmlReader = memo(HtmlReader);
+const MemoPdfReader = memo(PdfReader);
+const MemoImageReader = memo(ImageReader);
+const MemoExtractsPanel = memo(ExtractsPanel);
+const MemoStudyPanel = memo(StudyPanel);
+const MemoTocPanel = memo(TocPanel);
+
+/** Bouton principal enfoncé (glissé de sélection en cours) : les sauvegardes de position attendent. */
+let pointerHeld = false;
+if (typeof window !== 'undefined') {
+  window.addEventListener('pointerdown', (e) => e.button === 0 && (pointerHeld = true), true);
+  window.addEventListener('pointerup', () => (pointerHeld = false), true);
+  window.addEventListener('pointercancel', () => (pointerHeld = false), true);
+  window.addEventListener('blur', () => (pointerHeld = false));
+}
+
+/** Champs de Book que les moteurs n'utilisent pas et qui changent pendant la lecture. */
+const VOLATILE_BOOK_KEYS = new Set<keyof Book>(['position', 'progress', 'lastOpenedAt']);
+function sameBookForEngine(a: Book, b: Book): boolean {
+  if (a === b) return true;
+  const keys = new Set([...Object.keys(a), ...Object.keys(b)] as (keyof Book)[]);
+  for (const k of keys) if (!VOLATILE_BOOK_KEYS.has(k) && a[k] !== b[k]) return false;
+  return true;
+}
+/** Le même objet Book tant que seuls position / progression / date d'ouverture changent. */
+function useEngineBook(book: Book | null): Book | null {
+  const ref = useRef(book);
+  if (!book || !ref.current || !sameBookForEngine(ref.current, book)) ref.current = book;
+  return ref.current;
+}
 
 interface Props {
   bookId: string;
@@ -44,6 +81,8 @@ const RETURN_LABEL: Record<Exclude<Route['name'], 'reader'>, string> = {
   revision: 'Révision',
   plans: 'Plans',
   write: 'Écrits',
+  trash: 'Corbeille',
+  history: 'Historique',
 };
 function returnLabel(): string {
   if (returnRoute.name === 'reader') return 'Bibliothèque';
@@ -89,7 +128,7 @@ function addMovement(bookId: string, input: NewMovementInput) {
   s.toast(`${mv.title} marqué`, 'success');
 }
 
-function ReaderPane({
+const ReaderPane = memo(function ReaderPane({
   paneKey,
   bookId,
   focused,
@@ -123,6 +162,11 @@ function ReaderPane({
   const [error, setError] = useState<string | null>(null);
   const [ready, setReady] = useState(false);
   const initialPosition = useMemo(() => book?.position ?? null, [bookId]);
+  const engineBook = useEngineBook(book);
+  const onStateRef = useRef(onState);
+  onStateRef.current = onState;
+  const onPopoverRef = useRef(onPopover);
+  onPopoverRef.current = onPopover;
 
   useEffect(() => {
     if (!book) return;
@@ -140,16 +184,39 @@ function ReaderPane({
 
   const lastPos = useRef(0);
   const posTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingPos = useRef<(() => void) | null>(null);
   const onPosition = useCallback(
     (pos: ReaderPosition, progress: number, label: string) => {
       onState({ label, progress });
-      const save = () => updateBook(bookId, { position: pos, progress });
+      // Chaque sauvegarde modifie le livre dans le store (et re-rend ses abonnés) : jamais pendant
+      // un glissé de sélection, au plus toutes les 1,5 s pendant un défilement continu.
+      const save = () => {
+        posTimer.current = null;
+        if (pointerHeld) {
+          posTimer.current = setTimeout(save, 400);
+          return;
+        }
+        pendingPos.current = null;
+        lastPos.current = Date.now();
+        updateBook(bookId, { position: pos, progress });
+      };
+      pendingPos.current = save;
       if (posTimer.current) clearTimeout(posTimer.current);
-      const now = Date.now();
-      if (now - lastPos.current > 800) {
-        lastPos.current = now;
-        save();
-      } else posTimer.current = setTimeout(save, 900);
+      if (Date.now() - lastPos.current > 1500 && !pointerHeld) save();
+      else posTimer.current = setTimeout(save, 900);
+    },
+    [bookId],
+  );
+  // Fermeture du livre : la dernière position n'est pas perdue.
+  useEffect(
+    () => () => {
+      if (posTimer.current) clearTimeout(posTimer.current);
+      const p = pendingPos.current;
+      pendingPos.current = null;
+      if (p) {
+        pointerHeld = false;
+        p();
+      }
     },
     [bookId],
   );
@@ -173,38 +240,52 @@ function ReaderPane({
     [bookId],
   );
 
-  if (!book) return null;
+  // Rappels stables (les moteurs mémoïsés ne se re-rendent que si leurs données changent).
+  const callbacks = useMemo(
+    () => ({
+      onToc: (toc: TocItem[]) => onStateRef.current({ toc }),
+      onCreateMovement: (input: NewMovementInput) => {
+        addMovement(bookId, input);
+        updateSettings({ rightPanel: 'etude', showExtracts: true });
+      },
+      onHighlightClick: (id: string, rect: DOMRect) => {
+        setActiveHighlight(id);
+        onPopoverRef.current({ id, rect });
+      },
+      onMovementClick: () => updateSettings({ rightPanel: 'etude', showExtracts: true }),
+      onBackgroundClick: () => {
+        onPopoverRef.current(null);
+        if (useStore.getState().activeHighlightId !== null) setActiveHighlight(null);
+      },
+      onReady: () => {
+        setReady(true);
+        onStateRef.current({ ready: true });
+      },
+      onError: (m: string) => setError(m),
+    }),
+    [bookId],
+  );
 
-  const engineProps: EngineProps = {
-    book,
-    data: data as ArrayBuffer,
-    highlights,
-    movements,
-    activeHighlightId,
-    settings,
-    initialPosition,
-    onToc: (toc) => onState({ toc }),
-    onPosition,
-    onCreateHighlight,
-    onCreateMovement: (input) => {
-      addMovement(bookId, input);
-      updateSettings({ rightPanel: 'etude', showExtracts: true });
-    },
-    onHighlightClick: (id, rect) => {
-      setActiveHighlight(id);
-      onPopover({ id, rect });
-    },
-    onMovementClick: () => updateSettings({ rightPanel: 'etude', showExtracts: true }),
-    onBackgroundClick: () => {
-      onPopover(null);
-      setActiveHighlight(null);
-    },
-    onReady: () => {
-      setReady(true);
-      onState({ ready: true });
-    },
-    onError: (m) => setError(m),
-  };
+  const engineProps: EngineProps | null = useMemo(
+    () =>
+      engineBook
+        ? {
+            book: engineBook,
+            data: data as ArrayBuffer,
+            highlights,
+            movements,
+            activeHighlightId,
+            settings,
+            initialPosition,
+            onPosition,
+            onCreateHighlight,
+            ...callbacks,
+          }
+        : null,
+    [engineBook, data, highlights, movements, activeHighlightId, settings, initialPosition, onPosition, onCreateHighlight, callbacks],
+  );
+
+  if (!book || !engineProps) return null;
 
   return (
     <section className={`panel reader-page ${split && focused ? 'is-focused' : ''}`} onMouseDownCapture={onFocus} data-pane={paneKey}>
@@ -228,9 +309,11 @@ function ReaderPane({
         ) : !data ? (
           <PageSkeleton />
         ) : book.format === 'pdf' ? (
-          <PdfReader ref={engineRef} {...engineProps} />
+          <MemoPdfReader ref={engineRef} {...engineProps} />
+        ) : book.format === 'image' ? (
+          <MemoImageReader ref={engineRef} {...engineProps} />
         ) : (
-          <HtmlReader ref={engineRef} {...engineProps} />
+          <MemoHtmlReader ref={engineRef} {...engineProps} />
         )}
         {!ready && data && !error && (
           <div className="reader-loading overlay">
@@ -240,7 +323,7 @@ function ReaderPane({
       </div>
     </section>
   );
-}
+});
 
 function SplitPicker({ anchor, currentId, onPick, onClose }: { anchor: DOMRect; currentId: string; onPick(id: string): void; onClose(): void }) {
   const books = useStore((s) => s.books);
@@ -311,9 +394,36 @@ export function ReaderView({ bookId, tab, splitBookId }: Props) {
   const activeEngine = activeKey === 'b' ? engineB : engineA;
   const pane = panes[activeKey];
 
-  const updatePane = useCallback((k: PaneKey) => (p: Partial<PaneState>) => setPanes((s) => ({ ...s, [k]: { ...s[k], ...p } })), []);
+  // Pas de nouvel état si rien ne change (les moteurs remontent souvent la même position).
+  const updatePane = useCallback(
+    (k: PaneKey) => (p: Partial<PaneState>) =>
+      setPanes((s) => {
+        const cur = s[k];
+        if ((Object.keys(p) as (keyof PaneState)[]).every((key) => Object.is(cur[key], p[key]))) return s;
+        return { ...s, [k]: { ...cur, ...p } };
+      }),
+    [],
+  );
   const onStateA = useMemo(() => updatePane('a'), []);
   const onStateB = useMemo(() => updatePane('b'), []);
+  const focusA = useCallback(() => setFocus('a'), []);
+  const focusB = useCallback(() => setFocus('b'), []);
+  const activeEngineRef = useRef(activeEngine);
+  activeEngineRef.current = activeEngine;
+  const onTocSelect = useCallback((item: TocItem) => activeEngineRef.current.current?.goTo(item.target), []);
+  const onJumpExtract = useCallback((id: string) => {
+    const h = useStore.getState().highlights.find((x) => x.id === id);
+    if (h) {
+      setActiveHighlight(id);
+      activeEngineRef.current.current?.goToHighlight(h);
+    }
+  }, []);
+  const onStudyGoTo = useCallback((anchor: Highlight['anchor']) => activeEngineRef.current.current?.goToAnchor(anchor), []);
+  const closeSplit = useCallback(() => {
+    setFocus('a');
+    const r = useStore.getState().route;
+    if (r.name === 'reader') navigate({ name: 'reader', bookId: r.bookId, tab: r.tab, splitBookId: null });
+  }, []);
 
   // Navigation demandée vers un extrait
   useEffect(() => {
@@ -435,7 +545,7 @@ export function ReaderView({ bookId, tab, splitBookId }: Props) {
         <div className={`reader-lecture ${tab === 'lecture' ? '' : 'is-hidden'}`}>
           {settings.showToc && !split && (
             <aside className="panel reader-side reader-toc">
-              <TocPanel items={pane.toc} currentLabel={pane.label} progress={pane.progress} onSelect={(item) => activeEngine.current?.goTo(item.target)} />
+              <MemoTocPanel items={pane.toc} currentLabel={pane.label} progress={pane.progress} onSelect={onTocSelect} />
             </aside>
           )}
           <div className={`reader-panes ${split ? 'is-split' : ''}`}>
@@ -448,7 +558,7 @@ export function ReaderView({ bookId, tab, splitBookId }: Props) {
               paneKey="a"
               bookId={bookId}
               focused={activeKey === 'a'}
-              onFocus={() => setFocus('a')}
+              onFocus={focusA}
               engineRef={engineA}
               onState={onStateA}
               onPopover={setPopover}
@@ -460,15 +570,12 @@ export function ReaderView({ bookId, tab, splitBookId }: Props) {
                 paneKey="b"
                 bookId={splitBookId}
                 focused={activeKey === 'b'}
-                onFocus={() => setFocus('b')}
+                onFocus={focusB}
                 engineRef={engineB}
                 onState={onStateB}
                 onPopover={setPopover}
                 split
-                onClose={() => {
-                  setFocus('a');
-                  navigate({ name: 'reader', bookId, tab, splitBookId: null });
-                }}
+                onClose={closeSplit}
               />
             )}
           </div>
@@ -486,19 +593,9 @@ export function ReaderView({ bookId, tab, splitBookId }: Props) {
               </div>
               <div className="reader-side-body">
                 {settings.rightPanel === 'extraits' ? (
-                  <ExtractsPanel
-                    key={activeBookId}
-                    bookId={activeBookId}
-                    onJump={(id) => {
-                      const h = useStore.getState().highlights.find((x) => x.id === id);
-                      if (h) {
-                        setActiveHighlight(id);
-                        activeEngine.current?.goToHighlight(h);
-                      }
-                    }}
-                  />
+                  <MemoExtractsPanel key={activeBookId} bookId={activeBookId} onJump={onJumpExtract} />
                 ) : (
-                  <StudyPanel key={activeBookId} bookId={activeBookId} onGoTo={(anchor) => activeEngine.current?.goToAnchor(anchor)} />
+                  <MemoStudyPanel key={activeBookId} bookId={activeBookId} onGoTo={onStudyGoTo} />
                 )}
               </div>
             </aside>

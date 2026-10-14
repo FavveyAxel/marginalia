@@ -26,7 +26,7 @@ if (!fs.existsSync(path.join(ROOT, 'dist', 'index.html'))) throw new Error('dist
 const KEEP = [/^\/package\.json$/, /^\/electron(\/|$)/, /^\/dist(\/|$)/];
 const ignore = (p) => p !== '' && !KEEP.some((re) => re.test(p));
 
-const EXT = ['epub', 'pdf', 'docx', 'md', 'markdown', 'txt', 'html', 'htm'];
+const EXT = ['epub', 'pdf', 'docx', 'md', 'markdown', 'txt', 'html', 'htm', 'jpg', 'jpeg', 'png', 'webp', 'heic', 'heif', 'tif', 'tiff'];
 const docType = (name, exts, utis) => ({
   CFBundleTypeName: name,
   CFBundleTypeExtensions: exts,
@@ -62,6 +62,12 @@ const out = await packager({
       docType('Document Markdown', ['md', 'markdown'], ['net.daringfireball.markdown']),
       docType('Texte brut', ['txt'], ['public.plain-text']),
       docType('Page web', ['html', 'htm'], ['public.html']),
+      // Photos et scans de pages : le texte est reconnu (OCR) à l'ouverture.
+      docType('Image JPEG', ['jpg', 'jpeg'], ['public.jpeg']),
+      docType('Image PNG', ['png'], ['public.png']),
+      docType('Image HEIC', ['heic', 'heif'], ['public.heic', 'public.heif']),
+      docType('Image WebP', ['webp'], ['org.webmproject.webp']),
+      docType('Image TIFF', ['tif', 'tiff'], ['public.tiff']),
     ],
   },
 });
@@ -75,10 +81,16 @@ run('zip', ['-qry', ZIP, 'Marginalia.app'], { cwd: APP_DIR });
 
 // 4. Rapport.
 const mb = (n) => (n / 1024 / 1024).toFixed(1) + ' Mo';
+const OCR_DIR = path.join(APP, 'Contents', 'Resources', 'app', 'dist', 'ocr');
+const ocrFiles = ['worker.min.js', 'tesseract-core-simd-lstm.wasm.js', 'lang/fra.traineddata.gz', 'lang/eng.traineddata.gz'];
+const ocrMissing = ocrFiles.filter((f) => !fs.existsSync(path.join(OCR_DIR, f)));
+if (ocrMissing.length) throw new Error('Données OCR absentes de l’app : ' + ocrMissing.join(', '));
+const ocrSize = ocrFiles.reduce((n, f) => n + fs.statSync(path.join(OCR_DIR, f)).size, 0);
 const links = spawnSync('find', ['Marginalia.app', '-type', 'l'], { cwd: APP_DIR, encoding: 'utf8' }).stdout.trim().split('\n').filter(Boolean);
 const zipLinks = spawnSync('sh', ['-c', `zipinfo "${ZIP}" | grep -c '^l'`], { encoding: 'utf8' }).stdout.trim();
 console.log('\n── Résultat ──');
 console.log('zip              :', path.relative(ROOT, ZIP), '—', mb(fs.statSync(ZIP).size));
+console.log('données OCR      :', path.relative(APP_DIR, OCR_DIR), '—', mb(ocrSize), '(fra + eng, hors ligne)');
 console.log('liens symboliques dans l’.app :', links.length, '| dans le zip :', zipLinks);
 console.log('liens (extrait)  :');
 for (const l of links.slice(0, 8)) console.log('   ', l, '→', fs.readlinkSync(path.join(APP_DIR, l)));

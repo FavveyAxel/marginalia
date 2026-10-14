@@ -479,7 +479,9 @@ await withApp(PORT, async (page, errors) => {
     await page.click('.ed-confirm .ed-btn-danger');
     await page.waitForTimeout(400);
     const gone = await page.evaluate((id) => !window.__store.getState().drafts.some((d) => d.id === id), r.id);
-    check('supprimer : confirmation puis suppression (fichier compris)', gone && /Supprimer « Dans l’espace »/.test(q) && !(await readLib(page, r.id)), norm(q).slice(0, 80));
+    // Corbeille : l'écrit y part, son .docx reste sur le disque jusqu'au vidage (ou 30 jours).
+    const inTrash = await page.evaluate((id) => window.__store.getState().trash.some((t) => t.kind === 'draft' && t.refId === id), r.id);
+    check('supprimer : confirmation puis suppression (écrit dans la corbeille, .docx conservé)', gone && inTrash && /Supprimer « Dans l’espace »/.test(q) && !!(await readLib(page, r.id)), norm(q).slice(0, 80));
     check('html → .docx : <span data-footnote> devient une vraie note', i.refs === 1 && i.notes[0]?.includes('Une note en italique.'), JSON.stringify(i.notes));
   }
 

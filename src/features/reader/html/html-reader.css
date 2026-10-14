@@ -53,7 +53,10 @@
 }
 .html-doc.is-revealed {
   opacity: 1;
-  animation: rise-in var(--dur-slow) var(--ease-out) both;
+  /* `backwards`, pas `both` : une animation de transform qui reste « en vigueur » après sa fin
+     fait peindre TOUT le document à chaque changement de sélection (Chromium élargit la zone
+     peinte d'un calque animé en transform). Mesuré : peinture du glissé ÷5 sur un chapitre de 1 Mo. */
+  animation: rise-in var(--dur-slow) var(--ease-out) backwards;
 }
 
 /* Le corps de l'app est en user-select: none (app.css) : le texte, lui, se sélectionne. */

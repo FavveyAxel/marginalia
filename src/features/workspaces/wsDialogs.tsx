@@ -36,7 +36,7 @@ function DelWs({ id, onClose }: { id: string; onClose: () => void }) {
   return (
     <ConfirmDialog
       title={`Supprimer l’espace « ${ws.name} » ?`}
-      body={`Les groupes et les ${n} référence${n > 1 ? 's' : ''} de l’espace sont supprimés. Vos livres, écrits, plans et arguments restent intacts. Cette action est définitive.`}
+      body={`Les groupes et les ${n} référence${n > 1 ? 's' : ''} de l’espace sont supprimés. Vos livres, écrits, plans et arguments restent intacts. L’espace reste 30 jours dans la corbeille.`}
       confirmLabel="Supprimer l’espace"
       onClose={onClose}
       onConfirm={() => {
@@ -59,7 +59,7 @@ function DelGroup({ id, onClose }: { id: string; onClose: () => void }) {
   return (
     <ConfirmDialog
       title={`Supprimer le groupe « ${g.name} » ?`}
-      body={`Le groupe, ses ${ids.size - 1} sous-groupe${ids.size - 1 > 1 ? 's' : ''} et ses ${n} référence${n > 1 ? 's' : ''} disparaissent de l’espace. Les documents eux-mêmes restent dans votre bibliothèque. Pour garder le contenu, choisissez plutôt « Dégrouper ». Cette action est définitive.`}
+      body={`Le groupe, ses ${ids.size - 1} sous-groupe${ids.size - 1 > 1 ? 's' : ''} et ses ${n} référence${n > 1 ? 's' : ''} disparaissent de l’espace. Les documents eux-mêmes restent dans votre bibliothèque. Pour garder le contenu, choisissez plutôt « Dégrouper ». Le groupe reste 30 jours dans la corbeille.`}
       confirmLabel="Supprimer le groupe"
       onClose={onClose}
       onConfirm={() => {

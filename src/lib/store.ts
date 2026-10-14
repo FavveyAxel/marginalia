@@ -2,8 +2,9 @@
 // Store global v2 (FIGÉ pour l'API publique ; l'intégrateur seul l'étend).
 // Pour sélectionner un tableau / objet dérivé : useStore(useShallow(sel)).
 // ─────────────────────────────────────────────────────────────
-import { create } from 'zustand';
+import { create, type StateCreator } from 'zustand';
 import type {
+  ActivityEntry,
   ArgumentMap,
   Book,
   CategoryId,
@@ -14,6 +15,10 @@ import type {
   Highlight,
   Route,
   Settings,
+  ItemChange,
+  TrackedCollection,
+  TrashEntry,
+  TrashKind,
   Workspace,
   WorkspaceGroup,
   WorkspaceItem,
@@ -21,6 +26,21 @@ import type {
 } from './types';
 import { host, type PickedFile, extOf } from './platform';
 import { extractMetadata } from '../features/library/metadata';
+import { TRACKED, applyChange, composeChanges, deepEqual, diffData, revert, type Data, type UndoCol, type UndoData } from '../features/history/engine';
+import { cascade, cascadeMany, danglingRefs } from '../features/trash/cascade';
+import {
+  COL_KIND,
+  KIND_COL,
+  KIND_LABEL,
+  TRASHABLE,
+  buildEntries,
+  bookIdOf,
+  labelOf,
+  mergeActivity,
+  pruneActivity,
+  titleOf,
+  type Meta,
+} from '../features/history/describe';
 
 export const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
 
@@ -55,6 +75,8 @@ const emptyDb = (): Database => ({
   groups: [],
   wsItems: [],
   settings: { ...DEFAULT_SETTINGS },
+  trash: [],
+  activity: [],
 });
 
 /** Complète une base ancienne ou partielle avec les valeurs par défaut. */
@@ -77,6 +99,11 @@ function migrate(db: Partial<Database> | null): Database {
   for (const k of Object.keys(out.maps ?? {})) {
     out.maps[k] = { ...out.maps[k], edges: out.maps[k].edges.map((e) => ({ ...e, groupId: e.groupId ?? null })) };
   }
+  // Corbeille et journal (bases antérieures : absents ; entrées illisibles écartées).
+  out.trash = Array.isArray(db.trash)
+    ? db.trash.filter((t) => t && typeof t.id === 'string' && typeof t.refId === 'string' && Array.isArray(t.changes)).map((t) => ({ ...t, files: Array.isArray(t.files) ? t.files : [] }))
+    : [];
+  out.activity = Array.isArray(db.activity) ? db.activity.filter((e) => e && typeof e.id === 'string' && typeof e.at === 'number') : [];
   return out;
 }
 
@@ -159,7 +186,36 @@ export interface State extends Database {
   removeDraft(id: string): Promise<void>;
 
   updateSettings(patch: Partial<Settings>): void;
+
+  // ── Corbeille ──
+  /** Place un élément et tout ce qui en dépend dans la corbeille (rien n'est effacé du disque). */
+  trashDelete(kind: TrashKind, id: string, opts?: { mode?: 'lift' | 'tree'; silent?: boolean }): TrashEntry | null;
+  /** Remet un élément de la corbeille exactement en place. */
+  restoreFromTrash(entryId: string, opts?: { silent?: boolean }): RestoreResult;
+  /** Supprime définitivement (fichiers compris). Sans argument : vide la corbeille. */
+  purgeTrash(entryIds?: string[], reason?: 'manual' | 'empty' | 'expired'): Promise<number>;
+  /** Purge des éléments de plus de 30 jours (appelée au démarrage). */
+  purgeExpiredTrash(): Promise<number>;
+
+  // ── Journal et annulation ──
+  /** Annule la dernière action sur les données (⌘Z). */
+  undo(): boolean;
+  /** Rétablit la dernière action annulée (⇧⌘Z). */
+  redo(): boolean;
+  /** « Revenir à l'état d'avant » une entrée du journal. */
+  revertActivity(entryId: string): RestoreResult;
+  /** Ajoute une entrée au journal (export, etc.). */
+  logActivity(e: Omit<ActivityEntry, 'id' | 'at' | 'startedAt'>): void;
 }
+
+export interface RestoreResult {
+  ok: boolean;
+  message: string;
+}
+
+/** Durée de conservation dans la corbeille. */
+export const TRASH_DAYS = 30;
+export const TRASH_MS = TRASH_DAYS * 86_400_000;
 
 const pickDb = (s: State): Database => ({
   version: 2,
@@ -176,9 +232,295 @@ const pickDb = (s: State): Database => ({
   groups: s.groups,
   wsItems: s.wsItems,
   settings: s.settings,
+  trash: s.trash,
+  activity: s.activity,
 });
 
-export const useStore = create<State>((set, get) => ({
+const pickData = (s: State): UndoData => ({
+  books: s.books,
+  highlights: s.highlights,
+  concepts: s.concepts,
+  maps: s.maps,
+  arguments: s.arguments,
+  studies: s.studies,
+  plans: s.plans,
+  drafts: s.drafts,
+  cards: s.cards,
+  workspaces: s.workspaces,
+  groups: s.groups,
+  wsItems: s.wsItems,
+  trash: s.trash,
+});
+
+// ─────────────────────────────────────────────────────────────
+// Point central du journal et de l'annulation : chaque écriture du store
+// (actions, patch génériques, useStore.setState des modules) passe par ici.
+// Les changements d'un même tour de boucle forment une transaction.
+// ─────────────────────────────────────────────────────────────
+const UNDO_COLS: UndoCol[] = [...TRACKED, 'trash'];
+const UNDO_MAX = 100;
+const UNDO_COALESCE_MS = 1500;
+
+interface Tx {
+  label: string;
+  changes: ItemChange[];
+  at: number;
+}
+let undoStack: Tx[] = [];
+let redoStack: Tx[] = [];
+/** > 0 : écritures non enregistrées (chargement, application d'une annulation). */
+let quiet = 0;
+let nextMeta: Meta | null = null;
+let pending: { changes: ItemChange[]; meta: Meta | null } | null = null;
+let rawSet: (partial: Partial<State>) => void = () => {};
+let lastTrashToastAt = 0;
+let initPromise: Promise<void> | null = null;
+
+/** Exposé aux tests et à l'interface : état des piles d'annulation. */
+export const undoInfo = () => ({ undo: undoStack.map((t) => t.label), redo: redoStack.map((t) => t.label) });
+
+function recordChange(prev: State, next: State) {
+  if (!prev.ready || !next.ready) {
+    nextMeta = null;
+    return;
+  }
+  const meta = nextMeta;
+  nextMeta = null;
+  if (quiet) return;
+  if (!UNDO_COLS.some((c) => (prev as any)[c] !== (next as any)[c])) return;
+  const changes = diffData(pickData(prev), pickData(next), UNDO_COLS);
+  if (!changes.length) return;
+  if (!pending) {
+    pending = { changes: [], meta: null };
+    queueMicrotask(flush);
+  }
+  pending.changes.push(...changes);
+  if (meta) pending.meta = meta;
+}
+
+function flush() {
+  const p = pending;
+  pending = null;
+  if (!p) return;
+  const changes = composeChanges(p.changes);
+  if (!changes.length) return;
+  const s = useStore.getState();
+  const entries = buildEntries(changes, p.meta, s);
+  const now = Date.now();
+  const undoable =
+    p.meta?.undoable !== false &&
+    p.meta?.action !== 'import' &&
+    !changes.some((c) => (c.col === 'books' || c.col === 'drafts') && c.before == null);
+  if (undoable) {
+    const label = entries.length === 1 ? labelOf(entries[0]) : entries.length ? `${entries.length} modifications` : 'réorganisation';
+    const last = undoStack[undoStack.length - 1];
+    const single = changes.length === 1 && changes[0].before != null && changes[0].after != null && !p.meta;
+    if (
+      single &&
+      last &&
+      !redoStack.length &&
+      now - last.at < UNDO_COALESCE_MS &&
+      last.changes.length === 1 &&
+      last.changes[0].col === changes[0].col &&
+      last.changes[0].id === changes[0].id &&
+      last.changes[0].before != null &&
+      last.changes[0].after != null
+    ) {
+      last.changes = [{ ...last.changes[0], after: changes[0].after }];
+      last.at = now;
+    } else {
+      undoStack.push({ label, changes, at: now });
+      if (undoStack.length > UNDO_MAX) undoStack = undoStack.slice(-UNDO_MAX);
+    }
+    redoStack = [];
+  }
+  if (entries.length) rawSet({ activity: mergeActivity(s.activity, entries, now, s, uid) });
+}
+
+/** Termine immédiatement la transaction en cours (avant une annulation, par exemple). */
+function flushNow() {
+  if (pending) flush();
+}
+
+/** Middleware : enveloppe setState (actions ET useStore.setState externes). */
+/** Les « Annuler » des toasts précédents ne correspondent plus à l'état : on les retire. */
+function dropActionToasts() {
+  const s = useStore.getState();
+  if (s.toasts.some((t) => t.action)) rawSet({ toasts: s.toasts.filter((t) => !t.action) });
+}
+
+const tracked =
+  (config: StateCreator<State>): StateCreator<State> =>
+  (set, get, api) => {
+    const orig = api.setState;
+    rawSet = (partial) => orig(partial);
+    const wrapped: typeof api.setState = (partial, replace) => {
+      const prev = api.getState();
+      (orig as any)(partial, replace);
+      recordChange(prev, api.getState());
+    };
+    api.setState = wrapped;
+    return config(wrapped, get, api);
+  };
+
+const colOfKind = (k: TrashKind) => KIND_COL[k];
+
+/** Applique une liste de changements (sens annuler ou rétablir) ; renvoie s'il s'est passé quelque chose. */
+function applyChanges(changes: ItemChange[], dir: 'undo' | 'redo', force = false, meta?: Meta): boolean {
+  const s = useStore.getState();
+  const data = pickData(s);
+  let changed = false;
+  for (const ch of changes) if (applyChange(data, ch, dir, force) === 'ok') changed = true;
+  if (!changed) return false;
+  if (meta) {
+    nextMeta = meta;
+    useStore.setState(data as Partial<State>);
+  } else {
+    quiet++;
+    try {
+      useStore.setState(data as Partial<State>);
+    } finally {
+      quiet--;
+    }
+  }
+  return true;
+}
+
+/** Où se trouve un élément supprimé : dans une entrée de corbeille (racine ou cascade). */
+function findInTrash(trash: TrashEntry[], col: TrackedCollection, id: string): TrashEntry | null {
+  return trash.find((t) => t.changes.some((c) => c.col === col && c.id === id && c.after == null && c.before != null)) ?? null;
+}
+
+/** Message d'empêchement si le parent indispensable d'un élément manque. */
+function parentBlock(kind: TrashKind, root: any, d: UndoData): string | null {
+  if (!root) return null;
+  const need: { col: TrackedCollection; id: string | null; what: string }[] = [];
+  if (kind === 'highlight' || kind === 'study') need.push({ col: 'books', id: root.bookId, what: 'le livre' });
+  if (kind === 'card') {
+    need.push({ col: 'highlights', id: root.highlightId, what: 'l’extrait' });
+    need.push({ col: 'concepts', id: root.conceptId, what: 'le concept' });
+    need.push({ col: 'books', id: root.bookId, what: 'le livre' });
+  }
+  if (kind === 'group') need.push({ col: 'workspaces', id: root.workspaceId, what: 'l’espace' });
+  const own = kind === 'highlight' ? 'cet extrait' : kind === 'study' ? 'cette fiche-texte' : kind === 'card' ? 'cette carte' : 'ce groupe';
+  for (const n of need) {
+    if (!n.id || (d as any)[n.col].some((x: { id: string }) => x.id === n.id)) continue;
+    const t = findInTrash(d.trash, n.col, n.id);
+    if (t) {
+      const what = t.refId === n.id ? `${n.what} « ${t.title} »` : `« ${t.title} »`;
+      return `Restaurez d’abord ${what} : ${own} en dépend.`;
+    }
+    return `${n.what.charAt(0).toUpperCase() + n.what.slice(1)} dont dépend ${own} a été supprimé définitivement : la restauration est impossible.`;
+  }
+  return null;
+}
+
+/** Adapte un élément restauré en cascade à ce qui existe encore ; null = à ne pas restaurer. */
+function fitChild(col: TrackedCollection, item: any, d: UndoData): any | null {
+  const has = (c: TrackedCollection, id: string | null | undefined) => !id || (d as any)[c].some((x: { id: string }) => x.id === id);
+  switch (col) {
+    case 'highlights':
+    case 'studies':
+      return has('books', item.bookId) ? item : null;
+    case 'cards':
+      return has('highlights', item.highlightId) && has('concepts', item.conceptId) && has('books', item.bookId) ? item : null;
+    case 'groups':
+      if (!has('workspaces', item.workspaceId)) return null;
+      return has('groups', item.parentId) ? item : { ...item, parentId: null };
+    case 'wsItems': {
+      if (!has('workspaces', item.workspaceId)) return null;
+      const refCol: Record<string, TrackedCollection> = { book: 'books', map: 'books', draft: 'drafts', plan: 'plans', argument: 'arguments', study: 'studies' };
+      if (!has(refCol[item.kind] ?? 'books', item.refId)) return null;
+      return has('groups', item.groupId) ? item : { ...item, groupId: null };
+    }
+    default:
+      return item;
+  }
+}
+
+/**
+ * Après une restauration : ce qui vient de revenir ne doit pas pointer vers ce qui est
+ * encore dans la corbeille. On applique la cascade de chaque entrée restante (racine absente :
+ * seules les références sont retirées) et on l'ajoute à son entrée, qui saura les remettre.
+ */
+function recascade(d: UndoData): void {
+  d.trash = d.trash.map((t) => {
+    const byKind = new Map<TrashKind, { id: string; parentId: string | null }[]>();
+    for (const c of t.changes) {
+      if (c.after != null || c.before == null || c.col === 'maps' || c.col === 'wsItems' || c.col === 'trash') continue;
+      const kind = COL_KIND[c.col as TrackedCollection];
+      if (!TRASHABLE.has(kind)) continue;
+      byKind.set(kind as TrashKind, [...(byKind.get(kind as TrashKind) ?? []), { id: c.id, parentId: (c.before as any)?.parentId ?? null }]);
+    }
+    let cur: Data = d;
+    const added: ItemChange[] = [];
+    for (const [kind, list] of byKind) {
+      const next =
+        kind === 'group' && t.mode !== 'tree'
+          ? list.reduce<Data>((acc, g) => cascade(acc, 'group', g.id, { mode: 'lift', groupParentId: g.parentId }), cur)
+          : cascadeMany(cur, kind, list.map((x) => x.id), { mode: t.mode });
+      if (next !== cur) {
+        added.push(...diffData(cur, next, TRACKED, true));
+        cur = next;
+      }
+    }
+    if (!added.length) return t;
+    for (const col of TRACKED) (d as any)[col] = (cur as any)[col];
+    return { ...t, changes: [...t.changes, ...added] };
+  });
+}
+
+/** Fichiers à effacer au vidage. */
+function filesOf(kind: TrashKind, root: any): TrashEntry['files'] {
+  if (kind === 'book') return [{ ownerId: root.id, fileName: root.fileName }];
+  // L'éditeur garde aussi une copie de la version précédente (document.prev.docx).
+  if (kind === 'draft') return [{ ownerId: root.id, fileName: root.fileName }, { ownerId: root.id, fileName: 'document.prev.docx' }];
+  return [];
+}
+
+/** « Avec 12 extraits, la carte d'argument et 3 cartes de révision ». */
+function detailOf(kind: TrashKind, changes: ItemChange[], rootId: string): string {
+  const rootCol = colOfKind(kind);
+  const removed = (col: UndoCol) => changes.filter((c) => c.col === col && c.after == null && !(col === rootCol && c.id === rootId)).length;
+  const touched = (col: UndoCol) => changes.filter((c) => c.col === col && c.before != null && c.after != null).length;
+  const join = (bits: string[]) => (bits.length > 1 ? `${bits.slice(0, -1).join(', ')} et ${bits[bits.length - 1]}` : (bits[0] ?? ''));
+  const n = (bits: string[], k: number, one: string, many: string) => k && bits.push(`${k} ${k > 1 ? many : one}`);
+  // Groupe dégroupé : rien n'est retiré, son contenu remonte d'un niveau.
+  if (kind === 'group' && !changes.some((c) => c.after == null && !(c.col === 'groups' && c.id === rootId))) {
+    const moved: string[] = [];
+    n(moved, touched('groups'), 'sous-groupe', 'sous-groupes');
+    n(moved, touched('wsItems'), 'référence', 'références');
+    return moved.length ? `Contenu remonté d’un niveau : ${join(moved)}` : 'Groupe vide';
+  }
+  const bits: string[] = [];
+  n(bits, removed('highlights'), 'extrait', 'extraits');
+  if (removed('maps')) bits.push('la carte d’argument');
+  n(bits, removed('studies'), 'fiche-texte', 'fiches-texte');
+  n(bits, removed('cards'), 'carte de révision', 'cartes de révision');
+  n(bits, removed('groups'), 'groupe', 'groupes');
+  const group = kind === 'workspace' || kind === 'group';
+  n(bits, removed('wsItems'), group ? 'référence' : 'référence dans un espace', group ? 'références' : 'références dans des espaces');
+  // Références retirées d'autres éléments (qui, eux, restent en place).
+  const refs: string[] = [];
+  n(refs, touched('highlights'), 'extrait', 'extraits');
+  n(refs, touched('concepts'), 'concept', 'concepts');
+  n(refs, touched('arguments'), 'argument', 'arguments');
+  n(refs, touched('plans'), 'plan', 'plans');
+  n(refs, touched('maps'), 'carte d’argument', 'cartes d’argument');
+  const out: string[] = [];
+  if (bits.length) out.push(`Avec ${join(bits)}`);
+  if (refs.length) out.push(`${bits.length ? 'retiré' : 'Retiré'} de ${join(refs)}`);
+  return out.join(' ; ');
+}
+
+function trashToastText(e: TrashEntry): string {
+  if (e.kind === 'highlight') return 'Extrait placé dans la corbeille';
+  if (e.kind === 'card') return 'Carte placée dans la corbeille';
+  if (e.kind === 'study') return 'Fiche-texte placée dans la corbeille';
+  return `« ${e.title} » placé dans la corbeille`;
+}
+
+export const useStore = create<State>()(tracked((set, get) => ({
   ...emptyDb(),
   ready: false,
   route: { name: 'home' },
@@ -188,21 +530,31 @@ export const useStore = create<State>((set, get) => ({
   toasts: [],
   commandOpen: false,
 
-  async init() {
-    let db: Database | null = null;
-    try {
-      db = await host.loadDb();
-    } catch (e) {
-      console.error(e);
-    }
-    set({ ...migrate(db), ready: true });
-    host.onOpenFiles((files) => {
+  init() {
+    // Une seule initialisation : React.StrictMode appelle l'effet deux fois en développement,
+    // et un second chargement de la base écraserait la purge de corbeille faite par le premier.
+    if (initPromise) return initPromise;
+    initPromise = (async () => {
+      let db: Database | null = null;
+      try {
+        db = await host.loadDb();
+      } catch (e) {
+        console.error(e);
+      }
+      set({ ...migrate(db), ready: true });
+      rawSet({ activity: pruneActivity(get().activity, Date.now()) });
       get()
-        .importFiles(files)
-        .then((books) => {
-          if (books.length === 1) get().openBook(books[0].id);
-        });
-    });
+        .purgeExpiredTrash()
+        .catch((e) => console.warn('corbeille', e));
+      host.onOpenFiles((files) => {
+        get()
+          .importFiles(files)
+          .then((books) => {
+            if (books.length === 1) get().openBook(books[0].id);
+          });
+      });
+    })();
+    return initPromise;
   },
 
   navigate(route) {
@@ -212,11 +564,16 @@ export const useStore = create<State>((set, get) => ({
     set({ commandOpen: open });
   },
   toast(message, tone = 'info', action) {
+    // Les modules annoncent parfois eux-mêmes « … supprimé » : la corbeille l'a déjà dit, avec « Annuler ».
+    if (tone === 'info' && !action && /supprim/i.test(message) && Date.now() - lastTrashToastAt < 2000) return;
+    // Exports : tous les modules confirment par un toast de succès ; on le consigne au journal.
+    if (tone === 'success' && /export/i.test(message)) logExport(message);
     const id = uid();
     set((s) => ({ toasts: [...s.toasts, { id, message, tone, action }] }));
     setTimeout(() => get().dismissToast(id), action ? 6000 : 3600);
   },
   dismissToast(id) {
+    if (!get().toasts.some((t) => t.id === id)) return;
     set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) }));
   },
 
@@ -235,7 +592,9 @@ export const useStore = create<State>((set, get) => ({
     );
   },
   remove(col, id) {
-    set((s) => ({ [col]: (s[col] as any[]).filter((x) => x.id !== id) }) as Partial<State>);
+    if (col === 'wsItems') return get().removeFromWorkspace(id);
+    const kind = COL_KIND[col] as TrashKind;
+    if (TRASHABLE.has(kind)) get().trashDelete(kind, id);
   },
 
   async importFiles(files) {
@@ -264,6 +623,7 @@ export const useStore = create<State>((set, get) => ({
           edition: { ...EMPTY_EDITION, ...(meta.edition ?? {}) },
         };
         added.push(book);
+        nextMeta = { action: 'import' };
         set((s) => ({ books: [book, ...s.books] }));
         // Ajout automatique à l'espace actif
         const ws = get().settings.activeWorkspaceId;
@@ -286,26 +646,8 @@ export const useStore = create<State>((set, get) => ({
   },
 
   async removeBook(id) {
-    const book = get().books.find((b) => b.id === id);
-    if (!book) return;
-    try {
-      await host.deleteFile(id, book.fileName);
-    } catch (e) {
-      console.warn(e);
-    }
-    set((s) => {
-      const maps = { ...s.maps };
-      delete maps[id];
-      const hlIds = new Set(s.highlights.filter((h) => h.bookId === id).map((h) => h.id));
-      return {
-        books: s.books.filter((b) => b.id !== id),
-        highlights: s.highlights.filter((h) => h.bookId !== id),
-        maps,
-        studies: s.studies.filter((x) => x.bookId !== id),
-        cards: s.cards.filter((c) => c.bookId !== id && !(c.highlightId && hlIds.has(c.highlightId))),
-        wsItems: s.wsItems.filter((i) => !((i.kind === 'book' || i.kind === 'map') && i.refId === id)),
-      };
-    });
+    // Le fichier reste sur le disque jusqu'au vidage de la corbeille (ou 30 jours).
+    get().trashDelete('book', id);
   },
 
   openBook(id, split = null) {
@@ -334,41 +676,7 @@ export const useStore = create<State>((set, get) => ({
     }));
   },
   removeHighlight(id) {
-    set((s) => {
-      const maps: Record<string, ArgumentMap> = {};
-      for (const [k, m] of Object.entries(s.maps)) {
-        const removed = new Set(m.nodes.filter((n) => n.highlightId === id).map((n) => n.id));
-        maps[k] = removed.size
-          ? {
-              ...m,
-              nodes: m.nodes.filter((n) => !removed.has(n.id)),
-              edges: m.edges.filter((e) => !removed.has(e.source) && !removed.has(e.target)),
-            }
-          : m;
-      }
-      const stripPlan = (nodes: any[]): any[] =>
-        nodes.map((n) => ({
-          ...n,
-          items: n.items.filter((it: any) => !(it.ref.kind === 'highlight' && it.ref.id === id)),
-          children: stripPlan(n.children),
-        }));
-      return {
-        highlights: s.highlights.filter((h) => h.id !== id),
-        maps,
-        cards: s.cards.filter((c) => c.highlightId !== id),
-        plans: s.plans.map((p) => ({ ...p, parts: stripPlan(p.parts) })),
-        arguments: s.arguments.map((a) => ({
-          ...a,
-          premises: a.premises.map((p) => (p.highlightId === id ? { ...p, highlightId: null } : p)),
-          conclusion: a.conclusion.highlightId === id ? { ...a.conclusion, highlightId: null } : a.conclusion,
-        })),
-        concepts: s.concepts.map((c) => ({
-          ...c,
-          senses: c.senses.map((se) => ({ ...se, highlightIds: se.highlightIds.filter((x) => x !== id) })),
-        })),
-        activeHighlightId: s.activeHighlightId === id ? null : s.activeHighlightId,
-      };
-    });
+    get().trashDelete('highlight', id);
   },
   setActiveHighlight(id) {
     set({ activeHighlightId: id });
@@ -401,13 +709,7 @@ export const useStore = create<State>((set, get) => ({
     set((s) => ({ concepts: s.concepts.map((c) => (c.id === id ? { ...c, ...patch, updatedAt: Date.now() } : c)) }));
   },
   removeConcept(id) {
-    set((s) => ({
-      concepts: s.concepts
-        .filter((c) => c.id !== id)
-        .map((c) => (c.links.some((l) => l.conceptId === id) ? { ...c, links: c.links.filter((l) => l.conceptId !== id) } : c)),
-      highlights: s.highlights.map((h) => (h.conceptIds.includes(id) ? { ...h, conceptIds: h.conceptIds.filter((x) => x !== id) } : h)),
-      cards: s.cards.filter((c) => c.conceptId !== id),
-    }));
+    get().trashDelete('concept', id);
   },
   toggleHighlightConcept(highlightId, conceptId) {
     set((s) => ({
@@ -451,12 +753,7 @@ export const useStore = create<State>((set, get) => ({
     return ws;
   },
   removeWorkspace(id) {
-    set((s) => ({
-      workspaces: s.workspaces.filter((w) => w.id !== id),
-      groups: s.groups.filter((g) => g.workspaceId !== id),
-      wsItems: s.wsItems.filter((i) => i.workspaceId !== id),
-      settings: s.settings.activeWorkspaceId === id ? { ...s.settings, activeWorkspaceId: null } : s.settings,
-    }));
+    get().trashDelete('workspace', id);
   },
   createGroup(workspaceId, parentId, name) {
     const siblings = get().groups.filter((g) => g.workspaceId === workspaceId && g.parentId === parentId);
@@ -465,12 +762,7 @@ export const useStore = create<State>((set, get) => ({
     return g;
   },
   removeGroup(id) {
-    const g = get().groups.find((x) => x.id === id);
-    if (!g) return;
-    set((s) => ({
-      groups: s.groups.filter((x) => x.id !== id).map((x) => (x.parentId === id ? { ...x, parentId: g.parentId } : x)),
-      wsItems: s.wsItems.map((i) => (i.groupId === id ? { ...i, groupId: g.parentId } : i)),
-    }));
+    get().trashDelete('group', id, { mode: 'lift' });
   },
   addToWorkspace(workspaceId, groupId, kind, refId) {
     const existing = get().wsItems.find((i) => i.workspaceId === workspaceId && i.kind === kind && i.refId === refId);
@@ -491,42 +783,333 @@ export const useStore = create<State>((set, get) => ({
     }));
   },
   removeFromWorkspace(itemId) {
-    set((s) => ({ wsItems: s.wsItems.filter((i) => i.id !== itemId) }));
+    const s = get();
+    const index = s.wsItems.findIndex((i) => i.id === itemId);
+    if (index < 0) return;
+    const item = s.wsItems[index];
+    set({ wsItems: s.wsItems.filter((i) => i.id !== itemId) });
+    const change: ItemChange = { col: 'wsItems', id: itemId, before: item, after: null, prevId: s.wsItems[index - 1]?.id ?? null, index };
+    get().toast('Retiré de l’espace', 'info', { label: 'Annuler', run: () => applyChanges([change], 'undo', false, { action: 'restore', kind: 'wsItem', refId: itemId, title: titleOf('wsItems', item, get()), summary: 'Remis dans l’espace' }) });
   },
 
   async removeDraft(id) {
-    const d = get().drafts.find((x) => x.id === id);
-    if (!d) return;
-    try {
-      await host.deleteFile(id, d.fileName);
-    } catch (e) {
-      console.warn(e);
-    }
-    set((s) => ({
-      drafts: s.drafts.filter((x) => x.id !== id),
-      wsItems: s.wsItems.filter((i) => !(i.kind === 'draft' && i.refId === id)),
-      plans: s.plans.map((p) => (p.draftId === id ? { ...p, draftId: null } : p)),
-    }));
+    // Le .docx reste sur le disque jusqu'au vidage de la corbeille (ou 30 jours).
+    get().trashDelete('draft', id);
   },
 
   updateSettings(patch) {
     set((s) => ({ settings: { ...s.settings, ...patch } }));
   },
-}));
+
+  // ── Corbeille ──────────────────────────────────────────────
+  trashDelete(kind, id, opts = {}) {
+    flushNow();
+    const s = get();
+    const data = pickData(s);
+    const col = colOfKind(kind);
+    const root = (data as any)[col].find((x: { id: string }) => x.id === id);
+    if (!root) return null;
+    const mode = kind === 'group' ? (opts.mode ?? 'lift') : undefined;
+    const next = cascade(data, kind, id, { mode });
+    const changes = diffData(data, next, TRACKED, true);
+    const entry: TrashEntry = {
+      id: uid(),
+      kind,
+      refId: id,
+      title: titleOf(col, root, s),
+      detail: detailOf(kind, changes, id),
+      bookId: kind === 'book' ? id : bookIdOf(col, root, s),
+      deletedAt: Date.now(),
+      ...(mode ? { mode } : {}),
+      changes,
+      files: filesOf(kind, root),
+    };
+    nextMeta = { action: 'delete', kind, refId: id, title: entry.title, bookId: entry.bookId, summary: entry.detail || 'Placé dans la corbeille', trashId: entry.id };
+    const patch: Partial<State> = { trash: [entry, ...s.trash] };
+    for (const c of TRACKED) if ((next as any)[c] !== (data as any)[c]) (patch as any)[c] = (next as any)[c];
+    if (kind === 'highlight' && s.activeHighlightId === id) patch.activeHighlightId = null;
+    if (kind === 'workspace' && s.settings.activeWorkspaceId === id) patch.settings = { ...s.settings, activeWorkspaceId: null };
+    set(patch);
+    if (!opts.silent) {
+      get().toast(trashToastText(entry), 'info', { label: 'Annuler', run: () => get().restoreFromTrash(entry.id) });
+      lastTrashToastAt = Date.now();
+    }
+    return entry;
+  },
+
+  restoreFromTrash(entryId, opts = {}) {
+    flushNow();
+    const s = get();
+    const entry = s.trash.find((t) => t.id === entryId);
+    if (!entry) return { ok: false, message: 'Cet élément n’est plus dans la corbeille.' };
+    const data: UndoData = { ...pickData(s), trash: s.trash.filter((t) => t.id !== entryId) };
+    const col = colOfKind(entry.kind);
+    const root = entry.changes.find((c) => c.col === col && c.id === entry.refId && c.after == null)?.before;
+    const block = parentBlock(entry.kind, root, data);
+    if (block) {
+      if (!opts.silent) get().toast(block, 'error');
+      return { ok: false, message: block };
+    }
+    let skipped = 0;
+    const restoredKeys: { col: TrackedCollection; id: string }[] = [];
+    for (const ch of entry.changes) {
+      if (ch.col === 'trash') continue;
+      const c = ch.col as TrackedCollection;
+      if (ch.after == null && ch.before != null) {
+        let item = ch.before;
+        if (c === 'maps') {
+          if (!data.books.some((b) => b.id === ch.id)) {
+            skipped++;
+            continue;
+          }
+        } else {
+          item = fitChild(c, item, data);
+          if (item == null) {
+            skipped++;
+            continue;
+          }
+        }
+        if (applyChange(data, { ...ch, before: item }, 'undo') === 'ok') restoredKeys.push({ col: c, id: ch.id });
+      } else if (ch.before != null && ch.after != null) {
+        const st = applyChange(data, ch, 'undo');
+        if (st === 'ok') restoredKeys.push({ col: c, id: ch.id });
+        else if (st === 'missing') {
+          // L'élément à recompléter est lui-même dans la corbeille : on complète sa copie.
+          data.trash = data.trash.map((t) => {
+            let hit = false;
+            const changes = t.changes.map((x) => {
+              if (x.col !== ch.col || x.id !== ch.id || x.after != null || x.before == null) return x;
+              hit = true;
+              return { ...x, before: revert(x.before, ch.before, ch.after) };
+            });
+            return hit ? { ...t, changes } : t;
+          });
+        }
+      }
+    }
+    recascade(data);
+    // Références vers des éléments supprimés définitivement depuis : retirées.
+    const inTrash = (k: TrashKind, id: string) => !!findInTrash(data.trash, colOfKind(k), id);
+    const sub: Data = { ...data } as Data;
+    for (const c of TRACKED) {
+      if (c === 'maps') {
+        const keys = new Set(restoredKeys.filter((k) => k.col === 'maps').map((k) => k.id));
+        sub.maps = Object.fromEntries(Object.entries(data.maps).filter(([k]) => keys.has(k)));
+      } else {
+        const ids = new Set(restoredKeys.filter((k) => k.col === c).map((k) => k.id));
+        (sub as any)[c] = (data as any)[c].filter((x: { id: string }) => ids.has(x.id));
+      }
+    }
+    let cleaned: Data = data;
+    for (const g of danglingRefs(sub, data, inTrash)) cleaned = cascade(cleaned, g.kind, g.id);
+    for (const c of TRACKED) (data as any)[c] = (cleaned as any)[c];
+
+    nextMeta = {
+      action: 'restore',
+      kind: entry.kind,
+      refId: entry.refId,
+      title: entry.title,
+      bookId: entry.bookId,
+      summary: skipped ? `Restauré en partie : ${skipped} élément${skipped > 1 ? 's' : ''} lié${skipped > 1 ? 's' : ''} n’existe${skipped > 1 ? 'nt' : ''} plus` : entry.detail ? `Restauré ${entry.detail.charAt(0).toLowerCase()}${entry.detail.slice(1)}` : 'Restauré',
+      trashId: entry.id,
+    };
+    set(data as Partial<State>);
+    dropActionToasts();
+    const message = skipped
+      ? `« ${entry.title} » restauré, sauf ${skipped} élément${skipped > 1 ? 's' : ''} lié${skipped > 1 ? 's' : ''} qui n’existe${skipped > 1 ? 'nt' : ''} plus`
+      : `« ${entry.title} » restauré`;
+    if (!opts.silent) get().toast(message, 'success');
+    return { ok: true, message };
+  },
+
+  async purgeTrash(entryIds, reason = entryIds ? 'manual' : 'empty') {
+    flushNow();
+    const s = get();
+    const list = entryIds ? s.trash.filter((t) => entryIds.includes(t.id)) : s.trash;
+    if (!list.length) return 0;
+    const gone = new Set(list.map((t) => t.id));
+    // 1. Retirer les entrées et enregistrer la base AVANT d'effacer les fichiers :
+    //    une coupure entre les deux laisse au pire un fichier orphelin, jamais un livre sans fichier.
+    quiet++;
+    try {
+      set({ trash: s.trash.filter((t) => !gone.has(t.id)) });
+    } finally {
+      quiet--;
+    }
+    // Plus aucune annulation ne doit pouvoir faire revenir un élément effacé.
+    undoStack = [];
+    redoStack = [];
+    try {
+      await host.saveDb(pickDb(get()));
+    } catch (e) {
+      console.error('saveDb', e);
+    }
+    // 2. Fichiers : jamais ceux d'un élément présent ou encore dans la corbeille.
+    for (const t of list)
+      for (const f of t.files) {
+        const st = get();
+        const inUse =
+          st.books.some((b) => b.id === f.ownerId) ||
+          st.drafts.some((d) => d.id === f.ownerId) ||
+          st.trash.some((o) => o.files.some((g) => g.ownerId === f.ownerId));
+        if (inUse) continue;
+        try {
+          await host.deleteFile(f.ownerId, f.fileName);
+        } catch (e) {
+          console.warn('deleteFile', e);
+        }
+      }
+    const one = list.length === 1 ? list[0] : null;
+    get().logActivity({
+      action: 'purge',
+      kind: one ? one.kind : 'file',
+      refId: one ? one.refId : null,
+      bookId: one ? one.bookId : null,
+      title: one ? one.title : `${list.length} éléments`,
+      summary: reason === 'expired' ? `Effacé après ${TRASH_DAYS} jours dans la corbeille` : reason === 'empty' ? 'Corbeille vidée' : 'Supprimé définitivement',
+    });
+    return list.length;
+  },
+
+  async purgeExpiredTrash() {
+    const limit = Date.now() - TRASH_MS;
+    const ids = get()
+      .trash.filter((t) => !(t.deletedAt > limit))
+      .map((t) => t.id);
+    return ids.length ? get().purgeTrash(ids, 'expired') : 0;
+  },
+
+  // ── Annuler / rétablir ─────────────────────────────────────
+  undo() {
+    flushNow();
+    dropActionToasts();
+    for (let tx = undoStack.pop(); tx; tx = undoStack.pop()) {
+      if (!applyChanges(tx.changes, 'undo')) continue;
+      redoStack.push(tx);
+      get().logActivity(historyEntry(tx, 'Annulé'));
+      get().toast(`Annulé : ${tx.label}`, 'info', { label: 'Rétablir', run: () => get().redo() });
+      return true;
+    }
+    get().toast('Rien à annuler');
+    return false;
+  },
+  redo() {
+    flushNow();
+    dropActionToasts();
+    for (let tx = redoStack.pop(); tx; tx = redoStack.pop()) {
+      if (!applyChanges(tx.changes, 'redo')) continue;
+      undoStack.push(tx);
+      get().logActivity(historyEntry(tx, 'Rétabli'));
+      get().toast(`Rétabli : ${tx.label}`, 'info', { label: 'Annuler', run: () => get().undo() });
+      return true;
+    }
+    get().toast('Rien à rétablir');
+    return false;
+  },
+
+  revertActivity(entryId) {
+    flushNow();
+    const s = get();
+    const e = s.activity.find((x) => x.id === entryId);
+    const fail = (message: string) => {
+      get().toast(message, 'error');
+      return { ok: false, message };
+    };
+    if (!e) return fail('Cette entrée n’existe plus.');
+    // Suppression → restaurer depuis la corbeille.
+    if (e.action === 'delete' && e.trashId) {
+      if (!s.trash.some((t) => t.id === e.trashId)) return fail(`« ${e.title} » a été supprimé définitivement : il ne peut plus revenir.`);
+      return get().restoreFromTrash(e.trashId);
+    }
+    // Création, import, restauration → remettre à la corbeille ce qui existe encore.
+    if ((e.action === 'create' || e.action === 'import' || e.action === 'restore') && TRASHABLE.has(e.kind) && !e.changes) {
+      const kind = e.kind as TrashKind;
+      const ids = (e.refIds ?? (e.refId ? [e.refId] : [])).filter((id) => (s as any)[colOfKind(kind)].some((x: { id: string }) => x.id === id));
+      if (!ids.length) return fail('Ces éléments n’existent plus.');
+      for (const id of ids) get().trashDelete(kind, id, { silent: ids.length > 1 });
+      if (ids.length > 1) get().toast(`${ids.length} éléments placés dans la corbeille`, 'info');
+      return { ok: true, message: 'Placé dans la corbeille' };
+    }
+    if (!e.changes?.length) return fail('Cette action ne peut pas être défaite.');
+    const done = applyChanges(e.changes, 'undo', true, {
+      action: 'revert',
+      kind: e.kind,
+      refId: e.refId,
+      bookId: e.bookId,
+      title: e.title,
+      summary: `Défait : « ${e.summary} »`,
+    });
+    if (!done) return fail('Rien à changer : l’élément est déjà dans cet état, ou n’existe plus.');
+    get().toast(`« ${e.title} » est revenu à l’état d’avant`, 'success');
+    return { ok: true, message: 'Revenu à l’état d’avant' };
+  },
+
+  logActivity(e) {
+    const s = get();
+    rawSet({ activity: mergeActivity(s.activity, [e], Date.now(), s, uid) });
+  },
+})));
+
+function historyEntry(tx: Tx, verb: string): Omit<ActivityEntry, 'id' | 'at' | 'startedAt'> {
+  const c = tx.changes.find((x) => x.col !== 'trash') ?? tx.changes[0];
+  const col = (c?.col === 'trash' ? 'books' : c?.col) as TrackedCollection;
+  const item = (c?.after ?? c?.before) as any;
+  const s = useStore.getState();
+  return {
+    action: 'revert',
+    kind: c && c.col !== 'trash' ? COL_KIND[col] : 'file',
+    refId: c && c.col !== 'trash' ? c.id : null,
+    bookId: c && c.col !== 'trash' ? bookIdOf(col, item, s) : null,
+    title: c && c.col !== 'trash' ? titleOf(col, item, s) : tx.label,
+    summary: `${verb} (${verb === 'Annulé' ? '⌘Z' : '⇧⌘Z'}) : ${tx.label}`,
+  };
+}
+
+/** Journalise un export d'après le toast de confirmation (tous les modules en affichent un). */
+function logExport(message: string) {
+  const s = useStore.getState();
+  const r = s.route;
+  let kind: ActivityEntry['kind'] = 'file';
+  let refId: string | null = null;
+  let title = message.replace(/^.*?:\s*/, '') || 'Export';
+  let bookId: string | null = null;
+  if (r.name === 'write' && r.draftId) {
+    const d = s.drafts.find((x) => x.id === r.draftId);
+    if (d) [kind, refId, title] = ['draft', d.id, d.title];
+  } else if (r.name === 'reader') {
+    const b = s.books.find((x) => x.id === r.bookId);
+    if (b) [kind, refId, title, bookId] = ['book', b.id, b.title, b.id];
+  } else if (r.name === 'concepts' && r.conceptId) {
+    const c = s.concepts.find((x) => x.id === r.conceptId);
+    if (c) [kind, refId, title] = ['concept', c.id, c.name];
+  }
+  s.logActivity({ action: 'export', kind, refId, bookId, title, summary: message });
+}
 
 // ── Persistance (écriture différée) ──────────────────────────
+// Seuls les changements de données relancent l'attente (pas les toasts ni la navigation),
+// et l'écriture n'attend jamais plus de 2 s : une suite de changements ne peut plus la repousser indéfiniment.
+const PERSISTED: (keyof Database)[] = ['books', 'highlights', 'concepts', 'maps', 'arguments', 'studies', 'plans', 'drafts', 'cards', 'workspaces', 'groups', 'wsItems', 'settings', 'trash', 'activity'];
+const SAVE_DEBOUNCE_MS = 350;
+const SAVE_MAX_WAIT_MS = 2000;
 let saveTimer: ReturnType<typeof setTimeout> | null = null;
+let savePendingSince = 0;
 let lastSaved = '';
-useStore.subscribe((s) => {
+useStore.subscribe((s, prev) => {
   if (!s.ready) return;
+  if (prev.ready && PERSISTED.every((k) => s[k] === prev[k])) return;
+  const now = performance.now();
   if (saveTimer) clearTimeout(saveTimer);
+  else savePendingSince = now;
+  const wait = Math.max(0, Math.min(SAVE_DEBOUNCE_MS, savePendingSince + SAVE_MAX_WAIT_MS - now));
   saveTimer = setTimeout(() => {
+    saveTimer = null;
     const db = pickDb(useStore.getState());
     const json = JSON.stringify(db);
     if (json === lastSaved) return;
     lastSaved = json;
     host.saveDb(db).catch((e) => console.error('saveDb', e));
-  }, 350);
+  }, wait);
 });
 
 // ── Sélecteurs utilitaires ───────────────────────────────────

@@ -39,7 +39,7 @@ const SORTS: { id: SortKey; label: string }[] = [
   { id: 'added', label: 'Ajout' },
 ];
 
-const FORMAT_LABEL: Record<BookFormat, string> = { epub: 'EPUB', pdf: 'PDF', docx: 'DOCX', md: 'MD', txt: 'TXT', html: 'HTML' };
+const FORMAT_LABEL: Record<BookFormat, string> = { epub: 'EPUB', pdf: 'PDF', docx: 'DOCX', md: 'MD', txt: 'TXT', html: 'HTML', image: 'Image' };
 
 const fold = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
 
@@ -48,7 +48,7 @@ const fraction = (p: number) => Math.max(0, Math.min(1, !p ? 0 : p > 1 ? p / 100
 const pct = (p: number) => Math.round(fraction(p) * 100);
 
 const inFilter = (b: Book, f: FilterKey) =>
-  f === 'all' ? true : f === 'epub' ? b.format === 'epub' : f === 'pdf' ? b.format === 'pdf' : ['docx', 'md', 'txt', 'html'].includes(b.format);
+  f === 'all' ? true : f === 'epub' ? b.format === 'epub' : f === 'pdf' ? b.format === 'pdf' : ['docx', 'md', 'txt', 'html', 'image'].includes(b.format);
 
 function readPref<T extends string>(key: string, allowed: T[], fallback: T): T {
   try {
@@ -93,6 +93,8 @@ function snapshotDb(): Database {
     groups: s.groups,
     wsItems: s.wsItems,
     settings: s.settings,
+    trash: s.trash,
+    activity: s.activity,
   };
 }
 
@@ -752,8 +754,8 @@ function DeleteDialog({ book, nExtracts, onClose }: { book: Book; nExtracts: num
           </p>
           <p className="muted" style={{ margin: '6px 0 0' }}>
             {nExtracts > 0
-              ? `Le fichier, ses ${nExtracts} extrait${nExtracts > 1 ? 's' : ''}, sa carte, ses fiches-texte et ses cartes de révision seront supprimés. Cette action est définitive.`
-              : 'Le fichier et ses données associées seront supprimés. Cette action est définitive.'}
+              ? `Le fichier, ses ${nExtracts} extrait${nExtracts > 1 ? 's' : ''}, sa carte, ses fiches-texte et ses cartes de révision iront avec lui dans la corbeille, où vous pourrez tout restaurer pendant 30 jours.`
+              : 'Le document et ses données associées iront dans la corbeille, où vous pourrez tout restaurer pendant 30 jours.'}
           </p>
         </div>
       </div>

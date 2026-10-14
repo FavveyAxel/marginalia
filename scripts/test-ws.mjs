@@ -502,7 +502,8 @@ async function run(dark) {
       await page.waitForSelector('.ws-confirm');
       await tick(page, 500);
       await shot(page, `shots/ws/confirmation-${tag}.png`);
-      await page.getByRole('button', { name: 'Annuler' }).click();
+      // (les toasts « … · Annuler » de la corbeille portent aussi ce nom : on vise la confirmation)
+      await page.locator('.ws-confirm').getByRole('button', { name: 'Annuler' }).click();
       ok('suppression : annuler conserve le groupe', (await state(page)).groups.some((x) => x.id === sourcesId));
       await row(page, 'Sources').click({ button: 'right' });
       await page.getByRole('menuitem', { name: /Supprimer le groupe/ }).click();

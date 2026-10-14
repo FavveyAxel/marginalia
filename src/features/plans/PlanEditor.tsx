@@ -115,7 +115,7 @@ export function PlanEditor({ plan }: { plan: EssayPlan }) {
         <span className="spacer" />
         {confirmDel ? (
           <span className="plan-confirm anim-fade">
-            Supprimer ce plan ? Cette action est définitive.
+            Supprimer ce plan ? Il restera 30 jours dans la corbeille.
             <button className="btn btn-sm btn-danger" onClick={del} data-testid="plan-del-yes">
               Supprimer
             </button>

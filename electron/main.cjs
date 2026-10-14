@@ -21,7 +21,10 @@ const { pathToFileURL } = require('node:url');
 const DEV_URL = process.env.VITE_DEV_SERVER_URL || '';
 const APP_ORIGIN = 'app://marginalia';
 const DIST_DIR = path.join(__dirname, '..', 'dist');
-const ACCEPTED = ['epub', 'pdf', 'docx', 'md', 'markdown', 'txt', 'html', 'htm'];
+const IMAGES = ['jpg', 'jpeg', 'png', 'webp', 'heic', 'heif', 'tif', 'tiff'];
+const ACCEPTED = ['epub', 'pdf', 'docx', 'md', 'markdown', 'txt', 'html', 'htm', ...IMAGES];
+// Fichiers dérivés d'un document image (texte reconnu, copie affichable) : supprimés avec la source.
+const DERIVED_FILES = ['ocr.json', 'display.jpg'];
 
 app.setName('Marginalia');
 
@@ -125,6 +128,9 @@ handle('marginalia:readFile', async (_e, id, fileName) => {
 handle('marginalia:deleteFile', async (_e, id, fileName) => {
   const file = libraryPath(id, fileName);
   await fsp.rm(file, { force: true });
+  if (/^source\./.test(String(fileName))) {
+    for (const d of DERIVED_FILES) await fsp.rm(libraryPath(id, d), { force: true }).catch(() => {});
+  }
   // Remonte et retire les dossiers vides jusqu'à library/<id> inclus.
   const stop = path.join(libraryRoot(), id);
   let dir = path.dirname(file);
@@ -136,6 +142,33 @@ handle('marginalia:deleteFile', async (_e, id, fileName) => {
     }
     if (dir === stop) break;
     dir = path.dirname(dir);
+  }
+});
+
+// ── Images que Chromium ne décode pas (HEIC, TIFF) ───────────
+// Conversion en JPEG par l'outil système macOS `sips` (aucun module natif). Fichiers temporaires
+// dans le dossier temporaire de l'utilisateur, supprimés aussitôt.
+handle('marginalia:convertImage', async (_e, data, ext) => {
+  if (process.platform !== 'darwin') throw new Error('Conversion disponible sur macOS uniquement');
+  const safeExt = String(ext).toLowerCase();
+  if (!IMAGES.includes(safeExt)) throw new Error('Format d’image non pris en charge');
+  const dir = await fsp.mkdtemp(path.join(os.tmpdir(), 'marginalia-img-'));
+  const src = path.join(dir, `source.${safeExt}`);
+  const out = path.join(dir, 'converti.jpg');
+  try {
+    await fsp.writeFile(src, toBuffer(data));
+    await new Promise((resolve, reject) => {
+      require('node:child_process').execFile(
+        '/usr/bin/sips',
+        ['-s', 'format', 'jpeg', '-s', 'formatOptions', '92', src, '--out', out],
+        { timeout: 60000 },
+        (err) => (err ? reject(new Error('Conversion impossible : ' + err.message)) : resolve()),
+      );
+    });
+    const buf = await fsp.readFile(out);
+    return new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength);
+  } finally {
+    fsp.rm(dir, { recursive: true, force: true }).catch(() => {});
   }
 });
 
@@ -154,7 +187,7 @@ handle('marginalia:pickFiles', async () => {
     title: 'Importer des documents',
     properties: ['openFile', 'multiSelections'],
     filters: [
-      { name: 'Documents', extensions: ACCEPTED },
+      { name: 'Documents et images', extensions: ACCEPTED },
       { name: 'Tous les fichiers', extensions: ['*'] },
     ],
   });
@@ -377,6 +410,7 @@ const MIME = {
   '.ttf': 'font/ttf',
   '.otf': 'font/otf',
   '.wasm': 'application/wasm',
+  '.gz': 'application/octet-stream',
   '.txt': 'text/plain; charset=utf-8',
   '.bcmap': 'application/octet-stream',
   '.pfb': 'application/octet-stream',

@@ -128,7 +128,7 @@
 .pdf-reader .textLayer.selecting .endOfContent {
   top: 0;
 }
-.pdf-scroll.is-over-hl .textLayer :is(span, br) {
+.pdf-page.is-over-hl .textLayer :is(span, br) {
   cursor: pointer;
 }
 

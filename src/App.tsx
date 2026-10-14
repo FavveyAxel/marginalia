@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { BookOpen, Brain, Coffee, FilePen, Highlighter, History, Home, Laptop, Lightbulb, ListTree, Moon, Plus, Search, Sigma, Sun, Trash2, Upload } from 'lucide-react';
+import { BookOpen, Brain, CircleHelp, Coffee, FilePen, Highlighter, History, Home, Laptop, Lightbulb, ListTree, Moon, Plus, Search, Sigma, Sun, Trash2, Upload } from 'lucide-react';
 import { useStore } from './lib/store';
 import { host, filesFromDrop } from './lib/platform';
 import type { Route, ThemeId } from './lib/types';
@@ -23,6 +23,7 @@ import { isTextEditingTarget } from './features/history/keys';
 import { useAppleBooksSync } from './features/library/appleBooks';
 import { useResizeDiagnostics } from './lib/diagnostics';
 import { useDocxMigration } from './features/library/docxMigration';
+import { HelpView } from './features/help/HelpView';
 
 function useTheme(theme: ThemeId) {
   useEffect(() => {
@@ -163,6 +164,7 @@ function Sidebar() {
       <div className="sidebar-foot">
         <NavItem match="history" route={{ name: 'history' }} icon={<History size={15} />} label="Historique" />
         <NavItem match="trash" route={{ name: 'trash' }} icon={<Trash2 size={15} />} label="Corbeille" count={nTrash || undefined} />
+        <NavItem match="help" route={{ name: 'help' }} icon={<CircleHelp size={15} />} label="Aide" />
       </div>
       <AppearanceSwitch />
       <button className="btn" style={{ margin: '8px 4px 0' }} onClick={importViaDialog}>
@@ -278,6 +280,11 @@ export function App() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (!e.metaKey && !e.ctrlKey) return;
+      if (e.key === '?' || (e.shiftKey && e.code === 'Slash')) {
+        e.preventDefault();
+        useStore.getState().navigate({ name: 'help' });
+        return;
+      }
       if (e.key.toLowerCase() === 'k') {
         e.preventDefault();
         useStore.getState().setCommandOpen(!useStore.getState().commandOpen);
@@ -336,6 +343,7 @@ export function App() {
             {route.name === 'write' && <WriteView key={route.draftId ?? 'list'} draftId={route.draftId} />}
             {route.name === 'trash' && <TrashView />}
             {route.name === 'history' && <HistoryView />}
+            {route.name === 'help' && <HelpView />}
           </main>
         </div>
       )}

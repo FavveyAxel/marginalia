@@ -518,4 +518,5 @@ export type Route =
   | { name: 'plans'; planId: string | null }
   | { name: 'write'; draftId: string | null }
   | { name: 'trash' }
-  | { name: 'history' };
+  | { name: 'history' }
+  | { name: 'help' };

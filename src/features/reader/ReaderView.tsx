@@ -103,6 +103,7 @@ const RETURN_LABEL: Record<Exclude<Route['name'], 'reader'>, string> = {
   write: 'Écrits',
   trash: 'Corbeille',
   history: 'Historique',
+  help: 'Aide',
 };
 function returnLabel(): string {
   if (returnRoute.name === 'reader') return 'Bibliothèque';

@@ -31,6 +31,13 @@ export interface HostApi {
   saveBinary(defaultName: string, data: ArrayBuffer, format: ExportFormat): Promise<string | null>;
   /** Familles de polices installées sur l'ordinateur (app Mac uniquement). */
   listFonts?(): Promise<string[]>;
+  /** Déplacement de la fenêtre par la barre du haut (app Mac). */
+  windowDragStart?(): Promise<void>;
+  windowDragEnd?(): Promise<void>;
+  /** Double-clic sur la barre du haut : agrandir / réduire selon les réglages de macOS. */
+  windowDoubleClick?(): Promise<void>;
+  /** Aligne le thème natif (menus, fond de fenêtre) : 'system' | 'light' | 'dark'. */
+  setTheme?(mode: 'system' | 'light' | 'dark'): Promise<void>;
   /** Rend du HTML autonome en PDF (A4) et renvoie les octets. */
   printToPdf(html: string): Promise<ArrayBuffer>;
   /** Fichiers ouverts depuis le Finder / le Dock pendant que l'app tourne. */

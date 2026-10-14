@@ -136,8 +136,10 @@ function Dashboard() {
   const due = useDueCount();
 
   const lastBook = useMemo(() => {
-    const opened = books.filter((b) => b.lastOpenedAt).sort((a, b) => (b.lastOpenedAt ?? 0) - (a.lastOpenedAt ?? 0));
-    return opened[0] ?? [...books].sort((a, b) => b.addedAt - a.addedAt)[0] ?? null;
+    // « Reprendre » ne concerne que les textes : les images (photos, scans) sont exclues.
+    const texts = books.filter((b) => b.format !== 'image');
+    const opened = texts.filter((b) => b.lastOpenedAt).sort((a, b) => (b.lastOpenedAt ?? 0) - (a.lastOpenedAt ?? 0));
+    return opened[0] ?? [...texts].sort((a, b) => b.addedAt - a.addedAt)[0] ?? null;
   }, [books]);
   const lastDraft = useMemo(() => [...drafts].sort((a, b) => b.updatedAt - a.updatedAt)[0] ?? null, [drafts]);
 

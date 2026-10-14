@@ -144,7 +144,7 @@ export function LibraryView() {
   }, [books, query, filter, sort]);
 
   const resume = useMemo(
-    () => books.filter((b) => b.lastOpenedAt).sort((a, b) => (b.lastOpenedAt ?? 0) - (a.lastOpenedAt ?? 0))[0] ?? null,
+    () => books.filter((b) => b.lastOpenedAt && b.format !== 'image').sort((a, b) => (b.lastOpenedAt ?? 0) - (a.lastOpenedAt ?? 0))[0] ?? null,
     [books],
   );
 

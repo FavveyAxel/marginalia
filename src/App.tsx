@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { BookOpen, Brain, FilePen, Highlighter, History, Home, Lightbulb, ListTree, Plus, Search, Sigma, Trash2, Upload } from 'lucide-react';
+import { BookOpen, Brain, Coffee, FilePen, Highlighter, History, Home, Laptop, Lightbulb, ListTree, Moon, Plus, Search, Sigma, Sun, Trash2, Upload } from 'lucide-react';
 import { useStore } from './lib/store';
 import { host, filesFromDrop } from './lib/platform';
 import type { Route, ThemeId } from './lib/types';
@@ -29,9 +29,81 @@ function useTheme(theme: ThemeId) {
       document.documentElement.dataset.theme = resolved;
     };
     apply();
+    // Menus et fond de fenêtre natifs alignés sur le choix (sépia = clair côté système).
+    host.setTheme?.(theme === 'system' ? 'system' : theme === 'dark' ? 'dark' : 'light').catch(() => {});
     mq.addEventListener('change', apply);
     return () => mq.removeEventListener('change', apply);
   }, [theme]);
+}
+
+/**
+ * Déplacement de la fenêtre par les barres du haut, en JS (pas de -webkit-app-region,
+ * dont le recalcul sur macOS provoquait saccades et redimensionnements involontaires).
+ */
+const DRAG_ZONES = '.topbar, .drag, .sidebar-top, .sidebar-brand';
+const NOT_DRAG = 'button, a, input, textarea, select, label, [role="button"], [role="tab"], [contenteditable="true"], .no-drag, .segmented, .floating';
+function useWindowDrag() {
+  useEffect(() => {
+    if (!host.windowDragStart) return;
+    let dragging = false;
+    const onDown = (e: MouseEvent) => {
+      if (e.button !== 0) return;
+      const t = e.target as HTMLElement | null;
+      if (!t || !t.closest(DRAG_ZONES) || t.closest(NOT_DRAG)) return;
+      e.preventDefault();
+      if (e.detail === 2) {
+        host.windowDoubleClick?.();
+        return;
+      }
+      dragging = true;
+      host.windowDragStart?.();
+    };
+    const onUp = () => {
+      if (!dragging) return;
+      dragging = false;
+      host.windowDragEnd?.();
+    };
+    window.addEventListener('mousedown', onDown, true);
+    window.addEventListener('mouseup', onUp, true);
+    window.addEventListener('blur', onUp);
+    return () => {
+      window.removeEventListener('mousedown', onDown, true);
+      window.removeEventListener('mouseup', onUp, true);
+      window.removeEventListener('blur', onUp);
+    };
+  }, []);
+}
+
+const THEMES: { id: ThemeId; label: string; icon: JSX.Element }[] = [
+  { id: 'system', label: 'Automatique (suit le Mac)', icon: <Laptop size={14} /> },
+  { id: 'light', label: 'Clair', icon: <Sun size={14} /> },
+  { id: 'dark', label: 'Sombre', icon: <Moon size={14} /> },
+  { id: 'sepia', label: 'Sépia', icon: <Coffee size={14} /> },
+];
+
+function AppearanceSwitch() {
+  const theme = useStore((s) => s.settings.theme);
+  const updateSettings = useStore((s) => s.updateSettings);
+  return (
+    <div className="appearance" role="radiogroup" aria-label="Apparence">
+      <span className="appearance-label">Apparence</span>
+      <div className="segmented appearance-seg">
+        {THEMES.map((t) => (
+          <button
+            key={t.id}
+            role="radio"
+            aria-checked={theme === t.id}
+            aria-label={t.label}
+            title={t.label}
+            className={theme === t.id ? 'active' : ''}
+            onClick={() => updateSettings({ theme: t.id })}
+          >
+            {t.icon}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
 }
 
 export async function importViaDialog() {
@@ -87,6 +159,7 @@ function Sidebar() {
         <NavItem match="history" route={{ name: 'history' }} icon={<History size={15} />} label="Historique" />
         <NavItem match="trash" route={{ name: 'trash' }} icon={<Trash2 size={15} />} label="Corbeille" count={nTrash || undefined} />
       </div>
+      <AppearanceSwitch />
       <button className="btn" style={{ margin: '8px 4px 0' }} onClick={importViaDialog}>
         <Plus size={15} /> Importer <span style={{ marginLeft: 'auto' }} /> <Kbd>⌘O</Kbd>
       </button>
@@ -188,6 +261,7 @@ export function App() {
   const route = useStore((s) => s.route);
   const theme = useStore((s) => s.settings.theme);
   useTheme(theme);
+  useWindowDrag();
 
   useEffect(() => {
     useStore.getState().init();

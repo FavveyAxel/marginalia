@@ -31,6 +31,10 @@ const api = {
 
   saveBinary: (defaultName, data, format) => ipcRenderer.invoke('marginalia:saveBinary', defaultName, data, format),
   listFonts: () => ipcRenderer.invoke('marginalia:listFonts'),
+  windowDragStart: () => ipcRenderer.invoke('marginalia:windowDragStart'),
+  windowDragEnd: () => ipcRenderer.invoke('marginalia:windowDragEnd'),
+  windowDoubleClick: () => ipcRenderer.invoke('marginalia:windowDoubleClick'),
+  setTheme: (mode) => ipcRenderer.invoke('marginalia:setTheme', mode),
   printToPdf: async (html) => toArrayBuffer(await ipcRenderer.invoke('marginalia:printToPdf', html)),
   convertImage: async (data, ext) => toArrayBuffer(await ipcRenderer.invoke('marginalia:convertImage', data, ext)),
 

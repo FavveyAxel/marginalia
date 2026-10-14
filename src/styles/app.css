@@ -67,10 +67,9 @@ textarea {
   height: 100%;
 }
 .drag {
-  -webkit-app-region: drag;
+  /* Déplacement de fenêtre géré en JS (voir useWindowDrag) : pas de -webkit-app-region. */
 }
 .no-drag {
-  -webkit-app-region: no-drag;
 }
 
 .sidebar {
@@ -158,14 +157,9 @@ textarea {
   align-items: center;
   gap: var(--sp-2);
   padding: 0 var(--sp-4);
-  -webkit-app-region: drag;
-}
-.topbar > * {
-  -webkit-app-region: no-drag;
 }
 .topbar .spacer {
   flex: 1;
-  -webkit-app-region: drag;
 }
 /* Panneau arrondi (style « carte flottante ») */
 .panel {
@@ -645,3 +639,24 @@ textarea {
 }
 .boot-sidebar .skeleton { height: 14px; margin: 0 8px; }
 .boot-main { padding: calc(var(--titlebar-h) + var(--page-top)) var(--page-x); max-width: var(--page-max); margin: 0 auto; width: 100%; }
+
+/* Sélecteur d'apparence (barre latérale) */
+.appearance {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 8px 4px 0;
+  padding: 0 4px;
+}
+.appearance-label {
+  font-size: var(--fs-sm);
+  color: var(--muted);
+}
+.appearance-seg button {
+  width: 30px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}

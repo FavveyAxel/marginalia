@@ -10,7 +10,7 @@
 // ouvert dans l'éditeur ; pour modifier un .docx en place, utiliser « Ouvrir un .docx » dans Écrire.
 'use strict';
 
-const { app, BrowserWindow, Menu, dialog, ipcMain, nativeTheme, net, protocol, session, shell } = require('electron');
+const { app, BrowserWindow, Menu, dialog, ipcMain, nativeTheme, net, protocol, screen, session, shell, systemPreferences } = require('electron');
 const fs = require('node:fs');
 const fsp = require('node:fs/promises');
 const os = require('node:os');
@@ -243,6 +243,54 @@ const SAVE_FILTERS = {
 // Polices installées : liste native de macOS (NSFontManager via JavaScript for Automation),
 // repli sur system_profiler. Aucun accès réseau ; résultat mis en cache pour la session.
 let fontCache = null;
+// ── Fenêtre : déplacement par la barre du haut, sans zone « app-region » CSS ──
+// Sur macOS, les zones de glissement CSS sont recalculées à chaque changement de mise en page
+// (sélection de texte, barres flottantes) et peuvent provoquer des saccades ou un « zoom »
+// involontaire de la fenêtre. On déplace donc la fenêtre nous-mêmes.
+let dragTimer = null;
+function stopDrag() {
+  if (dragTimer) clearInterval(dragTimer);
+  dragTimer = null;
+}
+handle('marginalia:windowDragStart', async (e) => {
+  const win = BrowserWindow.fromWebContents(e.sender);
+  if (!win || win.isFullScreen()) return;
+  stopDrag();
+  const start = screen.getCursorScreenPoint();
+  const [wx, wy] = win.getPosition();
+  const dx = start.x - wx;
+  const dy = start.y - wy;
+  const t0 = Date.now();
+  dragTimer = setInterval(() => {
+    if (win.isDestroyed() || Date.now() - t0 > 20000) return stopDrag();
+    const p = screen.getCursorScreenPoint();
+    win.setPosition(Math.round(p.x - dx), Math.round(p.y - dy));
+  }, 8);
+});
+handle('marginalia:windowDragEnd', async () => stopDrag());
+handle('marginalia:windowDoubleClick', async (e) => {
+  const win = BrowserWindow.fromWebContents(e.sender);
+  if (!win || win.isFullScreen()) return;
+  let action = 'Maximize';
+  if (process.platform === 'darwin') {
+    try {
+      action = systemPreferences.getUserDefault('AppleActionOnDoubleClick', 'string') || 'Maximize';
+    } catch {
+      action = 'Maximize';
+    }
+  }
+  if (action === 'Minimize') win.minimize();
+  else if (action === 'None') return;
+  else if (win.isMaximized()) win.unmaximize();
+  else win.maximize();
+});
+// Thème natif (menus, fond de fenêtre) aligné sur le choix de l'utilisateur.
+handle('marginalia:setTheme', async (e, mode) => {
+  nativeTheme.themeSource = mode === 'dark' ? 'dark' : mode === 'system' ? 'system' : 'light';
+  const win = BrowserWindow.fromWebContents(e.sender);
+  if (win && !win.isDestroyed()) win.setBackgroundColor(nativeTheme.shouldUseDarkColors ? '#121110' : '#efebe3');
+});
+
 handle('marginalia:listFonts', async () => {
   if (fontCache) return fontCache;
   const { execFile } = require('child_process');

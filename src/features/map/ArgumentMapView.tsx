@@ -20,6 +20,7 @@ import {
   type EdgeProps,
   type Node,
   type NodeProps,
+  type FinalConnectionState,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import { useShallow } from 'zustand/react/shallow';
@@ -571,6 +572,30 @@ function Inner({ bookId }: { bookId: string }) {
     [bookId, mutate],
   );
 
+  /** Lien lâché dans le vide : crée une nouvelle carte « idée » à cet endroit, reliée à la carte de départ. */
+  const onConnectEnd = useCallback(
+    (event: MouseEvent | TouchEvent, state: FinalConnectionState) => {
+      if (state.isValid || !state.fromNode) return;
+      const pt = 'changedTouches' in event ? event.changedTouches[0] : event;
+      if (!pt) return;
+      const p = rf.screenToFlowPosition({ x: pt.clientX, y: pt.clientY });
+      const id = uid();
+      const edgeId = uid();
+      const from = state.fromNode.id;
+      // Si l'on a tiré depuis une poignée d'entrée, la nouvelle carte pointe vers la carte de départ.
+      const reverse = state.fromHandle?.type === 'target';
+      mutate((m) => ({
+        ...m,
+        nodes: [...m.nodes, { id, highlightId: null, text: '', x: Math.round(p.x - 140), y: Math.round(p.y - 28) }],
+        edges: [...m.edges, { id: edgeId, source: reverse ? id : from, target: reverse ? from : id, relation: 'soutient', groupId: null }],
+      }));
+      setSelEdge(null);
+      setMenu(null);
+      setTimeout(() => setEditingId(id), 60);
+    },
+    [rf, mutate],
+  );
+
   const onDelete = useCallback(
     ({ nodes: dn, edges: de }: { nodes: Node[]; edges: Edge[] }) => {
       const nIds = new Set(dn.map((n) => n.id));
@@ -683,6 +708,7 @@ function Inner({ bookId }: { bookId: string }) {
           edgeTypes={edgeTypes}
           onNodesChange={onNodesChange}
           onConnect={onConnect}
+          onConnectEnd={onConnectEnd}
           onDelete={onDelete}
           connectionMode={ConnectionMode.Loose}
           connectionRadius={36}

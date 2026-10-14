@@ -1,8 +1,8 @@
 // Panneau « Extraits » du lecteur : filtres par catégorie, recherche, tri, cartes d'extraits.
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { Copy, Search, Trash2, Waypoints, X } from 'lucide-react';
-import { useStore, selectBook } from '../../lib/store';
+import { useStore } from '../../lib/store';
 import { CATEGORIES, CATEGORY_BY_ID, NOTE_KIND_BY_ID } from '../../lib/categories';
 import { formatCitation } from '../../lib/citation';
 import type { CategoryId, Highlight } from '../../lib/types';
@@ -28,7 +28,6 @@ function locationOf(h: Highlight): string {
 }
 
 export function ExtractsPanel({ bookId, onJump }: { bookId: string; onJump(id: string): void }) {
-  const book = useStore(selectBook(bookId));
   const highlights = useStore(useShallow((s) => s.highlights.filter((h) => h.bookId === bookId)));
   const concepts = useStore((s) => s.concepts);
   const activeId = useStore((s) => s.activeHighlightId);
@@ -36,6 +35,10 @@ export function ExtractsPanel({ bookId, onJump }: { bookId: string; onJump(id: s
   const [query, setQuery] = useState('');
   const [sort, setSort] = useState<SortKey>('texte');
   const listRef = useRef<HTMLDivElement>(null);
+  // Callback stable : les cartes mémoïsées ne se re-rendent pas quand le parent change de prop.
+  const onJumpRef = useRef(onJump);
+  onJumpRef.current = onJump;
+  const jump = useCallback((id: string) => onJumpRef.current(id), []);
 
   const conceptName = useMemo(() => new Map(concepts.map((c) => [c.id, c.name])), [concepts]);
 
@@ -81,14 +84,16 @@ export function ExtractsPanel({ bookId, onJump }: { bookId: string; onJump(id: s
       return next;
     });
 
-  const copy = async (h: Highlight) => {
+  // Le livre est lu à la demande (pas d'abonnement) : la position de lecture ne re-rend pas le panneau.
+  const copy = useCallback(async (h: Highlight) => {
+    const book = useStore.getState().books.find((b) => b.id === h.bookId);
     if (!book) return;
     const ok = await copyText(formatCitation(h, book));
     useStore.getState().toast(ok ? 'Citation copiée' : 'Copie impossible', ok ? 'success' : 'error');
-  };
+  }, []);
 
   // Corbeille : le store affiche « Extrait placé dans la corbeille · Annuler » (restauration exacte).
-  const del = (h: Highlight) => useStore.getState().removeHighlight(h.id);
+  const del = useCallback((h: Highlight) => useStore.getState().removeHighlight(h.id), []);
 
   const filtered = filters.size > 0 || query.trim() !== '';
 
@@ -181,72 +186,92 @@ export function ExtractsPanel({ bookId, onJump }: { bookId: string; onJump(id: s
             </button>
           </div>
         ) : (
-          visible.map((h) => {
-            const cat = h.category ? CATEGORY_BY_ID[h.category] : null;
-            const kind = h.noteKind ? NOTE_KIND_BY_ID[h.noteKind] : null;
-            const label = cat ? cat.label : kind ? `Note · ${kind.label}` : 'Note';
-            const loc = locationOf(h);
-            return (
-              <div
-                key={h.id}
-                data-hid={h.id}
-                className={`ann-card ${activeId === h.id ? 'active' : ''} ${cat ? '' : 'is-note'}`}
-                style={{ ['--c' as string]: cat ? `var(${cat.cssVar})` : 'var(--muted)' }}
-                role="button"
-                tabIndex={0}
-                onClick={() => {
-                  useStore.getState().setActiveHighlight(h.id);
-                  onJump(h.id);
-                }}
-                onKeyDown={(e) => {
-                  if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) {
-                    e.preventDefault();
-                    useStore.getState().setActiveHighlight(h.id);
-                    onJump(h.id);
-                  }
-                }}
-              >
-                <div className="ann-card-top">
-                  <span className="ann-card-cat">{label}</span>
-                  {loc && <span className="ann-card-loc truncate">{loc}</span>}
-                </div>
-                <blockquote className="ann-card-text">{h.text}</blockquote>
-                {h.note.trim() && (
-                  <div className="ann-card-note">
-                    {kind && cat && <span className="ann-note-kind">{kind.label}</span>}
-                    <span className="ann-card-note-text">{h.note}</span>
-                  </div>
-                )}
-                {h.conceptIds.length > 0 && (
-                  <div className="ann-card-concepts">
-                    {h.conceptIds.map((id) =>
-                      conceptName.has(id) ? (
-                        <span key={id} className="ann-concept">
-                          {conceptName.get(id)}
-                        </span>
-                      ) : null,
-                    )}
-                  </div>
-                )}
-                <div className="ann-card-actions" onClick={(e) => e.stopPropagation()}>
-                  <button className="icon-btn sm" title="Ajouter à la carte d’argument" onClick={() => useStore.getState().addHighlightToMap(h.id)}>
-                    <Waypoints size={13} />
-                  </button>
-                  <button className="icon-btn sm" title="Copier la citation" onClick={() => copy(h)}>
-                    <Copy size={13} />
-                  </button>
-                  <button className="icon-btn sm ann-del" title="Supprimer" onClick={() => del(h)}>
-                    <Trash2 size={13} />
-                  </button>
-                </div>
-              </div>
-            );
-          })
+          visible.map((h) => (
+            <ExtractCard
+              key={h.id}
+              h={h}
+              active={activeId === h.id}
+              conceptName={conceptName}
+              onJump={jump}
+              onCopy={copy}
+              onDelete={del}
+            />
+          ))
         )}
       </div>
     </div>
   );
 }
+
+type CardProps = {
+  h: Highlight;
+  active: boolean;
+  conceptName: Map<string, string>;
+  onJump(id: string): void;
+  onCopy(h: Highlight): void;
+  onDelete(h: Highlight): void;
+};
+
+const ExtractCard = memo(function ExtractCard({ h, active, conceptName, onJump, onCopy, onDelete }: CardProps) {
+  const cat = h.category ? CATEGORY_BY_ID[h.category] : null;
+  const kind = h.noteKind ? NOTE_KIND_BY_ID[h.noteKind] : null;
+  const label = cat ? cat.label : kind ? `Note · ${kind.label}` : 'Note';
+  const loc = locationOf(h);
+  const open = () => {
+    useStore.getState().setActiveHighlight(h.id);
+    onJump(h.id);
+  };
+  return (
+    <div
+      data-hid={h.id}
+      className={`ann-card ${active ? 'active' : ''} ${cat ? '' : 'is-note'}`}
+      style={{ ['--c' as string]: cat ? `var(${cat.cssVar})` : 'var(--muted)' }}
+      role="button"
+      tabIndex={0}
+      onClick={open}
+      onKeyDown={(e) => {
+        if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) {
+          e.preventDefault();
+          open();
+        }
+      }}
+    >
+      <div className="ann-card-top">
+        <span className="ann-card-cat">{label}</span>
+        {loc && <span className="ann-card-loc truncate">{loc}</span>}
+      </div>
+      <blockquote className="ann-card-text">{h.text}</blockquote>
+      {h.note.trim() && (
+        <div className="ann-card-note">
+          {kind && cat && <span className="ann-note-kind">{kind.label}</span>}
+          <span className="ann-card-note-text">{h.note}</span>
+        </div>
+      )}
+      {h.conceptIds.length > 0 && (
+        <div className="ann-card-concepts">
+          {h.conceptIds.map((id) =>
+            conceptName.has(id) ? (
+              <span key={id} className="ann-concept">
+                {conceptName.get(id)}
+              </span>
+            ) : null,
+          )}
+        </div>
+      )}
+      <div className="ann-card-actions" onClick={(e) => e.stopPropagation()}>
+        <button className="icon-btn sm" title="Ajouter à la carte d’argument" onClick={() => useStore.getState().addHighlightToMap(h.id)}>
+          <Waypoints size={13} />
+        </button>
+        <button className="icon-btn sm" title="Copier la citation" onClick={() => onCopy(h)}>
+          <Copy size={13} />
+        </button>
+        <button className="icon-btn sm ann-del" title="Supprimer" onClick={() => onDelete(h)}>
+          <Trash2 size={13} />
+        </button>
+      </div>
+    </div>
+  );
+});
 
 function Legend() {
   return (

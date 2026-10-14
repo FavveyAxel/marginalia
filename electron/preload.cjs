@@ -31,6 +31,17 @@ const api = {
 
   saveBinary: (defaultName, data, format) => ipcRenderer.invoke('marginalia:saveBinary', defaultName, data, format),
   diag: (...parts) => ipcRenderer.invoke('marginalia:diag', ...parts),
+  appleBooksScan: () => ipcRenderer.invoke('marginalia:appleBooksScan'),
+  appleBooksRead: async (p) => {
+    const r = await ipcRenderer.invoke('marginalia:appleBooksRead', p);
+    return { name: r.name, data: toArrayBuffer(r.data) };
+  },
+  appleBooksWatch: () => ipcRenderer.invoke('marginalia:appleBooksWatch'),
+  onAppleBooksChanged: (cb) => {
+    const handler = () => cb();
+    ipcRenderer.on('marginalia:appleBooksChanged', handler);
+    return () => ipcRenderer.removeListener('marginalia:appleBooksChanged', handler);
+  },
   listFonts: () => ipcRenderer.invoke('marginalia:listFonts'),
   windowDragStart: () => ipcRenderer.invoke('marginalia:windowDragStart'),
   windowDragEnd: () => ipcRenderer.invoke('marginalia:windowDragEnd'),

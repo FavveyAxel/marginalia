@@ -335,6 +335,10 @@ export interface Settings {
   activeWorkspaceId: string | null;
   /** Nombre maximal de nouvelles cartes par jour et par livre (révision). */
   newCardsPerBook: number;
+  /** Synchroniser automatiquement les EPUB/PDF sans DRM de l'app Livres (iCloud). */
+  appleBooksSync?: boolean;
+  /** Livres de l'app Livres déjà traités (importés ou écartés), par nom de fichier. */
+  appleBooksSeen?: string[];
 }
 
 export interface Database {

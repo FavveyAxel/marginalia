@@ -10,6 +10,18 @@ export interface PickedFile {
   data: ArrayBuffer;
 }
 
+export interface AppleBook {
+  path: string;
+  name: string;
+  kind: 'epub' | 'pdf';
+  title: string;
+  author: string;
+  /** null = sans DRM ; sinon le système de protection détecté. */
+  drm: string | null;
+  /** Encore dans iCloud (téléchargement demandé). */
+  pending?: boolean;
+}
+
 export interface HostApi {
   /** Base complète, ou null au premier lancement. */
   loadDb(): Promise<Database | null>;
@@ -33,6 +45,13 @@ export interface HostApi {
   /** Journal de diagnostic local (app Mac). */
   diag?(...parts: unknown[]): Promise<void>;
   listFonts?(): Promise<string[]>;
+  /** Livres de l'app Livres d'Apple (iCloud et local) : EPUB et PDF, avec leur statut DRM. */
+  appleBooksScan?(): Promise<AppleBook[]>;
+  /** Lit un livre de l'app Livres (les EPUB « paquets » sont rezippés) ; refuse les livres protégés. */
+  appleBooksRead?(path: string): Promise<PickedFile>;
+  /** Surveille les dossiers de Livres ; renvoie false si aucun n'est accessible. */
+  appleBooksWatch?(): Promise<boolean>;
+  onAppleBooksChanged?(cb: () => void): () => void;
   /** Déplacement de la fenêtre par la barre du haut (app Mac). */
   windowDragStart?(): Promise<void>;
   windowDragEnd?(): Promise<void>;

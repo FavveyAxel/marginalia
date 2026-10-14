@@ -304,6 +304,138 @@ handle('marginalia:setTheme', async (e, mode) => {
 
 handle('marginalia:diag', async (_e, ...parts) => diag('renderer', ...parts));
 
+// ── Import depuis l'app Livres d'Apple (EPUB et PDF sans DRM) ──
+// Les EPUB de Livres sont des « paquets » (dossiers *.epub). On les lit en local, on écarte ceux
+// protégés (FairPlay : META-INF/sinf.xml ; Adobe : rights.xml ; encryption.xml hors polices),
+// puis on les rezippe au format EPUB standard (mimetype en premier, non compressé).
+const BOOKS_DIRS = () => [
+  path.join(os.homedir(), 'Library/Mobile Documents/iCloud~com~apple~iBooks/Documents'),
+  path.join(os.homedir(), 'Library/Containers/com.apple.BKAgentService/Data/Documents/iBooks/Books'),
+];
+const FONT_OBFUSCATION = ['http://www.idpf.org/2008/embedding', 'http://ns.adobe.com/pdf/enc#RC'];
+function decodeXml(t) {
+  return String(t || '')
+    .replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1')
+    .replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&apos;/g, "'")
+    .trim();
+}
+async function epubPackageInfo(dir) {
+  const meta = path.join(dir, 'META-INF');
+  const exists = async (f) => !!(await fsp.stat(f).catch(() => null));
+  let drm = null;
+  if (await exists(path.join(meta, 'sinf.xml'))) drm = 'Apple';
+  else if (await exists(path.join(meta, 'rights.xml'))) drm = 'Adobe';
+  else {
+    const enc = await fsp.readFile(path.join(meta, 'encryption.xml'), 'utf8').catch(() => null);
+    if (enc) {
+      const algos = [...enc.matchAll(/Algorithm="([^"]+)"/g)].map((m) => m[1]);
+      if (/EncryptedKey/.test(enc) || algos.some((a) => !FONT_OBFUSCATION.includes(a))) drm = 'inconnu';
+    }
+  }
+  let title = '';
+  let author = '';
+  try {
+    const container = await fsp.readFile(path.join(meta, 'container.xml'), 'utf8');
+    const opfRel = (container.match(/full-path="([^"]+)"/) || [])[1];
+    if (opfRel) {
+      const opf = await fsp.readFile(path.join(dir, opfRel), 'utf8');
+      title = decodeXml((opf.match(/<dc:title[^>]*>([\s\S]*?)<\/dc:title>/) || [])[1]);
+      author = decodeXml((opf.match(/<dc:creator[^>]*>([\s\S]*?)<\/dc:creator>/) || [])[1]);
+    }
+  } catch {
+    /* métadonnées absentes : on garde le nom du dossier */
+  }
+  return { drm, title, author };
+}
+handle('marginalia:appleBooksScan', async () => {
+  const out = [];
+  for (const base of BOOKS_DIRS()) {
+    let entries = [];
+    try {
+      entries = await fsp.readdir(base, { withFileTypes: true });
+    } catch {
+      continue; // dossier absent ou non autorisé
+    }
+    for (const e of entries) {
+      const full = path.join(base, e.name);
+      const lower = e.name.toLowerCase();
+      if (e.name.startsWith('.')) {
+        // Livre resté dans iCloud (« .Titre.epub.icloud ») : on demande son téléchargement ;
+        // la surveillance du dossier relancera la synchro quand il sera arrivé.
+        const m = e.name.match(/^\.(.+\.(epub|pdf))\.icloud$/i);
+        if (m && process.platform === 'darwin') {
+          const real = path.join(base, m[1]);
+          require('child_process').execFile('/usr/bin/brctl', ['download', real], { timeout: 30000 }, () => {});
+          out.push({ path: real, name: m[1], kind: m[2].toLowerCase(), title: m[1].replace(/\.(epub|pdf)$/i, ''), author: '', drm: null, pending: true });
+        }
+        continue;
+      }
+      if (lower.endsWith('.epub')) {
+        if (e.isDirectory()) {
+          const info = await epubPackageInfo(full);
+          out.push({ path: full, name: e.name, kind: 'epub', title: info.title || e.name.replace(/\.epub$/i, ''), author: info.author, drm: info.drm });
+        } else {
+          out.push({ path: full, name: e.name, kind: 'epub', title: e.name.replace(/\.epub$/i, ''), author: '', drm: null });
+        }
+      } else if (lower.endsWith('.pdf') && e.isFile()) {
+        out.push({ path: full, name: e.name, kind: 'pdf', title: e.name.replace(/\.pdf$/i, ''), author: '', drm: null });
+      }
+    }
+  }
+  const seen = new Set();
+  return out
+    .sort((a, b) => Number(!!a.pending) - Number(!!b.pending)) // un exemplaire présent l'emporte sur un fantôme iCloud
+    .filter((b) => (seen.has(b.name) ? false : seen.add(b.name)))
+    .sort((a, b) => a.title.localeCompare(b.title, 'fr'));
+});
+// Surveillance des dossiers de Livres : un livre ajouté sur l'iPhone arrive par iCloud,
+// et l'app est prévenue (sans réseau de son côté : c'est macOS qui synchronise).
+let booksWatchers = null;
+let booksTimer = null;
+handle('marginalia:appleBooksWatch', async () => {
+  if (booksWatchers) return true;
+  booksWatchers = [];
+  const notify = () => {
+    clearTimeout(booksTimer);
+    booksTimer = setTimeout(() => {
+      for (const w of BrowserWindow.getAllWindows()) if (!w.isDestroyed()) w.webContents.send('marginalia:appleBooksChanged');
+    }, 2500);
+  };
+  for (const base of BOOKS_DIRS()) {
+    try {
+      booksWatchers.push(fs.watch(base, { persistent: false }, notify));
+    } catch {
+      /* dossier absent ou non autorisé */
+    }
+  }
+  return booksWatchers.length > 0;
+});
+handle('marginalia:appleBooksRead', async (_e, p) => {
+  const allowed = BOOKS_DIRS().some((d) => path.resolve(p).startsWith(d + path.sep));
+  if (!allowed) throw new Error('Chemin non autorisé');
+  const st = await fsp.stat(p);
+  if (!st.isDirectory()) {
+    const buf = await fsp.readFile(p);
+    return { name: path.basename(p), data: buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength) };
+  }
+  const info = await epubPackageInfo(p);
+  if (info.drm) throw new Error(`Livre protégé (DRM ${info.drm})`);
+  const { execFile } = require('child_process');
+  const tmp = path.join(os.tmpdir(), `marginalia-book-${crypto.randomBytes(6).toString('hex')}.epub`);
+  const zip = (args) =>
+    new Promise((resolve, reject) =>
+      execFile('/usr/bin/zip', args, { cwd: p, timeout: 120000, maxBuffer: 16 * 1024 * 1024 }, (err) => (err ? reject(err) : resolve())),
+    );
+  try {
+    await zip(['-X0', '-q', tmp, 'mimetype']);
+    await zip(['-rX9', '-q', tmp, '.', '-x', 'mimetype', '-x', '.*', '-x', '*/.*', '-x', 'iTunesMetadata*.plist']);
+    const buf = await fsp.readFile(tmp);
+    return { name: path.basename(p), data: buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength) };
+  } finally {
+    fsp.unlink(tmp).catch(() => {});
+  }
+});
+
 handle('marginalia:listFonts', async () => {
   if (fontCache) return fontCache;
   const { execFile } = require('child_process');

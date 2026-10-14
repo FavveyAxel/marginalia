@@ -86,7 +86,15 @@ function trusted(event) {
 let diagStream = null;
 function diag(...parts) {
   try {
-    if (!diagStream) diagStream = fs.createWriteStream(path.join(app.getPath('userData'), 'diagnostic.log'), { flags: 'a' });
+    if (!diagStream) {
+      const f = path.join(app.getPath('userData'), 'diagnostic.log');
+      try {
+        if (fs.statSync(f).size > 4 * 1024 * 1024) fs.renameSync(f, f + '.1'); // rotation simple
+      } catch {
+        /* pas encore de journal */
+      }
+      diagStream = fs.createWriteStream(f, { flags: 'a' });
+    }
     diagStream.write(`${new Date().toISOString()} ${parts.map((p) => (typeof p === 'string' ? p : JSON.stringify(p))).join(' ')}\n`);
   } catch {
     /* jamais bloquant */
@@ -269,6 +277,7 @@ handle('marginalia:windowDragStart', async (e) => {
   stopDrag();
   const start = screen.getCursorScreenPoint();
   const [wx, wy] = win.getPosition();
+  diag('fenetre', 'drag-start', { cursor: start, bounds: win.getBounds(), max: win.isMaximized() });
   const dx = start.x - wx;
   const dy = start.y - wy;
   const t0 = Date.now();
@@ -290,6 +299,7 @@ handle('marginalia:windowDoubleClick', async (e) => {
       action = 'Maximize';
     }
   }
+  diag('fenetre', 'double-clic barre', { action, max: win.isMaximized(), bounds: win.getBounds() });
   if (action === 'Minimize') win.minimize();
   else if (action === 'None') return;
   else if (win.isMaximized()) win.unmaximize();
@@ -565,6 +575,31 @@ function isExternal(url) {
   return /^(https?|mailto):/i.test(url);
 }
 
+// Diagnostic du redimensionnement : chaque changement de taille ou d'état de la fenêtre est consigné
+// (journal local, jamais envoyé), avec la cause probable côté interface (voir src/lib/diagnostics.ts).
+function watchWindow(win) {
+  const state = (ev, extra) => {
+    if (win.isDestroyed()) return;
+    let wa = null;
+    try { wa = screen.getDisplayMatching(win.getBounds()).workArea; } catch { /* écran inconnu */ }
+    diag('fenetre', ev, { bounds: win.getBounds(), normal: win.getNormalBounds(), max: win.isMaximized(), full: win.isFullScreen(), simpleFull: win.isSimpleFullScreen?.(), zoom: win.webContents.getZoomFactor(), workArea: wa, ...extra });
+  };
+  let lastResize = 0;
+  win.on('resize', () => {
+    const now = Date.now();
+    if (now - lastResize > 250) state('resize');
+    lastResize = now;
+  });
+  win.on('will-resize', (_e, nb, det) => state('will-resize', { newBounds: nb, edge: det && det.edge }));
+  for (const ev of ['resized', 'moved', 'maximize', 'unmaximize', 'enter-full-screen', 'leave-full-screen', 'restore', 'minimize', 'show', 'hide', 'swipe', 'rotate-gesture'])
+    win.on(ev, () => state(ev));
+  win.webContents.on('zoom-changed', (_e, dir) => state('zoom-changed', { dir }));
+  win.webContents.on('unresponsive', () => state('renderer-ne-repond-plus'));
+  win.webContents.on('responsive', () => state('renderer-repond'));
+  win.webContents.on('render-process-gone', (_e, d) => state('renderer-perdu', d));
+  win.once('ready-to-show', () => state('demarrage', { version: app.getVersion(), os: process.getSystemVersion?.() }));
+}
+
 function createWindow() {
   rendererReady = false;
   const win = new BrowserWindow({
@@ -586,6 +621,7 @@ function createWindow() {
     },
   });
   mainWindow = win;
+  watchWindow(win);
   win.once('ready-to-show', () => win.show());
   win.on('closed', () => {
     if (mainWindow === win) mainWindow = null;
@@ -718,6 +754,26 @@ function buildMenu() {
         { role: 'minimize', label: 'Placer dans le Dock' },
         { role: 'zoom', label: 'Zoom' },
         ...(isMac ? [{ type: 'separator' }, { role: 'front', label: 'Tout ramener au premier plan' }] : []),
+      ],
+    },
+    {
+      role: 'help',
+      label: 'Aide',
+      submenu: [
+        {
+          label: 'Exporter le journal de diagnostic',
+          click: async () => {
+            try {
+              const src = path.join(app.getPath('userData'), 'diagnostic.log');
+              const dst = path.join(app.getPath('downloads'), 'Marginalia-diagnostic.log');
+              if (diagStream) await new Promise((r) => diagStream.write('', r));
+              await fsp.copyFile(src, dst);
+              shell.showItemInFolder(dst);
+            } catch (e) {
+              dialog.showErrorBox('Journal de diagnostic', 'Aucun journal à exporter pour l’instant.');
+            }
+          },
+        },
       ],
     },
   );

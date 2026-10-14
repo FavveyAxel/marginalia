@@ -1,8 +1,9 @@
 # Fabrique Marginalia pour Mac et Windows.
 #  - étiquette v* poussée (git tag v3.2 && git push origin v3.2) : fabrique, teste le démarrage,
 #    puis publie les .dmg et .exe dans une Release du dépôt ;
-#  - lancement manuel (onglet Actions › Release › Run workflow) : fabrique et teste seulement ;
-#    les fichiers sont téléchargeables dans les « Artifacts » de l'exécution, sans Release.
+#  - lancement manuel (onglet Actions › Release › Run workflow, ou `gh workflow run release.yml -f version=3.2`) :
+#    avec une version, fabrique puis publie la Release v<version> (l'étiquette est créée par le workflow) ;
+#    sans version, fabrique et teste seulement (fichiers dans les « Artifacts » de l'exécution).
 # Aucune signature : ni certificat Apple/Microsoft, ni notarisation (le Mac reçoit une signature ad hoc).
 name: Release
 
@@ -10,6 +11,11 @@ on:
   push:
     tags: ['v*']
   workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version à publier (ex. 3.2) — vide : fabriquer sans publier'
+        required: false
+        default: ''
 
 permissions:
   contents: read
@@ -24,6 +30,8 @@ env:
   CSC_IDENTITY_AUTO_DISCOVERY: 'false'
   # Le binaire Electron de node_modules ne sert pas ici : electron-builder télécharge le sien.
   ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
+  # Version publiée : celle de l'étiquette v*, sinon celle saisie au lancement manuel.
+  RELEASE_VERSION: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || inputs.version }}
 
 jobs:
   build:
@@ -63,11 +71,11 @@ jobs:
           key: electron-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
           restore-keys: electron-${{ runner.os }}-
 
-      - name: Version depuis l'étiquette
-        if: startsWith(github.ref, 'refs/tags/v')
+      - name: Version
+        if: env.RELEASE_VERSION != ''
         shell: bash
         run: |
-          v="${GITHUB_REF_NAME#v}"
+          v="${RELEASE_VERSION#v}"
           # v3.2 → 3.2.0 (npm exige trois nombres)
           if [[ "$v" =~ ^[0-9]+\.[0-9]+$ ]]; then v="$v.0"; fi
           npm version --no-git-tag-version --allow-same-version "$v"
@@ -120,12 +128,12 @@ jobs:
           if-no-files-found: error
           compression-level: 0
           # Stockage compté sur le quota du dépôt privé : court pour une étiquette (la Release garde les fichiers).
-          retention-days: ${{ startsWith(github.ref, 'refs/tags/v') && 1 || 7 }}
+          retention-days: ${{ env.RELEASE_VERSION != '' && 1 || 7 }}
 
   release:
     name: Publier la Release
     needs: build
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: startsWith(github.ref, 'refs/tags/v') || inputs.version != ''
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
@@ -141,14 +149,20 @@ jobs:
       - name: Fichiers à publier
         run: ls -la out
 
+      - name: Nom de l'étiquette
+        id: tag
+        shell: bash
+        run: v="${RELEASE_VERSION#v}"; echo "name=v$v" >> "$GITHUB_OUTPUT"
+
       - name: Créer la Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ github.ref_name }}
-          name: Marginalia ${{ github.ref_name }}
+          tag_name: ${{ steps.tag.outputs.name }}
+          target_commitish: ${{ github.sha }}
+          name: Marginalia ${{ steps.tag.outputs.name }}
           generate_release_notes: true
           # v4.0.0-beta.1 → pré-version
-          prerelease: ${{ contains(github.ref_name, '-') }}
+          prerelease: ${{ contains(steps.tag.outputs.name, '-') }}
           fail_on_unmatched_files: true
           files: |
             out/*.dmg

@@ -75,6 +75,8 @@ textarea {
 .sidebar {
   width: var(--sidebar-w);
   flex: none;
+  transition: width var(--dur-med) var(--ease-out);
+  overflow: hidden;
   background: var(--bg-sidebar);
   display: flex;
   flex-direction: column;
@@ -84,6 +86,61 @@ textarea {
 .sidebar-top {
   height: var(--titlebar-h);
   flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding-right: 4px;
+}
+.sidebar-toggle {
+  color: var(--muted);
+}
+/* ── Barre latérale repliée : rail d'icônes ── */
+.sidebar.collapsed {
+  width: 76px;
+}
+.sidebar.collapsed .sidebar-top {
+  /* sous les boutons de la fenêtre */
+  height: calc(var(--titlebar-h) + 30px);
+  align-items: flex-end;
+  justify-content: center;
+  padding: 0 0 10px;
+}
+.sidebar.collapsed .nav-item {
+  justify-content: center;
+  gap: 0;
+  padding: 0;
+  height: 34px;
+  position: relative;
+}
+.sidebar.collapsed .nav-label,
+.sidebar.collapsed .nav-item .count {
+  display: none;
+}
+.sidebar.collapsed .nav-item svg {
+  width: 17px;
+  height: 17px;
+}
+.sidebar.collapsed .sidebar-section {
+  font-size: 0;
+  height: 1px;
+  margin: 8px 10px;
+  padding: 0;
+  background: var(--border);
+}
+.rail-dot {
+  display: inline-grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 7px;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+}
+.rail-import {
+  align-self: center;
+  margin-top: 8px;
+  border: 1px solid var(--border);
 }
 .sidebar-brand {
   display: flex;

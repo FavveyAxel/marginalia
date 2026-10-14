@@ -389,6 +389,8 @@ export interface Settings {
   appleBooksSeen?: string[];
   /** Anciens .docx importés comme livres déjà convertis en écrits. */
   docxMigrated?: boolean;
+  /** Barre latérale repliée en rail d'icônes. */
+  sidebarCollapsed?: boolean;
 }
 
 export interface Database {

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { BookOpen, Brain, CircleHelp, Coffee, FilePen, Highlighter, History, Home, Laptop, Lightbulb, ListTree, Moon, Plus, Search, Sigma, Sun, Trash2, Upload } from 'lucide-react';
+import { BookOpen, Brain, CircleHelp, PanelLeftClose, PanelLeftOpen, Coffee, FilePen, Highlighter, History, Home, Laptop, Lightbulb, ListTree, Moon, Plus, Search, Sigma, Sun, Trash2, Upload } from 'lucide-react';
 import { useStore } from './lib/store';
 import { host, filesFromDrop } from './lib/platform';
 import type { Route, ThemeId } from './lib/types';
@@ -123,8 +123,8 @@ function NavItem({ route, icon, label, count, match }: { route: Route; icon: JSX
   const current = useStore((s) => s.route.name);
   const navigate = useStore((s) => s.navigate);
   return (
-    <button className={`nav-item ${current === match ? 'active' : ''}`} onClick={() => navigate(route)}>
-      {icon} {label}
+    <button className={`nav-item ${current === match ? 'active' : ''}`} onClick={() => navigate(route)} title={label} aria-label={label}>
+      {icon} <span className="nav-label">{label}</span>
       {!!count && <span className="count">{count}</span>}
     </button>
   );
@@ -138,13 +138,27 @@ function Sidebar() {
   const nTrash = useStore((s) => s.trash.length);
   const setCommandOpen = useStore((s) => s.setCommandOpen);
   const due = useDueCount();
+  const collapsed = useStore((s) => !!s.settings.sidebarCollapsed);
+  const workspaces = useStore((s) => s.workspaces);
+  const route = useStore((s) => s.route);
+  const toggle = () => useStore.getState().updateSettings({ sidebarCollapsed: !collapsed });
 
   return (
-    <nav className="sidebar" aria-label="Navigation">
-      <div className="sidebar-top drag" />
-      <div className="sidebar-brand">Marginalia</div>
-      <button className="nav-item" onClick={() => setCommandOpen(true)}>
-        <Search size={15} /> Rechercher
+    <nav className={`sidebar ${collapsed ? 'collapsed' : ''}`} aria-label="Navigation">
+      <div className="sidebar-top drag">
+        <button
+          className="icon-btn sm sidebar-toggle"
+          onClick={toggle}
+          title={collapsed ? 'Afficher la barre latérale (⌃⌘S)' : 'Replier la barre latérale (⌃⌘S)'}
+          aria-label={collapsed ? 'Afficher la barre latérale' : 'Replier la barre latérale'}
+          aria-expanded={!collapsed}
+        >
+          {collapsed ? <PanelLeftOpen size={17} /> : <PanelLeftClose size={17} />}
+        </button>
+      </div>
+      {!collapsed && <div className="sidebar-brand">Marginalia</div>}
+      <button className="nav-item" onClick={() => setCommandOpen(true)} title="Rechercher (⌘K)" aria-label="Rechercher">
+        <Search size={15} /> <span className="nav-label">Rechercher</span>
         <span className="count">
           <Kbd>⌘K</Kbd>
         </span>
@@ -159,17 +173,42 @@ function Sidebar() {
         <NavItem match="arguments" route={{ name: 'arguments', argumentId: null }} icon={<Sigma size={15} />} label="Arguments" />
         <NavItem match="plans" route={{ name: 'plans', planId: null }} icon={<ListTree size={15} />} label="Plans" />
         <NavItem match="revision" route={{ name: 'revision' }} icon={<Brain size={15} />} label="Révision" count={due || undefined} />
-        <WorkspaceTree />
+        {collapsed ? (
+          <>
+            {workspaces.length > 0 && <div className="sidebar-section" aria-hidden="true" />}
+            {workspaces.map((w) => (
+              <button
+                key={w.id}
+                className={`nav-item rail-ws ${route.name === 'workspace' && route.workspaceId === w.id ? 'active' : ''}`}
+                title={w.name}
+                aria-label={`Espace ${w.name}`}
+                onClick={() => useStore.getState().navigate({ name: 'workspace', workspaceId: w.id, groupId: null })}
+              >
+                <span className="rail-dot" style={{ background: `var(${w.tint})` }}>
+                  {w.name.trim().charAt(0).toUpperCase()}
+                </span>
+              </button>
+            ))}
+          </>
+        ) : (
+          <WorkspaceTree />
+        )}
       </div>
       <div className="sidebar-foot">
         <NavItem match="history" route={{ name: 'history' }} icon={<History size={15} />} label="Historique" />
         <NavItem match="trash" route={{ name: 'trash' }} icon={<Trash2 size={15} />} label="Corbeille" count={nTrash || undefined} />
         <NavItem match="help" route={{ name: 'help' }} icon={<CircleHelp size={15} />} label="Aide" />
       </div>
-      <AppearanceSwitch />
-      <button className="btn" style={{ margin: '8px 4px 0' }} onClick={importViaDialog}>
-        <Plus size={15} /> Importer <span style={{ marginLeft: 'auto' }} /> <Kbd>⌘O</Kbd>
-      </button>
+      {!collapsed && <AppearanceSwitch />}
+      {collapsed ? (
+        <button className="icon-btn rail-import" onClick={importViaDialog} title="Importer (⌘O)" aria-label="Importer">
+          <Plus size={16} />
+        </button>
+      ) : (
+        <button className="btn" style={{ margin: '8px 4px 0' }} onClick={importViaDialog}>
+          <Plus size={15} /> Importer <span style={{ marginLeft: 'auto' }} /> <Kbd>⌘O</Kbd>
+        </button>
+      )}
     </nav>
   );
 }
@@ -279,6 +318,12 @@ export function App() {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      if (e.metaKey && e.ctrlKey && e.code === 'KeyS') {
+        e.preventDefault();
+        const st = useStore.getState();
+        st.updateSettings({ sidebarCollapsed: !st.settings.sidebarCollapsed });
+        return;
+      }
       if (!e.metaKey && !e.ctrlKey) return;
       if (e.key === '?' || (e.shiftKey && e.code === 'Slash')) {
         e.preventDefault();

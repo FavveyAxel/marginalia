@@ -50,7 +50,7 @@ const SECTIONS: Section[] = [
       'Marginalia sert à lire, étudier et écrire sur des textes, surtout de philosophie. Le parcours type : importer un texte, le lire en surlignant, organiser ce que vous en tirez (concepts, arguments, plans), puis écrire.',
     items: [
       { title: 'Le parcours en 4 temps', text: 'Importer → Lire et surligner → Étudier (concepts, arguments, carte, révision, plans) → Écrire. Chaque étape nourrit la suivante : un extrait surligné se retrouve dans vos concepts, vos plans, vos cartes de révision et peut être cité dans vos écrits.' },
-      { title: 'La barre latérale', text: 'Accueil, Bibliothèque et Écrits en haut ; les outils d’étude (Extraits, Concepts, Arguments, Plans, Révision) ; vos Espaces de travail ; en bas Historique, Corbeille, Aide, Apparence et le bouton Importer.' },
+      { title: 'La barre latérale', text: 'Accueil, Bibliothèque et Écrits en haut ; les outils d’étude (Extraits, Concepts, Arguments, Plans, Révision) ; vos Espaces de travail ; en bas Historique, Corbeille, Aide, Apparence et le bouton Importer. Repliez-la en une fine colonne d’icônes pour gagner de la place (bouton en haut de la barre).', keys: ['⌃⌘S'] },
       { title: 'Tout retrouver', text: 'La recherche globale trouve livres, extraits, concepts, arguments, plans, écrits et signets.', keys: ['⌘K'] },
       { title: 'Annuler presque tout', text: 'Les actions (suppression, déplacement, modification) s’annulent et se rétablissent partout dans l’app.', keys: ['⌘Z', '⌘⇧Z'] },
     ],
@@ -222,6 +222,7 @@ const SHORTCUTS: [string, string][] = [
   ['⌘S', 'Enregistrer l’écrit'],
   ['⌘A', 'Tout sélectionner (listes)'],
   ['Échap', 'Fermer / désélectionner'],
+  ['⌃⌘S', 'Replier / afficher la barre latérale'],
   ['⌘?', 'Ouvrir cette aide'],
 ];
 

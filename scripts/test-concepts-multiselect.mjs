@@ -1,0 +1,25 @@
+import { withApp, shot } from './harness.mjs';
+const ok = (c, m) => { console.log((c ? 'OK   ' : 'ÉCHEC ') + m); if (!c) process.exitCode = 1; };
+await withApp(5343, async (page) => {
+  await page.evaluate(() => { const s = window.__store.getState(); for (const n of ['Liberté', 'Justice', 'Vérité', 'Bonheur', 'Devoir']) s.addConcept(n); s.navigate({ name: 'concepts', conceptId: null }); });
+  await page.waitForSelector('.cpt-row');
+  const row = (n) => page.locator('.cpt-row', { hasText: n });
+  await row('Bonheur').click({ modifiers: ['Meta'] });
+  await row('Justice').click({ modifiers: ['Meta'] });
+  ok((await page.locator('.cpt-row.is-selected').count()) === 2, '⌘-clic : 2 sélectionnés');
+  await row('Liberté').click({ modifiers: ['Shift'] });
+  ok((await page.locator('.cpt-row.is-selected').count()) >= 2, `⇧-clic : plage (${await page.locator('.cpt-row.is-selected').count()})`);
+  await shot(page, 'shots/concepts-multiselect.png');
+  await page.click('[data-action="delete-selected"]');
+  await page.waitForTimeout(300);
+  const left = await page.evaluate(() => window.__store.getState().concepts.map((c) => c.name));
+  ok(left.length < 5, `supprimés : il reste ${left.join(', ')}`);
+  await page.locator('.toast button', { hasText: 'Annuler' }).click().catch(() => {});
+  await page.waitForTimeout(300);
+  ok((await page.evaluate(() => window.__store.getState().concepts.length)) === 5, 'Annuler restaure tout');
+  await page.mouse.click(5, 5);
+  await page.keyboard.press('Meta+a');
+  ok((await page.locator('.cpt-row.is-selected').count()) === 5, '⌘A sélectionne tout');
+  await page.keyboard.press('Escape');
+  ok((await page.locator('.cpt-row.is-selected').count()) === 0, 'Échap vide la sélection');
+});

@@ -152,3 +152,9 @@
   .cpt-sheet { padding: 32px 28px 80px; }
   .cpt-name { font-size: 40px; }
 }
+
+/* ── Sélection multiple ── */
+.cpt-select-btn { align-self: flex-start; margin: 2px 0 6px; }
+.cpt-select-btn.active { color: var(--ink); background: var(--bg-active); }
+.cpt-row .msel-check { position: static; flex: none; margin-right: 8px; }
+.cpt-row.is-selected { background: var(--bg-active); color: var(--ink); box-shadow: inset 0 0 0 1px var(--border-strong); }

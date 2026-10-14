@@ -22,6 +22,9 @@ import type { Book, Concept, ConceptLink, ConceptSense, Highlight, ReviewCard } 
 import { CategoryDot } from '../../components/ui';
 import { bareName, loadProgramme } from './programme';
 import { byTextOrder, clip, locationOf, norm, plural } from './util';
+import { useMultiSelect } from '../../lib/useMultiSelect';
+import { SelectionActionBar, SelectCheck } from '../../components/MultiSelect';
+import { CheckSquare, Trash2 as TrashIcon } from 'lucide-react';
 import './concepts.css';
 
 type FilterKey = 'all' | 'notion' | 'repere' | 'perso';
@@ -217,6 +220,38 @@ export function ConceptsView({ conceptId }: { conceptId: string | null }) {
 
   const current = conceptId ? (concepts.find((c) => c.id === conceptId) ?? null) : null;
 
+  // ── Sélection multiple (⌘-clic, ⇧-clic, ⌘A, mode « Sélectionner ») ──
+  const order = useMemo(() => list.map((c) => c.id), [list]);
+  const sel = useMultiSelect(order);
+  const [selectMode, setSelectMode] = useState(false);
+  const selecting = selectMode || sel.size > 0;
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement | null;
+      if (t && (t.closest('input, textarea, [contenteditable="true"]') || t.isContentEditable)) return;
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'a' && !e.shiftKey && !e.altKey) {
+        e.preventDefault();
+        sel.selectAll();
+      } else if (e.key === 'Escape' && (sel.size || selectMode)) {
+        sel.clear();
+        setSelectMode(false);
+      } else if ((e.key === 'Backspace' || e.key === 'Delete') && e.metaKey && sel.size) {
+        e.preventDefault();
+        deleteSelected();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  });
+  const deleteSelected = () => {
+    const ids = sel.ids;
+    if (!ids.length) return;
+    useStore.getState().trashDeleteMany('concept', ids);
+    sel.clear();
+    setSelectMode(false);
+    if (conceptId && ids.includes(conceptId)) navigate({ name: 'concepts', conceptId: null });
+  };
+
   useEffect(() => {
     if (creating) newRef.current?.focus();
   }, [creating]);
@@ -314,6 +349,14 @@ export function ConceptsView({ conceptId }: { conceptId: string | null }) {
                   </button>
                 )}
               </div>
+              <button
+                className={`btn btn-ghost btn-sm cpt-select-btn ${selectMode ? 'active' : ''}`}
+                onClick={() => (selectMode ? (setSelectMode(false), sel.clear()) : setSelectMode(true))}
+                title={selectMode ? 'Quitter la sélection (Échap)' : 'Sélectionner plusieurs concepts (⌘-clic, ⇧-clic, ⌘A)'}
+                aria-pressed={selectMode}
+              >
+                <CheckSquare size={14} /> {selectMode ? 'Terminé' : 'Sélectionner'}
+              </button>
               <div className="cpt-filters" role="group" aria-label="Filtres">
                 {FILTERS.map((f) => (
                   <button key={f.id} className={`chip ${filter === f.id ? 'active' : ''}`} onClick={() => setFilter(f.id)}>
@@ -356,10 +399,13 @@ export function ConceptsView({ conceptId }: { conceptId: string | null }) {
                   {list.map((c, i) => (
                     <li key={c.id} style={stagger(i)}>
                       <button
-                        className={`cpt-row ${c.id === conceptId ? 'active' : ''}`}
-                        onClick={() => open(c.id)}
+                        className={`cpt-row ${c.id === conceptId ? 'active' : ''} ${sel.has(c.id) ? 'is-selected' : ''}`}
+                        onClick={(e) => sel.click(c.id, e, { toggle: selectMode }) || open(c.id)}
                         data-concept-id={c.id}
+                        data-sel-id={c.id}
+                        aria-selected={sel.has(c.id)}
                       >
+                        {selecting && <SelectCheck checked={sel.has(c.id)} onToggle={() => sel.toggle(c.id)} label={`Sélectionner « ${c.name} »`} />}
                         <span className="cpt-row-name truncate">{c.name}</span>
                         {c.programme && <span className="cpt-tag">{c.programme === 'notion' ? 'Notion' : 'Repère'}</span>}
                         <span className="cpt-count" title="Extraits liés">
@@ -373,6 +419,14 @@ export function ConceptsView({ conceptId }: { conceptId: string | null }) {
             </div>
           </aside>
 
+          <SelectionActionBar count={sel.size} label={sel.size > 1 ? 'concepts sélectionnés' : 'concept sélectionné'} onClear={() => (sel.clear(), setSelectMode(false))}>
+            <button className="btn btn-ghost btn-sm" onClick={() => sel.selectAll()} title="Tout sélectionner (⌘A)">
+              Tout sélectionner
+            </button>
+            <button className="btn btn-ghost btn-sm btn-danger" onClick={deleteSelected} title="Placer dans la corbeille (⌘⌫)" data-action="delete-selected">
+              <TrashIcon size={13} /> Supprimer
+            </button>
+          </SelectionActionBar>
           <section className="panel cpt-detail">
             {current ? (
               <ConceptSheet key={current.id} concept={current} />

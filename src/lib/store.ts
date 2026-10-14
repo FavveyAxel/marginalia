@@ -7,6 +7,7 @@ import type {
   ActivityEntry,
   ArgumentMap,
   Book,
+  Bookmark,
   CategoryId,
   CollectionName,
   Concept,
@@ -25,6 +26,7 @@ import type {
   WorkspaceItemKind,
 } from './types';
 import { host, type PickedFile, extOf } from './platform';
+import { createDraftFromFile, isDraftFile } from './draftImport';
 import { extractMetadata } from '../features/library/metadata';
 import { TRACKED, applyChange, composeChanges, deepEqual, diffData, revert, type Data, type UndoCol, type UndoData } from '../features/history/engine';
 import { cascade, cascadeMany, danglingRefs } from '../features/trash/cascade';
@@ -74,6 +76,7 @@ const emptyDb = (): Database => ({
   workspaces: [],
   groups: [],
   wsItems: [],
+  bookmarks: [],
   settings: { ...DEFAULT_SETTINGS },
   trash: [],
   activity: [],
@@ -104,6 +107,10 @@ function migrate(db: Partial<Database> | null): Database {
     ? db.trash.filter((t) => t && typeof t.id === 'string' && typeof t.refId === 'string' && Array.isArray(t.changes)).map((t) => ({ ...t, files: Array.isArray(t.files) ? t.files : [] }))
     : [];
   out.activity = Array.isArray(db.activity) ? db.activity.filter((e) => e && typeof e.id === 'string' && typeof e.at === 'number') : [];
+  // Signets (bases antérieures : absents).
+  out.bookmarks = Array.isArray(db.bookmarks)
+    ? db.bookmarks.filter((b) => b && typeof b.id === 'string' && typeof b.bookId === 'string' && b.position && typeof b.position === 'object').map((b) => ({ ...b, label: typeof b.label === 'string' ? b.label : 'Signet' }))
+    : [];
   return out;
 }
 
@@ -119,6 +126,11 @@ export interface JumpRequest {
   nonce: number;
 }
 
+export interface BookmarkJump {
+  bookmarkId: string;
+  nonce: number;
+}
+
 type Item<C extends CollectionName> = Database[C][number];
 
 export interface State extends Database {
@@ -126,6 +138,8 @@ export interface State extends Database {
   route: Route;
   activeHighlightId: string | null;
   jump: JumpRequest | null;
+  /** Retour demandé vers un signet (⌘K, journal) : le lecteur l'exécute une fois prêt. */
+  bookmarkJump: BookmarkJump | null;
   importing: number;
   toasts: Toast[];
   commandOpen: boolean;
@@ -144,7 +158,7 @@ export interface State extends Database {
 
   // ── Livres ──
   /** `toWorkspace: false` : jamais rangé dans un espace (synchro en arrière-plan). */
-  importFiles(files: PickedFile[], opts?: { toWorkspace?: boolean }): Promise<Book[]>;
+  importFiles(files: PickedFile[], opts?: { toWorkspace?: boolean; /** Forcer l'import comme livre (lecture seule), même pour un .md/.docx. */ asBook?: boolean }): Promise<Book[]>;
   updateBook(id: string, patch: Partial<Book>): void;
   removeBook(id: string): Promise<void>;
   /** Ouvre un livre dans le lecteur. `split` : second livre côte à côte. */
@@ -160,6 +174,14 @@ export interface State extends Database {
   setActiveHighlight(id: string | null): void;
   jumpToHighlight(id: string): void;
   setCategoryOf(highlightId: string, category: CategoryId | null): void;
+
+  // ── Signets ──
+  addBookmark(b: Omit<Bookmark, 'id' | 'createdAt'>): Bookmark;
+  updateBookmark(id: string, patch: Partial<Bookmark>): void;
+  /** Supprime un signet (toast « Annuler » ; ⌘Z le remet aussi). */
+  removeBookmark(id: string, opts?: { silent?: boolean }): void;
+  /** Ouvre le livre du signet (au besoin) et y retourne. */
+  jumpToBookmark(id: string): void;
 
   // ── Concepts ──
   addConcept(name: string, definition?: string, programme?: Concept['programme']): Concept;
@@ -248,6 +270,7 @@ const pickDb = (s: State): Database => ({
   workspaces: s.workspaces,
   groups: s.groups,
   wsItems: s.wsItems,
+  bookmarks: s.bookmarks,
   settings: s.settings,
   trash: s.trash,
   activity: s.activity,
@@ -266,6 +289,7 @@ const pickData = (s: State): UndoData => ({
   workspaces: s.workspaces,
   groups: s.groups,
   wsItems: s.wsItems,
+  bookmarks: s.bookmarks,
   trash: s.trash,
 });
 
@@ -438,6 +462,7 @@ function fitChild(col: TrackedCollection, item: any, d: UndoData): any | null {
   switch (col) {
     case 'highlights':
     case 'studies':
+    case 'bookmarks':
       return has('books', item.bookId) ? item : null;
     case 'cards':
       return has('highlights', item.highlightId) && has('concepts', item.conceptId) && has('books', item.bookId) ? item : null;
@@ -520,6 +545,7 @@ function detailOf(kind: TrashKind, changes: ItemChange[], rootId: string): strin
   if (removed('maps')) bits.push('la carte d’argument');
   n(bits, removed('studies'), 'fiche-texte', 'fiches-texte');
   n(bits, removed('cards'), 'carte de révision', 'cartes de révision');
+  n(bits, removed('bookmarks'), 'signet', 'signets');
   n(bits, removed('groups'), 'groupe', 'groupes');
   const group = kind === 'workspace' || kind === 'group';
   n(bits, removed('wsItems'), group ? 'référence' : 'référence dans un espace', group ? 'références' : 'références dans des espaces');
@@ -575,6 +601,7 @@ export const useStore = create<State>()(tracked((set, get) => ({
   route: { name: 'home' },
   activeHighlightId: null,
   jump: null,
+  bookmarkJump: null,
   importing: 0,
   toasts: [],
   commandOpen: false,
@@ -642,6 +669,7 @@ export const useStore = create<State>()(tracked((set, get) => ({
   },
   remove(col, id) {
     if (col === 'wsItems') return get().removeFromWorkspace(id);
+    if (col === 'bookmarks') return get().removeBookmark(id);
     const kind = COL_KIND[col] as TrashKind;
     if (TRASHABLE.has(kind)) get().trashDelete(kind, id);
   },
@@ -651,8 +679,16 @@ export const useStore = create<State>()(tracked((set, get) => ({
     const target = opts?.toWorkspace !== false && r0.name === 'workspace' ? { workspaceId: r0.workspaceId, groupId: r0.groupId } : null;
     const added: Book[] = [];
     set((s) => ({ importing: s.importing + files.length }));
+    const drafts: { id: string; title: string }[] = [];
     for (const f of files) {
       try {
+        // Un document Word ou Markdown est un écrit (éditable), pas un livre.
+        if (!opts?.asBook && isDraftFile(f.name)) {
+          const d = await createDraftFromFile(f.name, f.data);
+          drafts.push(d);
+          if (target && get().workspaces.some((w) => w.id === target.workspaceId)) get().addToWorkspace(target.workspaceId, target.groupId, 'draft', d.id);
+          continue;
+        }
         const meta = await extractMetadata(f);
         const id = uid();
         const ext = extOf(f.name);
@@ -687,6 +723,14 @@ export const useStore = create<State>()(tracked((set, get) => ({
     }
     if (added.length) {
       get().toast(added.length === 1 ? `« ${added[0].title} » ajouté` : `${added.length} documents ajoutés`, 'success');
+    }
+    if (drafts.length) {
+      const first = drafts[0];
+      get().toast(
+        drafts.length === 1 ? `« ${first.title} » ajouté à tes écrits` : `${drafts.length} documents ajoutés à tes écrits`,
+        'success',
+        drafts.length === 1 ? { label: 'Ouvrir', run: () => get().navigate({ name: 'write', draftId: first.id }) } : { label: 'Voir', run: () => get().navigate({ name: 'write', draftId: null }) },
+      );
     }
     return added;
   },
@@ -744,6 +788,44 @@ export const useStore = create<State>()(tracked((set, get) => ({
   },
   setCategoryOf(highlightId, category) {
     get().updateHighlight(highlightId, { category });
+  },
+
+  addBookmark(b) {
+    const full: Bookmark = { ...b, id: uid(), createdAt: Date.now() };
+    set((s) => ({ bookmarks: [...s.bookmarks, full] }));
+    return full;
+  },
+  updateBookmark(id, patch) {
+    set((s) => ({ bookmarks: s.bookmarks.map((b) => (b.id === id ? { ...b, ...patch, id } : b)) }));
+  },
+  removeBookmark(id, opts = {}) {
+    flushNow();
+    const s = get();
+    const index = s.bookmarks.findIndex((b) => b.id === id);
+    if (index < 0) return;
+    const bm = s.bookmarks[index];
+    set({ bookmarks: s.bookmarks.filter((b) => b.id !== id) });
+    if (opts.silent) return;
+    const change: ItemChange = { col: 'bookmarks', id, before: bm, after: null, prevId: s.bookmarks[index - 1]?.id ?? null, index };
+    get().toast('Signet supprimé', 'info', {
+      label: 'Annuler',
+      run: () => {
+        flushNow();
+        applyChanges([change], 'undo', false, { action: 'restore', kind: 'bookmark', refId: id, bookId: bm.bookId, title: bm.label || 'Signet', summary: 'Signet remis' });
+        dropActionToasts();
+      },
+    });
+  },
+  jumpToBookmark(id) {
+    const b = get().bookmarks.find((x) => x.id === id);
+    if (!b || !get().books.some((x) => x.id === b.bookId)) return;
+    const r = get().route;
+    const inReader = r.name === 'reader' && (r.bookId === b.bookId || r.splitBookId === b.bookId) && r.tab === 'lecture';
+    if (!inReader) {
+      get().updateBook(b.bookId, { lastOpenedAt: Date.now() });
+      set({ route: { name: 'reader', bookId: b.bookId, tab: 'lecture', splitBookId: null }, activeHighlightId: null });
+    }
+    set({ bookmarkJump: { bookmarkId: id, nonce: Date.now() } });
   },
 
   addConcept(name, definition = '', programme = null) {
@@ -1236,7 +1318,7 @@ function logExport(message: string) {
 // ── Persistance (écriture différée) ──────────────────────────
 // Seuls les changements de données relancent l'attente (pas les toasts ni la navigation),
 // et l'écriture n'attend jamais plus de 2 s : une suite de changements ne peut plus la repousser indéfiniment.
-const PERSISTED: (keyof Database)[] = ['books', 'highlights', 'concepts', 'maps', 'arguments', 'studies', 'plans', 'drafts', 'cards', 'workspaces', 'groups', 'wsItems', 'settings', 'trash', 'activity'];
+const PERSISTED: (keyof Database)[] = ['books', 'highlights', 'concepts', 'maps', 'arguments', 'studies', 'plans', 'drafts', 'cards', 'workspaces', 'groups', 'wsItems', 'bookmarks', 'settings', 'trash', 'activity'];
 const SAVE_DEBOUNCE_MS = 350;
 const SAVE_MAX_WAIT_MS = 2000;
 let saveTimer: ReturnType<typeof setTimeout> | null = null;
@@ -1262,3 +1344,4 @@ useStore.subscribe((s, prev) => {
 // ── Sélecteurs utilitaires ───────────────────────────────────
 export const selectBook = (id: string | null) => (s: State) => (id ? (s.books.find((b) => b.id === id) ?? null) : null);
 export const selectBookHighlights = (bookId: string) => (s: State) => s.highlights.filter((h) => h.bookId === bookId);
+export const selectBookBookmarks = (bookId: string) => (s: State) => s.bookmarks.filter((b) => b.bookId === bookId);

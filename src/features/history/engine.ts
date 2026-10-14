@@ -19,6 +19,7 @@ export const TRACKED: TrackedCollection[] = [
   'workspaces',
   'groups',
   'wsItems',
+  'bookmarks',
 ];
 
 export type Data = Pick<Database, TrackedCollection>;

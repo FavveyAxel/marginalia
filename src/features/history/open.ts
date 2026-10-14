@@ -59,6 +59,10 @@ export function openTarget(kind: ActivityKind, refId: string | null, bookId: str
       s.navigate({ name: 'workspace', workspaceId: g.workspaceId, groupId: g.id });
       return true;
     }
+    case 'bookmark':
+      if (!s.bookmarks.some((x) => x.id === refId)) return false;
+      s.jumpToBookmark(refId!);
+      return true;
     case 'wsItem': {
       const it = s.wsItems.find((x) => x.id === refId);
       if (!it || !has('workspaces', it.workspaceId)) return false;
@@ -85,6 +89,7 @@ export function targetExists(kind: ActivityKind, refId: string | null, bookId: s
     workspace: 'workspaces',
     group: 'groups',
     wsItem: 'wsItems',
+    bookmark: 'bookmarks',
   };
   if (kind === 'map') return s.books.some((b) => b.id === (refId ?? bookId));
   const c = col[kind];

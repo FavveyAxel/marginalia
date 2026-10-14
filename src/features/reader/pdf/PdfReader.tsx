@@ -1,11 +1,13 @@
 // Moteur de lecture PDF (pdf.js 4.10) : défilement continu, rendu paresseux, surlignages normalisés,
 // mouvements en marge, recherche, zoom. Aucun état global : plusieurs instances peuvent coexister.
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { Maximize2, Minus, Plus } from 'lucide-react';
+import { BookmarkPlus, Copy, Maximize2, Minus, Plus } from 'lucide-react';
 import { SelectionToolbar } from '../../../components/SelectionToolbar';
-import type { CategoryId, NormRect, PdfAnchor, ReaderPosition, TocItem } from '../../../lib/types';
-import type { EngineHandle, EngineProps, SearchHit } from '../engine';
-import { PdfPage, type PageHl, type PageMv } from './PdfPage';
+import { ContextMenu } from '../../workspaces/wsUi';
+import type { Bookmark, CategoryId, NormRect, PdfAnchor, ReaderPosition, TocItem } from '../../../lib/types';
+import type { BookmarkPoint, EngineHandle, EngineProps, SearchHit } from '../engine';
+import { bookmarkColor } from '../bookmarks/bookmarks';
+import { PdfPage, type PageBm, type PageHl, type PageMv } from './PdfPage';
 import { describeError, loadToc, openPdf, type PDFDocumentProxy } from './pdfjs';
 import { readSelection, type PdfSelection } from './selection';
 import { buildIndex, collectDomText, findAll, makeSnippet, mergeLineRects, normalizeQuery, rawSpanRects, spanOf, toNorm, type TextIndex } from './textindex';
@@ -21,6 +23,51 @@ const MAX_ZOOM = 5;
 const ZOOM_STEPS = [0.25, 0.33, 0.5, 0.67, 0.75, 0.8, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2, 2.5, 3, 4, 5];
 const EMPTY_HL: PageHl[] = [];
 const EMPTY_MV: PageMv[] = [];
+const EMPTY_BM: PageBm[] = [];
+
+/** Ligne de texte d'une page (calque de texte rendu) : rectangle normalisé et début du texte. */
+function lineOf(pageEl: HTMLElement, clientY: number, mode: 'below' | 'at'): { rect: NormRect; text: string } | null {
+  const layer = pageEl.querySelector('.textLayer[data-ready="1"]');
+  if (!layer) return null;
+  const pr = pageEl.getBoundingClientRect();
+  const items: { r: DOMRect; t: string }[] = [];
+  layer.querySelectorAll<HTMLElement>('span').forEach((el) => {
+    if (el.querySelector('span')) return;
+    const t = el.textContent ?? '';
+    if (!t.trim()) return;
+    const r = el.getBoundingClientRect();
+    if (r.width > 0.5 && r.height > 0.5) items.push({ r, t });
+  });
+  if (!items.length) return null;
+  // Regroupement par ligne (centres verticaux proches).
+  items.sort((a, b) => a.r.top + a.r.bottom - (b.r.top + b.r.bottom) || a.r.left - b.r.left);
+  const lines: { top: number; bottom: number; left: number; right: number; parts: { x: number; t: string }[] }[] = [];
+  for (const it of items) {
+    const mid = (it.r.top + it.r.bottom) / 2;
+    const last = lines[lines.length - 1];
+    if (last && mid >= last.top && mid <= last.bottom) {
+      last.left = Math.min(last.left, it.r.left);
+      last.right = Math.max(last.right, it.r.right);
+      last.parts.push({ x: it.r.left, t: it.t });
+    } else lines.push({ top: it.r.top, bottom: it.r.bottom, left: it.r.left, right: it.r.right, parts: [{ x: it.r.left, t: it.t }] });
+  }
+  const line =
+    mode === 'below'
+      ? lines.find((l) => l.top >= clientY - 2)
+      : (lines.find((l) => clientY >= l.top - 3 && clientY <= l.bottom + 3) ?? lines.find((l) => l.top >= clientY));
+  if (!line) return null;
+  const text = line.parts
+    .sort((a, b) => a.x - b.x)
+    .map((p) => p.t)
+    .join('')
+    .replace(/\s+/g, ' ')
+    .trim();
+  const c = (v: number) => Math.min(1, Math.max(0, v));
+  return {
+    rect: { x: c((line.left - pr.left) / pr.width), y: c((line.top - pr.top) / pr.height), w: c((line.right - line.left) / pr.width), h: c((line.bottom - line.top) / pr.height) },
+    text,
+  };
+}
 
 type Zoom = 'fit' | number;
 interface Size {
@@ -56,6 +103,8 @@ export const PdfReader = forwardRef<EngineHandle, EngineProps>(function PdfReade
   const [selRect, setSelRect] = useState<DOMRect | null>(null);
   const [marks, setMarks] = useState<{ page: number; rects: NormRect[] } | null>(null);
   const [pulse, setPulse] = useState<{ id: string; k: number } | null>(null);
+  const [flash, setFlash] = useState<{ page: number; rect: NormRect; color: string; k: number } | null>(null);
+  const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; point: BookmarkPoint; copy: string } | null>(null);
 
   const selRef = useRef<PdfSelection | null>(null);
   const posRef = useRef<Pos>({ page: 1, offset: 0 });
@@ -425,6 +474,67 @@ export const PdfReader = forwardRef<EngineHandle, EngineProps>(function PdfReade
     return m;
   }, [props.movements]);
 
+  // Signets par page (tableaux stables : seules les pages concernées se re-rendent).
+  const prevBmByPage = useRef(new Map<number, PageBm[]>());
+  const bmByPage = useMemo(() => {
+    const m = new Map<number, PageBm[]>();
+    for (const b of props.bookmarks ?? []) {
+      const page = b.anchor?.kind === 'pdf' ? b.anchor.page : b.position.kind === 'pdf' ? b.position.page : 0;
+      if (!page) continue;
+      const y = b.anchor?.kind === 'pdf' ? (b.anchor.rects[0]?.y ?? 0) : b.position.kind === 'pdf' ? b.position.offset : 0;
+      const list = m.get(page) ?? [];
+      list.push({ id: b.id, y, label: b.label, color: bookmarkColor(b.color) });
+      m.set(page, list);
+    }
+    const prev = prevBmByPage.current;
+    m.forEach((list, page) => {
+      const old = prev.get(page);
+      if (old && old.length === list.length && old.every((o, i) => o.id === list[i].id && o.y === list[i].y && o.label === list[i].label && o.color === list[i].color)) m.set(page, old);
+    });
+    prevBmByPage.current = m;
+    return m;
+  }, [props.bookmarks]);
+  const onBookmarkClick = useCallback((id: string, rect: DOMRect) => P.current.onBookmarkClick?.(id, rect), []);
+
+  /** Endroit à marquer sur une page : la ligne de texte (si le calque est prêt), sinon la hauteur. */
+  const pointOn = (page: number, ny: number, line: { rect: NormRect; text: string } | null): BookmarkPoint => {
+    const d = docRef.current;
+    const y = line ? line.rect.y : clamp(ny, 0, 1);
+    return {
+      position: { kind: 'pdf', page, offset: Math.round(y * 10000) / 10000 },
+      anchor: { kind: 'pdf', page, rects: [line ? line.rect : { x: 0, y, w: 1, h: 0.02 }] },
+      excerpt: (line?.text ?? '').slice(0, 40),
+      progress: d ? clamp((page - 1 + y) / d.numPages, 0, 1) : 0,
+      locationLabel: `p. ${page}`,
+      label: `Page ${page}`,
+    };
+  };
+
+  /** Endroit lu : première ligne entière en haut de la fenêtre. */
+  const readingPoint = (): BookmarkPoint | null => {
+    const el = scrollRef.current;
+    const g = geomRef.current;
+    if (!el || !g || !docRef.current) return null;
+    const top = el.scrollTop + 4;
+    let page = pageAt(top);
+    // Haut de la fenêtre dans l'espace entre deux pages : la page suivante.
+    if (top > g.tops[page - 1] + g.hs[page - 1] - 8 && page < g.tops.length) page++;
+    const i = page - 1;
+    const ny = clamp((top - g.tops[i]) / g.hs[i], 0, 1);
+    const pe = pageEl(page);
+    const elTop = el.getBoundingClientRect().top;
+    const line = pe ? lineOf(pe, elTop + 2, 'below') : null;
+    // Ligne trop loin (bas de page, page suivante) : on garde la hauteur du haut de la fenêtre.
+    const ok = line && line.rect.y - ny < 0.35 ? line : null;
+    return pointOn(page, ny, ok);
+  };
+
+  const bmPageY = (b: Bookmark): { page: number; y: number } | null => {
+    if (b.anchor?.kind === 'pdf') return { page: b.anchor.page, y: b.anchor.rects[0]?.y ?? 0 };
+    if (b.position.kind === 'pdf') return { page: b.position.page, y: b.position.offset };
+    return null;
+  };
+
   // ── Sélection ──
   const dragging = useRef(false);
   const selTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -517,6 +627,28 @@ export const PdfReader = forwardRef<EngineHandle, EngineProps>(function PdfReade
     if (s) navigator.clipboard?.writeText(s.text).catch(() => undefined);
     clearSelection();
   };
+  const onBookmarkSel = () => {
+    const s = (rootRef.current && readSelection(rootRef.current)) || selRef.current;
+    if (!s) return;
+    clearSelection();
+    const r0 = s.anchor.rects[0];
+    const point = pointOn(s.page, r0?.y ?? 0, r0 ? { rect: r0, text: s.text } : null);
+    P.current.onAddBookmark?.(point, s.rect);
+  };
+
+  // Clic droit sur une page : « Ajouter un signet ici » (ligne cliquée).
+  const onContextMenu = (e: React.MouseEvent) => {
+    if (!P.current.onAddBookmark) return;
+    const pe = (e.target as Element).closest<HTMLElement>('.pdf-page');
+    if (!pe) return;
+    e.preventDefault();
+    const page = Number(pe.dataset.page);
+    const pr = pe.getBoundingClientRect();
+    const point = pointOn(page, (e.clientY - pr.top) / pr.height, lineOf(pe, e.clientY, 'at'));
+    const s = window.getSelection();
+    const copy = s && !s.isCollapsed && rootRef.current?.contains(s.anchorNode) ? s.toString() : '';
+    setCtxMenu({ x: e.clientX, y: e.clientY, point, copy });
+  };
 
   // ── Clic sur un surlignage / arrière-plan ──
   useEffect(() => {
@@ -539,7 +671,7 @@ export const PdfReader = forwardRef<EngineHandle, EngineProps>(function PdfReade
       return null;
     };
     const onClick = (e: MouseEvent) => {
-      if ((e.target as Element).closest('.pdf-mv')) return;
+      if ((e.target as Element).closest('.pdf-mv, .pdf-bm')) return;
       const s = window.getSelection();
       if (s && !s.isCollapsed && el.contains(s.anchorNode)) return; // fin d'une sélection, pas un clic
       const h = hit(e.clientX, e.clientY, e.target);
@@ -689,7 +821,36 @@ export const PdfReader = forwardRef<EngineHandle, EngineProps>(function PdfReade
         markToken.current++;
         setMarks(null);
       },
+      bookmarkPoint() {
+        return restoredRef.current ? readingPoint() : null;
+      },
+      goToBookmark(b) {
+        const at = bmPageY(b);
+        if (!at) return;
+        scrollToY(at.page, at.y, Math.max(40, (scrollRef.current?.clientHeight ?? 600) * 0.14));
+        const r = b.anchor?.kind === 'pdf' && b.anchor.rects[0] ? b.anchor.rects[0] : { x: 0, y: at.y, w: 1, h: 0.02 };
+        setFlash((f) => ({ page: at.page, rect: r, color: bookmarkColor(b.color), k: (f?.k ?? 0) + 1 }));
+        setTimeout(() => setFlash((f) => (f && f.page === at.page && f.rect === r ? null : f)), 2100);
+      },
+      bookmarkAtView(list) {
+        const el = scrollRef.current;
+        const g = geomRef.current;
+        if (!el || !g || !list.length) return null;
+        let best: { id: string; d: number } | null = null;
+        for (const b of list) {
+          const at = bmPageY(b);
+          if (!at || at.page < 1 || at.page > g.tops.length) continue;
+          const d = g.tops[at.page - 1] + at.y * g.hs[at.page - 1] - el.scrollTop;
+          if (d >= -48 && d <= el.clientHeight * 0.4 && (!best || Math.abs(d) < Math.abs(best.d))) best = { id: b.id, d };
+        }
+        return best?.id ?? null;
+      },
+      getBookmarkRect(id) {
+        const e = scrollRef.current?.querySelector(`[data-bm-id="${CSS.escape(id)}"]`);
+        return e ? e.getBoundingClientRect() : null;
+      },
     }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [markHit, pageIndex, scrollToY],
   );
 
@@ -700,7 +861,7 @@ export const PdfReader = forwardRef<EngineHandle, EngineProps>(function PdfReade
 
   return (
     <div className="pdf-reader" ref={rootRef} tabIndex={-1}>
-      <div className="pdf-scroll" ref={scrollRef} onScroll={onScroll}>
+      <div className="pdf-scroll" ref={scrollRef} onScroll={onScroll} onContextMenu={onContextMenu}>
         {doc && geom && (
           <div className="pdf-pages" style={{ padding: `${PAD_TOP}px ${GUTTER}px ${PAD_BOTTOM - GAP}px`, gap: GAP }}>
             {geom.ws.map((w, i) => (
@@ -715,6 +876,9 @@ export const PdfReader = forwardRef<EngineHandle, EngineProps>(function PdfReade
                 hls={hlByPage.get(i + 1) ?? EMPTY_HL}
                 marks={marks && marks.page === i + 1 ? marks.rects : null}
                 movements={mvByPage.get(i + 1) ?? EMPTY_MV}
+                bookmarks={bmByPage.get(i + 1) ?? EMPTY_BM}
+                flash={flash && flash.page === i + 1 ? flash : null}
+                onBookmark={onBookmarkClick}
                 activeId={activePage === i + 1 ? props.activeHighlightId : null}
                 pulse={pulse && pageOfHl.get(pulse.id) === i + 1 ? pulse : null}
                 onRendered={onRendered}
@@ -747,7 +911,35 @@ export const PdfReader = forwardRef<EngineHandle, EngineProps>(function PdfReade
         </div>
       )}
 
-      {selRect && <SelectionToolbar rect={selRect} onPick={onPick} onMovement={onMovementPick} onCopy={onCopy} onDismiss={clearSelection} onCite={props.onCite ? onCite : undefined} />}
+      {selRect && (
+        <SelectionToolbar
+          rect={selRect}
+          onPick={onPick}
+          onMovement={onMovementPick}
+          onCopy={onCopy}
+          onDismiss={clearSelection}
+          onCite={props.onCite ? onCite : undefined}
+          onBookmark={props.onAddBookmark ? onBookmarkSel : undefined}
+        />
+      )}
+      {ctxMenu && (
+        <ContextMenu
+          x={ctxMenu.x}
+          y={ctxMenu.y}
+          label="Menu de la page"
+          onClose={() => setCtxMenu(null)}
+          entries={[
+            {
+              label: 'Ajouter un signet ici',
+              icon: <BookmarkPlus size={14} />,
+              onClick: () => P.current.onAddBookmark?.(ctxMenu.point, new DOMRect(ctxMenu.x, ctxMenu.y, 1, 1)),
+            },
+            ...(ctxMenu.copy
+              ? [{ label: 'Copier', icon: <Copy size={14} />, onClick: () => void navigator.clipboard?.writeText(ctxMenu.copy).catch(() => undefined) }]
+              : []),
+          ]}
+        />
+      )}
     </div>
   );
 });

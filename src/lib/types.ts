@@ -81,6 +81,32 @@ export interface PdfAnchor {
 
 export type Anchor = HtmlAnchor | PdfAnchor;
 
+/** Teintes proposées pour un signet (null : teinte par défaut). */
+export type BookmarkColor = 'rouge' | 'orange' | 'jaune' | 'vert' | 'bleu' | 'violet';
+
+/**
+ * Signet : un endroit d'un livre à retrouver rapidement.
+ * `position` suffit pour y revenir ; `anchor` + `excerpt` (début du paragraphe, ~40 caractères)
+ * gardent le retour exact quand la mise en page change (police, largeur, zoom).
+ */
+export interface Bookmark {
+  id: string;
+  bookId: string;
+  position: ReaderPosition;
+  /** Début du passage marqué (HTML : offsets dans le chapitre ; PDF : ligne de la page). */
+  anchor?: Anchor;
+  /** Premiers caractères du passage marqué. */
+  excerpt?: string;
+  /** Avancement dans le livre (0–1) : repère sur la barre de progression. */
+  progress?: number;
+  /** Chapitre / section ou page lisible (« Chapitre II », « p. 42 »). */
+  locationLabel?: string;
+  label: string;
+  note?: string;
+  color?: BookmarkColor | null;
+  createdAt: number;
+}
+
 /**
  * Annotation ancrée dans un texte.
  * - category non nulle : surlignage d'un passage selon sa fonction dans le texte ;
@@ -350,7 +376,7 @@ export interface Settings {
   showToc: boolean;
   showExtracts: boolean;
   /** Contenu du panneau droit du lecteur. */
-  rightPanel: 'extraits' | 'etude';
+  rightPanel: 'extraits' | 'etude' | 'signets';
   /** Mettre en évidence les connecteurs logiques dans le texte. */
   showConnectors: boolean;
   /** Espace de travail actif (null = tous). */
@@ -361,6 +387,8 @@ export interface Settings {
   appleBooksSync?: boolean;
   /** Livres de l'app Livres déjà traités (importés ou écartés), par nom de fichier. */
   appleBooksSeen?: string[];
+  /** Anciens .docx importés comme livres déjà convertis en écrits. */
+  docxMigrated?: boolean;
 }
 
 export interface Database {
@@ -377,6 +405,8 @@ export interface Database {
   workspaces: Workspace[];
   groups: WorkspaceGroup[];
   wsItems: WorkspaceItem[];
+  /** Signets (bases antérieures : absent, complété par un tableau vide au chargement). */
+  bookmarks: Bookmark[];
   settings: Settings;
   /** Corbeille : éléments supprimés et tout ce qui a été retiré avec eux (30 jours). */
   trash: TrashEntry[];
@@ -424,7 +454,7 @@ export interface TrashEntry {
 }
 
 export type ActivityAction = 'create' | 'update' | 'delete' | 'restore' | 'import' | 'export' | 'revert' | 'purge';
-export type ActivityKind = TrashKind | 'map' | 'wsItem' | 'file';
+export type ActivityKind = TrashKind | 'map' | 'wsItem' | 'bookmark' | 'file';
 
 export interface ActivityEntry {
   id: string;
@@ -459,7 +489,8 @@ export type CollectionName =
   | 'cards'
   | 'workspaces'
   | 'groups'
-  | 'wsItems';
+  | 'wsItems'
+  | 'bookmarks';
 
 export interface TocItem {
   id: string;

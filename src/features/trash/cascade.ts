@@ -120,6 +120,7 @@ export function cascade(d: Data, kind: TrashKind, id: string, opts: CascadeOpts 
       return {
         ...n,
         cards: filterKeep(n.cards, (c) => c.bookId !== id),
+        bookmarks: filterKeep(n.bookmarks, (b) => b.bookId !== id),
         wsItems: filterKeep(n.wsItems, (i) => !(((i.kind === 'book' || i.kind === 'map') && i.refId === id) || (i.kind === 'study' && studyIds.has(i.refId)))),
       };
     }

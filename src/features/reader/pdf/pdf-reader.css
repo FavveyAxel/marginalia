@@ -240,3 +240,38 @@
   -webkit-user-select: text;
   user-select: text;
 }
+
+/* ── Signets (marge droite) ── */
+.pdf-bm {
+  position: absolute;
+  right: -22px;
+  z-index: 4;
+  width: 10px;
+  height: 15px;
+  margin-top: -1px;
+  padding: 0;
+  border: 0;
+  background: var(--bm-c, var(--bm-default));
+  clip-path: polygon(0 0, 100% 0, 100% 100%, 50% 74%, 0 100%);
+  opacity: 0.8;
+  cursor: pointer;
+  animation: bm-drop var(--dur-med) var(--ease-out) backwards;
+  transition:
+    opacity var(--dur) var(--ease),
+    transform var(--dur) var(--ease);
+}
+.pdf-bm:hover,
+.pdf-bm:focus-visible {
+  opacity: 1;
+  transform: scale(1.15);
+}
+.pdf-bm-flash {
+  position: absolute;
+  left: 0;
+  right: 0;
+  z-index: 2;
+  pointer-events: none;
+  background: color-mix(in srgb, var(--bm-c, var(--bm-default)) 16%, transparent);
+  box-shadow: inset 3px 0 0 color-mix(in srgb, var(--bm-c, var(--bm-default)) 70%, transparent);
+  animation: bm-flash 1.9s var(--ease-out) forwards;
+}

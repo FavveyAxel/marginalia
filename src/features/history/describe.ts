@@ -28,6 +28,7 @@ export const KIND_LABEL: Record<ActivityKind, string> = {
   group: 'Groupe',
   map: 'Carte d’argument',
   wsItem: 'Rangement dans un espace',
+  bookmark: 'Signet',
   file: 'Fichier',
 };
 
@@ -45,6 +46,7 @@ export const KIND_PLURAL: Record<ActivityKind, string> = {
   group: 'groupes',
   map: 'cartes d’argument',
   wsItem: 'rangements dans les espaces',
+  bookmark: 'signets',
   file: 'fichiers',
 };
 const FEMININE = new Set<ActivityKind>(['study', 'card', 'map']);
@@ -62,6 +64,7 @@ export const COL_KIND: Record<TrackedCollection, ActivityKind> = {
   workspaces: 'workspace',
   groups: 'group',
   wsItems: 'wsItem',
+  bookmarks: 'bookmark',
 };
 export const KIND_COL: Record<TrashKind, TrackedCollection> = {
   book: 'books',
@@ -108,6 +111,8 @@ export function titleOf(col: TrackedCollection, item: any, d: Partial<Data>): st
     case 'workspaces':
     case 'groups':
       return item.name || 'Sans nom';
+    case 'bookmarks':
+      return clip(item.label) || 'Signet';
     case 'maps': {
       const b = d.books?.find((x) => x.id === item.bookId);
       return b ? b.title : 'Carte d’argument';
@@ -132,6 +137,7 @@ export function bookIdOf(col: TrackedCollection, item: any, d: Partial<Data>): s
     case 'maps':
     case 'cards':
     case 'arguments':
+    case 'bookmarks':
       return item.bookId ?? null;
     case 'wsItems':
       return item.kind === 'book' || item.kind === 'map' ? item.refId : null;
@@ -190,6 +196,10 @@ const FIELD_LABEL: Record<string, string> = {
   fileName: 'fichier',
   format: 'format',
   size: 'taille',
+  label: 'libellé',
+  color: 'couleur',
+  position: 'position',
+  excerpt: 'passage',
 };
 
 const ucfirst = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
@@ -216,7 +226,7 @@ export function describeUpdate(col: TrackedCollection, before: any, after: any, 
     } else if (k === 'note' || k === 'definition' || k === 'comment') {
       const label = ucfirst(FIELD_LABEL[k]);
       parts.push(!String(a ?? '').trim() ? `${label} ajoutée` : !String(b ?? '').trim() ? `${label} effacée` : `${label} modifiée`);
-    } else if ((k === 'title' || k === 'name' || k === 'author') && typeof a === 'string' && typeof b === 'string' && a.length < 80 && b.length < 80) {
+    } else if ((k === 'title' || k === 'name' || k === 'author' || k === 'label') && typeof a === 'string' && typeof b === 'string' && a.length < 80 && b.length < 80) {
       parts.push(`${ucfirst(FIELD_LABEL[k])} : ${arrow(a, b)}`);
     } else if (col === 'maps' && (k === 'nodes' || k === 'edges')) {
       const na = (a as unknown[]).length;

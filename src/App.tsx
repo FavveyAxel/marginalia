@@ -22,6 +22,7 @@ import { HistoryView } from './features/history/HistoryView';
 import { isTextEditingTarget } from './features/history/keys';
 import { useAppleBooksSync } from './features/library/appleBooks';
 import { useResizeDiagnostics } from './lib/diagnostics';
+import { useDocxMigration } from './features/library/docxMigration';
 
 function useTheme(theme: ThemeId) {
   useEffect(() => {
@@ -267,6 +268,7 @@ export function App() {
   useTheme(theme);
   useWindowDrag();
   useAppleBooksSync();
+  useDocxMigration();
   useResizeDiagnostics();
 
   useEffect(() => {

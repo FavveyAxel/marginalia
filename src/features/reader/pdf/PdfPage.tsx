@@ -18,6 +18,14 @@ export interface PageMv {
   y: number;
 }
 
+export interface PageBm {
+  id: string;
+  y: number;
+  label: string;
+  /** Couleur CSS du ruban. */
+  color: string;
+}
+
 interface Props {
   n: number;
   doc: PDFDocumentProxy;
@@ -32,6 +40,11 @@ interface Props {
   pulse: { id: string; k: number } | null;
   onRendered(n: number): void;
   onMovement(id: string): void;
+  /** Signets de la page (ruban dans la marge droite). */
+  bookmarks?: PageBm[];
+  /** Bref surlignage de la ligne d'un signet (retour au signet). */
+  flash?: { rect: NormRect; color: string; k: number } | null;
+  onBookmark?(id: string, rect: DOMRect): void;
 }
 
 /** Plafond de pixels du canvas (mémoire) : au-delà, la résolution baisse. */
@@ -77,7 +90,7 @@ function release(host: HTMLElement | null) {
   host.replaceChildren();
 }
 
-export const PdfPage = memo(function PdfPage({ n, doc, w, h, scale, near, hls, marks, movements, activeId, pulse, onRendered, onMovement }: Props) {
+export const PdfPage = memo(function PdfPage({ n, doc, w, h, scale, near, hls, marks, movements, activeId, pulse, onRendered, onMovement, bookmarks, flash, onBookmark }: Props) {
   const canvasHost = useRef<HTMLDivElement>(null);
   const textHost = useRef<HTMLDivElement>(null);
   const cbRef = useRef(onRendered);
@@ -212,6 +225,29 @@ export const PdfPage = memo(function PdfPage({ n, doc, w, h, scale, near, hls, m
           <Milestone size={12} />
           <span className="pdf-mv-label">{m.title}</span>
         </button>
+      ))}
+      {flash && (
+        <div
+          key={flash.k}
+          className="pdf-bm-flash"
+          aria-hidden
+          style={{ top: `calc(${pct(flash.rect.y)} - 4px)`, height: `calc(${pct(flash.rect.h)} + 8px)`, '--bm-c': flash.color } as CSSProperties}
+        />
+      )}
+      {bookmarks?.map((b) => (
+        <button
+          key={b.id}
+          type="button"
+          className="pdf-bm"
+          data-bm-id={b.id}
+          title={`Signet : ${b.label}`}
+          aria-label={`Signet : ${b.label}`}
+          style={{ top: pct(b.y), '--bm-c': b.color } as CSSProperties}
+          onClick={(e) => {
+            e.stopPropagation();
+            onBookmark?.(b.id, e.currentTarget.getBoundingClientRect());
+          }}
+        />
       ))}
     </div>
   );

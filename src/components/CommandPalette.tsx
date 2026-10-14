@@ -1,6 +1,7 @@
 // Palette de commandes ⌘K (façon Raycast / Linear).
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
+  Bookmark as BookmarkIcon,
   BookOpen,
   Brain,
   FileText,
@@ -41,7 +42,7 @@ interface Cmd {
   run(): void;
 }
 
-const GROUPS = ['Actions', 'Livres', 'Écrits', 'Concepts', 'Extraits', 'Plans', 'Arguments', 'Fiches-texte', 'Espaces'];
+const GROUPS = ['Actions', 'Livres', 'Écrits', 'Concepts', 'Extraits', 'Signets', 'Plans', 'Arguments', 'Fiches-texte', 'Espaces'];
 
 export function CommandPalette() {
   const open = useStore((s) => s.commandOpen);
@@ -50,7 +51,7 @@ export function CommandPalette() {
 }
 
 function Palette() {
-  const { books, drafts, concepts, highlights, workspaces, plans, args, studies } = useStore(
+  const { books, drafts, concepts, highlights, workspaces, plans, args, studies, bookmarks } = useStore(
     useShallow((s) => ({
       books: s.books,
       drafts: s.drafts,
@@ -60,6 +61,7 @@ function Palette() {
       plans: s.plans,
       args: s.arguments,
       studies: s.studies,
+      bookmarks: s.bookmarks,
     })),
   );
   const [q, setQ] = useState('');
@@ -180,6 +182,21 @@ function Palette() {
           run: () => st().jumpToHighlight(h.id),
         }),
       );
+    [...bookmarks]
+      .sort((a, b) => b.createdAt - a.createdAt)
+      .forEach((bm) => {
+        const title = bookTitle.get(bm.bookId);
+        if (!title) return;
+        items.push({
+          id: 'k-' + bm.id,
+          group: 'Signets',
+          label: `Signet — ${bm.label}`,
+          meta: title,
+          icon: <BookmarkIcon size={15} />,
+          haystack: norm(['signet', bm.label, bm.note ?? '', bm.excerpt ?? '', bm.locationLabel ?? '', title].join(' ')),
+          run: () => st().jumpToBookmark(bm.id),
+        });
+      });
     [...plans]
       .sort((a, b) => b.updatedAt - a.updatedAt)
       .forEach((p) =>
@@ -235,7 +252,7 @@ function Palette() {
         }),
       );
     return items;
-  }, [books, drafts, concepts, highlights, workspaces, plans, args, studies]);
+  }, [books, drafts, concepts, highlights, workspaces, plans, args, studies, bookmarks]);
 
   const results = useMemo(() => {
     const terms = norm(q.trim()).split(/\s+/).filter(Boolean);

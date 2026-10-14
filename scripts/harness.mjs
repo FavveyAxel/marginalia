@@ -28,17 +28,17 @@ export async function withApp(port, fn, { width = 1440, height = 900, dark = fal
 }
 
 /** Importe un fichier de fixtures/ via le store et renvoie l'id du livre. */
-export async function importFixture(page, file, { open = false } = {}) {
+export async function importFixture(page, file, { open = false, asBook = true } = {}) {
   const abs = path.resolve(ROOT, file);
   const b64 = fs.readFileSync(abs).toString('base64');
   return page.evaluate(
-    async ({ name, b64, open }) => {
+    async ({ name, b64, open, asBook }) => {
       const bin = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
-      const [book] = await window.__store.getState().importFiles([{ name, data: bin.buffer }]);
+      const [book] = await window.__store.getState().importFiles([{ name, data: bin.buffer }], { asBook: !!asBook });
       if (open && book) window.__store.getState().openBook(book.id);
       return book?.id;
     },
-    { name: path.basename(abs), b64, open },
+    { name: path.basename(abs), b64, open, asBook },
   );
 }
 

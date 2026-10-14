@@ -9,11 +9,14 @@
 // des nœuds texte sans jamais changer ce textContent ; les repères de mouvements vivent
 // hors du conteneur de texte (.html-marks).
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useRef, useState, type CSSProperties, type MouseEvent as ReactMouseEvent } from 'react';
-import type { Anchor, Highlight, HtmlAnchor, TocItem } from '../../../lib/types';
+import { BookmarkPlus, Copy } from 'lucide-react';
+import type { Anchor, Bookmark, Highlight, HtmlAnchor, TocItem } from '../../../lib/types';
 import { CONNECTORS } from '../../../lib/categories';
 import { SelectionToolbar } from '../../../components/SelectionToolbar';
-import type { EngineHandle, EngineProps, SearchHit } from '../engine';
-import { allIndexes, fold, locate, makeAnchor, offsetOf, rangeFor, resolveAnchor, unwrapAll, wrapOffsets, type Folded, type TextSpan } from './anchoring';
+import { ContextMenu } from '../../workspaces/wsUi';
+import type { BookmarkPoint, EngineHandle, EngineProps, SearchHit } from '../engine';
+import { bookmarkColor, clipWords, proposeLabel, sentenceAt } from '../bookmarks/bookmarks';
+import { allIndexes, fold, isBlockEl, locate, makeAnchor, offsetOf, rangeFor, resolveAnchor, unwrapAll, wrapOffsets, type Folded, type TextSpan } from './anchoring';
 import { parseBook, printedPageAt, ReaderError, type ParsedDoc } from './parse';
 import './html-reader.css';
 
@@ -78,8 +81,11 @@ export const HtmlReader = forwardRef<EngineHandle, EngineProps>(function HtmlRea
   const selInfoRef = useRef<SelInfo | null>(null);
   const mouseDownRef = useRef(false);
   const navTokenRef = useRef(0);
+  /** Signets résolus (ancrage → offsets), recalculés seulement si l'ancrage change. */
+  const bmCacheRef = useRef(new Map<string, { sig: string; span: TextSpan | null }>());
   const [loaded, setLoaded] = useState(0);
   const [selRect, setSelRect] = useState<DOMRect | null>(null);
+  const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; point: BookmarkPoint; copy: string } | null>(null);
   /** Texte prêt : déclenche l'apparition douce (le shell montre <PageSkeleton> avant). */
   const [revealed, setRevealed] = useState(false);
 
@@ -416,6 +422,173 @@ export const HtmlReader = forwardRef<EngineHandle, EngineProps>(function HtmlRea
       const room = colRect.left - (sectionsRef.current[span.chapter]?.getBoundingClientRect().left ?? 0);
       if (btn.offsetWidth + 22 > room) btn.classList.add('compact');
     }
+    // Signets : un petit ruban dans la marge droite, à la hauteur de la ligne marquée.
+    for (const b of propsRef.current.bookmarks ?? []) {
+      const span = resolveBookmark(b);
+      if (!span) continue;
+      const col = rootsRef.current[span.chapter]?.parentElement;
+      const layer = col?.querySelector('.html-marks');
+      const rect = charRect(span.chapter, span.start);
+      if (!col || !layer || !rect) continue;
+      const colRect = col.getBoundingClientRect();
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'html-bm';
+      btn.setAttribute('data-bm-id', b.id);
+      btn.title = `Signet : ${b.label}`;
+      btn.style.top = `${rect.top - colRect.top + rect.height / 2}px`;
+      btn.style.setProperty('--bm-c', bookmarkColor(b.color));
+      layer.appendChild(btn);
+    }
+  };
+
+  // ── Signets ───────────────────────────────────────────────
+
+  const bmSig = (b: Bookmark) =>
+    b.anchor?.kind === 'html' ? `a|${b.anchor.chapter}|${b.anchor.start}|${b.anchor.prefix}|${b.excerpt ?? ''}` : `p|${JSON.stringify(b.position)}`;
+
+  /** Offsets du début du passage marqué (ancrage, sinon position de lecture). */
+  const resolveBookmark = (b: Bookmark): TextSpan | null => {
+    const parsed = parsedRef.current;
+    if (!parsed) return null;
+    const sig = bmSig(b);
+    const hit = bmCacheRef.current.get(b.id);
+    if (hit && hit.sig === sig) return hit.span;
+    let span: TextSpan | null = null;
+    const a = b.anchor;
+    if (a?.kind === 'html') {
+      const quote = b.excerpt ?? '';
+      const adj: HtmlAnchor = quote && quote.length !== a.end - a.start ? { ...a, end: a.start + quote.length, suffix: '' } : a;
+      span = resolveAnchor(texts(), adj, quote) ?? resolveLoose(adj);
+    } else if (b.position.kind === 'html') {
+      const p = b.position;
+      const c = parsed.chapters[p.chapter];
+      if (c) {
+        const off = Math.max(0, Math.min(c.text.length, Math.round(p.scroll * c.text.length)));
+        span = { chapter: p.chapter, start: off, end: off };
+      }
+    }
+    bmCacheRef.current.set(b.id, { sig, span });
+    return span;
+  };
+
+  /** Bloc (paragraphe, titre, élément de liste) qui contient un offset ; null s'il n'y en a pas. */
+  const blockAt = (chapter: number, offset: number): HTMLElement | null => {
+    const root = rootsRef.current[chapter];
+    const loc = root && locate(root, offset, 'start');
+    if (!root || !loc) return null;
+    let el: Element | null = loc.node.parentElement;
+    while (el && el !== root && !isBlockEl(el)) el = el.parentElement;
+    return el && el !== root ? (el as HTMLElement) : null;
+  };
+
+  /** Titre de section le plus proche avant l'offset (sinon le titre du chapitre). */
+  const sectionAt = (chapter: number, offset: number): string => {
+    const root = rootsRef.current[chapter];
+    let label = '';
+    if (root)
+      for (const h of Array.from(root.querySelectorAll('h1, h2, h3, h4, h5, h6'))) {
+        if (offsetOf(root, h, 0) > offset) break;
+        const t = (h.textContent ?? '').replace(/\s+/g, ' ').trim();
+        if (t) label = t;
+      }
+    return label || parsedRef.current?.chapters[chapter]?.label || '';
+  };
+
+  /** Endroit à marquer : début du passage à `offset`, libellé proposé, position et progression. */
+  const pointFor = (chapter: number, offset: number): BookmarkPoint | null => {
+    const parsed = parsedRef.current;
+    const sc = scrollRef.current;
+    const ch = parsed?.chapters[chapter];
+    if (!parsed || !sc || !ch) return null;
+    const text = ch.text;
+    let start = Math.max(0, Math.min(offset, text.length));
+    while (start < text.length && /\s/.test(text[start])) start++;
+    const root = rootsRef.current[chapter];
+    const block = blockAt(chapter, start);
+    const bStart = block ? offsetOf(root, block, 0) : Math.max(0, text.lastIndexOf('\n', start - 1) + 1);
+    const bEnd = block ? bStart + (block.textContent ?? '').length : (() => { const n = text.indexOf('\n', start); return n < 0 ? text.length : n; })();
+    // 40 premiers caractères du passage, sans déborder sur le paragraphe suivant (sauf fin de paragraphe très courte).
+    const end = Math.min(text.length, start + 40, bEnd - start >= 12 ? bEnd : Infinity);
+    const excerpt = text.slice(start, end);
+    const anchor = makeAnchor(text, chapter, start, end);
+    const section = sectionAt(chapter, start) || propsRef.current.book.title;
+    const heading = !!block && /^H[1-6]$/.test(block.tagName);
+    const label = heading ? clipWords(block!.textContent ?? '', 60) : proposeLabel(section, sentenceAt(text.slice(bStart, bEnd), start - bStart));
+    const total = cumRef.current[cumRef.current.length - 1] || 1;
+    const progress = Math.max(0, Math.min(1, (cumRef.current[chapter] + start) / total));
+    const rect = charRect(chapter, start);
+    const sec = sectionsRef.current[chapter];
+    const h = sec?.offsetHeight || 1;
+    const fraction = rect && sec ? Math.max(0, Math.min(1, (rect.top - sec.getBoundingClientRect().top) / h)) : start / Math.max(1, text.length);
+    return {
+      position: { kind: 'html', chapter, scroll: Number(fraction.toFixed(5)) },
+      anchor,
+      excerpt,
+      progress,
+      locationLabel: ch.label || section,
+      label,
+    };
+  };
+
+  /** Endroit lu : première ligne entière en haut de la fenêtre, ramenée au début de son paragraphe s'il commence là. */
+  const readingPoint = (): BookmarkPoint | null => {
+    const sc = scrollRef.current;
+    const parsed = parsedRef.current;
+    if (!sc || !parsed || !rootsRef.current.length) return null;
+    const scRect = sc.getBoundingClientRect();
+    const ch0 = currentChapter();
+    const col = rootsRef.current[ch0]?.parentElement;
+    if (!col) return null;
+    const colRect = col.getBoundingClientRect();
+    const x = colRect.left + Math.min(colRect.width / 2, 120);
+    const s = propsRef.current.settings;
+    const line = s.fontSize * s.lineHeight;
+    for (const dy of [8, 24, 48, 80, 120, 180, 260, 360]) {
+      const y = scRect.top + dy;
+      if (y > scRect.bottom) break;
+      const r = document.caretRangeFromPoint?.(x, y);
+      const root = r && rootOf(r.startContainer);
+      if (!r || !root) continue;
+      const chapter = chapterOfRoot(root);
+      const offset = offsetOf(root, r.startContainer, r.startOffset);
+      const rect = charRect(chapter, offset);
+      if (!rect || rect.top < scRect.top - 2) continue;
+      const block = blockAt(chapter, offset);
+      let start = offset;
+      if (block && block.getBoundingClientRect().top >= scRect.top - line * 1.6) start = offsetOf(root, block, 0);
+      else {
+        const text = parsed.chapters[chapter].text;
+        while (start > 0 && !/\s/.test(text[start - 1])) start--;
+      }
+      return pointFor(chapter, start);
+    }
+    return null;
+  };
+
+  /** Bref surlignage du paragraphe marqué (calque au-dessus du texte : le DOM du texte reste intact). */
+  const flashBookmark = (span: TextSpan, b: Bookmark) => {
+    const root = rootsRef.current[span.chapter];
+    const col = root?.parentElement;
+    if (!col) return;
+    const block = blockAt(span.chapter, span.start);
+    const line = charRect(span.chapter, span.start);
+    const br = block?.getBoundingClientRect() ?? line;
+    if (!br) return;
+    // Long paragraphe commencé bien plus haut : le voile part de la ligne marquée.
+    const s = propsRef.current.settings;
+    const top = line && line.top - br.top > s.fontSize * s.lineHeight * 2.5 ? line.top : br.top;
+    const r = { top, height: br.bottom - top };
+    const colRect = col.getBoundingClientRect();
+    col.querySelectorAll('.html-bm-flash').forEach((el) => el.remove());
+    const el = document.createElement('div');
+    el.className = 'html-bm-flash';
+    el.setAttribute('aria-hidden', 'true');
+    el.style.top = `${r.top - colRect.top - 4}px`;
+    el.style.height = `${r.height + 8}px`;
+    el.style.setProperty('--bm-c', bookmarkColor(b.color));
+    col.appendChild(el);
+    setTimeout(() => el.remove(), 2000);
   };
 
   const updateEstimates = () => {
@@ -470,6 +643,7 @@ export const HtmlReader = forwardRef<EngineHandle, EngineProps>(function HtmlRea
     readyRef.current = false;
     parsedRef.current = null;
     hlRef.current = new Map();
+    bmCacheRef.current = new Map();
     activeElsRef.current = [];
     connectorsOnRef.current = false;
     anchorRef.current = null;
@@ -549,10 +723,10 @@ export const HtmlReader = forwardRef<EngineHandle, EngineProps>(function HtmlRea
     if (loaded) applyActive();
   }, [props.activeHighlightId, loaded]);
 
-  // Mouvements
+  // Mouvements et signets
   useLayoutEffect(() => {
     if (loaded) renderMarkers();
-  }, [props.movements, loaded]);
+  }, [props.movements, props.bookmarks, loaded]);
 
   // Prêt : sommaire, position initiale, puis onReady
   useEffect(() => {
@@ -798,6 +972,37 @@ export const HtmlReader = forwardRef<EngineHandle, EngineProps>(function HtmlRea
     hideToolbar();
   };
 
+  const onBookmarkSel = () => {
+    const rect = selRect;
+    const t = takeSelection();
+    if (!t) return;
+    const point = pointFor(t.info.chapter, t.info.start);
+    if (point) propsRef.current.onAddBookmark?.(point, rect);
+  };
+
+  // Clic droit dans le texte : « Ajouter un signet ici » (début du paragraphe cliqué).
+  const onContextMenu = (e: ReactMouseEvent) => {
+    if (!propsRef.current.onAddBookmark || !readyRef.current) return;
+    const r = document.caretRangeFromPoint?.(e.clientX, e.clientY);
+    const root = r && rootOf(r.startContainer);
+    if (!r || !root) return;
+    e.preventDefault();
+    const chapter = chapterOfRoot(root);
+    const offset = offsetOf(root, r.startContainer, r.startOffset);
+    const block = blockAt(chapter, offset);
+    let start = offset;
+    if (block) start = offsetOf(root, block, 0);
+    else {
+      const text = parsedRef.current!.chapters[chapter].text;
+      while (start > 0 && !/\s/.test(text[start - 1])) start--;
+    }
+    const point = pointFor(chapter, start);
+    if (!point) return;
+    const s = window.getSelection();
+    const copy = s && !s.isCollapsed && scrollRef.current?.contains(s.anchorNode) ? s.toString() : '';
+    setCtxMenu({ x: e.clientX, y: e.clientY, point, copy });
+  };
+
   // ── Navigation ────────────────────────────────────────────
 
   const scrollToRect = (rectOf: () => DOMRect | null, ratio: number) =>
@@ -988,6 +1193,51 @@ export const HtmlReader = forwardRef<EngineHandle, EngineProps>(function HtmlRea
       clearSearch() {
         clearSearchMarks();
       },
+      bookmarkPoint() {
+        return readyRef.current ? readingPoint() : null;
+      },
+      goToBookmark(b: Bookmark) {
+        const parsed = parsedRef.current;
+        if (!parsed) return;
+        const span = resolveBookmark(b);
+        if (!span) {
+          if (b.position.kind === 'html') goTo({ kind: 'html', chapter: b.position.chapter });
+          return;
+        }
+        const lead = () => Math.max(40, (scrollRef.current?.clientHeight ?? 600) * 0.14);
+        smoothTo(() => {
+          const sc = scrollRef.current;
+          const rect = charRect(span.chapter, span.start);
+          if (!sc || !rect) return null;
+          return sc.scrollTop + rect.top - sc.getBoundingClientRect().top - lead();
+        }).then(() => {
+          flashBookmark(span, b);
+          renderMarkers();
+        });
+      },
+      bookmarkAtView(list: Bookmark[]) {
+        const sc = scrollRef.current;
+        if (!sc || !readyRef.current || !list.length) return null;
+        const top = sc.getBoundingClientRect().top;
+        const s = propsRef.current.settings;
+        const above = s.fontSize * s.lineHeight * 2;
+        const below = sc.clientHeight * 0.4;
+        const ch = currentChapter();
+        let best: { id: string; d: number } | null = null;
+        for (const b of list) {
+          const span = resolveBookmark(b);
+          if (!span || Math.abs(span.chapter - ch) > 1) continue;
+          const rect = charRect(span.chapter, span.start);
+          if (!rect || (!rect.width && !rect.height)) continue;
+          const d = rect.top - top;
+          if (d >= -above && d <= below && (!best || Math.abs(d) < Math.abs(best.d))) best = { id: b.id, d };
+        }
+        return best?.id ?? null;
+      },
+      getBookmarkRect(id: string) {
+        const el = docRef.current?.querySelector(`[data-bm-id="${CSS.escape(id)}"]`);
+        return el ? el.getBoundingClientRect() : null;
+      },
     }),
     [],
   );
@@ -996,6 +1246,11 @@ export const HtmlReader = forwardRef<EngineHandle, EngineProps>(function HtmlRea
 
   const onClick = (e: ReactMouseEvent) => {
     const t = e.target as Element;
+    const bm = t.closest('[data-bm-id]');
+    if (bm) {
+      propsRef.current.onBookmarkClick?.(bm.getAttribute('data-bm-id')!, bm.getBoundingClientRect());
+      return;
+    }
     const mv = t.closest('[data-mv-id]');
     if (mv) {
       propsRef.current.onMovementClick(mv.getAttribute('data-mv-id')!);
@@ -1026,10 +1281,38 @@ export const HtmlReader = forwardRef<EngineHandle, EngineProps>(function HtmlRea
 
   return (
     <div className="html-reader">
-      <div className="html-scroll" ref={scrollRef} onClick={onClick} tabIndex={-1}>
+      <div className="html-scroll" ref={scrollRef} onClick={onClick} onContextMenu={onContextMenu} tabIndex={-1}>
         <div className={`html-doc html-fmt-${book.format}${revealed ? ' is-revealed' : ''}`} ref={docRef} style={docStyle} />
       </div>
-      {selRect && <SelectionToolbar rect={selRect} onPick={onPick} onMovement={onMovement} onCopy={onCopy} onDismiss={onDismiss} onCite={props.onCite ? onCite : undefined} />}
+      {selRect && (
+        <SelectionToolbar
+          rect={selRect}
+          onPick={onPick}
+          onMovement={onMovement}
+          onCopy={onCopy}
+          onDismiss={onDismiss}
+          onCite={props.onCite ? onCite : undefined}
+          onBookmark={props.onAddBookmark ? onBookmarkSel : undefined}
+        />
+      )}
+      {ctxMenu && (
+        <ContextMenu
+          x={ctxMenu.x}
+          y={ctxMenu.y}
+          label="Menu du texte"
+          onClose={() => setCtxMenu(null)}
+          entries={[
+            {
+              label: 'Ajouter un signet ici',
+              icon: <BookmarkPlus size={14} />,
+              onClick: () => propsRef.current.onAddBookmark?.(ctxMenu.point, new DOMRect(ctxMenu.x, ctxMenu.y, 1, 1)),
+            },
+            ...(ctxMenu.copy
+              ? [{ label: 'Copier', icon: <Copy size={14} />, onClick: () => void navigator.clipboard?.writeText(ctxMenu.copy).catch(() => undefined) }]
+              : []),
+          ]}
+        />
+      )}
     </div>
   );
 });

@@ -1,7 +1,7 @@
 // Barre flottante au-dessus d'une sélection de texte (FIGÉ).
 import { useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import { Copy, MessageSquarePlus, Milestone, Quote } from 'lucide-react';
+import { BookmarkPlus, Copy, MessageSquarePlus, Milestone, Quote } from 'lucide-react';
 import { CATEGORIES } from '../lib/categories';
 import type { CategoryId } from '../lib/types';
 import { CategoryDot, Kbd, useFloating } from './ui';
@@ -16,9 +16,11 @@ interface Props {
   onDismiss(): void;
   /** Facultatif : « Citer dans l'écrit » (lecteur ouvert à côté de l'éditeur). Raccourci C. */
   onCite?: () => void;
+  /** Facultatif : « Ajouter un signet ici » (début de la sélection). Raccourci S. */
+  onBookmark?: () => void;
 }
 
-export function SelectionToolbar({ rect, onPick, onMovement, onCopy, onDismiss, onCite }: Props) {
+export function SelectionToolbar({ rect, onPick, onMovement, onCopy, onDismiss, onCite, onBookmark }: Props) {
   const [ref, style] = useFloating(rect, 'above');
 
   useEffect(() => {
@@ -39,13 +41,16 @@ export function SelectionToolbar({ rect, onPick, onMovement, onCopy, onDismiss, 
       } else if (onCite && e.key.toLowerCase() === 'c') {
         e.preventDefault();
         onCite();
+      } else if (onBookmark && e.key.toLowerCase() === 's') {
+        e.preventDefault();
+        onBookmark();
       } else if (e.key === 'Escape') {
         onDismiss();
       }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [onPick, onMovement, onDismiss, onCite]);
+  }, [onPick, onMovement, onDismiss, onCite, onBookmark]);
 
   return createPortal(
     <div
@@ -80,6 +85,11 @@ export function SelectionToolbar({ rect, onPick, onMovement, onCopy, onDismiss, 
       <button className="icon-btn sm" title="Début de mouvement (M)" onClick={onMovement}>
         <Milestone size={15} />
       </button>
+      {onBookmark && (
+        <button className="icon-btn sm" title="Ajouter un signet ici (S)" aria-label="Ajouter un signet ici" onClick={onBookmark}>
+          <BookmarkPlus size={15} />
+        </button>
+      )}
       <button className="icon-btn sm" title="Copier" onClick={onCopy}>
         <Copy size={14} />
       </button>

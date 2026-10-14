@@ -101,6 +101,7 @@ function snapshotDb(): Database {
     workspaces: s.workspaces,
     groups: s.groups,
     wsItems: s.wsItems,
+    bookmarks: s.bookmarks,
     settings: s.settings,
     trash: s.trash,
     activity: s.activity,

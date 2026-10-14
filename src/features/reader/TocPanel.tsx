@@ -1,7 +1,15 @@
 // Sommaire : arborescence indentée, élément courant, progression.
-import { useEffect, useMemo, useRef } from 'react';
+import { useEffect, useMemo, useRef, type CSSProperties } from 'react';
 import type { TocItem } from '../../lib/types';
 import './reader-tools.css';
+
+/** Repère d'un signet sur la barre de progression. */
+export interface ProgressMark {
+  id: string;
+  progress: number;
+  label: string;
+  color: string;
+}
 
 const clean = (x: string) => x.replace(/\s+/g, ' ').trim().toLowerCase();
 
@@ -10,11 +18,16 @@ export function TocPanel({
   currentLabel,
   progress,
   onSelect,
+  marks,
+  onMark,
 }: {
   items: TocItem[];
   currentLabel: string;
   progress: number;
   onSelect(item: TocItem): void;
+  /** Signets : petits rubans sur la barre de progression. */
+  marks?: ProgressMark[];
+  onMark?(id: string): void;
 }) {
   const listRef = useRef<HTMLDivElement>(null);
   const currentId = useMemo(() => {
@@ -58,8 +71,21 @@ export function TocPanel({
         </div>
       )}
       <div className="toc-foot">
-        <div className="toc-bar" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={pct}>
-          <span style={{ width: `${pct}%` }} />
+        <div className="toc-track">
+          <div className="toc-bar" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={pct}>
+            <span style={{ width: `${pct}%` }} />
+          </div>
+          {marks?.map((m) => (
+            <button
+              key={m.id}
+              type="button"
+              className="bm-tick"
+              title={`Signet : ${m.label}`}
+              aria-label={`Aller au signet ${m.label}`}
+              style={{ left: `${Math.max(0, Math.min(1, m.progress)) * 100}%`, '--bm-c': m.color } as CSSProperties}
+              onClick={() => onMark?.(m.id)}
+            />
+          ))}
         </div>
         <span className="toc-pct">{pct} %</span>
       </div>

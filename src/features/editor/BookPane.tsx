@@ -7,15 +7,17 @@
 // reste ici, l'éditeur n'est jamais re-rendu par le défilement du livre.
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
-import { ArrowLeftRight, ListTree, NotebookPen, Search, X } from 'lucide-react';
+import { ArrowLeftRight, Bookmark as BookmarkIcon, ListTree, NotebookPen, Search, X } from 'lucide-react';
 import { useStore, selectBook } from '../../lib/store';
-import type { Book, Highlight, TocItem } from '../../lib/types';
+import type { Book, Bookmark, Highlight, TocItem } from '../../lib/types';
 import type { EngineHandle, NewHighlightInput } from '../reader/engine';
 import { ReaderPane } from '../reader/ReaderView';
 import { TocPanel } from '../reader/TocPanel';
+import { BookmarkPopover, BookmarksPanel, bookmarkCommands, bookmarkKey, type BmPopoverState } from '../reader/bookmarks/BookmarkUi';
 import { StudyPanel } from '../study/StudyPanel';
 import { HighlightPopover } from '../annotations/HighlightPopover';
 import { BookCover } from '../library/BookCover';
+import { isTextEditingTarget } from '../history/keys';
 import '../reader/reader.css';
 
 const norm = (x: string) => x.normalize('NFD').replace(/\p{Diacritic}/gu, '').toLowerCase();
@@ -122,6 +124,9 @@ const BookHead = memo(function BookHead({
   onToc,
   onStudy,
   onChange,
+  bmOpen,
+  bmHere,
+  onBookmarks,
 }: {
   bookId: string;
   label: string;
@@ -131,6 +136,10 @@ const BookHead = memo(function BookHead({
   onToc(): void;
   onStudy(): void;
   onChange(): void;
+  bmOpen: boolean;
+  /** L'endroit lu a un signet : icône pleine. */
+  bmHere: boolean;
+  onBookmarks(): void;
 }) {
   const book = useStore(useShallow((s) => {
     const b = selectBook(bookId)(s);
@@ -150,6 +159,18 @@ const BookHead = memo(function BookHead({
       {book.format !== 'image' && (
         <button className={`icon-btn sm ${tocOpen ? 'active' : ''}`} onClick={onToc} title="Sommaire" aria-label="Sommaire" aria-pressed={tocOpen}>
           <ListTree size={15} />
+        </button>
+      )}
+      {book.format !== 'image' && (
+        <button
+          className={`icon-btn sm bm-toggle ${bmOpen ? 'active' : ''} ${bmHere ? 'is-on' : ''}`}
+          onClick={onBookmarks}
+          title="Signets (⌘D : ajouter un signet ici)"
+          aria-label="Signets"
+          aria-pressed={bmOpen}
+          data-testid="ed-bookmarks"
+        >
+          <BookmarkIcon key={bmHere ? 'on' : 'off'} size={15} fill={bmHere ? 'currentColor' : 'none'} />
         </button>
       )}
       <button className={`icon-btn sm ${studyOpen ? 'active' : ''}`} onClick={onStudy} title="Fiche-texte" aria-label="Fiche-texte" aria-pressed={studyOpen}>
@@ -174,6 +195,9 @@ export default function BookPane({
   const [picking, setPicking] = useState(false);
   const [tocOpen, setTocOpen] = useState(false);
   const [studyOpen, setStudyOpen] = useState(false);
+  const [bmOpen, setBmOpen] = useState(false);
+  const [bmPop, setBmPop] = useState<BmPopoverState | null>(null);
+  const rootRef = useRef<HTMLDivElement>(null);
   const [popover, setPopover] = useState<{ id: string; rect: DOMRect } | null>(null);
   const [pane, setPane] = useState<PaneState>({ toc: [], label: '', progress: 0, ready: false });
   const engineRef = useRef<EngineHandle | null>(null);
@@ -186,6 +210,8 @@ export default function BookPane({
     setPopover(null);
     setTocOpen(false);
     setStudyOpen(false);
+    setBmOpen(false);
+    setBmPop(null);
   }, [bookId]);
 
   // Pas de nouvel état si rien ne change (le moteur remonte souvent la même position).
@@ -229,6 +255,38 @@ export default function BookPane({
     engineRef.current?.goToAnchor(anchor);
   }, []);
 
+  // Signets : ⌘D, ⌘⌥↓ / ⌘⌥↑ quand le livre a le focus (jamais pendant l'écriture dans l'écrit).
+  const bookIdRef = useRef(bookId);
+  bookIdRef.current = bookId;
+  const bmCmd = useMemo(
+    () =>
+      bookmarkCommands(
+        () => (bookIdRef.current ? { bookId: bookIdRef.current, engine: engineRef.current } : null),
+        setBmPop,
+        () => rootRef.current?.querySelector('[data-testid="ed-bookmarks"]')?.getBoundingClientRect() ?? null,
+      ),
+    [],
+  );
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const k = bookmarkKey(e);
+      const root = rootRef.current;
+      if (!k || !root || !root.contains(document.activeElement) || isTextEditingTarget(e.target)) return;
+      e.preventDefault();
+      e.stopPropagation();
+      if (k === 'toggle') bmCmd.toggle();
+      else bmCmd.go(k === 'next' ? 1 : -1);
+    };
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
+  }, [bmCmd]);
+  const bookmarks = useStore(useShallow((s) => (bookId ? s.bookmarks.filter((b) => b.bookId === bookId) : [])));
+  const atView = pane.ready ? (engineRef.current?.bookmarkAtView?.(bookmarks) ?? null) : null;
+  const onGoBookmark = useCallback((b: Bookmark) => {
+    setBmOpen(false);
+    engineRef.current?.goToBookmark?.(b);
+  }, []);
+
   useEffect(() => {
     if (!popover) return;
     const onKey = (e: KeyboardEvent) => {
@@ -250,7 +308,7 @@ export default function BookPane({
   }
 
   return (
-    <div className="ed-book" data-book={bookId}>
+    <div className="ed-book" data-book={bookId} ref={rootRef}>
       <BookHead
         bookId={bookId}
         label={pane.label}
@@ -260,10 +318,19 @@ export default function BookPane({
         onToc={() => {
           setTocOpen((v) => !v);
           setStudyOpen(false);
+          setBmOpen(false);
         }}
         onStudy={() => {
           setStudyOpen((v) => !v);
           setTocOpen(false);
+          setBmOpen(false);
+        }}
+        bmOpen={bmOpen}
+        bmHere={!!atView}
+        onBookmarks={() => {
+          setBmOpen((v) => !v);
+          setTocOpen(false);
+          setStudyOpen(false);
         }}
         onChange={() => setPicking(true)}
       />
@@ -279,6 +346,7 @@ export default function BookPane({
           onPopover={setPopover}
           split={false}
           onCite={cite}
+          onBookmarkPopover={setBmPop}
         />
         {tocOpen && (
           <div className="ed-book-overlay ed-book-toc anim-fade">
@@ -296,6 +364,17 @@ export default function BookPane({
             <StudyPanel bookId={bookId} onGoTo={onStudyGoTo} />
           </div>
         )}
+        {bmOpen && (
+          <div className="ed-book-overlay ed-book-bookmarks anim-fade">
+            <div className="ed-book-overlay-head">
+              <span>Signets</span>
+              <button className="icon-btn sm" onClick={() => setBmOpen(false)} aria-label="Fermer les signets">
+                <X size={14} />
+              </button>
+            </div>
+            <BookmarksPanel bookId={bookId} currentId={atView} onGo={onGoBookmark} onAdd={() => bmCmd.toggle()} />
+          </div>
+        )}
         {picking && (
           <div className="ed-book-overlay anim-fade">
             <BookPicker
@@ -309,6 +388,7 @@ export default function BookPane({
           </div>
         )}
       </div>
+      {bmPop && <BookmarkPopover key={bmPop.id} {...bmPop} onClose={() => setBmPop(null)} />}
       {popover && (
         <HighlightPopover
           key={popover.id}

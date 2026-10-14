@@ -2,7 +2,7 @@
 // Contrat commun des moteurs de lecture v2 (FIGÉ).
 // HtmlReader (EPUB/DOCX/MD/TXT/HTML) et PdfReader l'implémentent.
 // ─────────────────────────────────────────────────────────────
-import type { Anchor, Book, CategoryId, Highlight, Movement, ReaderPosition, Settings, TocItem } from '../../lib/types';
+import type { Anchor, Book, Bookmark, CategoryId, Highlight, Movement, ReaderPosition, Settings, TocItem } from '../../lib/types';
 
 export interface SearchHit {
   id: string;
@@ -33,6 +33,19 @@ export interface NewMovementInput {
   locationLabel: string;
 }
 
+/** Endroit à marquer d'un signet, proposé par le moteur (haut de la fenêtre, sélection, clic droit). */
+export interface BookmarkPoint {
+  position: ReaderPosition;
+  anchor?: Anchor;
+  /** Premiers caractères du passage (≈ 40). */
+  excerpt: string;
+  progress: number;
+  /** Chapitre / section ou page (« Chapitre II », « p. 42 »). */
+  locationLabel: string;
+  /** Libellé proposé : « Section — début de la phrase… » ou « Page 42 ». */
+  label: string;
+}
+
 export interface EngineProps {
   book: Book;
   data: ArrayBuffer;
@@ -59,6 +72,12 @@ export interface EngineProps {
   onBackgroundClick(): void;
   onReady(): void;
   onError(message: string): void;
+  /** Signets du livre : repères discrets dans la marge (HTML) ou sur la page (PDF). */
+  bookmarks?: Bookmark[];
+  /** Clic sur le repère d'un signet. */
+  onBookmarkClick?(id: string, rect: DOMRect): void;
+  /** « Ajouter un signet ici » (barre de sélection, clic droit). */
+  onAddBookmark?(point: BookmarkPoint, rect: DOMRect | null): void;
 }
 
 export interface EngineHandle {
@@ -70,4 +89,12 @@ export interface EngineHandle {
   search(query: string): Promise<SearchHit[]>;
   goToSearchHit(hit: SearchHit): void;
   clearSearch(): void;
+  /** Endroit lu (haut de la fenêtre), pour un nouveau signet. Absent : signets non pris en charge. */
+  bookmarkPoint?(): BookmarkPoint | null;
+  /** Retour exact au signet (défilement + bref surlignage du paragraphe). */
+  goToBookmark?(b: Bookmark): void;
+  /** Signet situé à l'endroit lu (haut de la fenêtre), s'il y en a un. */
+  bookmarkAtView?(list: Bookmark[]): string | null;
+  /** Rectangle du repère d'un signet à l'écran (pour y ancrer le popover). */
+  getBookmarkRect?(id: string): DOMRect | null;
 }

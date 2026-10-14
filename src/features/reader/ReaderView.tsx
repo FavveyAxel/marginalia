@@ -1,15 +1,18 @@
 // Coquille du lecteur (intégrateur) : moteur(s), panneaux, popovers, côte à côte, fiche-texte.
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type MutableRefObject } from 'react';
 import { useShallow } from 'zustand/react/shallow';
-import { ChevronLeft, Columns2, Download, PanelLeft, PanelRight, Search, Type, X } from 'lucide-react';
+import { Bookmark as BookmarkIcon, ChevronLeft, Columns2, Download, PanelLeft, PanelRight, Search, Type, X } from 'lucide-react';
 import { useStore, selectBook, uid } from '../../lib/store';
 import { host } from '../../lib/platform';
-import type { Book, Highlight, Movement, ReaderPosition, Route, TextStudy, TocItem } from '../../lib/types';
-import type { EngineHandle, EngineProps, NewHighlightInput, NewMovementInput } from './engine';
+import type { Book, Bookmark, Highlight, Movement, ReaderPosition, Route, TextStudy, TocItem } from '../../lib/types';
+import type { BookmarkPoint, EngineHandle, EngineProps, NewHighlightInput, NewMovementInput } from './engine';
 import { HtmlReader } from './html/HtmlReader';
 import { PdfReader } from './pdf/PdfReader';
 import { ImageReader } from './image/ImageReader';
-import { TocPanel } from './TocPanel';
+import { TocPanel, type ProgressMark } from './TocPanel';
+import { BookmarkPopover, BookmarksPanel, addBookmarkAt, bookmarkCommands, bookmarkKey, type BmPopoverState } from './bookmarks/BookmarkUi';
+import { bookmarkColor } from './bookmarks/bookmarks';
+import { isTextEditingTarget } from '../history/keys';
 import { SearchBar } from './SearchBar';
 import { TypographyPopover } from './TypographyPopover';
 import { ExtractsPanel } from '../annotations/ExtractsPanel';
@@ -32,6 +35,7 @@ const MemoImageReader = memo(ImageReader);
 const MemoExtractsPanel = memo(ExtractsPanel);
 const MemoStudyPanel = memo(StudyPanel);
 const MemoTocPanel = memo(TocPanel);
+const MemoBookmarksPanel = memo(BookmarksPanel);
 
 /** Bouton principal enfoncé (glissé de sélection en cours) : les sauvegardes de position attendent. */
 let pointerHeld = false;
@@ -156,6 +160,7 @@ export const ReaderPane = memo(function ReaderPane({
   onClose,
   split,
   onCite,
+  onBookmarkPopover,
 }: {
   paneKey: PaneKey;
   bookId: string;
@@ -168,10 +173,13 @@ export const ReaderPane = memo(function ReaderPane({
   split: boolean;
   /** « Citer dans l'écrit » (panneau de l'éditeur) : la sélection est citée au curseur. */
   onCite?: (input: NewHighlightInput) => void;
+  /** Popover d'un signet (nouveau, ou clic sur son repère). Absent : pas de signets dans ce volet. */
+  onBookmarkPopover?: (p: BmPopoverState | null) => void;
 }) {
   const book = useStore(selectBook(bookId));
   const highlights = useStore(useShallow((s) => s.highlights.filter((h) => h.bookId === bookId)));
   const movements = useStore(useShallow((s) => s.studies.filter((x) => x.bookId === bookId).flatMap((x) => x.movements)));
+  const bookmarks = useStore(useShallow((s) => s.bookmarks.filter((b) => b.bookId === bookId)));
   const settings = useStore((s) => s.settings);
   const activeHighlightId = useStore((s) => s.activeHighlightId);
   const updateBook = useStore((s) => s.updateBook);
@@ -190,6 +198,9 @@ export const ReaderPane = memo(function ReaderPane({
   const onCiteRef = useRef(onCite);
   onCiteRef.current = onCite;
   const hasCite = !!onCite;
+  const onBmPopRef = useRef(onBookmarkPopover);
+  onBmPopRef.current = onBookmarkPopover;
+  const hasBookmarks = !!onBookmarkPopover;
 
   useEffect(() => {
     if (!book) return;
@@ -288,8 +299,20 @@ export const ReaderPane = memo(function ReaderPane({
       },
       onError: (m: string) => setError(m),
       onCite: hasCite ? (input: NewHighlightInput) => onCiteRef.current?.(input) : undefined,
+      onBookmarkClick: hasBookmarks ? (id: string, rect: DOMRect) => onBmPopRef.current?.({ id, rect, isNew: false }) : undefined,
+      onAddBookmark: hasBookmarks
+        ? (point: BookmarkPoint, rect: DOMRect | null) => {
+            const b = addBookmarkAt(bookId, point);
+            requestAnimationFrame(() =>
+              requestAnimationFrame(() => {
+                const r = engineRef.current?.getBookmarkRect?.(b.id) ?? rect;
+                if (r) onBmPopRef.current?.({ id: b.id, rect: r, isNew: true });
+              }),
+            );
+          }
+        : undefined,
     }),
-    [bookId, hasCite],
+    [bookId, hasCite, hasBookmarks],
   );
 
   const engineProps: EngineProps | null = useMemo(
@@ -300,6 +323,7 @@ export const ReaderPane = memo(function ReaderPane({
             data: data as ArrayBuffer,
             highlights,
             movements,
+            bookmarks,
             activeHighlightId,
             settings,
             initialPosition,
@@ -308,7 +332,7 @@ export const ReaderPane = memo(function ReaderPane({
             ...callbacks,
           }
         : null,
-    [engineBook, data, highlights, movements, activeHighlightId, settings, initialPosition, onPosition, onCreateHighlight, callbacks],
+    [engineBook, data, highlights, movements, bookmarks, activeHighlightId, settings, initialPosition, onPosition, onCreateHighlight, callbacks],
   );
 
   if (!book || !engineProps) return null;
@@ -402,6 +426,7 @@ export function ReaderView({ bookId, tab, splitBookId }: Props) {
   }));
   const settings = useStore((s) => s.settings);
   const jump = useStore((s) => s.jump);
+  const bookmarkJump = useStore((s) => s.bookmarkJump);
   const navigate = useStore((s) => s.navigate);
   const setActiveHighlight = useStore((s) => s.setActiveHighlight);
   const updateSettings = useStore((s) => s.updateSettings);
@@ -417,12 +442,23 @@ export function ReaderView({ bookId, tab, splitBookId }: Props) {
   const [typoAnchor, setTypoAnchor] = useState<DOMRect | null>(null);
   const [splitAnchor, setSplitAnchor] = useState<DOMRect | null>(null);
   const [searchOpen, setSearchOpen] = useState(false);
+  const [bmPop, setBmPop] = useState<BmPopoverState | null>(null);
+  const bmBtnRef = useRef<HTMLButtonElement>(null);
 
   const split = !!splitBookId && tab === 'lecture';
   const activeKey: PaneKey = split ? focus : 'a';
   const activeBookId = activeKey === 'b' && splitBookId ? splitBookId : bookId;
   const activeEngine = activeKey === 'b' ? engineB : engineA;
   const pane = panes[activeKey];
+  const activeFormat = useStore((s) => s.books.find((b) => b.id === activeBookId)?.format);
+  const canBookmark = tab === 'lecture' && !!activeFormat && activeFormat !== 'image';
+  const bookmarks = useStore(useShallow((s) => s.bookmarks.filter((b) => b.bookId === activeBookId)));
+  // Signet à l'endroit lu : recalculé à chaque position remontée par le moteur (pane.progress / label).
+  const atView = canBookmark && pane.ready ? (activeEngine.current?.bookmarkAtView?.(bookmarks) ?? null) : null;
+  const tocMarks = useMemo<ProgressMark[]>(
+    () => bookmarks.filter((b) => typeof b.progress === 'number').map((b) => ({ id: b.id, progress: b.progress!, label: b.label, color: bookmarkColor(b.color) })),
+    [bookmarks],
+  );
 
   // Pas de nouvel état si rien ne change (les moteurs remontent souvent la même position).
   const updatePane = useCallback(
@@ -449,6 +485,23 @@ export function ReaderView({ bookId, tab, splitBookId }: Props) {
     }
   }, []);
   const onStudyGoTo = useCallback((anchor: Highlight['anchor']) => activeEngineRef.current.current?.goToAnchor(anchor), []);
+  const activeBookIdRef = useRef(activeBookId);
+  activeBookIdRef.current = activeBookId;
+  const bmCmd = useMemo(
+    () =>
+      bookmarkCommands(
+        () => ({ bookId: activeBookIdRef.current, engine: activeEngineRef.current.current }),
+        setBmPop,
+        () => bmBtnRef.current?.getBoundingClientRect() ?? null,
+      ),
+    [],
+  );
+  const onGoBookmark = useCallback((b: Bookmark) => activeEngineRef.current.current?.goToBookmark?.(b), []);
+  const onAddBookmark = useCallback(() => bmCmd.toggle(), [bmCmd]);
+  const onTocMark = useCallback((id: string) => {
+    const b = useStore.getState().bookmarks.find((x) => x.id === id);
+    if (b) activeEngineRef.current.current?.goToBookmark?.(b);
+  }, []);
   const closeSplit = useCallback(() => {
     setFocus('a');
     const r = useStore.getState().route;
@@ -467,6 +520,20 @@ export function ReaderView({ bookId, tab, splitBookId }: Props) {
     setFocus(key);
   }, [jump?.nonce, panes.a.ready, panes.b.ready]);
 
+  // Retour demandé vers un signet (⌘K, journal)
+  const doneBmJump = useRef(0);
+  useEffect(() => {
+    if (!bookmarkJump || doneBmJump.current === bookmarkJump.nonce) return;
+    const b = useStore.getState().bookmarks.find((x) => x.id === bookmarkJump.bookmarkId);
+    if (!b) return;
+    const key: PaneKey | null = b.bookId === bookId ? 'a' : split && b.bookId === splitBookId ? 'b' : null;
+    if (!key || !panes[key].ready) return;
+    doneBmJump.current = bookmarkJump.nonce;
+    if (tab !== 'lecture') navigate({ name: 'reader', bookId, tab: 'lecture', splitBookId });
+    (key === 'a' ? engineA : engineB).current?.goToBookmark?.(b);
+    setFocus(key);
+  }, [bookmarkJump?.nonce, panes.a.ready, panes.b.ready]);
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const meta = e.metaKey || e.ctrlKey;
@@ -482,6 +549,11 @@ export function ReaderView({ bookId, tab, splitBookId }: Props) {
       } else if (meta && e.key === '[') {
         e.preventDefault();
         goBack(navigate);
+      } else if (bookmarkKey(e) && tab === 'lecture' && !isTextEditingTarget(e.target)) {
+        e.preventDefault();
+        const k = bookmarkKey(e);
+        if (k === 'toggle') bmCmd.toggle();
+        else bmCmd.go(k === 'next' ? 1 : -1);
       } else if (e.key === 'Escape' && popover) {
         setPopover(null);
         setActiveHighlight(null);
@@ -489,7 +561,7 @@ export function ReaderView({ bookId, tab, splitBookId }: Props) {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [bookId, splitBookId, popover]);
+  }, [bookId, splitBookId, popover, tab]);
 
   if (!book) {
     return (
@@ -558,6 +630,19 @@ export function ReaderView({ bookId, tab, splitBookId }: Props) {
               <button className={`icon-btn ${typoAnchor ? 'active' : ''}`} onClick={(e) => setTypoAnchor(typoAnchor ? null : e.currentTarget.getBoundingClientRect())} title="Affichage">
                 <Type size={16} />
               </button>
+              {canBookmark && (
+                <button
+                  ref={bmBtnRef}
+                  className={`icon-btn bm-toggle ${atView ? 'is-on' : ''}`}
+                  onClick={() => bmCmd.toggle()}
+                  title={atView ? 'Signet à cet endroit : renommer, colorer, supprimer (⌘D)' : 'Ajouter un signet ici (⌘D)'}
+                  aria-label={atView ? 'Modifier le signet de cet endroit' : 'Ajouter un signet ici'}
+                  aria-pressed={!!atView}
+                  data-testid="bookmark-toggle"
+                >
+                  <BookmarkIcon key={atView ? 'on' : 'off'} size={16} fill={atView ? 'currentColor' : 'none'} />
+                </button>
+              )}
             </>
           )}
           <button className="icon-btn" onClick={exportMd} title="Exporter les notes (Markdown)">
@@ -576,7 +661,7 @@ export function ReaderView({ bookId, tab, splitBookId }: Props) {
           {/* Une image (photo, scan) n'a pas de sommaire : pas de panneau vide. */}
           {settings.showToc && !split && book.format !== 'image' && (
             <aside className="panel reader-side reader-toc">
-              <MemoTocPanel items={pane.toc} currentLabel={pane.label} progress={pane.progress} onSelect={onTocSelect} />
+              <MemoTocPanel items={pane.toc} currentLabel={pane.label} progress={pane.progress} onSelect={onTocSelect} marks={tocMarks} onMark={onTocMark} />
             </aside>
           )}
           <div className={`reader-panes ${split ? 'is-split' : ''}`}>
@@ -594,6 +679,7 @@ export function ReaderView({ bookId, tab, splitBookId }: Props) {
               onState={onStateA}
               onPopover={setPopover}
               split={split}
+              onBookmarkPopover={setBmPop}
             />
             {split && splitBookId && (
               <ReaderPane
@@ -607,6 +693,7 @@ export function ReaderView({ bookId, tab, splitBookId }: Props) {
                 onPopover={setPopover}
                 split
                 onClose={closeSplit}
+                onBookmarkPopover={setBmPop}
               />
             )}
           </div>
@@ -620,13 +707,20 @@ export function ReaderView({ bookId, tab, splitBookId }: Props) {
                   <button className={settings.rightPanel === 'etude' ? 'active' : ''} onClick={() => updateSettings({ rightPanel: 'etude' })}>
                     Fiche-texte
                   </button>
+                  {canBookmark && (
+                    <button className={settings.rightPanel === 'signets' ? 'active' : ''} onClick={() => updateSettings({ rightPanel: 'signets' })}>
+                      Signets{bookmarks.length ? ` · ${bookmarks.length}` : ''}
+                    </button>
+                  )}
                 </div>
               </div>
               <div className="reader-side-body">
-                {settings.rightPanel === 'extraits' ? (
-                  <MemoExtractsPanel key={activeBookId} bookId={activeBookId} onJump={onJumpExtract} />
-                ) : (
+                {settings.rightPanel === 'signets' && canBookmark ? (
+                  <MemoBookmarksPanel key={activeBookId} bookId={activeBookId} currentId={atView} onGo={onGoBookmark} onAdd={onAddBookmark} />
+                ) : settings.rightPanel === 'etude' ? (
                   <MemoStudyPanel key={activeBookId} bookId={activeBookId} onGoTo={onStudyGoTo} />
+                ) : (
+                  <MemoExtractsPanel key={activeBookId} bookId={activeBookId} onJump={onJumpExtract} />
                 )}
               </div>
             </aside>
@@ -651,6 +745,7 @@ export function ReaderView({ bookId, tab, splitBookId }: Props) {
         />
       )}
       {typoAnchor && <TypographyPopover anchor={typoAnchor} onClose={() => setTypoAnchor(null)} />}
+      {bmPop && tab === 'lecture' && <BookmarkPopover key={bmPop.id} {...bmPop} onClose={() => setBmPop(null)} />}
       {splitAnchor && (
         <SplitPicker
           anchor={splitAnchor}

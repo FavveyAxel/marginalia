@@ -1,5 +1,5 @@
 // Icône par nature d'objet (corbeille, journal).
-import { BookOpen, Brain, FileDown, FilePen, Folder, FolderOpen, Highlighter, Lightbulb, Link2, ListTree, Network, NotebookPen, Sigma } from 'lucide-react';
+import { Bookmark, BookOpen, Brain, FileDown, FilePen, Folder, FolderOpen, Highlighter, Lightbulb, Link2, ListTree, Network, NotebookPen, Sigma } from 'lucide-react';
 import type { ActivityKind } from '../../lib/types';
 
 export function KindIcon({ kind, size = 15 }: { kind: ActivityKind; size?: number }) {
@@ -29,6 +29,8 @@ export function KindIcon({ kind, size = 15 }: { kind: ActivityKind; size?: numbe
       return <Network {...p} />;
     case 'wsItem':
       return <Link2 {...p} />;
+    case 'bookmark':
+      return <Bookmark {...p} />;
     default:
       return <FileDown {...p} />;
   }

@@ -15,6 +15,13 @@ App macOS pour lire, étudier et écrire en philosophie (Electron + React + Type
 Ouvrez le .dmg et glissez Marginalia dans Applications. L'app est signée ad hoc mais pas notariée :
 au premier lancement, faites clic droit sur Marginalia › Ouvrir (ou Réglages Système › Confidentialité et sécurité › Ouvrir quand même).
 
+## Confidentialité
+
+Tout fonctionne en local sur le Mac : aucun compte, aucun serveur. Les livres, notes et écrits restent dans le dossier de l'app
+(`~/Library/Application Support/Marginalia`). La reconnaissance du texte des images (tesseract.js) et le correcteur tournent hors ligne,
+la télémétrie de l'éditeur (SuperDoc) est désactivée, et l'app bloque toute requête réseau sortante. Seuls les liens cliqués
+s'ouvrent dans votre navigateur.
+
 ## Développement
 
 ```bash

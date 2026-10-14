@@ -506,8 +506,17 @@ function buildMenu() {
 app.whenReady().then(() => {
   app.setAboutPanelOptions({ applicationName: 'Marginalia', copyright: '© Axel Bierne' });
   registerAppProtocol();
-  // Aucune permission (caméra, géolocalisation…) n'est jamais accordée.
-  session.defaultSession.setPermissionRequestHandler((_wc, _perm, cb) => cb(false));
+  // Confidentialité : l'app fonctionne entièrement hors ligne. Toute requête réseau sortante
+  // (http, https, ws, wss, ftp) est bloquée ; seuls le protocole app://, file:, data: et blob: passent.
+  // En développement, le serveur Vite local reste autorisé.
+  const devUrl = process.env.VITE_DEV_SERVER_URL || '';
+  session.defaultSession.webRequest.onBeforeRequest((details, cb) => {
+    const u = details.url;
+    const local = /^(app|file|data|blob|devtools|chrome-extension):/i.test(u) || (devUrl && (u.startsWith(devUrl.replace(/\/$/, '')) || /^wss?:\/\/localhost/.test(u)));
+    cb({ cancel: !local });
+  });
+  // Seule la lecture des polices installées (pour l'éditeur) est accordée ; caméra, micro, géolocalisation… jamais.
+  session.defaultSession.setPermissionRequestHandler((_wc, perm, cb) => cb(perm === 'local-fonts' || perm === 'localFonts'));
   buildMenu();
   // Fichiers passés en argument au lancement (hors macOS `open-file`).
   const argvFiles = process.argv.slice(app.isPackaged ? 1 : 2).filter((a) => !a.startsWith('-'));

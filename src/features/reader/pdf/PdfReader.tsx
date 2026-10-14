@@ -12,6 +12,7 @@ import { describeError, loadToc, openPdf, type PDFDocumentProxy } from './pdfjs'
 import { readSelection, type PdfSelection } from './selection';
 import { buildIndex, collectDomText, findAll, makeSnippet, mergeLineRects, normalizeQuery, rawSpanRects, spanOf, toNorm, type TextIndex } from './textindex';
 import './pdf-reader.css';
+import { fmtKeys } from '../../../lib/keys';
 
 const GUTTER = 36; // marge latérale (repères de mouvement)
 const GAP = 14; // espace entre les pages
@@ -891,13 +892,13 @@ export const PdfReader = forwardRef<EngineHandle, EngineProps>(function PdfReade
 
       {doc && (
         <div className="pdf-zoombar" role="toolbar" aria-label="Zoom et page">
-          <button className="icon-btn sm" onClick={zoomOut} title="Zoom arrière (⌘−)" aria-label="Zoom arrière">
+          <button className="icon-btn sm" onClick={zoomOut} title={fmtKeys("Zoom arrière (⌘−)")} aria-label="Zoom arrière">
             <Minus size={14} />
           </button>
           <span className="pdf-zoom-val" data-testid="pdf-zoom">
             {pct} %
           </span>
-          <button className="icon-btn sm" onClick={zoomIn} title="Zoom avant (⌘+)" aria-label="Zoom avant">
+          <button className="icon-btn sm" onClick={zoomIn} title={fmtKeys("Zoom avant (⌘+)")} aria-label="Zoom avant">
             <Plus size={14} />
           </button>
           <span className="pdf-zoom-sep" />
@@ -905,7 +906,7 @@ export const PdfReader = forwardRef<EngineHandle, EngineProps>(function PdfReade
             p. {curPage} / {numPages}
           </span>
           <span className="pdf-zoom-sep" />
-          <button className={`btn btn-ghost btn-sm pdf-fit ${zoom === 'fit' ? 'is-on' : ''}`} onClick={() => applyZoom('fit')} title="Ajuster à la largeur (⌘0)">
+          <button className={`btn btn-ghost btn-sm pdf-fit ${zoom === 'fit' ? 'is-on' : ''}`} onClick={() => applyZoom('fit')} title={fmtKeys("Ajuster à la largeur (⌘0)")}>
             <Maximize2 size={13} /> Ajuster
           </button>
         </div>

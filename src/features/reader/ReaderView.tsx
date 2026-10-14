@@ -24,6 +24,7 @@ import { bookToMarkdown } from '../../lib/exportMarkdown';
 import { PageSkeleton, useFloating } from '../../components/ui';
 import './reader.css';
 import { RESUME_EVENT, type PendingResume } from '../library/appleBooksAnnotations';
+import { fmtKeys, isMac, isMod, matchKeys } from '../../lib/keys';
 
 // ── Rendus : le lecteur reste fluide pendant la lecture et la sélection ──
 // Chaque sauvegarde de position (toutes les ~800 ms en défilant) et chaque progression remontée
@@ -556,7 +557,7 @@ export function ReaderView({ bookId, tab, splitBookId }: Props) {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      const meta = e.metaKey || e.ctrlKey;
+      const meta = isMod(e);
       if (meta && e.key.toLowerCase() === 'f') {
         e.preventDefault();
         setSearchOpen(true);
@@ -566,7 +567,7 @@ export function ReaderView({ bookId, tab, splitBookId }: Props) {
       } else if (meta && e.key === '2') {
         e.preventDefault();
         navigate({ name: 'reader', bookId, tab: 'carte', splitBookId });
-      } else if (meta && e.key === '[') {
+      } else if ((meta && e.key === '[') || (!isMac && matchKeys(e, '⌘['))) {
         e.preventDefault();
         goBack(navigate);
       } else if (bookmarkKey(e) && tab === 'lecture' && !isTextEditingTarget(e.target)) {
@@ -607,7 +608,7 @@ export function ReaderView({ bookId, tab, splitBookId }: Props) {
     <div className="reader anim-fade">
       <header className="topbar reader-topbar">
         <div className="reader-topbar-left">
-          <button className="btn btn-ghost btn-sm reader-back" onClick={() => goBack(navigate)} title={`Revenir : ${returnLabel()} (⌘[)`}>
+          <button className="btn btn-ghost btn-sm reader-back" onClick={() => goBack(navigate)} title={fmtKeys(`Revenir : ${returnLabel()} (⌘[)`)}>
             <ChevronLeft size={16} /> <span className="truncate">{returnLabel()}</span>
           </button>
           {tab === 'lecture' && book.format !== 'image' && (
@@ -622,10 +623,10 @@ export function ReaderView({ bookId, tab, splitBookId }: Props) {
           {book.author && <span className="truncate muted">{book.author}</span>}
         </div>
         <div className="segmented reader-tabs" role="tablist">
-          <button role="tab" aria-selected={tab === 'lecture'} className={tab === 'lecture' ? 'active' : ''} onClick={() => goTab('lecture')} title="Lecture (⌘1)">
+          <button role="tab" aria-selected={tab === 'lecture'} className={tab === 'lecture' ? 'active' : ''} onClick={() => goTab('lecture')} title={fmtKeys("Lecture (⌘1)")}>
             Lecture
           </button>
-          <button role="tab" aria-selected={tab === 'carte'} className={tab === 'carte' ? 'active' : ''} onClick={() => goTab('carte')} title="Carte d’argument (⌘2)">
+          <button role="tab" aria-selected={tab === 'carte'} className={tab === 'carte' ? 'active' : ''} onClick={() => goTab('carte')} title={fmtKeys("Carte d’argument (⌘2)")}>
             Carte
           </button>
         </div>
@@ -644,7 +645,7 @@ export function ReaderView({ bookId, tab, splitBookId }: Props) {
               >
                 <Columns2 size={16} />
               </button>
-              <button className={`icon-btn ${searchOpen ? 'active' : ''}`} onClick={() => setSearchOpen((v) => !v)} title="Rechercher (⌘F)">
+              <button className={`icon-btn ${searchOpen ? 'active' : ''}`} onClick={() => setSearchOpen((v) => !v)} title={fmtKeys("Rechercher (⌘F)")}>
                 <Search size={16} />
               </button>
               <button className={`icon-btn ${typoAnchor ? 'active' : ''}`} onClick={(e) => setTypoAnchor(typoAnchor ? null : e.currentTarget.getBoundingClientRect())} title="Affichage">
@@ -655,7 +656,7 @@ export function ReaderView({ bookId, tab, splitBookId }: Props) {
                   ref={bmBtnRef}
                   className={`icon-btn bm-toggle ${atView ? 'is-on' : ''}`}
                   onClick={() => bmCmd.toggle()}
-                  title={atView ? 'Signet à cet endroit : renommer, colorer, supprimer (⌘D)' : 'Ajouter un signet ici (⌘D)'}
+                  title={fmtKeys(atView ? 'Signet à cet endroit : renommer, colorer, supprimer (⌘D)' : 'Ajouter un signet ici (⌘D)')}
                   aria-label={atView ? 'Modifier le signet de cet endroit' : 'Ajouter un signet ici'}
                   aria-pressed={!!atView}
                   data-testid="bookmark-toggle"

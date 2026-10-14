@@ -3,6 +3,7 @@ import { BookOpen } from 'lucide-react';
 import { useStore } from '../../lib/store';
 import { openCitedExtract, type CiteHover } from './citeLink';
 import './versions.css';
+import { fmtKeys } from '../../lib/keys';
 
 export function CiteBar({ hover }: { hover: CiteHover }) {
   const h = useStore((s) => s.highlights.find((x) => x.id === hover.highlightId) ?? null);
@@ -18,7 +19,7 @@ export function CiteBar({ hover }: { hover: CiteHover }) {
       ) : (
         <span className="ed-citebar-gone">Extrait supprimé</span>
       )}
-      <button className="btn btn-sm" onClick={() => openCitedExtract(hover.highlightId)} title="Ouvrir le livre à cet extrait (⌘-clic sur la citation)" data-act="open-extract">
+      <button className="btn btn-sm" onClick={() => openCitedExtract(hover.highlightId)} title={fmtKeys("Ouvrir le livre à cet extrait (⌘-clic sur la citation)")} data-act="open-extract">
         <BookOpen size={13} /> Ouvrir l’extrait
       </button>
     </div>

@@ -10,6 +10,7 @@ import { Kbd, useFloating } from '../../../components/ui';
 import type { BookmarkPoint, EngineHandle } from '../engine';
 import { BOOKMARK_COLORS, bookmarkColor, clipWords, neighbour, sortBookmarks, whereOf } from './bookmarks';
 import './bookmarks.css';
+import { fmtKeys, matchKeys } from '../../../lib/keys';
 
 export interface BmPopoverState {
   id: string;
@@ -69,7 +70,7 @@ export function bookmarkCommands(
       const eng = c?.engine;
       if (!c || !eng?.goToBookmark) return;
       const list = bookmarksOf(c.bookId);
-      if (!list.length) return toast('Aucun signet dans ce document (⌘D pour en ajouter un)');
+      if (!list.length) return toast(fmtKeys('Aucun signet dans ce document (⌘D pour en ajouter un)'));
       const n = neighbour(list, eng.bookmarkPoint?.() ?? null, eng.bookmarkAtView?.(list) ?? null, dir);
       if (!n) return toast(dir === 1 ? 'Pas de signet plus loin' : 'Pas de signet avant');
       eng.goToBookmark(n);
@@ -77,13 +78,11 @@ export function bookmarkCommands(
   };
 }
 
-/** ⌘D, ⌘⌥↓, ⌘⌥↑ (dans un champ de saisie : seulement si `allowInInput`). */
+/** ⌘D, ⌘⌥↓, ⌘⌥↑ — Windows : Ctrl+D, Ctrl+Maj+↓, Ctrl+Maj+↑ (dans un champ de saisie : seulement si `allowInInput`). */
 export function bookmarkKey(e: KeyboardEvent): 'toggle' | 'next' | 'prev' | null {
-  const mod = e.metaKey || e.ctrlKey;
-  if (!mod) return null;
-  if (!e.altKey && !e.shiftKey && e.code === 'KeyD') return 'toggle';
-  if (e.altKey && !e.shiftKey && e.key === 'ArrowDown') return 'next';
-  if (e.altKey && !e.shiftKey && e.key === 'ArrowUp') return 'prev';
+  if (matchKeys(e, '⌘D')) return 'toggle';
+  if (matchKeys(e, '⌘⌥↓')) return 'next';
+  if (matchKeys(e, '⌘⌥↑')) return 'prev';
   return null;
 }
 

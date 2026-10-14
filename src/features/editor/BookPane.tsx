@@ -19,6 +19,7 @@ import { HighlightPopover } from '../annotations/HighlightPopover';
 import { BookCover } from '../library/BookCover';
 import { isTextEditingTarget } from '../history/keys';
 import '../reader/reader.css';
+import { fmtKeys } from '../../lib/keys';
 
 const norm = (x: string) => x.normalize('NFD').replace(/\p{Diacritic}/gu, '').toLowerCase();
 
@@ -165,7 +166,7 @@ const BookHead = memo(function BookHead({
         <button
           className={`icon-btn sm bm-toggle ${bmOpen ? 'active' : ''} ${bmHere ? 'is-on' : ''}`}
           onClick={onBookmarks}
-          title="Signets (⌘D : ajouter un signet ici)"
+          title={fmtKeys("Signets (⌘D : ajouter un signet ici)")}
           aria-label="Signets"
           aria-pressed={bmOpen}
           data-testid="ed-bookmarks"

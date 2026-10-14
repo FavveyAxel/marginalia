@@ -735,3 +735,65 @@ textarea {
   font-style: normal;
   vertical-align: 1px;
 }
+
+/* ─────────────────────────────────────────────────────────────
+   Windows (et Linux) : barre de titre intégrée (titleBarOverlay).
+   Les boutons Réduire / Agrandir / Fermer sont dessinés par le système en haut à droite,
+   sur la hauteur de --titlebar-h : on leur réserve leur largeur (--winctl-w, ≈ 140 px ;
+   valeur exacte fournie par le système via env(titlebar-area-*)). Pas de réserve à gauche
+   pour les pastilles du Mac. La classe platform-* est posée par src/lib/keys.ts.
+   ───────────────────────────────────────────────────────────── */
+:root {
+  --winctl-w: 0px;
+}
+:root:is(.platform-win, .platform-linux) {
+  --winctl-w: calc(100vw - env(titlebar-area-x, 0px) - env(titlebar-area-width, calc(100vw - 140px)));
+}
+:root:is(.platform-win, .platform-linux) .topbar {
+  padding-right: calc(var(--sp-4) + var(--winctl-w));
+}
+:root:is(.platform-win, .platform-linux) .reader-topbar {
+  padding-left: var(--sp-4);
+}
+:root:is(.platform-win, .platform-linux) .sidebar.collapsed .sidebar-top {
+  height: var(--titlebar-h);
+  align-items: center;
+  padding: 0;
+}
+:root:is(.platform-win, .platform-linux) .ed-focus-exit {
+  right: calc(16px + var(--winctl-w));
+}
+
+/* Windows : déplacement de la fenêtre par les zones natives (accrochage aux bords, double-clic
+   pour agrandir, menu système). Uniquement sous Windows : sur Mac, ces zones provoquaient des
+   redimensionnements involontaires (déplacement en JS, voir useWindowDrag). */
+.platform-win :is(.topbar, .drag, .sidebar-top, .sidebar-brand) {
+  -webkit-app-region: drag;
+}
+.platform-win :is(.topbar, .drag, .sidebar-top, .sidebar-brand)
+  :is(button, a, input, textarea, select, label, [role='button'], [role='tab'], [role='tablist'], [role='menu'], [role='menuitem'], [role='dialog'], [role='listbox'], [role='option'], [role='radiogroup'], [contenteditable='true'], .no-drag, .segmented, .floating, [class*='menu'], [class*='pop']) {
+  -webkit-app-region: no-drag;
+}
+
+/* Windows : barres de défilement discrètes (sinon larges et toujours visibles). */
+.platform-win ::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+.platform-win ::-webkit-scrollbar-thumb {
+  background: transparent;
+  border-radius: 10px;
+  border: 3px solid transparent;
+  background-clip: content-box;
+}
+.platform-win :hover::-webkit-scrollbar-thumb {
+  background-color: var(--border-strong);
+}
+.platform-win ::-webkit-scrollbar-thumb:hover {
+  background-color: var(--muted);
+}
+.platform-win ::-webkit-scrollbar-corner,
+.platform-win ::-webkit-scrollbar-button {
+  display: none;
+  background: transparent;
+}

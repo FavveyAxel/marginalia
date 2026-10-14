@@ -1,4 +1,6 @@
 // Import / synchro depuis l'app Livres : faux dossier iCloud de Livres (HOME temporaire).
+// L'app Livres n'existe que sur macOS : hors Mac, MARGINALIA_APPLE_BOOKS=1 active ces fonctions pour le test
+// (sans ce drapeau, elles sont absentes : voir scripts/test-electron-platform.mjs).
 import { _electron as electron } from 'playwright-core';
 import path from 'node:path'; import fs from 'node:fs'; import os from 'node:os'; import { execFileSync } from 'node:child_process';
 const ROOT = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..');
@@ -12,7 +14,7 @@ fs.writeFileSync(path.join(pkg('Protégé.epub'), 'META-INF/sinf.xml'), '<fairpl
 fs.copyFileSync(path.join(ROOT, 'fixtures/discours.pdf'), path.join(BOOKS, 'Un PDF.pdf'));
 fs.writeFileSync(path.join(BOOKS, '.Pas encore là.epub.icloud'), '');
 const ok = (c, m) => { console.log((c ? 'OK   ' : 'ÉCHEC ') + m); if (!c) process.exitCode = 1; };
-const app = await electron.launch({ executablePath: path.join(ROOT, 'node_modules/electron/dist/electron'), args: ['--no-sandbox', APP_DIR], env: { ...process.env, HOME, XDG_CONFIG_HOME: path.join(HOME, '.config'), VITE_DEV_SERVER_URL: '' }, timeout: 60000 });
+const app = await electron.launch({ executablePath: path.join(ROOT, 'node_modules/electron/dist/electron'), args: ['--no-sandbox', APP_DIR], env: { ...process.env, HOME, XDG_CONFIG_HOME: path.join(HOME, '.config'), VITE_DEV_SERVER_URL: '', MARGINALIA_APPLE_BOOKS: '1' }, timeout: 60000 });
 try {
   const page = await app.firstWindow();
   const scan = await page.evaluate(() => window.marginalia.appleBooksScan());

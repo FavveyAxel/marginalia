@@ -26,6 +26,7 @@ import { useMultiSelect } from '../../lib/useMultiSelect';
 import { SelectionActionBar, SelectCheck } from '../../components/MultiSelect';
 import { CheckSquare, Trash2 as TrashIcon } from 'lucide-react';
 import './concepts.css';
+import { fmtKeys, isMod } from '../../lib/keys';
 
 type FilterKey = 'all' | 'notion' | 'repere' | 'perso';
 
@@ -229,13 +230,13 @@ export function ConceptsView({ conceptId }: { conceptId: string | null }) {
     const onKey = (e: KeyboardEvent) => {
       const t = e.target as HTMLElement | null;
       if (t && (t.closest('input, textarea, [contenteditable="true"]') || t.isContentEditable)) return;
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'a' && !e.shiftKey && !e.altKey) {
+      if (isMod(e) && e.key.toLowerCase() === 'a' && !e.shiftKey && !e.altKey) {
         e.preventDefault();
         sel.selectAll();
       } else if (e.key === 'Escape' && (sel.size || selectMode)) {
         sel.clear();
         setSelectMode(false);
-      } else if ((e.key === 'Backspace' || e.key === 'Delete') && e.metaKey && sel.size) {
+      } else if ((e.key === 'Backspace' || e.key === 'Delete') && isMod(e) && sel.size) {
         e.preventDefault();
         deleteSelected();
       }
@@ -352,7 +353,7 @@ export function ConceptsView({ conceptId }: { conceptId: string | null }) {
               <button
                 className={`btn btn-ghost btn-sm cpt-select-btn ${selectMode ? 'active' : ''}`}
                 onClick={() => (selectMode ? (setSelectMode(false), sel.clear()) : setSelectMode(true))}
-                title={selectMode ? 'Quitter la sélection (Échap)' : 'Sélectionner plusieurs concepts (⌘-clic, ⇧-clic, ⌘A)'}
+                title={fmtKeys(selectMode ? 'Quitter la sélection (Échap)' : 'Sélectionner plusieurs concepts (⌘-clic, ⇧-clic, ⌘A)')}
                 aria-pressed={selectMode}
               >
                 <CheckSquare size={14} /> {selectMode ? 'Terminé' : 'Sélectionner'}
@@ -420,10 +421,10 @@ export function ConceptsView({ conceptId }: { conceptId: string | null }) {
           </aside>
 
           <SelectionActionBar count={sel.size} label={sel.size > 1 ? 'concepts sélectionnés' : 'concept sélectionné'} onClear={() => (sel.clear(), setSelectMode(false))}>
-            <button className="btn btn-ghost btn-sm" onClick={() => sel.selectAll()} title="Tout sélectionner (⌘A)">
+            <button className="btn btn-ghost btn-sm" onClick={() => sel.selectAll()} title={fmtKeys("Tout sélectionner (⌘A)")}>
               Tout sélectionner
             </button>
-            <button className="btn btn-ghost btn-sm btn-danger" onClick={deleteSelected} title="Placer dans la corbeille (⌘⌫)" data-action="delete-selected">
+            <button className="btn btn-ghost btn-sm btn-danger" onClick={deleteSelected} title={fmtKeys("Placer dans la corbeille (⌘⌫)")} data-action="delete-selected">
               <TrashIcon size={13} /> Supprimer
             </button>
           </SelectionActionBar>

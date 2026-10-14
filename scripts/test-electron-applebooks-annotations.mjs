@@ -113,7 +113,8 @@ ann({ asset: 'ASSET-UNK', uuid: 'H-UNK', style: 3, text: P_BON, cfi: cfiRange('c
 const app = await electron.launch({
   executablePath: path.join(ROOT, 'node_modules/electron/dist/electron'),
   args: ['--no-sandbox', APP_DIR],
-  env: { ...process.env, MARGINALIA_E2E: '1', HOME, XDG_CONFIG_HOME: path.join(HOME, '.config'), VITE_DEV_SERVER_URL: '' },
+  // Livres : macOS uniquement ; drapeau de test explicite pour l'exercer sous Linux.
+  env: { ...process.env, MARGINALIA_E2E: '1', HOME, XDG_CONFIG_HOME: path.join(HOME, '.config'), VITE_DEV_SERVER_URL: '', MARGINALIA_APPLE_BOOKS: '1' },
   timeout: 60000,
 });
 const errors = [];

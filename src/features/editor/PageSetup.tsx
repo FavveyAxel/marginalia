@@ -5,6 +5,7 @@ import { useEffect, useState } from 'react';
 import { GraduationCap } from 'lucide-react';
 import type { DocEngine, PageNumbers, PageSetup as Setup } from './engine';
 import { NumField, keepFocus } from './controls';
+import { fmtKeys } from '../../lib/keys';
 
 type Op = (label: string, run: () => Promise<ArrayBuffer>) => Promise<void>;
 
@@ -119,7 +120,7 @@ export function PageSetupPanel({ engine, op, onAcademic }: { engine: DocEngine; 
           <small>Times 12, interligne 1,5, justifié, alinéa, notes en 10, marges 2,5 cm, pages numérotées</small>
         </span>
       </button>
-      <p className="ed-pop-note">⌘Z annule le dernier réglage.</p>
+      <p className="ed-pop-note">{fmtKeys('⌘Z')} annule le dernier réglage.</p>
     </div>
   );
 }

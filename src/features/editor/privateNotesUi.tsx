@@ -7,8 +7,9 @@ import type { DocEngine, EngineState } from './engine';
 import { PRIVATE_STYLE_ID } from './privateNotes';
 import { keepFocus, tip } from './controls';
 import './notes-outline.css';
+import { fmtKeys, matchKeys } from '../../lib/keys';
 
-export const PRIVATE_NOTE_KEY = '⌘⌥N';
+export const PRIVATE_NOTE_KEY = fmtKeys('⌘⌥N');
 const HIDE_KEY = 'marginalia.ed.hidePrivateNotes';
 
 const readHidden = () => {
@@ -115,7 +116,7 @@ export function usePrivateNotes(engineRef: MutableRefObject<DocEngine | null>, r
   useEffect(() => {
     const onKey = (ev: KeyboardEvent) => {
       const e = engineRef.current;
-      if (!e || !cb.current.editable || !(ev.metaKey || ev.ctrlKey) || !ev.altKey || ev.shiftKey || ev.code !== 'KeyN' || !inDocument(ev.target)) return;
+      if (!e || !cb.current.editable || !matchKeys(ev, '⌘⌥N') || !inDocument(ev.target)) return;
       ev.preventDefault();
       ev.stopImmediatePropagation();
       void runPrivateNote(e, cb.current.notify).then(cb.current.refresh);

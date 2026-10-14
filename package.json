@@ -8,42 +8,281 @@
     "build": "vite build",
     "typecheck": "tsc --noEmit",
     "start": "electron .",
+    "dist:mac": "vite build && electron-builder --mac --arm64 --x64 --publish never",
+    "dist:win": "vite build && electron-builder --win --x64 --publish never && electron-builder --win --arm64 --publish never",
+    "dist:dir": "vite build && electron-builder --dir --publish never",
+    "smoke:packaged": "node scripts/smoke-packaged.mjs",
     "package": "node scripts/package.mjs"
   },
   "author": "Axel Bierne",
-  "dependencies": {
+  "devDependencies": {
+    "@electron/packager": "^18.3.6",
     "@fontsource-variable/literata": "^5.3.0",
     "@fontsource/instrument-serif": "^5.3.0",
+    "@types/dompurify": "^3.0.5",
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@vitejs/plugin-react": "^4.3.4",
     "@xyflow/react": "^12.3.6",
     "dictionary-fr": "3.0.0",
     "diff": "9.0.0",
     "dompurify": "^3.2.3",
+    "electron": "^33.2.1",
+    "electron-builder": "^26.15.3",
+    "heic-decode": "^2.1.0",
     "jszip": "^3.10.1",
     "lucide-react": "^0.460.0",
     "mammoth": "^1.8.0",
     "marked": "^14.1.4",
     "nspell": "2.1.5",
     "pdfjs-dist": "^4.10.38",
+    "playwright-core": "^1.56.1",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "superdoc": "1.47.2",
     "tesseract.js": "7.0.0",
     "ts-fsrs": "5.4.2",
-    "zustand": "^4.5.5"
-  },
-  "devDependencies": {
-    "@electron/packager": "^18.3.6",
-    "@types/dompurify": "^3.0.5",
-    "@types/react": "^18.3.12",
-    "@types/react-dom": "^18.3.1",
-    "@vitejs/plugin-react": "^4.3.4",
-    "electron": "^33.2.1",
-    "playwright-core": "^1.56.1",
     "typescript": "^5.6.3",
-    "vite": "^5.4.11"
+    "utif": "^3.1.0",
+    "vite": "^5.4.11",
+    "zustand": "^4.5.5"
   },
   "productName": "Marginalia",
   "overrides": {
     "superdoc": "1.47.2"
+  },
+  "build": {
+    "appId": "com.axelbierne.marginalia",
+    "productName": "Marginalia",
+    "copyright": "© Axel Bierne",
+    "directories": {
+      "output": "release/builder",
+      "buildResources": "build"
+    },
+    "files": [
+      "package.json",
+      "electron/**/*",
+      "dist/**/*",
+      "!**/*.map"
+    ],
+    "asar": true,
+    "npmRebuild": false,
+    "nodeGypRebuild": false,
+    "buildDependenciesFromSource": false,
+    "includePdb": false,
+    "electronLanguages": [
+      "fr",
+      "en",
+      "en-US",
+      "en-GB"
+    ],
+    "mac": {
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64",
+            "x64"
+          ]
+        }
+      ],
+      "category": "public.app-category.education",
+      "icon": "build/icon.icns",
+      "identity": "-",
+      "hardenedRuntime": false,
+      "gatekeeperAssess": false,
+      "darkModeSupport": true,
+      "minimumSystemVersion": "11.0",
+      "artifactName": "${productName}-${version}-mac-${arch}.${ext}",
+      "extendInfo": {
+        "CFBundleDisplayName": "Marginalia",
+        "CFBundleDocumentTypes": [
+          {
+            "CFBundleTypeName": "Livre EPUB",
+            "CFBundleTypeExtensions": [
+              "epub"
+            ],
+            "CFBundleTypeRole": "Viewer",
+            "LSHandlerRank": "Alternate",
+            "LSItemContentTypes": [
+              "org.idpf.epub-container"
+            ]
+          },
+          {
+            "CFBundleTypeName": "Document PDF",
+            "CFBundleTypeExtensions": [
+              "pdf"
+            ],
+            "CFBundleTypeRole": "Viewer",
+            "LSHandlerRank": "Alternate",
+            "LSItemContentTypes": [
+              "com.adobe.pdf"
+            ]
+          },
+          {
+            "CFBundleTypeName": "Document Word",
+            "CFBundleTypeExtensions": [
+              "docx"
+            ],
+            "CFBundleTypeRole": "Viewer",
+            "LSHandlerRank": "Alternate",
+            "LSItemContentTypes": [
+              "org.openxmlformats.wordprocessingml.document"
+            ]
+          },
+          {
+            "CFBundleTypeName": "Document Markdown",
+            "CFBundleTypeExtensions": [
+              "md",
+              "markdown"
+            ],
+            "CFBundleTypeRole": "Viewer",
+            "LSHandlerRank": "Alternate",
+            "LSItemContentTypes": [
+              "net.daringfireball.markdown"
+            ]
+          },
+          {
+            "CFBundleTypeName": "Texte brut",
+            "CFBundleTypeExtensions": [
+              "txt"
+            ],
+            "CFBundleTypeRole": "Viewer",
+            "LSHandlerRank": "Alternate",
+            "LSItemContentTypes": [
+              "public.plain-text"
+            ]
+          },
+          {
+            "CFBundleTypeName": "Page web",
+            "CFBundleTypeExtensions": [
+              "html",
+              "htm"
+            ],
+            "CFBundleTypeRole": "Viewer",
+            "LSHandlerRank": "Alternate",
+            "LSItemContentTypes": [
+              "public.html"
+            ]
+          },
+          {
+            "CFBundleTypeName": "Image JPEG",
+            "CFBundleTypeExtensions": [
+              "jpg",
+              "jpeg"
+            ],
+            "CFBundleTypeRole": "Viewer",
+            "LSHandlerRank": "Alternate",
+            "LSItemContentTypes": [
+              "public.jpeg"
+            ]
+          },
+          {
+            "CFBundleTypeName": "Image PNG",
+            "CFBundleTypeExtensions": [
+              "png"
+            ],
+            "CFBundleTypeRole": "Viewer",
+            "LSHandlerRank": "Alternate",
+            "LSItemContentTypes": [
+              "public.png"
+            ]
+          },
+          {
+            "CFBundleTypeName": "Image HEIC",
+            "CFBundleTypeExtensions": [
+              "heic",
+              "heif"
+            ],
+            "CFBundleTypeRole": "Viewer",
+            "LSHandlerRank": "Alternate",
+            "LSItemContentTypes": [
+              "public.heic",
+              "public.heif"
+            ]
+          },
+          {
+            "CFBundleTypeName": "Image WebP",
+            "CFBundleTypeExtensions": [
+              "webp"
+            ],
+            "CFBundleTypeRole": "Viewer",
+            "LSHandlerRank": "Alternate",
+            "LSItemContentTypes": [
+              "org.webmproject.webp"
+            ]
+          },
+          {
+            "CFBundleTypeName": "Image TIFF",
+            "CFBundleTypeExtensions": [
+              "tif",
+              "tiff"
+            ],
+            "CFBundleTypeRole": "Viewer",
+            "LSHandlerRank": "Alternate",
+            "LSItemContentTypes": [
+              "public.tiff"
+            ]
+          }
+        ]
+      }
+    },
+    "dmg": {
+      "title": "${productName} ${version}",
+      "writeUpdateInfo": false
+    },
+    "win": {
+      "target": [
+        "nsis",
+        "portable"
+      ],
+      "icon": "build/icon.png",
+      "signAndEditExecutable": true,
+      "fileAssociations": [
+        {
+          "ext": "epub",
+          "name": "Livre EPUB",
+          "description": "Livre EPUB",
+          "role": "Viewer"
+        },
+        {
+          "ext": "pdf",
+          "name": "Document PDF",
+          "description": "Document PDF",
+          "role": "Viewer"
+        },
+        {
+          "ext": "docx",
+          "name": "Document Word",
+          "description": "Document Word",
+          "role": "Viewer"
+        },
+        {
+          "ext": "md",
+          "name": "Document Markdown",
+          "description": "Document Markdown",
+          "role": "Viewer"
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowElevation": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Marginalia",
+      "differentialPackage": false,
+      "artifactName": "${productName}-${version}-win-${arch}-setup.${ext}",
+      "installerLanguages": [
+        "fr_FR"
+      ],
+      "language": "1036"
+    },
+    "portable": {
+      "artifactName": "${productName}-${version}-win-${arch}-portable.${ext}"
+    },
+    "publish": null
   }
 }

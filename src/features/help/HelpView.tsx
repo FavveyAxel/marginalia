@@ -23,12 +23,16 @@ import {
 import { useStore } from '../../lib/store';
 import type { Route } from '../../lib/types';
 import { importViaDialog } from '../../App';
+import { appleBooksAvailable } from '../library/appleBooks';
+import { fmtKeys, isMac, OS_TEXT } from '../../lib/keys';
 import './help.css';
 
 interface Item {
   title: string;
   text: ReactNode;
   keys?: string[];
+  /** Fonction de l'app Livres d'Apple : masquée là où elle n'existe pas (Windows). */
+  appleBooks?: boolean;
 }
 interface Section {
   id: string;
@@ -39,7 +43,7 @@ interface Section {
   go?: { label: string; route?: Route; run?: () => void };
 }
 
-const K = ({ children }: { children: ReactNode }) => <kbd className="help-kbd">{children}</kbd>;
+const K = ({ children }: { children: ReactNode }) => <kbd className="help-kbd">{typeof children === 'string' ? fmtKeys(children) : children}</kbd>;
 
 const SECTIONS: Section[] = [
   {
@@ -53,6 +57,11 @@ const SECTIONS: Section[] = [
       { title: 'La barre latérale', text: 'Accueil, Bibliothèque et Écrits en haut ; les outils d’étude (Extraits, Concepts, Arguments, Plans, Révision) ; vos Espaces de travail ; en bas Historique, Corbeille, Aide, Apparence et le bouton Importer. Repliez-la en une fine colonne d’icônes pour gagner de la place (bouton en haut de la barre).', keys: ['⌃⌘S'] },
       { title: 'Tout retrouver', text: 'La recherche globale trouve livres, extraits, concepts, arguments, plans, écrits et signets.', keys: ['⌘K'] },
       { title: 'Annuler presque tout', text: 'Les actions (suppression, déplacement, modification) s’annulent et se rétablissent partout dans l’app.', keys: ['⌘Z', '⌘⇧Z'] },
+      {
+        title: 'Mac et Windows',
+        // Fragment (et non chaîne) : texte affiché tel quel, sans conversion des symboles ⌘ ⌥ ⇧.
+        text: <>Sur Windows, les raccourcis ⌘ deviennent Ctrl (⌥ devient Alt, ⇧ devient Maj ; ⌘⌥ devient Ctrl+Maj, pour ne pas gêner AltGr) ; la synchro avec Livres n’existe que sur Mac. Cette aide affiche toujours les raccourcis de votre système.</>,
+      },
     ],
     go: { label: 'Aller à l’accueil', route: { name: 'home' } },
   },
@@ -63,9 +72,9 @@ const SECTIONS: Section[] = [
     intro: 'Livres et documents se rangent dans la Bibliothèque ; les fichiers Word et Markdown deviennent des écrits modifiables.',
     items: [
       { title: 'Formats', text: 'EPUB, PDF, TXT, HTML, et images (JPG, PNG, HEIC…) dont le texte est reconnu automatiquement (OCR, sans connexion). Les .docx et .md vont dans Écrits.' },
-      { title: 'Trois façons d’importer', text: 'Le bouton Importer, le raccourci, ou glisser des fichiers n’importe où dans la fenêtre. Vous pouvez aussi ouvrir un fichier depuis le Finder avec Marginalia.', keys: ['⌘O'] },
-      { title: 'Depuis l’app Livres (iCloud)', text: 'Dans la Bibliothèque, « Depuis Livres » liste vos EPUB et PDF de l’app Livres d’Apple. Les livres protégés (DRM) ne peuvent pas être importés. Avec « Synchroniser automatiquement », un livre sans DRM ajouté sur votre iPhone arrive tout seul dans Marginalia.' },
-      { title: 'Surlignages, signets et position de Livres', text: 'Pour les EPUB sans DRM déjà dans Marginalia, vos surlignages (avec leurs notes), vos signets et l’endroit où vous en êtes dans Livres sont repris automatiquement, marqués « Livres ». Chaque couleur de Livres devient une catégorie (jaune → Thèse, vert → Argument, bleu → Concept, rose → Thèse adverse, violet → Exemple, souligné → Problème), modifiable dans « Depuis Livres ». La synchro va de Livres vers Marginalia seulement : ce que vous changez ici n’est jamais écrasé, et rien n’est modifié dans Livres.' },
+      { title: 'Trois façons d’importer', text: `Le bouton Importer, le raccourci, ou glisser des fichiers n’importe où dans la fenêtre. Vous pouvez aussi ouvrir un fichier depuis ${OS_TEXT.fileManager} avec Marginalia.`, keys: ['⌘O'] },
+      { appleBooks: true, title: 'Depuis l’app Livres (iCloud)', text: 'Dans la Bibliothèque, « Depuis Livres » liste vos EPUB et PDF de l’app Livres d’Apple. Les livres protégés (DRM) ne peuvent pas être importés. Avec « Synchroniser automatiquement », un livre sans DRM ajouté sur votre iPhone arrive tout seul dans Marginalia.' },
+      { appleBooks: true, title: 'Surlignages, signets et position de Livres', text: 'Pour les EPUB sans DRM déjà dans Marginalia, vos surlignages (avec leurs notes), vos signets et l’endroit où vous en êtes dans Livres sont repris automatiquement, marqués « Livres ». Chaque couleur de Livres devient une catégorie (jaune → Thèse, vert → Argument, bleu → Concept, rose → Thèse adverse, violet → Exemple, souligné → Problème), modifiable dans « Depuis Livres ». La synchro va de Livres vers Marginalia seulement : ce que vous changez ici n’est jamais écrasé, et rien n’est modifié dans Livres.' },
       { title: 'Importer dans un espace', text: 'Importer ou glisser un fichier depuis un espace de travail le range directement dans cet espace (et le groupe ouvert). Depuis la Bibliothèque, il n’est rangé nulle part.' },
     ],
     go: { label: 'Importer un fichier', run: () => void importViaDialog() },
@@ -162,10 +171,10 @@ const SECTIONS: Section[] = [
     icon: <FilePen size={16} />,
     intro: 'Un traitement de texte complet, qui ouvre et enregistre des fichiers Word (.docx), pensé pour la dissertation et l’explication de texte.',
     items: [
-      { title: 'Mise en forme', text: 'Styles (Titre 1-3, Corps, Citation…), toutes les polices installées sur votre Mac, couleurs, alignement, listes, tableaux, mise en page (marges, format), zoom. Modèles : dissertation, explication de texte, fiche, présentation universitaire.' },
+      { title: 'Mise en forme', text: `Styles (Titre 1-3, Corps, Citation…), toutes les polices installées sur ${OS_TEXT.yourComputer}, couleurs, alignement, listes, tableaux, mise en page (marges, format), zoom. Modèles : dissertation, explication de texte, fiche, présentation universitaire.` },
       { title: 'Notes', text: 'Notes de bas de page, et notes privées (fond teinté) : visibles pour vous, jamais exportées.', keys: ['⌘⌥F', '⌘⌥N'] },
       { title: 'Citer en écrivant', text: 'Le panneau de droite affiche au choix un Livre (le vrai lecteur : sélectionnez un passage puis « Citer » ou C), vos Extraits, vos Concepts ou un Plan. Une citation garde son lien : ⌘-clic dessus ramène au passage du livre. Le panneau se redimensionne et se met en 50/50.' },
-      { title: 'Outils d’écriture', text: 'Typographie française automatique (espaces insécables, « guillemets », apostrophes), correcteur orthographique sur le Mac (clic droit sur un mot souligné), rechercher et remplacer, revue de style (phrases longues, répétitions, tics de copie), objectif de mots.', keys: ['⌘F', '⌘⇧H'] },
+      { title: 'Outils d’écriture', text: `Typographie française automatique (espaces insécables, « guillemets », apostrophes), correcteur orthographique ${isMac ? 'sur le Mac' : 'intégré'} (clic droit sur un mot souligné), rechercher et remplacer, revue de style (phrases longues, répétitions, tics de copie), objectif de mots.`, keys: ['⌘F', '⌘⇧H'] },
       { title: 'Plan déplaçable', text: 'Le plan à gauche liste vos titres : glissez une section pour la déplacer avec son contenu et ses notes.', keys: ['⌥⇧↑', '⌥⇧↓'] },
       { title: 'Versions', text: 'Des versions sont créées automatiquement pendant que vous écrivez ; créez-en une nommée quand vous voulez. Comparez mot à mot avec le texte actuel et restaurez (annulable).', keys: ['⌘⌥S'] },
       { title: 'Enregistrer et exporter', text: 'Un .docx ouvert depuis le disque est réenregistré à sa place. Export Word, PDF, Markdown, page web ou texte.', keys: ['⌘S'] },
@@ -198,16 +207,16 @@ const SECTIONS: Section[] = [
     id: 'apparence',
     title: 'Apparence et confidentialité',
     icon: <Palette size={16} />,
-    intro: 'Choisissez l’ambiance, et sachez que vos textes ne quittent jamais votre Mac.',
+    intro: `Choisissez l’ambiance, et sachez que vos textes ne quittent jamais ${OS_TEXT.yourComputer}.`,
     items: [
-      { title: 'Thèmes', text: 'Automatique (suit le mode clair/sombre du Mac), Clair, Sombre ou Sépia, en bas de la barre latérale.' },
-      { title: '100 % local', text: 'Aucune donnée n’est envoyée sur Internet : l’app bloque toute connexion sortante. La reconnaissance de texte et le correcteur fonctionnent hors ligne. La synchro avec Livres passe par iCloud Drive, géré par macOS.' },
-      { title: 'En cas de problème', text: 'Menu Aide › « Exporter le journal de diagnostic » : un fichier est copié dans vos Téléchargements pour comprendre un bug.' },
+      { title: 'Thèmes', text: `Automatique (suit le mode clair/sombre ${OS_TEXT.systemName}), Clair, Sombre ou Sépia, en bas de la barre latérale.` },
+      { title: '100 % local', text: `Aucune donnée n’est envoyée sur Internet : l’app bloque toute connexion sortante. La reconnaissance de texte et le correcteur fonctionnent hors ligne.${isMac ? ' La synchro avec Livres passe par iCloud Drive, géré par macOS.' : ''}` },
+      { title: 'En cas de problème', text: `Menu Aide${isMac ? '' : ' (touche Alt)'} › « Exporter le journal de diagnostic » : un fichier est copié dans vos Téléchargements pour comprendre un bug.` },
     ],
   },
 ];
 
-const SHORTCUTS: [string, string][] = [
+const SHORTCUTS_ALL: [string, string][] = [
   ['⌘K', 'Rechercher partout'],
   ['⌘O', 'Importer'],
   ['⌘Z / ⌘⇧Z', 'Annuler / rétablir'],
@@ -226,6 +235,13 @@ const SHORTCUTS: [string, string][] = [
   ['⌃⌘S', 'Replier / afficher la barre latérale'],
   ['⌘?', 'Ouvrir cette aide'],
 ];
+const SHORTCUTS: [string, string][] = SHORTCUTS_ALL.map(([k, v]) => [fmtKeys(k), v]);
+
+/** Sections affichées : sans les fonctions de l'app Livres là où elle n'existe pas. */
+const visibleSections = (): Section[] => {
+  if (appleBooksAvailable()) return SECTIONS;
+  return SECTIONS.map((s) => ({ ...s, items: s.items.filter((i) => !i.appleBooks) }));
+};
 
 const fold = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
 const textOf = (n: ReactNode): string => (typeof n === 'string' ? n : Array.isArray(n) ? n.map(textOf).join(' ') : n && typeof n === 'object' && 'props' in n ? textOf((n as { props: { children?: ReactNode } }).props.children) : '');
@@ -238,11 +254,12 @@ export function HelpView() {
 
   const sections = useMemo(() => {
     const words = fold(q.trim()).split(/\s+/).filter(Boolean);
-    if (!words.length) return SECTIONS;
-    return SECTIONS.map((s) => {
+    const all = visibleSections();
+    if (!words.length) return all;
+    return all.map((s) => {
       const hit = (t: string) => words.every((w) => fold(t).includes(w));
       if (hit(s.title + ' ' + s.intro)) return s;
-      const items = s.items.filter((i) => hit(`${i.title} ${textOf(i.text)} ${(i.keys ?? []).join(' ')}`));
+      const items = s.items.filter((i) => hit(`${i.title} ${textOf(i.text)} ${(i.keys ?? []).map(fmtKeys).join(' ')}`));
       return items.length ? { ...s, items } : null;
     }).filter((s): s is Section => !!s);
   }, [q]);
@@ -272,7 +289,7 @@ export function HelpView() {
       <header className="topbar">
         <label className="help-search">
           <Search size={14} />
-          <input placeholder="Chercher dans l’aide (ex. « citer », « signet », « iCloud »)" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Chercher dans l’aide" />
+          <input placeholder={`Chercher dans l’aide (ex. « citer », « signet », « ${isMac ? 'iCloud' : 'export'} »)`} value={q} onChange={(e) => setQ(e.target.value)} aria-label="Chercher dans l’aide" />
           {q && (
             <button className="icon-btn sm" onClick={() => setQ('')} aria-label="Effacer">
               <X size={13} />
@@ -310,7 +327,7 @@ export function HelpView() {
                   {s.items.map((it) => (
                     <div key={it.title} className="help-item">
                       <h3>{it.title}</h3>
-                      <p>{it.text}</p>
+                      <p>{typeof it.text === 'string' ? fmtKeys(it.text) : it.text}</p>
                       {it.keys && (
                         <div className="help-keys">
                           {it.keys.map((k) => (
@@ -349,7 +366,7 @@ export function HelpView() {
                   </tbody>
                 </table>
                 <p className="help-foot">
-                  <Shield size={13} /> Marginalia fonctionne entièrement sur votre Mac. <Bookmark size={13} /> Astuce : ⌘K trouve aussi vos signets.
+                  <Shield size={13} /> Marginalia fonctionne entièrement sur {OS_TEXT.yourComputer}. <Bookmark size={13} /> Astuce : {fmtKeys('⌘K')} trouve aussi vos signets.
                 </p>
               </section>
             )}

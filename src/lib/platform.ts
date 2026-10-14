@@ -80,11 +80,11 @@ export interface HostApi {
   writeExternal(path: string, data: ArrayBuffer): Promise<void>;
   /** « Enregistrer sous » binaire ; renvoie le chemin choisi (ou un nom en navigateur), null si annulé. */
   saveBinary(defaultName: string, data: ArrayBuffer, format: ExportFormat): Promise<string | null>;
-  /** Familles de polices installées sur l'ordinateur (app Mac uniquement). */
-  /** Journal de diagnostic local (app Mac). */
+  /** Journal de diagnostic local (app de bureau). */
   diag?(...parts: unknown[]): Promise<void>;
+  /** Familles de polices installées sur l'ordinateur (app de bureau uniquement). */
   listFonts?(): Promise<string[]>;
-  /** Livres de l'app Livres d'Apple (iCloud et local) : EPUB et PDF, avec leur statut DRM. */
+  /** Livres de l'app Livres d'Apple (iCloud et local) : EPUB et PDF, avec leur statut DRM. Mac uniquement (absent ailleurs). */
   appleBooksScan?(): Promise<AppleBook[]>;
   /** Lit un livre de l'app Livres (les EPUB « paquets » sont rezippés) ; refuse les livres protégés. */
   appleBooksRead?(path: string): Promise<PickedFile>;
@@ -93,22 +93,32 @@ export interface HostApi {
   onAppleBooksChanged?(cb: () => void): () => void;
   /** Surlignages, notes, signets et positions de Livres (lecture seule, copie de la base). */
   appleBooksAnnotations?(): Promise<AppleBooksAnnotationsResult>;
-  /** Déplacement de la fenêtre par la barre du haut (app Mac). */
+  /** Déplacement de la fenêtre par la barre du haut (app de bureau). */
   windowDragStart?(): Promise<void>;
   windowDragEnd?(): Promise<void>;
-  /** Double-clic sur la barre du haut : agrandir / réduire selon les réglages de macOS. */
+  /** Double-clic sur la barre du haut : agrandir / réduire (selon les réglages de macOS sur Mac). */
   windowDoubleClick?(): Promise<void>;
-  /** Aligne le thème natif (menus, fond de fenêtre) : 'system' | 'light' | 'dark'. */
-  setTheme?(mode: 'system' | 'light' | 'dark'): Promise<void>;
+  /**
+   * Aligne le thème natif (menus, fond de fenêtre) : 'system' | 'light' | 'dark'.
+   * `titleBar` : couleurs des boutons de fenêtre de Windows (fond et symboles, #rrggbb) d'après le thème affiché.
+   */
+  setTheme?(mode: 'system' | 'light' | 'dark', titleBar?: { color: string; symbolColor: string }): Promise<void>;
   /** Rend du HTML autonome en PDF (A4) et renvoie les octets. */
   printToPdf(html: string): Promise<ArrayBuffer>;
-  /** Fichiers ouverts depuis le Finder / le Dock pendant que l'app tourne. */
+  /** Commandes des menus natifs (Windows : 'import', 'help'). */
+  onMenuCommand?(cb: (cmd: string) => void): () => void;
+  /** Windows : ouvre la barre de menus (cachée) sous forme de menu contextuel (Alt seul, F10). */
+  popupMenu?(): Promise<void>;
+  /** Fichiers ouverts depuis le Finder / le Dock (ou l'Explorateur de Windows) pendant que l'app tourne. */
   onOpenFiles(cb: (files: PickedFile[]) => void): () => void;
   /** 'electron' ou 'browser'. */
   kind: 'electron' | 'browser';
+  /** Système de l'app Electron (process.platform : 'darwin', 'win32', 'linux') ; absent en navigateur. */
+  platform?: string;
   /**
    * Convertit en JPEG une image que le moteur de rendu ne sait pas décoder (HEIC, TIFF).
-   * Facultatif : fourni par l'app Mac (outil système `sips`), absent dans un navigateur.
+   * Facultatif : fourni par l'app Mac (outil système `sips`), absent ailleurs (décodeur JS intégré, voir
+   * src/features/reader/image/convert.ts).
    */
   convertImage?(data: ArrayBuffer, ext: string): Promise<ArrayBuffer>;
 }
@@ -208,7 +218,7 @@ const browserHost: HostApi = {
   },
   async deleteFile(bookId, fileName) {
     await idbDel('files', `${bookId}/${fileName}`);
-    // Comme l'app Mac : les fichiers dérivés d'une image (texte reconnu, copie affichable) partent avec la source.
+    // Comme l'app de bureau : les fichiers dérivés d'une image (texte reconnu, copie affichable) partent avec la source.
     if (fileName.startsWith('source.')) for (const d of DERIVED_FILES) await idbDel('files', `${bookId}/${d}`).catch(() => undefined);
   },
   async saveText(defaultName, content) {
@@ -233,7 +243,7 @@ const browserHost: HostApi = {
     });
   },
   async writeExternal() {
-    throw new Error('Écriture directe indisponible hors de l’app Mac');
+    throw new Error('Écriture directe disponible dans l’app de bureau uniquement');
   },
   async saveBinary(defaultName, data, format) {
     const blob = new Blob([data], { type: EXPORT_MIME[format] });
@@ -245,7 +255,7 @@ const browserHost: HostApi = {
     return defaultName;
   },
   async printToPdf() {
-    throw new Error('Export PDF disponible dans l’app Mac uniquement');
+    throw new Error('Export PDF disponible dans l’app de bureau uniquement');
   },
   onOpenFiles() {
     return () => {};

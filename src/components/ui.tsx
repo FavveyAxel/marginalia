@@ -2,13 +2,15 @@
 import { useLayoutEffect, useState, type CSSProperties, type ReactNode } from 'react';
 import type { CategoryId } from '../lib/types';
 import { catColor } from '../lib/categories';
+import { fmtKeys } from '../lib/keys';
 
 export function CategoryDot({ id, size = 9 }: { id: CategoryId; size?: number }) {
   return <span className="cat-dot" style={{ background: catColor(id), width: size, height: size }} />;
 }
 
+/** Touche ou raccourci (notation Mac ; affiché « Ctrl+… » sous Windows, voir lib/keys). */
 export function Kbd({ children }: { children: ReactNode }) {
-  return <span className="kbd">{children}</span>;
+  return <span className="kbd">{typeof children === 'string' ? fmtKeys(children) : children}</span>;
 }
 
 /**

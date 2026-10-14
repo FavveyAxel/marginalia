@@ -14,6 +14,7 @@ import { averageConfidence, editLine, loadOcr, runningOcr, saveOcr, startOcr, ty
 import { useStore } from '../../../lib/store';
 import { buildTextLayer, readImageSelection, rectsForWords, wordAtRaw, wordModel, wordsInRect, type ImageSelection } from './textlayer';
 import './image-reader.css';
+import { fmtKeys } from '../../../lib/keys';
 
 const GUTTER = 36;
 const PAD_TOP = 20;
@@ -770,17 +771,17 @@ export const ImageReader = forwardRef<EngineHandle, EngineProps>(function ImageR
 
         {url && (
           <div className="img-zoombar" role="toolbar" aria-label="Zoom et outils">
-            <button className="icon-btn sm" onClick={zoomOut} title="Zoom arrière (⌘−)" aria-label="Zoom arrière">
+            <button className="icon-btn sm" onClick={zoomOut} title={fmtKeys("Zoom arrière (⌘−)")} aria-label="Zoom arrière">
               <Minus size={14} />
             </button>
             <span className="img-zoom-val" data-testid="img-zoom">
               {pctZoom} %
             </span>
-            <button className="icon-btn sm" onClick={zoomIn} title="Zoom avant (⌘+)" aria-label="Zoom avant">
+            <button className="icon-btn sm" onClick={zoomIn} title={fmtKeys("Zoom avant (⌘+)")} aria-label="Zoom avant">
               <Plus size={14} />
             </button>
             <span className="img-zoom-sep" />
-            <button className={`btn btn-ghost btn-sm img-tool ${zoom === 'fit' ? 'is-on' : ''}`} onClick={() => applyZoom('fit')} title="Ajuster à la largeur (⌘0)"
+            <button className={`btn btn-ghost btn-sm img-tool ${zoom === 'fit' ? 'is-on' : ''}`} onClick={() => applyZoom('fit')} title={fmtKeys("Ajuster à la largeur (⌘0)")}
               aria-label="Ajuster à la largeur">
               <Maximize2 size={13} /> <span className="img-tool-label">Ajuster</span>
             </button>

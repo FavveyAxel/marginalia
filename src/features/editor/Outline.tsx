@@ -4,10 +4,11 @@ import { useEffect, useRef, useState, type MutableRefObject } from 'react';
 import { GripVertical } from 'lucide-react';
 import type { DocEngine, OutlineItem } from './engine';
 import './notes-outline.css';
+import { fmtKeys } from '../../lib/keys';
 
 type Notify = (message: string, tone?: 'info' | 'error' | 'success') => void;
 
-export const MOVE_KEYS = { up: '⌥⇧↑', down: '⌥⇧↓' };
+export const MOVE_KEYS = { up: fmtKeys('⌥⇧↑'), down: fmtKeys('⌥⇧↓') };
 
 /** Titre courant d'après le défilement : dernier titre dont le haut est passé sous le haut de la zone. */
 function scrollActive(items: OutlineItem[]): number {

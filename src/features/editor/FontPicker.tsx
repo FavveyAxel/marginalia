@@ -15,6 +15,7 @@ import {
   toggleFavoriteFont,
   type FontList,
 } from './fonts';
+import { OS_TEXT } from '../../lib/keys';
 
 interface Row {
   family: string;
@@ -106,7 +107,7 @@ export function FontPicker({ value, disabled, onPick }: { value: string | null; 
         aria-haspopup="listbox"
         aria-expanded={pop.isOpen}
         aria-label={`Police : ${label}`}
-        title={missing ? `${label} n’est pas installée sur ce Mac : elle est remplacée à l’écran` : 'Police'}
+        title={missing ? `${label} n’est pas installée sur ${OS_TEXT.thisComputer} : elle est remplacée à l’écran` : 'Police'}
         data-tb="font"
       >
         <span className={`ed-font-name ${missing ? 'missing' : ''}`} style={{ fontFamily: value ? fontStack(value) : undefined }}>
@@ -183,7 +184,7 @@ export function FontPicker({ value, disabled, onPick }: { value: string | null; 
             })}
           {list && q.trim() && rows.length === 0 && (
             <div className="ed-font-empty">
-              Aucune police « {q.trim()} » sur ce Mac.
+              Aucune police « {q.trim()} » sur {OS_TEXT.thisComputer}.
               <button className="btn btn-sm" onMouseDown={(e) => e.preventDefault()} onClick={() => pick(q.trim())}>
                 Utiliser ce nom quand même
               </button>
@@ -192,7 +193,7 @@ export function FontPicker({ value, disabled, onPick }: { value: string | null; 
         </div>
         <p className="ed-font-foot">
           {list?.source === 'base'
-            ? 'Liste de base : les polices de ce Mac n’ont pas pu être lues.'
+            ? `Liste de base : les polices de ${OS_TEXT.thisComputer} n’ont pas pu être lues.`
             : value === APP_FONT
               ? 'Literata est fournie avec Marginalia : Word la remplacera si elle n’est pas installée.'
               : 'Une police absente de l’ordinateur du lecteur y sera remplacée.'}

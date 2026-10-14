@@ -12,6 +12,7 @@ import { setExternalDirty, words } from './save';
 import { useMultiSelect, useLasso, useSelectionKeys, LassoBox, type ClickMods } from '../../lib/useMultiSelect';
 import { SelectionActionBar, SelectCheck, AddToWorkspaceDialog } from '../../components/MultiSelect';
 import { ContextMenu } from '../workspaces/wsUi';
+import { fmtKeys } from '../../lib/keys';
 
 const TEMPLATE_ICON: Record<TemplateId, typeof FileText> = {
   vide: FileText,
@@ -283,7 +284,7 @@ export function DraftList() {
             className={`btn btn-ghost msel-toggle ${selectMode ? 'active' : ''}`}
             aria-pressed={selectMode}
             onClick={() => (selectMode ? exitSelect() : setSelectMode(true))}
-            title={selectMode ? 'Quitter la sélection (Échap)' : 'Sélectionner plusieurs écrits (⌘-clic, ⇧-clic, ⌘A)'}
+            title={fmtKeys(selectMode ? 'Quitter la sélection (Échap)' : 'Sélectionner plusieurs écrits (⌘-clic, ⇧-clic, ⌘A)')}
           >
             <CheckSquare size={14} /> {selectMode ? 'Terminé' : 'Sélectionner'}
           </button>

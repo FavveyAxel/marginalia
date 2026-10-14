@@ -6,6 +6,7 @@ import type { DocEngine, ParaStyle } from './engine';
 import type { StylePatch } from './ooxml';
 import { FontPicker } from './FontPicker';
 import { NumField, keepFocus } from './controls';
+import { fmtKeys } from '../../lib/keys';
 
 export const STYLE_LABEL: Record<ParaStyle | 'other', string> = {
   title: 'Titre',
@@ -122,7 +123,7 @@ export function StyleEditor({
         <NumField label="Alinéa" unit="cm" value={(v.firstLine ?? 0) / CM} min={0} max={5} step={0.25} onCommit={(n) => setV((x) => ({ ...x, firstLine: Math.round(n * CM) }))} name="style-indent" />
         <NumField label="Espace après" unit="pt" value={(v.after ?? 0) / 20} min={0} max={72} step={1} onCommit={(n) => setV((x) => ({ ...x, after: Math.round(n * 20) }))} name="style-after" />
       </div>
-      <p className="ed-pop-note">Tous les paragraphes « {STYLE_LABEL[style]} » du document changent. ⌘Z annule.</p>
+      <p className="ed-pop-note">Tous les paragraphes « {STYLE_LABEL[style]} » du document changent. {fmtKeys('⌘Z')} annule.</p>
       <div className="ed-confirm-actions">
         <button className="btn btn-sm" onClick={onCancel}>
           Annuler

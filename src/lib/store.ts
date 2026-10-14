@@ -43,6 +43,7 @@ import {
   titleOf,
   type Meta,
 } from '../features/history/describe';
+import { fmtKeys } from './keys';
 
 export const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
 
@@ -1309,7 +1310,7 @@ function historyEntry(tx: Tx, verb: string): Omit<ActivityEntry, 'id' | 'at' | '
     refId: c && c.col !== 'trash' ? c.id : null,
     bookId: c && c.col !== 'trash' ? bookIdOf(col, item, s) : null,
     title: c && c.col !== 'trash' ? titleOf(col, item, s) : tx.label,
-    summary: `${verb} (${verb === 'Annulé' ? '⌘Z' : '⇧⌘Z'}) : ${tx.label}`,
+    summary: `${verb} (${fmtKeys(verb === 'Annulé' ? '⌘Z' : '⇧⌘Z')}) : ${tx.label}`,
   };
 }
 

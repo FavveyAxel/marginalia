@@ -8,6 +8,7 @@ import { groupByDay, timeLabel } from './dates';
 import { KindIcon } from './icons';
 import { openTarget, targetExists } from './open';
 import './history.css';
+import { fmtKeys } from '../../lib/keys';
 
 type ActionFilter = '' | 'create' | 'update' | 'delete' | 'restore' | 'io';
 const ACTION_FILTERS: { id: ActionFilter; label: string }[] = [
@@ -90,8 +91,8 @@ export function HistoryView() {
           <div className="hi-head">
             <h1 className="page-title">Historique</h1>
             <p className="hi-lede">
-              Ce que vous avez créé, modifié, supprimé ou exporté, jour par jour. Hors d’un champ de texte, <span className="kbd">⌘Z</span> annule la dernière action et{' '}
-              <span className="kbd">⇧⌘Z</span> la rétablit.
+              Ce que vous avez créé, modifié, supprimé ou exporté, jour par jour. Hors d’un champ de texte, <span className="kbd">{fmtKeys('⌘Z')}</span> annule la dernière action et{' '}
+              <span className="kbd">{fmtKeys('⇧⌘Z')}</span> la rétablit.
             </p>
           </div>
 

@@ -23,6 +23,7 @@ import {
   type VersionContent,
 } from './versions';
 import './versions.css';
+import { fmtKeys } from '../../lib/keys';
 
 export interface VersionsPanelProps {
   draft: Draft;
@@ -104,7 +105,7 @@ export function VersionsPanel({ draft, currentDocx, createVersion, restore, rest
         </div>
         <div className="ver-create">
           {naming === null ? (
-            <button className="btn ver-create-btn" onClick={() => setNaming(defaultVersionName())} disabled={!editable} title="Créer une version nommée de l’état actuel (⌘⌥S)">
+            <button className="btn ver-create-btn" onClick={() => setNaming(defaultVersionName())} disabled={!editable} title={fmtKeys("Créer une version nommée de l’état actuel (⌘⌥S)")}>
               <Plus size={14} /> Créer une version… <Kbd>⌘⌥S</Kbd>
             </button>
           ) : (

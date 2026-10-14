@@ -24,6 +24,7 @@ import { useAppleBooksSync } from './features/library/appleBooks';
 import { useResizeDiagnostics } from './lib/diagnostics';
 import { useDocxMigration } from './features/library/docxMigration';
 import { HelpView } from './features/help/HelpView';
+import { fmtKeys, isMac, isMod, isWindows, matchKeys } from './lib/keys';
 
 function useTheme(theme: ThemeId) {
   useEffect(() => {
@@ -31,13 +32,68 @@ function useTheme(theme: ThemeId) {
     const apply = () => {
       const resolved = theme === 'system' ? (mq.matches ? 'dark' : 'light') : theme;
       document.documentElement.dataset.theme = resolved;
+      // Menus et fond de fenêtre natifs alignés sur le choix (sépia = clair côté système) ;
+      // hors Mac, les boutons de fenêtre prennent le fond et l'encre du thème affiché.
+      host.setTheme?.(theme === 'system' ? 'system' : theme === 'dark' ? 'dark' : 'light', isMac ? undefined : titleBarColors()).catch(() => {});
     };
     apply();
-    // Menus et fond de fenêtre natifs alignés sur le choix (sépia = clair côté système).
-    host.setTheme?.(theme === 'system' ? 'system' : theme === 'dark' ? 'dark' : 'light').catch(() => {});
     mq.addEventListener('change', apply);
     return () => mq.removeEventListener('change', apply);
   }, [theme]);
+}
+
+/** Couleurs du thème affiché (#rrggbb) pour les boutons de fenêtre de Windows. */
+function titleBarColors(): { color: string; symbolColor: string } | undefined {
+  const css = getComputedStyle(document.documentElement);
+  const hex = (v: string) => {
+    const t = v.trim();
+    if (/^#[0-9a-f]{6}$/i.test(t)) return t;
+    if (/^#[0-9a-f]{3}$/i.test(t)) return '#' + [...t.slice(1)].map((c) => c + c).join('');
+    const m = t.match(/^rgba?\((\d+),\s*(\d+),\s*(\d+)/);
+    return m ? '#' + m.slice(1, 4).map((n) => Number(n).toString(16).padStart(2, '0')).join('') : null;
+  };
+  const color = hex(css.getPropertyValue('--bg-app'));
+  const symbolColor = hex(css.getPropertyValue('--ink-2'));
+  return color && symbolColor ? { color, symbolColor } : undefined;
+}
+
+/**
+ * Windows : la barre de menus native est cachée avec la barre de titre. Alt seul (relâché sans
+ * autre touche) ou F10 l'ouvre ; les commandes Importer et Aide des menus arrivent ici.
+ */
+function useNativeMenu() {
+  useEffect(() => {
+    const offMenu = host.onMenuCommand?.((cmd) => {
+      if (cmd === 'import') void importViaDialog();
+      else if (cmd === 'help') useStore.getState().navigate({ name: 'help' });
+    });
+    if (isMac || !host.popupMenu) return offMenu;
+    let altAlone = false;
+    const down = (e: KeyboardEvent) => {
+      altAlone = e.key === 'Alt' && !e.ctrlKey && !e.shiftKey && !e.metaKey;
+      if (e.key === 'F10' && !e.ctrlKey && !e.altKey && !e.shiftKey) {
+        e.preventDefault();
+        void host.popupMenu?.();
+      }
+    };
+    const up = (e: KeyboardEvent) => {
+      if (e.key === 'Alt' && altAlone) {
+        e.preventDefault();
+        void host.popupMenu?.();
+      }
+      altAlone = false;
+    };
+    const reset = () => (altAlone = false);
+    window.addEventListener('keydown', down, true);
+    window.addEventListener('keyup', up, true);
+    window.addEventListener('mousedown', reset, true);
+    return () => {
+      offMenu?.();
+      window.removeEventListener('keydown', down, true);
+      window.removeEventListener('keyup', up, true);
+      window.removeEventListener('mousedown', reset, true);
+    };
+  }, []);
 }
 
 /**
@@ -48,7 +104,8 @@ const DRAG_ZONES = '.topbar, .drag, .sidebar-top, .sidebar-brand';
 const NOT_DRAG = 'button, a, input, textarea, select, label, [role="button"], [role="tab"], [contenteditable="true"], .no-drag, .segmented, .floating';
 function useWindowDrag() {
   useEffect(() => {
-    if (!host.windowDragStart) return;
+    // Windows : zones -webkit-app-region natives (voir .platform-win dans app.css).
+    if (!host.windowDragStart || isWindows) return;
     let dragging = false;
     const onDown = (e: MouseEvent) => {
       if (e.button !== 0) return;
@@ -81,7 +138,7 @@ function useWindowDrag() {
 
 
 const THEMES: { id: ThemeId; label: string; icon: JSX.Element }[] = [
-  { id: 'system', label: 'Automatique (suit le Mac)', icon: <Laptop size={14} /> },
+  { id: 'system', label: isMac ? 'Automatique (suit le Mac)' : 'Automatique (suit le système)', icon: <Laptop size={14} /> },
   { id: 'light', label: 'Clair', icon: <Sun size={14} /> },
   { id: 'dark', label: 'Sombre', icon: <Moon size={14} /> },
   { id: 'sepia', label: 'Sépia', icon: <Coffee size={14} /> },
@@ -149,7 +206,7 @@ function Sidebar() {
         <button
           className="icon-btn sm sidebar-toggle"
           onClick={toggle}
-          title={collapsed ? 'Afficher la barre latérale (⌃⌘S)' : 'Replier la barre latérale (⌃⌘S)'}
+          title={fmtKeys(collapsed ? 'Afficher la barre latérale (⌃⌘S)' : 'Replier la barre latérale (⌃⌘S)')}
           aria-label={collapsed ? 'Afficher la barre latérale' : 'Replier la barre latérale'}
           aria-expanded={!collapsed}
         >
@@ -157,7 +214,7 @@ function Sidebar() {
         </button>
       </div>
       {!collapsed && <div className="sidebar-brand">Marginalia</div>}
-      <button className="nav-item" onClick={() => setCommandOpen(true)} title="Rechercher (⌘K)" aria-label="Rechercher">
+      <button className="nav-item" onClick={() => setCommandOpen(true)} title={fmtKeys('Rechercher (⌘K)')} aria-label="Rechercher">
         <Search size={15} /> <span className="nav-label">Rechercher</span>
         <span className="count">
           <Kbd>⌘K</Kbd>
@@ -201,7 +258,7 @@ function Sidebar() {
       </div>
       {!collapsed && <AppearanceSwitch />}
       {collapsed ? (
-        <button className="icon-btn rail-import" onClick={importViaDialog} title="Importer (⌘O)" aria-label="Importer">
+        <button className="icon-btn rail-import" onClick={importViaDialog} title={fmtKeys('Importer (⌘O)')} aria-label="Importer">
           <Plus size={16} />
         </button>
       ) : (
@@ -308,6 +365,7 @@ export function App() {
   const theme = useStore((s) => s.settings.theme);
   useTheme(theme);
   useWindowDrag();
+  useNativeMenu();
   useAppleBooksSync();
   useDocxMigration();
   useResizeDiagnostics();
@@ -318,13 +376,20 @@ export function App() {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.metaKey && e.ctrlKey && e.code === 'KeyS') {
+      // ⌃⌘S (Mac) / Ctrl+Maj+B (Windows) : barre latérale.
+      if (matchKeys(e, '⌃⌘S')) {
         e.preventDefault();
         const st = useStore.getState();
         st.updateSettings({ sidebarCollapsed: !st.settings.sidebarCollapsed });
         return;
       }
-      if (!e.metaKey && !e.ctrlKey) return;
+      // Windows : F1 ouvre l'aide.
+      if (!isMac && e.key === 'F1' && !e.ctrlKey && !e.altKey && !e.shiftKey) {
+        e.preventDefault();
+        useStore.getState().navigate({ name: 'help' });
+        return;
+      }
+      if (!isMod(e)) return;
       if (e.key === '?' || (e.shiftKey && e.code === 'Slash')) {
         e.preventDefault();
         useStore.getState().navigate({ name: 'help' });
@@ -336,12 +401,13 @@ export function App() {
       } else if (e.key.toLowerCase() === 'o') {
         e.preventDefault();
         importViaDialog();
-      } else if (e.key.toLowerCase() === 'z' && !e.altKey) {
+      } else if ((e.key.toLowerCase() === 'z' || (!isMac && !e.shiftKey && e.key.toLowerCase() === 'y')) && !e.altKey) {
         // Annuler / rétablir global : hors des champs de saisie et de l'éditeur (qui ont le leur).
+        // Windows : Ctrl+Y rétablit aussi.
         if (isTextEditingTarget(e.target)) return;
         // Décision différée : un module qui gère lui-même ⌘Z (séance de révision…) l'a alors signalé
         // par preventDefault, même si son écouteur a été posé après celui-ci.
-        const redo = e.shiftKey;
+        const redo = e.shiftKey || e.key.toLowerCase() === 'y';
         setTimeout(() => {
           const s = useStore.getState();
           if (e.defaultPrevented || s.commandOpen) return;

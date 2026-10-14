@@ -42,6 +42,7 @@ import { VersionsPanel } from './VersionsPanel';
 import { CiteBar } from './CiteBar';
 import { attachCiteLinks, tagInsertedCitation, type CiteHover } from './citeLink';
 import { ActiveClock, addVersion, addVersionFromLibrary, registerSnapshotter, restoredTitle, fullDate, versionTitle, versionsOf } from './versions';
+import { fmtKeys, isMac, isMod, matchKeys } from '../../lib/keys';
 
 type Phase = 'loading' | 'ready' | 'error';
 type Status = 'saved' | 'dirty' | 'saving' | 'blocked' | 'error';
@@ -257,7 +258,7 @@ function Editor({ draft }: { draft: Draft }) {
               label: 'Enregistrer sous…',
               run: () => void exportAs('docx'),
             });
-          } else toast('Enregistrement impossible. Vos modifications restent affichées : réessayez avec ⌘S.', 'error');
+          } else toast(fmtKeys('Enregistrement impossible. Vos modifications restent affichées : réessayez avec ⌘S.'), 'error');
           return false;
         }
       });
@@ -403,7 +404,7 @@ function Editor({ draft }: { draft: Draft }) {
         // les transactions qui suivent l'opération (mise en page, réouverture) se terminent d'abord
         await new Promise((r) => setTimeout(r, 700));
         structuralRef.current = { snap, seq: seq.current };
-        toast(`${label}. ⌘Z pour annuler.`, 'success');
+        toast(`${label}. ${fmtKeys('⌘Z')} pour annuler.`, 'success');
       } catch (err) {
         console.error(err);
         toast('Ce réglage n’a pas pu être appliqué. Le document n’a pas changé.', 'error');
@@ -488,7 +489,7 @@ function Editor({ draft }: { draft: Draft }) {
         await e.restore(data.slice(0));
         await new Promise((r) => setTimeout(r, 700));
         structuralRef.current = { snap: before, seq: seq.current };
-        toast(`Version « ${versionTitle(v)} » (${fullDate(v.createdAt)}) restaurée. ⌘Z pour annuler.`, 'success', {
+        toast(`Version « ${versionTitle(v)} » (${fullDate(v.createdAt)}) restaurée. ${fmtKeys('⌘Z')} pour annuler.`, 'success', {
           label: 'Annuler',
           run: () => {
             if (engineRef.current !== e) return;
@@ -547,10 +548,10 @@ function Editor({ draft }: { draft: Draft }) {
   // « Tout remplacer » et autres opérations en masse : snapshotActiveDraft('replace').
   useEffect(() => registerSnapshotter((kind, name) => takeVersion(kind, name ?? null)), [takeVersion]);
 
-  // ⌘⌥S : « Créer une version… »
+  // ⌘⌥S (Windows : Ctrl+Maj+S) : « Créer une version… »
   useEffect(() => {
     const onKey = (ev: KeyboardEvent) => {
-      if ((ev.metaKey || ev.ctrlKey) && ev.altKey && !ev.shiftKey && ev.code === 'KeyS') {
+      if (matchKeys(ev, '⌘⌥S')) {
         ev.preventDefault();
         ev.stopPropagation();
         setVersionsOpen(true);
@@ -602,12 +603,12 @@ function Editor({ draft }: { draft: Draft }) {
   // ── Raccourcis : ⌘S, Échap (concentration), mise en forme (Word / Google Docs pour Mac) ──
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 's') {
+      if (isMod(e) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 's') {
         e.preventDefault();
         void save(true);
       } else if (e.key === 'Escape' && focusMode) {
         setFocusMode(false);
-      } else if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === 'f') {
+      } else if (isMod(e) && e.shiftKey && e.key.toLowerCase() === 'f') {
         e.preventDefault();
         setFocusMode((f) => !f);
       }
@@ -620,7 +621,8 @@ function Editor({ draft }: { draft: Draft }) {
     // Phase de capture : avant le ProseMirror de SuperDoc et avant la palette (⌘K) de l'app.
     const onKey = (ev: KeyboardEvent) => {
       const eng = engineRef.current;
-      if (!eng || guardRef.current || !(ev.metaKey || ev.ctrlKey) || !inDocument(ev.target)) return;
+      // Windows : isMod exclut Ctrl+Alt (AltGr) ; les raccourcis ⌘⌥ y deviennent Ctrl+Maj (lib/keys).
+      if (!eng || guardRef.current || !isMod(ev) || !inDocument(ev.target)) return;
       const k = ev.key;
       const lk = k.toLowerCase();
       const code = ev.code;
@@ -630,10 +632,11 @@ function Editor({ draft }: { draft: Draft }) {
         fn();
         setFmt(eng.state());
       };
-      if (ev.altKey && !ev.shiftKey && /^Digit[0-3]$/.test(code)) {
-        const n = Number(code.slice(5));
+      const heading = (['0', '1', '2', '3'] as const).find((d) => matchKeys(ev, `⌘⌥${d}`));
+      if (heading) {
+        const n = Number(heading);
         act(() => void eng.setParagraphStyle(n === 0 ? 'body' : (`h${n}` as 'h1' | 'h2' | 'h3')).then(() => setFmt(eng.state())));
-      } else if (ev.altKey && !ev.shiftKey && code === 'KeyF') act(() => insertFootnote());
+      } else if (matchKeys(ev, '⌘⌥F')) act(() => insertFootnote());
       else if (ev.altKey) return;
       else if (k === '>' || (ev.shiftKey && code === 'Period' && k !== '.')) act(() => eng.stepFontSize(1));
       else if (k === '<' || (ev.shiftKey && code === 'Comma' && k !== ',')) act(() => eng.stepFontSize(-1));
@@ -727,7 +730,7 @@ function Editor({ draft }: { draft: Draft }) {
             pdf = await host.printToPdf(toPrintHtml(g.model, d.title));
           } catch (err) {
             console.warn(err);
-            toast(host.kind === 'browser' ? 'L’export PDF n’est disponible que dans l’app Mac. Essayez Word ou Page web.' : 'L’export PDF a échoué. Réessayez, ou exportez en Word.', 'error');
+            toast(host.kind === 'browser' ? `L’export PDF n’est disponible que dans l’app ${isMac ? 'Mac' : 'de bureau'}. Essayez Word ou Page web.` : 'L’export PDF a échoué. Réessayez, ou exportez en Word.', 'error');
             return;
           }
           path = await host.saveBinary(`${name}.pdf`, pdf, 'pdf');
@@ -826,7 +829,7 @@ function Editor({ draft }: { draft: Draft }) {
   const statusTone = loadGuard || status === 'blocked' || status === 'error' ? 'warn' : status === 'saved' && !(draft.externalPath && extDirty) ? 'ok' : 'pending';
   const statusHint =
     draft.externalPath && extDirty && status !== 'dirty'
-      ? `Vos modifications sont gardées dans Marginalia. Enregistrez (⌘S) pour mettre à jour « ${baseName(draft.externalPath)} ».`
+      ? `Vos modifications sont gardées dans Marginalia. Enregistrez (${fmtKeys('⌘S')}) pour mettre à jour « ${baseName(draft.externalPath)} ».`
       : draft.externalPath
         ? `Fichier d’origine : ${draft.externalPath}`
         : 'Enregistrement automatique dans Marginalia';
@@ -869,7 +872,7 @@ function Editor({ draft }: { draft: Draft }) {
         <button
           className={`icon-btn ${versionsOpen ? 'active' : ''}`}
           onClick={() => setVersionsOpen((v) => !v)}
-          title="Versions (⌘⌥S : créer une version)"
+          title={fmtKeys("Versions (⌘⌥S : créer une version)")}
           aria-label="Afficher les versions"
           aria-pressed={versionsOpen}
           disabled={phase !== 'ready'}
@@ -890,7 +893,7 @@ function Editor({ draft }: { draft: Draft }) {
         >
           <PanelRight size={16} />
         </button>
-        <button className="icon-btn" onClick={() => setFocusMode(true)} title="Mode concentration (⌘⇧F)" aria-label="Mode concentration">
+        <button className="icon-btn" onClick={() => setFocusMode(true)} title={fmtKeys("Mode concentration (⌘⇧F)")} aria-label="Mode concentration">
           <Maximize2 size={15} />
         </button>
         <button className="btn" disabled={phase !== 'ready' || busyExport} onClick={(e) => exportPop.toggle(e.currentTarget)} aria-haspopup="menu">

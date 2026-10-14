@@ -9,10 +9,11 @@
 @import '@fontsource/instrument-serif/400-italic.css';
 
 :root {
-  --font-ui: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Helvetica Neue', system-ui, sans-serif;
-  --font-read: 'Literata Variable', 'Iowan Old Style', Georgia, serif;
-  --font-display: 'Instrument Serif', 'Iowan Old Style', Georgia, serif;
-  --font-mono: ui-monospace, 'SF Mono', Menlo, monospace;
+  /* Mac : SF Pro ; Windows : Segoe UI Variable (Windows 11) puis Segoe UI (Windows 10). */
+  --font-ui: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI Variable Text', 'Segoe UI Variable', 'Segoe UI', 'Helvetica Neue', system-ui, sans-serif;
+  --font-read: 'Literata Variable', 'Iowan Old Style', Cambria, Georgia, serif;
+  --font-display: 'Instrument Serif', 'Iowan Old Style', Cambria, Georgia, serif;
+  --font-mono: ui-monospace, 'SF Mono', Menlo, 'Cascadia Mono', Consolas, monospace;
 
   /* Échelle typographique UI */
   --fs-xs: 11px;

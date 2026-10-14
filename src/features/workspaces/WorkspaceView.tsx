@@ -26,6 +26,7 @@ import { useWsDialogs } from './wsDialogs';
 import { importHere, newDraftHere } from './wsActions';
 import { SelectionBar, useSelOwner, useSelectionActions } from './wsSelection';
 import './workspaces.css';
+import { OS_TEXT, fmtKeys } from '../../lib/keys';
 
 const plural = (n: number, one: string, many: string) => `${n} ${n > 1 ? many : one}`;
 
@@ -251,7 +252,7 @@ export function WorkspaceView({ workspaceId, groupId }: { workspaceId: string; g
                 <button
                   className={`btn ws-select-toggle ${selectMode ? 'on' : ''}`}
                   aria-pressed={selectMode}
-                  title="Cocher plusieurs éléments (ou ⌘-clic, ⇧-clic, ⌘A)"
+                  title={fmtKeys("Cocher plusieurs éléments (ou ⌘-clic, ⇧-clic, ⌘A)")}
                   onClick={() => {
                     if (selectMode) sel.clear();
                     setSelectMode(!selectMode);
@@ -278,7 +279,7 @@ export function WorkspaceView({ workspaceId, groupId }: { workspaceId: string; g
                   <FolderPlus size={14} /> Nouveau groupe
                 </button>
               </div>
-              <span className="ws-empty-tip">Vous pouvez aussi glisser un fichier depuis le Finder.</span>
+              <span className="ws-empty-tip">Vous pouvez aussi glisser un fichier depuis {OS_TEXT.fileManager}.</span>
             </div>
           )}
 

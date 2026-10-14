@@ -8,6 +8,7 @@ import type { DocEngine } from './engine';
 import { attachTypography, setTypographyEnabled, subscribeTypography, typographyEnabled } from './typography';
 import './find.css';
 import { snapshotActiveDraft } from './versions';
+import { fmtKeys, isMod, matchKeys } from '../../lib/keys';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 type Any = any;
@@ -167,9 +168,8 @@ export function FindReplace({ engine: engineProp, ready }: { engine: () => DocEn
   useEffect(() => {
     const onKey = (ev: KeyboardEvent) => {
       if (!ready) return;
-      const mod = ev.metaKey || ev.ctrlKey;
-      const isFind = mod && !ev.shiftKey && !ev.altKey && ev.code === 'KeyF';
-      const isReplace = mod && ev.shiftKey && !ev.altKey && ev.code === 'KeyH'; // comme Word sur Mac
+      const isFind = isMod(ev) && !ev.shiftKey && !ev.altKey && ev.code === 'KeyF';
+      const isReplace = matchKeys(ev, '⌘⇧H'); // comme Word (Mac : ⌘⇧H ; Windows : Ctrl+H)
       if (isFind || isReplace) {
         ev.preventDefault();
         ev.stopImmediatePropagation();
@@ -278,7 +278,7 @@ export function FindReplace({ engine: engineProp, ready }: { engine: () => DocEn
       <button
         className={`ed-find-chev ${showReplace ? 'open' : ''}`}
         onClick={() => setShowReplace((v) => !v)}
-        title="Afficher / masquer le remplacement (⌘⇧H)"
+        title={fmtKeys("Afficher / masquer le remplacement (⌘⇧H)")}
         aria-label="Afficher le remplacement"
         aria-expanded={showReplace}
         data-find="toggle-replace"
@@ -313,7 +313,7 @@ export function FindReplace({ engine: engineProp, ready }: { engine: () => DocEn
           <span className="ed-find-count" aria-live="polite" data-find="count">
             {counter}
           </span>
-          <button className="ed-find-btn" onClick={() => step(-1)} disabled={!res.count} title="Occurrence précédente (⇧↵)" aria-label="Occurrence précédente" data-find="prev">
+          <button className="ed-find-btn" onClick={() => step(-1)} disabled={!res.count} title={fmtKeys("Occurrence précédente (⇧↵)")} aria-label="Occurrence précédente" data-find="prev">
             <ChevronUp size={15} />
           </button>
           <button className="ed-find-btn" onClick={() => step(1)} disabled={!res.count} title="Occurrence suivante (↵)" aria-label="Occurrence suivante" data-find="next">

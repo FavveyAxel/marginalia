@@ -40,6 +40,7 @@ import { useMultiSelect, useLasso, useSelectionKeys, LassoBox } from '../../lib/
 import { SelectionActionBar, SelectCheck, AddToWorkspaceDialog, selectedLabel } from '../../components/MultiSelect';
 import { ContextMenu, type MenuEntry } from '../workspaces/wsUi';
 import './library.css';
+import { OS_TEXT, fmtKeys } from '../../lib/keys';
 
 type SortKey = 'recent' | 'title' | 'author' | 'added';
 type ViewMode = 'grid' | 'list';
@@ -313,7 +314,7 @@ export function LibraryView() {
               className={`btn btn-ghost msel-toggle ${selectMode ? 'active' : ''}`}
               aria-pressed={selectMode}
               onClick={() => (selectMode ? exitSelect() : setSelectMode(true))}
-              title={selectMode ? 'Quitter la sélection (Échap)' : 'Sélectionner plusieurs documents (⌘-clic, ⇧-clic, ⌘A)'}
+              title={fmtKeys(selectMode ? 'Quitter la sélection (Échap)' : 'Sélectionner plusieurs documents (⌘-clic, ⇧-clic, ⌘A)')}
             >
               <CheckSquare size={14} /> {selectMode ? 'Terminé' : 'Sélectionner'}
             </button>
@@ -345,7 +346,7 @@ export function LibraryView() {
                 <Upload size={22} />
               </div>
               <h3>Déposez vos textes ici</h3>
-              <p>Glissez des fichiers n’importe où dans la fenêtre, ou choisissez-les sur votre Mac.</p>
+              <p>Glissez des fichiers n’importe où dans la fenêtre, ou choisissez-les sur {OS_TEXT.yourComputer}.</p>
               <button
                 className="btn btn-primary"
                 onClick={(e) => {

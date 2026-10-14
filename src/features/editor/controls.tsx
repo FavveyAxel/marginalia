@@ -3,9 +3,10 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { Check, ChevronDown } from 'lucide-react';
 import { Popover, usePop } from './Popover';
 import { FONT_SIZES } from './engine';
+import { fmtKeys } from '../../lib/keys';
 
-/** Raccourcis affichés dans les infobulles et les menus. */
-export const KEYS = {
+/** Raccourcis affichés dans les infobulles et les menus (notation Mac ; « Ctrl+… » sous Windows). */
+const MAC_KEYS = {
   bold: '⌘B',
   italic: '⌘I',
   underline: '⌘U',
@@ -31,6 +32,7 @@ export const KEYS = {
   undo: '⌘Z',
   redo: '⌘⇧Z',
 } as const;
+export const KEYS = Object.fromEntries(Object.entries(MAC_KEYS).map(([k, v]) => [k, fmtKeys(v)])) as Record<keyof typeof MAC_KEYS, string>;
 
 export const tip = (label: string, key?: string) => (key ? `${label} (${key})` : label);
 

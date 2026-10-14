@@ -1,7 +1,9 @@
 // Décodage des images importées comme documents (photo ou scan d'une page).
 // Chromium décode JPEG, PNG, WebP (et GIF, BMP) ; HEIC et TIFF passent par l'hôte quand il sait
-// les convertir (app Mac : outil système `sips`), sinon un message clair est affiché.
+// les convertir (app Mac : outil système `sips`), sinon par le décodeur JS/WASM embarqué
+// (Windows, Linux, navigateur : convert.ts) ; en dernier recours, un message clair est affiché.
 import { extOf, host, IMAGE_EXTENSIONS } from '../../../lib/platform';
+import { convertInRenderer } from './convert';
 
 export const isImageName = (name: string) => IMAGE_EXTENSIONS.includes(extOf(name));
 
@@ -52,15 +54,28 @@ export async function displayableBlob(data: ArrayBuffer, name: string): Promise<
       /* format annoncé mais non décodable : on tente la conversion */
     }
   }
+  const jsKind = kind === 'heic' || kind === 'heif' ? 'heic' : kind === 'tiff' || kind === 'tif' ? 'tiff' : null;
+  let failure: unknown = null;
   if (host.convertImage) {
     try {
       const jpeg = await host.convertImage(data, kind === 'tiff' || kind === 'heic' ? kind : extOf(name));
       return { blob: new Blob([jpeg], { type: 'image/jpeg' }), converted: true };
     } catch (e) {
-      throw new ImageDecodeError(`Cette image n’a pas pu être convertie (${e instanceof Error ? e.message : String(e)}). Exportez-la en JPEG ou en PNG, puis importez-la de nouveau.`);
+      failure = e;
+    }
+  }
+  if (jsKind) {
+    try {
+      const jpeg = await convertInRenderer(data, jsKind);
+      return { blob: new Blob([jpeg], { type: 'image/jpeg' }), converted: true };
+    } catch (e) {
+      failure = failure ?? e;
     }
   }
   const label = kind === 'heic' ? 'HEIC' : kind === 'tiff' ? 'TIFF' : extOf(name).toUpperCase() || 'inconnu';
+  if (failure) {
+    throw new ImageDecodeError(`Cette image ${label} n’a pas pu être convertie (${failure instanceof Error ? failure.message : String(failure)}). Exportez-la en JPEG ou en PNG, puis importez-la de nouveau.`);
+  }
   throw new ImageDecodeError(`Le format ${label} ne peut pas être affiché ici. Exportez l’image en JPEG ou en PNG, puis importez-la de nouveau.`);
 }
 

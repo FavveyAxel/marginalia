@@ -1,11 +1,12 @@
 // Marginalia — processus principal Electron.
 //
-// Données (dossier userData, ex. ~/Library/Application Support/Marginalia) :
+// Données (dossier userData : ~/Library/Application Support/Marginalia sur Mac,
+// %APPDATA%\Marginalia sous Windows) :
 //   db.json (+ db.json.bak)        base complète, écriture atomique (tmp + rename)
 //   library/<id>/<fileName>        fichiers sources des livres et des écrits
 //
-// Fichiers ouverts depuis le Finder / le Dock (événement macOS `open-file`, ou arguments de
-// lancement) : TOUS les formats acceptés, y compris les .docx, sont transmis au rendu via
+// Fichiers ouverts depuis le Finder / le Dock (événement macOS `open-file`), ou depuis l'Explorateur
+// de Windows (arguments de lancement, puis événement `second-instance` si l'app tourne déjà) : TOUS les formats acceptés, y compris les .docx, sont transmis au rendu via
 // `onOpenFiles` et donc IMPORTÉS COMME LIVRES (bibliothèque). Un .docx ouvert ainsi n'est pas
 // ouvert dans l'éditeur ; pour modifier un .docx en place, utiliser « Ouvrir un .docx » dans Écrire.
 'use strict';
@@ -26,7 +27,16 @@ const ACCEPTED = ['epub', 'pdf', 'docx', 'md', 'markdown', 'txt', 'html', 'htm',
 // Fichiers dérivés d'un document image (texte reconnu, copie affichable) : supprimés avec la source.
 const DERIVED_FILES = ['ocr.json', 'display.jpg'];
 
+const IS_MAC = process.platform === 'darwin';
+const IS_WIN = process.platform === 'win32';
+// App Livres d'Apple : macOS uniquement. MARGINALIA_APPLE_BOOKS=1 l'active ailleurs pour les tests
+// (faux dossiers de Livres sous un HOME temporaire, sqlite3 du système).
+const APPLE_BOOKS = IS_MAC || process.env.MARGINALIA_APPLE_BOOKS === '1';
+// Hauteur de la barre du haut de l'interface (--titlebar-h) : les boutons de fenêtre de Windows s'y alignent.
+const TITLEBAR_H = 52;
+
 app.setName('Marginalia');
+if (IS_WIN) app.setAppUserModelId('com.axelbierne.marginalia');
 
 protocol.registerSchemesAsPrivileged([
   { scheme: 'app', privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true } },
@@ -42,8 +52,34 @@ const userData = () => app.getPath('userData');
 const dbPath = () => path.join(userData(), 'db.json');
 const libraryRoot = () => path.join(userData(), 'library');
 
+// Noms interdits par Windows (quel que soit le système : une bibliothèque doit pouvoir être copiée d'un PC à un Mac).
+const WIN_RESERVED = /^(con|prn|aux|nul|com[0-9¹²³]|lpt[0-9¹²³])(\..*)?$/i;
 function segmentOk(s) {
-  return typeof s === 'string' && s.length > 0 && s !== '.' && s !== '..' && !/[\\\0]/.test(s) && !path.isAbsolute(s);
+  return (
+    typeof s === 'string' &&
+    s.length > 0 &&
+    s !== '.' &&
+    s !== '..' &&
+    !/[\\\0]/.test(s) &&
+    !path.isAbsolute(s) &&
+    (!IS_WIN || (!/[<>:"|?*\u0000-\u001f]/.test(s) && !/[. ]$/.test(s) && !WIN_RESERVED.test(s)))
+  );
+}
+
+/** `child` est-il strictement à l'intérieur de `parent` ? (path.relative : insensible à la casse sous Windows) */
+function isInside(child, parent) {
+  const rel = path.relative(parent, child);
+  return rel !== '' && rel !== '..' && !rel.startsWith('..' + path.sep) && !path.isAbsolute(rel);
+}
+
+/** Nom de fichier proposé dans « Enregistrer sous » : caractères et noms réservés de Windows remplacés. */
+function safeDefaultName(name) {
+  let base = path.basename(String(name || ''));
+  if (!IS_WIN) return base;
+  base = base.replace(/[<>:"/\\|?*\u0000-\u001f]+/g, ' ').replace(/\s+/g, ' ').trim().replace(/[. ]+$/, '');
+  if (!base) base = 'Sans titre';
+  if (WIN_RESERVED.test(base)) base = '_' + base;
+  return base;
 }
 
 /** library/<id>/<fileName> ; fileName peut contenir des sous-dossiers, jamais de remontée. */
@@ -52,8 +88,7 @@ function libraryPath(id, fileName) {
   const parts = String(fileName).split('/');
   if (!parts.length || !parts.every(segmentOk)) throw new Error('Nom de fichier invalide');
   const full = path.join(libraryRoot(), id, ...parts);
-  const root = path.join(libraryRoot(), id) + path.sep;
-  if (!full.startsWith(root)) throw new Error('Chemin invalide');
+  if (!isInside(full, path.join(libraryRoot(), id))) throw new Error('Chemin invalide');
   return full;
 }
 
@@ -153,7 +188,7 @@ handle('marginalia:deleteFile', async (_e, id, fileName) => {
   // Remonte et retire les dossiers vides jusqu'à library/<id> inclus.
   const stop = path.join(libraryRoot(), id);
   let dir = path.dirname(file);
-  while (dir.startsWith(stop)) {
+  while (dir === stop || isInside(dir, stop)) {
     try {
       await fsp.rmdir(dir);
     } catch {
@@ -165,10 +200,12 @@ handle('marginalia:deleteFile', async (_e, id, fileName) => {
 });
 
 // ── Images que Chromium ne décode pas (HEIC, TIFF) ───────────
-// Conversion en JPEG par l'outil système macOS `sips` (aucun module natif). Fichiers temporaires
+// macOS : conversion en JPEG par l'outil système `sips` (aucun module natif). Fichiers temporaires
 // dans le dossier temporaire de l'utilisateur, supprimés aussitôt.
+// Windows / Linux : le preload n'expose pas cette fonction ; le rendu décode HEIC et TIFF avec un
+// décodeur JS/WASM embarqué dans l'app (src/features/reader/image/convert.worker.ts).
 handle('marginalia:convertImage', async (_e, data, ext) => {
-  if (process.platform !== 'darwin') throw new Error('Conversion disponible sur macOS uniquement');
+  if (!IS_MAC) throw new Error('Conversion par sips disponible sur macOS uniquement');
   const safeExt = String(ext).toLowerCase();
   if (!IMAGES.includes(safeExt)) throw new Error('Format d’image non pris en charge');
   const dir = await fsp.mkdtemp(path.join(os.tmpdir(), 'marginalia-img-'));
@@ -217,7 +254,7 @@ handle('marginalia:pickFiles', async () => {
 handle('marginalia:saveText', async (_e, defaultName, content) => {
   const ext = path.extname(String(defaultName)).slice(1).toLowerCase() || 'md';
   const r = await dialog.showSaveDialog(parentWindow(), {
-    defaultPath: path.join(app.getPath('documents'), path.basename(String(defaultName))),
+    defaultPath: path.join(app.getPath('documents'), safeDefaultName(defaultName)),
     filters: [
       { name: ext === 'md' ? 'Markdown' : ext.toUpperCase(), extensions: [ext] },
       { name: 'Texte', extensions: ['txt'] },
@@ -260,12 +297,15 @@ const SAVE_FILTERS = {
 };
 
 // Polices installées : liste native de macOS (NSFontManager via JavaScript for Automation),
-// repli sur system_profiler. Aucun accès réseau ; résultat mis en cache pour la session.
+// repli sur system_profiler ; Windows : PowerShell (familles GDI+, repli sur le registre) ;
+// Linux : fc-list. Aucun accès réseau ; résultat mis en cache pour la session.
 let fontCache = null;
 // ── Fenêtre : déplacement par la barre du haut, sans zone « app-region » CSS ──
 // Sur macOS, les zones de glissement CSS sont recalculées à chaque changement de mise en page
 // (sélection de texte, barres flottantes) et peuvent provoquer des saccades ou un « zoom »
 // involontaire de la fenêtre. On déplace donc la fenêtre nous-mêmes.
+// Sous Windows, les barres du haut utilisent -webkit-app-region: drag (classe .platform-win) :
+// accrochage aux bords, double-clic et menu système natifs ; ce déplacement en JS n'y sert plus.
 let dragTimer = null;
 function stopDrag() {
   if (dragTimer) clearInterval(dragTimer);
@@ -291,8 +331,8 @@ handle('marginalia:windowDragEnd', async () => stopDrag());
 handle('marginalia:windowDoubleClick', async (e) => {
   const win = BrowserWindow.fromWebContents(e.sender);
   if (!win || win.isFullScreen()) return;
-  let action = 'Maximize';
-  if (process.platform === 'darwin') {
+  let action = 'Maximize'; // Windows / Linux : agrandir ou restaurer
+  if (IS_MAC) {
     try {
       action = systemPreferences.getUserDefault('AppleActionOnDoubleClick', 'string') || 'Maximize';
     } catch {
@@ -305,11 +345,28 @@ handle('marginalia:windowDoubleClick', async (e) => {
   else if (win.isMaximized()) win.unmaximize();
   else win.maximize();
 });
-// Thème natif (menus, fond de fenêtre) aligné sur le choix de l'utilisateur.
-handle('marginalia:setTheme', async (e, mode) => {
+// Thème natif (menus, fond de fenêtre) aligné sur le choix de l'utilisateur. Hors macOS, les
+// boutons de fenêtre (titleBarOverlay) prennent les couleurs du thème affiché (clair, sombre, sépia).
+const HEX = /^#[0-9a-f]{6}$/i;
+function overlayFor(dark) {
+  return { color: dark ? '#121110' : '#efebe3', symbolColor: dark ? '#c4bcae' : '#4a443a', height: TITLEBAR_H };
+}
+handle('marginalia:setTheme', async (e, mode, titleBar) => {
   nativeTheme.themeSource = mode === 'dark' ? 'dark' : mode === 'system' ? 'system' : 'light';
   const win = BrowserWindow.fromWebContents(e.sender);
-  if (win && !win.isDestroyed()) win.setBackgroundColor(nativeTheme.shouldUseDarkColors ? '#121110' : '#efebe3');
+  if (!win || win.isDestroyed()) return;
+  const bg = titleBar && HEX.test(titleBar.color) ? titleBar.color : nativeTheme.shouldUseDarkColors ? '#121110' : '#efebe3';
+  win.setBackgroundColor(bg);
+  if (!IS_MAC && typeof win.setTitleBarOverlay === 'function') {
+    const o = overlayFor(nativeTheme.shouldUseDarkColors);
+    if (titleBar && HEX.test(titleBar.color)) o.color = titleBar.color;
+    if (titleBar && HEX.test(titleBar.symbolColor)) o.symbolColor = titleBar.symbolColor;
+    try {
+      win.setTitleBarOverlay(o);
+    } catch (err) {
+      diag('fenetre', 'titleBarOverlay', err && err.message);
+    }
+  }
 });
 
 handle('marginalia:diag', async (_e, ...parts) => diag('renderer', ...parts));
@@ -358,6 +415,7 @@ async function epubPackageInfo(dir) {
   return { drm, title, author };
 }
 handle('marginalia:appleBooksScan', async () => {
+  if (!APPLE_BOOKS) return [];
   const out = [];
   for (const base of BOOKS_DIRS()) {
     let entries = [];
@@ -373,7 +431,7 @@ handle('marginalia:appleBooksScan', async () => {
         // Livre resté dans iCloud (« .Titre.epub.icloud ») : on demande son téléchargement ;
         // la surveillance du dossier relancera la synchro quand il sera arrivé.
         const m = e.name.match(/^\.(.+\.(epub|pdf))\.icloud$/i);
-        if (m && process.platform === 'darwin') {
+        if (m && IS_MAC) {
           const real = path.join(base, m[1]);
           require('child_process').execFile('/usr/bin/brctl', ['download', real], { timeout: 30000 }, () => {});
           out.push({ path: real, name: m[1], kind: m[2].toLowerCase(), title: m[1].replace(/\.(epub|pdf)$/i, ''), author: '', drm: null, pending: true });
@@ -403,6 +461,7 @@ handle('marginalia:appleBooksScan', async () => {
 let booksWatchers = null;
 let booksTimer = null;
 handle('marginalia:appleBooksWatch', async () => {
+  if (!APPLE_BOOKS) return false;
   if (booksWatchers) return true;
   booksWatchers = [];
   const notify = () => {
@@ -422,7 +481,8 @@ handle('marginalia:appleBooksWatch', async () => {
   return booksWatchers.length > 0;
 });
 handle('marginalia:appleBooksRead', async (_e, p) => {
-  const allowed = BOOKS_DIRS().some((d) => path.resolve(p).startsWith(d + path.sep));
+  if (!APPLE_BOOKS) throw new Error('App Livres indisponible sur ce système');
+  const allowed = typeof p === 'string' && BOOKS_DIRS().some((d) => isInside(path.resolve(p), d));
   if (!allowed) throw new Error('Chemin non autorisé');
   const st = await fsp.stat(p);
   if (!st.isDirectory()) {
@@ -461,7 +521,7 @@ const BOOKS_DENIED =
 let sqliteBinCache = null;
 function sqliteBin() {
   if (sqliteBinCache) return sqliteBinCache;
-  const candidates = process.platform === 'darwin' ? ['/usr/bin/sqlite3'] : ['/usr/bin/sqlite3', '/usr/local/bin/sqlite3', '/bin/sqlite3'];
+  const candidates = IS_MAC ? ['/usr/bin/sqlite3'] : ['/usr/bin/sqlite3', '/usr/local/bin/sqlite3', '/bin/sqlite3'];
   sqliteBinCache = candidates.find((c) => fs.existsSync(c)) || 'sqlite3';
   return sqliteBinCache;
 }
@@ -509,6 +569,7 @@ const appleDate = (v) => (typeof v === 'number' && isFinite(v) && v > 0 ? Math.r
 const str = (v) => (typeof v === 'string' ? v : v == null ? '' : String(v));
 
 handle('marginalia:appleBooksAnnotations', async () => {
+  if (!APPLE_BOOKS) return { status: 'absent', message: 'L’app Livres n’existe que sur Mac.', books: [] };
   let aeFile = null;
   let bkFile = null;
   try {
@@ -618,13 +679,57 @@ handle('marginalia:appleBooksAnnotations', async () => {
   }
 });
 
+// Windows : familles vues par GDI+ (polices de la machine et de l'utilisateur), repli sur les clés
+// de registre « Fonts » (HKLM et HKCU) dont on retire le type et les noms de style. Sans module natif.
+const WIN_FONT_SCRIPT = `
+$ErrorActionPreference = 'SilentlyContinue'
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+$names = @()
+try {
+  Add-Type -AssemblyName System.Drawing
+  $names = (New-Object System.Drawing.Text.InstalledFontCollection).Families | ForEach-Object { $_.Name }
+} catch {}
+if (-not $names -or $names.Count -eq 0) {
+  foreach ($k in 'HKLM:\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Fonts', 'HKCU:\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Fonts') {
+    $p = Get-ItemProperty -Path $k
+    if ($p) { $names += $p.PSObject.Properties | Where-Object { $_.Name -notlike 'PS*' } | ForEach-Object { 'reg:' + $_.Name } }
+  }
+}
+ConvertTo-Json -Compress -InputObject @($names)
+`;
+const FONT_STYLE_WORDS = /\s+(Regular|Bold|Italic|Oblique|Light|Thin|Medium|Semibold|SemiBold|Semilight|SemiLight|Demibold|ExtraBold|Extra Bold|ExtraLight|Extra Light|UltraLight|Condensed|Cond|Narrow|BdIt|Bd|It)\b.*$/i;
+async function windowsFontFamilies(run) {
+  const ps = path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
+  const encoded = Buffer.from(WIN_FONT_SCRIPT, 'utf16le').toString('base64');
+  let raw = [];
+  try {
+    raw = JSON.parse((await run(ps, ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-EncodedCommand', encoded], 30000)).replace(/^\uFEFF/, '').trim() || '[]');
+  } catch {
+    raw = [];
+  }
+  const set = new Set();
+  for (const n of Array.isArray(raw) ? raw : []) {
+    if (typeof n !== 'string') continue;
+    if (!n.startsWith('reg:')) {
+      set.add(n.trim());
+      continue;
+    }
+    // « Cambria & Cambria Math (TrueType) », « Segoe UI Bold Italic (TrueType) »
+    for (const part of n.slice(4).replace(/\s*\((TrueType|OpenType|Type 1|VGA res)\)\s*$/i, '').split(' & ')) {
+      const fam = part.replace(FONT_STYLE_WORDS, '').trim();
+      if (fam) set.add(fam);
+    }
+  }
+  return [...set].sort((a, b) => a.localeCompare(b, 'fr'));
+}
+
 handle('marginalia:listFonts', async () => {
   if (fontCache) return fontCache;
   const { execFile } = require('child_process');
   const run = (cmd, args, timeout) =>
     new Promise((resolve) => execFile(cmd, args, { timeout, maxBuffer: 32 * 1024 * 1024 }, (err, out) => resolve(err ? '' : String(out))));
   let families = [];
-  if (process.platform === 'darwin') {
+  if (IS_MAC) {
     const jxa = "ObjC.import('AppKit'); JSON.stringify(ObjC.deepUnwrap($.NSFontManager.sharedFontManager.availableFontFamilies))";
     try { families = JSON.parse((await run('/usr/bin/osascript', ['-l', 'JavaScript', '-e', jxa], 15000)) || '[]'); } catch { families = []; }
     if (!families.length) {
@@ -635,6 +740,8 @@ handle('marginalia:listFonts', async () => {
         families = [...set];
       } catch { families = []; }
     }
+  } else if (IS_WIN) {
+    families = await windowsFontFamilies(run);
   } else {
     const out = await run('fc-list', [':', 'family'], 15000);
     families = [...new Set(out.split('\n').map((l) => l.split(',')[0].trim()).filter(Boolean))];
@@ -647,7 +754,7 @@ handle('marginalia:listFonts', async () => {
 handle('marginalia:saveBinary', async (_e, defaultName, data, format) => {
   const filter = SAVE_FILTERS[format] || SAVE_FILTERS.txt;
   const r = await dialog.showSaveDialog(parentWindow(), {
-    defaultPath: path.join(app.getPath('documents'), path.basename(String(defaultName))),
+    defaultPath: path.join(app.getPath('documents'), safeDefaultName(defaultName)),
     filters: [filter],
   });
   if (r.canceled || !r.filePath) return null;
@@ -694,7 +801,7 @@ handle('marginalia:printToPdf', async (_e, html) => {
   }
 });
 
-// ── Fichiers ouverts depuis le Finder ────────────────────────
+// ── Fichiers ouverts depuis le Finder ou l'Explorateur ───────
 let mainWindow = null;
 let rendererReady = false;
 const pendingOpen = [];
@@ -734,12 +841,16 @@ app.on('open-file', (event, filePath) => {
   queueOpen([filePath]);
 });
 
+// Windows / Linux : double-clic sur un fichier alors que l'app tourne → nouvelle instance refusée
+// (instance unique) ; ses arguments arrivent ici. queueOpen ne garde que les fichiers acceptés
+// existants (les options ajoutées par Chromium sont ignorées).
 app.on('second-instance', (_e, argv) => {
   if (mainWindow) {
     if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.show();
     mainWindow.focus();
   }
-  queueOpen(argv.slice(1));
+  queueOpen(argv.slice(1).filter((a) => !a.startsWith('-')));
 });
 
 // ── Fenêtre ──────────────────────────────────────────────────
@@ -772,6 +883,12 @@ function watchWindow(win) {
   win.once('ready-to-show', () => state('demarrage', { version: app.getVersion(), os: process.getSystemVersion?.() }));
 }
 
+/** Barre de titre : pastilles intégrées sur Mac ; boutons de fenêtre superposés (couleurs du thème) ailleurs. */
+function titleBarOptions() {
+  if (IS_MAC) return { titleBarStyle: 'hiddenInset', trafficLightPosition: { x: 18, y: 18 } };
+  return { titleBarStyle: 'hidden', titleBarOverlay: overlayFor(nativeTheme.shouldUseDarkColors), autoHideMenuBar: true };
+}
+
 function createWindow() {
   rendererReady = false;
   const win = new BrowserWindow({
@@ -781,15 +898,18 @@ function createWindow() {
     minHeight: 680,
     show: false,
     title: 'Marginalia',
-    titleBarStyle: 'hiddenInset',
-    trafficLightPosition: { x: 18, y: 18 },
+    ...titleBarOptions(),
     backgroundColor: nativeTheme.shouldUseDarkColors ? '#121110' : '#efebe3',
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),
       contextIsolation: true,
       sandbox: true,
       nodeIntegration: false,
-      spellcheck: true,
+      // Correcteur natif de Chromium : macOS uniquement (API du système). Ailleurs, il téléchargerait
+      // des dictionnaires Hunspell sur Internet ; l'éditeur a son propre correcteur hors ligne.
+      spellcheck: IS_MAC,
+      // Lu par le preload : fonctions propres à macOS (app Livres).
+      additionalArguments: APPLE_BOOKS ? ['--mg-apple-books=1'] : [],
     },
   });
   mainWindow = win;
@@ -855,7 +975,7 @@ function registerAppProtocol() {
       let rel = decodeURIComponent(url.pathname);
       if (rel === '/' || rel === '') rel = '/index.html';
       const file = path.normalize(path.join(DIST_DIR, rel));
-      if (file !== DIST_DIR && !file.startsWith(DIST_DIR + path.sep)) return new Response('Interdit', { status: 403 });
+      if (!isInside(file, DIST_DIR)) return new Response('Interdit', { status: 403 });
       const stat = await fsp.stat(file).catch(() => null);
       if (!stat || !stat.isFile()) return new Response('Introuvable', { status: 404 });
       const res = await net.fetch(pathToFileURL(file).toString(), { bypassCustomProtocolHandlers: true });
@@ -871,12 +991,48 @@ function registerAppProtocol() {
 }
 
 // ── Menus (français) ─────────────────────────────────────────
-// Pas d'accélérateurs ⌘O / ⌘K / ⌘F / ⌘S : ils appartiennent à l'application (rendu).
-function buildMenu() {
-  const isMac = process.platform === 'darwin';
-  const template = [];
-  if (isMac) {
-    template.push({
+// Pas d'accélérateurs ⌘O / ⌘K / ⌘F / ⌘S actifs : ils appartiennent à l'application (rendu).
+// Les raccourcis affichés dans les menus Windows sont donc décoratifs (registerAccelerator: false).
+function sendMenuCommand(cmd) {
+  const win = mainWindow && !mainWindow.isDestroyed() ? mainWindow : BrowserWindow.getAllWindows()[0];
+  if (win && !win.isDestroyed()) win.webContents.send('marginalia:menu', cmd);
+}
+
+const exportDiagnosticItem = {
+  label: 'Exporter le journal de diagnostic',
+  click: async () => {
+    try {
+      const src = path.join(app.getPath('userData'), 'diagnostic.log');
+      const dst = path.join(app.getPath('downloads'), 'Marginalia-diagnostic.log');
+      if (diagStream) await new Promise((r) => diagStream.write('', r));
+      await fsp.copyFile(src, dst);
+      shell.showItemInFolder(dst);
+    } catch (e) {
+      dialog.showErrorBox('Journal de diagnostic', 'Aucun journal à exporter pour l’instant.');
+    }
+  },
+};
+
+const editMenu = {
+  label: 'Édition',
+  submenu: [
+    { role: 'undo', label: 'Annuler' },
+    { role: 'redo', label: 'Rétablir' },
+    { type: 'separator' },
+    { role: 'cut', label: 'Couper' },
+    { role: 'copy', label: 'Copier' },
+    { role: 'paste', label: 'Coller' },
+    { role: 'pasteAndMatchStyle', label: 'Coller sans le style' },
+    { role: 'delete', label: 'Supprimer' },
+    { role: 'selectAll', label: 'Tout sélectionner' },
+  ],
+};
+
+const devItems = () => (DEV_URL ? [{ type: 'separator' }, { role: 'reload', label: 'Recharger' }, { role: 'toggleDevTools', label: 'Outils de développement' }] : []);
+
+function macMenuTemplate() {
+  return [
+    {
       label: app.name,
       submenu: [
         { role: 'about', label: 'À propos de Marginalia' },
@@ -889,27 +1045,9 @@ function buildMenu() {
         { type: 'separator' },
         { role: 'quit', label: 'Quitter Marginalia' },
       ],
-    });
-  }
-  template.push(
-    {
-      label: 'Fichier',
-      submenu: [{ role: 'close', label: 'Fermer la fenêtre' }, ...(isMac ? [] : [{ role: 'quit', label: 'Quitter' }])],
     },
-    {
-      label: 'Édition',
-      submenu: [
-        { role: 'undo', label: 'Annuler' },
-        { role: 'redo', label: 'Rétablir' },
-        { type: 'separator' },
-        { role: 'cut', label: 'Couper' },
-        { role: 'copy', label: 'Copier' },
-        { role: 'paste', label: 'Coller' },
-        { role: 'pasteAndMatchStyle', label: 'Coller sans le style' },
-        { role: 'delete', label: 'Supprimer' },
-        { role: 'selectAll', label: 'Tout sélectionner' },
-      ],
-    },
+    { label: 'Fichier', submenu: [{ role: 'close', label: 'Fermer la fenêtre' }] },
+    editMenu,
     {
       label: 'Présentation',
       submenu: [
@@ -918,7 +1056,7 @@ function buildMenu() {
         { role: 'zoomOut', label: 'Réduire' },
         { type: 'separator' },
         { role: 'togglefullscreen', label: 'Plein écran' },
-        ...(DEV_URL ? [{ type: 'separator' }, { role: 'reload', label: 'Recharger' }, { role: 'toggleDevTools', label: 'Outils de développement' }] : []),
+        ...devItems(),
       ],
     },
     {
@@ -926,32 +1064,72 @@ function buildMenu() {
       submenu: [
         { role: 'minimize', label: 'Placer dans le Dock' },
         { role: 'zoom', label: 'Zoom' },
-        ...(isMac ? [{ type: 'separator' }, { role: 'front', label: 'Tout ramener au premier plan' }] : []),
+        { type: 'separator' },
+        { role: 'front', label: 'Tout ramener au premier plan' },
+      ],
+    },
+    { role: 'help', label: 'Aide', submenu: [exportDiagnosticItem] },
+  ];
+}
+
+/** Windows (et Linux) : pas de menu « app » ; la barre de menus est masquée (Alt l'affiche, voir le rendu). */
+function otherMenuTemplate() {
+  return [
+    {
+      label: '&Fichier',
+      submenu: [
+        { label: 'Importer…', accelerator: 'Ctrl+O', registerAccelerator: false, click: () => sendMenuCommand('import') },
+        { type: 'separator' },
+        { role: 'quit', label: 'Quitter', accelerator: 'Alt+F4' },
+      ],
+    },
+    editMenu,
+    {
+      label: '&Affichage',
+      submenu: [
+        { role: 'resetZoom', label: 'Taille réelle' },
+        { role: 'zoomIn', label: 'Agrandir' },
+        { role: 'zoomOut', label: 'Réduire' },
+        { type: 'separator' },
+        { role: 'togglefullscreen', label: 'Plein écran' },
+        ...devItems(),
       ],
     },
     {
-      role: 'help',
-      label: 'Aide',
+      label: 'Ai&de',
       submenu: [
+        { label: 'Aide de Marginalia', accelerator: 'F1', registerAccelerator: false, click: () => sendMenuCommand('help') },
+        { type: 'separator' },
+        exportDiagnosticItem,
+        { type: 'separator' },
         {
-          label: 'Exporter le journal de diagnostic',
-          click: async () => {
-            try {
-              const src = path.join(app.getPath('userData'), 'diagnostic.log');
-              const dst = path.join(app.getPath('downloads'), 'Marginalia-diagnostic.log');
-              if (diagStream) await new Promise((r) => diagStream.write('', r));
-              await fsp.copyFile(src, dst);
-              shell.showItemInFolder(dst);
-            } catch (e) {
-              dialog.showErrorBox('Journal de diagnostic', 'Aucun journal à exporter pour l’instant.');
-            }
-          },
+          label: 'À propos de Marginalia',
+          click: () =>
+            dialog.showMessageBox(parentWindow(), {
+              type: 'info',
+              title: 'À propos de Marginalia',
+              message: `Marginalia ${app.getVersion()}`,
+              detail: 'Lire et étudier des textes philosophiques.\nTout reste sur cet ordinateur.\n© Axel Bierne',
+              buttons: ['OK'],
+            }),
         },
       ],
     },
-  );
-  Menu.setApplicationMenu(Menu.buildFromTemplate(template));
+  ];
 }
+
+function buildMenu() {
+  Menu.setApplicationMenu(Menu.buildFromTemplate(IS_MAC ? macMenuTemplate() : otherMenuTemplate()));
+}
+
+// Windows : la barre de menus est cachée avec la barre de titre ; Alt seul (ou F10) l'ouvre sous
+// forme de menu contextuel en haut à gauche de la fenêtre.
+handle('marginalia:popupMenu', async (e) => {
+  if (IS_MAC) return;
+  const win = BrowserWindow.fromWebContents(e.sender);
+  const menu = Menu.getApplicationMenu();
+  if (win && menu) menu.popup({ window: win, x: 8, y: TITLEBAR_H - 8 });
+});
 
 // ── Cycle de vie ─────────────────────────────────────────────
 app.whenReady().then(() => {
@@ -967,9 +1145,15 @@ app.whenReady().then(() => {
     cb({ cancel: !local });
   });
   // Seule la lecture des polices installées (pour l'éditeur) est accordée ; caméra, micro, géolocalisation… jamais.
+  if (!IS_MAC) {
+    // Aucun téléchargement de dictionnaire (Hunspell) hors macOS.
+    session.defaultSession.setSpellCheckerEnabled(false);
+    session.defaultSession.setSpellCheckerDictionaryDownloadURL('file:///nonexistent/');
+  }
   session.defaultSession.setPermissionRequestHandler((_wc, perm, cb) => cb(perm === 'local-fonts' || perm === 'localFonts'));
   buildMenu();
-  // Fichiers passés en argument au lancement (hors macOS `open-file`).
+  // Fichiers passés en argument au lancement (Windows, Linux : double-clic dans l'Explorateur ;
+  // macOS passe par `open-file`).
   const argvFiles = process.argv.slice(app.isPackaged ? 1 : 2).filter((a) => !a.startsWith('-'));
   createWindow();
   queueOpen(argvFiles);
@@ -980,5 +1164,5 @@ app.whenReady().then(() => {
 });
 
 app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') app.quit();
+  if (!IS_MAC) app.quit(); // Windows / Linux : fermer la dernière fenêtre quitte l'app
 });

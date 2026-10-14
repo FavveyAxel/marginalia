@@ -18,10 +18,16 @@ await withApp(5296, async (page) => {
   await page.waitForTimeout(500);
   const m = await page.evaluate((id) => window.__store.getState().getMap(id), id);
   console.log('nœuds', m.nodes.length, 'liens', m.edges.length, JSON.stringify(m.edges));
-  await page.keyboard.type('Nouvelle idée');
-  await page.keyboard.press('Enter');
+  // clic ailleurs sans rien écrire : la carte vide doit rester
+  await page.mouse.click(900, 600);
   await page.waitForTimeout(300);
+  const mid = await page.evaluate((id) => window.__store.getState().getMap(id).nodes.length, id);
+  console.log('après clic ailleurs', mid, JSON.stringify(await page.evaluate((id) => window.__store.getState().getMap(id).nodes.map((n) => [n.x, n.y]), id)));
+  // déplacer la carte vide par son en-tête
+  const nb = await page.evaluate(() => { const ns = [...document.querySelectorAll('.react-flow__node')]; const r = ns[ns.length - 1].querySelector('.map-node-head').getBoundingClientRect(); return { x: r.left + 20, y: r.top + 6 }; });
+  await page.mouse.move(nb.x, nb.y); await page.mouse.down(); await page.mouse.move(nb.x + 150, nb.y + 60, { steps: 10 }); await page.mouse.up();
+  await page.waitForTimeout(400);
   await shot(page, 'shots/map/drop-new-card.png');
   const m2 = await page.evaluate((id) => window.__store.getState().getMap(id), id);
-  console.log('textes', m2.nodes.map((n) => n.text));
+  console.log('nœuds', m2.nodes.map((n) => [n.text, n.x, n.y]));
 });

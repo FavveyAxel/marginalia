@@ -168,8 +168,9 @@ function IdeaNode({ id, data, selected }: NodeProps) {
   }, [editing, text]);
   const done = (commit: boolean) => {
     ctx.setEditingId(null);
+    // Une carte vide reste sur la carte (on peut la déplacer, la relier, l'écrire plus tard) ;
+    // elle ne disparaît que par une suppression explicite.
     if (commit) ctx.setIdeaText(id, draft.trim());
-    else if (!text.trim()) ctx.setIdeaText(id, '');
   };
   return (
     <div className={`map-node map-idea ${selected ? 'sel' : ''}`} style={{ '--c': 'var(--ink-2)' } as CSSProperties} onDoubleClick={() => ctx.setEditingId(id)}>
@@ -542,13 +543,7 @@ function Inner({ bookId }: { bookId: string }) {
       editingId,
       setEditingId,
       setIdeaText: (id, text) =>
-        mutate((m) => {
-          if (!text) {
-            const n = m.nodes.find((x) => x.id === id);
-            if (n && !n.text.trim()) return { ...m, nodes: m.nodes.filter((x) => x.id !== id), edges: m.edges.filter((e) => e.source !== id && e.target !== id) };
-          }
-          return { ...m, nodes: m.nodes.map((n) => (n.id === id ? { ...n, text } : n)) };
-        }),
+        mutate((m) => ({ ...m, nodes: m.nodes.map((n) => (n.id === id ? { ...n, text } : n)) })),
       openEdge: (id, x, y) => {
         setSelEdge(id);
         setMenu({ edgeId: id, x, y, fresh: false });

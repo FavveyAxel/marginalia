@@ -75,37 +75,6 @@ function useWindowDrag() {
 }
 
 
-/** Journal de diagnostic (temporaire) : gestes et tailles, pour comprendre un bug propre au Mac. */
-function useDiagnostics() {
-  useEffect(() => {
-    if (!host.diag) return;
-    const d = (...p: unknown[]) => host.diag?.(...p).catch(() => {});
-    const tgt = (e: Event) => {
-      const t = e.target as HTMLElement | null;
-      return t && typeof t.tagName === "string" ? `${t.tagName.toLowerCase()}.${String(t.className || '').slice(0, 60)}` : String(t);
-    };
-    let lastSel = 0;
-    const on: [string, EventListener][] = [
-      ['mousedown', (e) => d('mousedown', (e as MouseEvent).detail, tgt(e))],
-      ['mouseup', (e) => d('mouseup', (e as MouseEvent).detail, tgt(e))],
-      ['dblclick', (e) => d('dblclick', tgt(e))],
-      ['keydown', (e) => d('keydown', (e as KeyboardEvent).key, (e as KeyboardEvent).metaKey)],
-      ['resize', () => d('resize', innerWidth, innerHeight, devicePixelRatio, visualViewport?.scale)],
-      ['selectionchange', () => {
-        const n = Date.now();
-        if (n - lastSel > 400) {
-          lastSel = n;
-          d('selection', String(getSelection()).length);
-        }
-      }],
-    ];
-    for (const [k, f] of on) (k === 'resize' ? window : document).addEventListener(k, f, true);
-    d('start', innerWidth, innerHeight, devicePixelRatio);
-    return () => {
-      for (const [k, f] of on) (k === 'resize' ? window : document).removeEventListener(k, f, true);
-    };
-  }, []);
-}
 
 const THEMES: { id: ThemeId; label: string; icon: JSX.Element }[] = [
   { id: 'system', label: 'Automatique (suit le Mac)', icon: <Laptop size={14} /> },
@@ -295,7 +264,6 @@ export function App() {
   const theme = useStore((s) => s.settings.theme);
   useTheme(theme);
   useWindowDrag();
-  useDiagnostics();
 
   useEffect(() => {
     useStore.getState().init();

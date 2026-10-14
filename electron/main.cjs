@@ -96,7 +96,6 @@ function diag(...parts) {
 function handle(channel, fn) {
   ipcMain.handle(channel, (event, ...args) => {
     if (!trusted(event)) throw new Error('Appelant non autorisé');
-    if (channel !== 'marginalia:diag') diag('ipc', channel);
     return fn(event, ...args);
   });
 }
@@ -456,10 +455,6 @@ function createWindow() {
   });
   mainWindow = win;
   win.once('ready-to-show', () => win.show());
-  for (const ev of ['maximize', 'unmaximize', 'enter-full-screen', 'leave-full-screen', 'minimize', 'restore', 'resized', 'moved', 'focus', 'blur']) {
-    win.on(ev, () => diag('window', ev, win.getBounds(), { max: win.isMaximized() }));
-  }
-  win.on('will-resize', (_e, b, d) => diag('window will-resize', b, d));
   win.on('closed', () => {
     if (mainWindow === win) mainWindow = null;
     rendererReady = false;

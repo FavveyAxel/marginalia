@@ -193,7 +193,12 @@ export function WorkspaceView({ workspaceId, groupId }: { workspaceId: string; g
         ref={scrollRef}
         className={`ws-scroll ${page.mark ? 'drop-page' : ''} ${selectMode ? 'select-mode' : ''}`}
         {...page.props}
-        onMouseDown={lasso.onMouseDown}
+        onMouseDown={(e) => {
+          // Clic dans le vide de la vue : une sélection faite dans l'arbre latéral s'efface aussi.
+          const t = e.target as Element;
+          if (e.button === 0 && useSelOwner.getState().owner === 'tree' && !t.closest('[data-sel-id], button, input, [data-no-lasso]')) claim(null);
+          lasso.onMouseDown(e);
+        }}
         onContextMenu={(e) => ctxMenu(e, menuEntries(), 'Menu')}
       >
         <div className="ws-page">

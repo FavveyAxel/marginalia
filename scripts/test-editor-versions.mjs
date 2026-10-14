@@ -216,7 +216,7 @@ await withApp(PORT, async (page) => {
   await page.evaluate(() => {
     if (document.querySelector('.ed-versions')) document.querySelector('[data-tb="versions"]').click();
   });
-  if (!(await page.isVisible('.ed-extracts:not(.ed-versions)'))) await page.click('[aria-label="Afficher les extraits"]');
+  if (!(await page.isVisible('.ed-extracts:not(.ed-versions)'))) await page.click('[aria-label="Afficher le panneau latéral"]');
   await page.evaluate(() => window.__ed.engine().goTo(0));
   await page.click(`.ed-xt[data-hl="${h1}"] .ed-xt-insert`, { force: true });
   await page.waitForTimeout(600);

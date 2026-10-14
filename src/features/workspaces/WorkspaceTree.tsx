@@ -98,9 +98,26 @@ export function WorkspaceTree() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sel.size]);
   useEffect(() => {
-    if (owner === 'view' && sel.size) sel.clear();
+    // La vue a pris la main (ou un clic dans son vide a rendu la main) : la sélection de l'arbre s'efface.
+    if (owner !== 'tree' && sel.size) sel.clear();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [owner]);
+  // Échap vide la sélection de l'arbre même quand le focus a quitté la barre latérale.
+  const selRef = useRef(sel);
+  selRef.current = sel;
+  useEffect(() => {
+    if (!sel.size) return;
+    const onKey = (e: globalThis.KeyboardEvent) => {
+      if (e.key !== 'Escape' || e.defaultPrevented) return;
+      const t = e.target as HTMLElement | null;
+      if (t?.closest?.('input, textarea, select, [contenteditable="true"]')) return;
+      if (document.querySelector('[role="dialog"], [role="menu"], [aria-modal="true"]')) return;
+      e.preventDefault();
+      selRef.current.clear();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [sel.size]);
 
   const toggleWs = (id: string, open?: boolean) =>
     setCollapsedWs((prev) => {

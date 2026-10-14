@@ -1,0 +1,31 @@
+import { withApp, importFixture, shot } from './harness.mjs';
+const ok = (c, m) => { console.log((c ? 'OK   ' : 'ÉCHEC ') + m); if (!c) process.exitCode = 1; };
+await withApp(5297, async (page) => {
+  const id = await importFixture(page, 'fixtures/discours.md');
+  await page.evaluate((id) => {
+    const s = window.__store.getState();
+    s.setMap(id, { bookId: id, nodes: [{ id: 'n1', highlightId: null, text: 'Première', x: 100, y: 120 }, { id: 'n2', highlightId: null, text: 'Seconde', x: 420, y: 120 }], edges: [{ id: 'e1', source: 'n1', target: 'n2', relation: 'soutient', groupId: null }], viewport: { x: 0, y: 0, zoom: 1 } });
+    s.navigate({ name: 'reader', bookId: id, tab: 'carte', splitBookId: null });
+  }, id);
+  await page.waitForSelector('.react-flow__node', { timeout: 15000 });
+  await page.waitForTimeout(600);
+  const n = await page.evaluate(() => { const r = document.querySelector('.react-flow__node[data-id="n1"]').getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + 12 }; });
+  await page.mouse.click(n.x, n.y, { button: 'right' });
+  await page.waitForSelector('[role="menu"]', { timeout: 3000 });
+  await shot(page, 'shots/map/context-menu.png');
+  const labels = await page.$$eval('[role="menu"] [role="menuitem"]', (els) => els.map((e) => e.textContent.trim()));
+  ok(labels.some((l) => l.startsWith('Supprimer la carte')), 'menu : ' + labels.join(' | '));
+  await page.locator('[role="menu"] [role="menuitem"]', { hasText: 'Dupliquer' }).click();
+  let m = await page.evaluate((id) => window.__store.getState().getMap(id), id);
+  ok(m.nodes.length === 3, 'dupliquer ajoute une carte');
+  await page.mouse.click(n.x, n.y, { button: 'right' });
+  await page.locator('[role="menu"] [role="menuitem"]', { hasText: 'Supprimer la carte' }).click();
+  await page.waitForTimeout(300);
+  m = await page.evaluate((id) => window.__store.getState().getMap(id), id);
+  ok(!m.nodes.some((x) => x.id === 'n1') && m.edges.length === 0, `carte supprimée avec ses liens (${m.nodes.length} cartes, ${m.edges.length} liens)`);
+  await page.mouse.click(700, 500, { button: 'right' });
+  await page.locator('[role="menu"] [role="menuitem"]', { hasText: 'Nouvelle idée ici' }).click();
+  await page.waitForTimeout(200);
+  m = await page.evaluate((id) => window.__store.getState().getMap(id), id);
+  ok(m.nodes.length === 3, 'clic droit dans le vide : nouvelle idée');
+});

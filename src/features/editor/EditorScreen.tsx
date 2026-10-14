@@ -23,7 +23,8 @@ import {
   type GuardedExport,
   type SaveSession,
 } from './save';
-import { ExtractsPane, quoteText } from './ExtractsPane';
+import { quoteText } from './ExtractsPane';
+import { SidePanel } from './SidePanel';
 import { Popover, usePop } from './Popover';
 import { Toolbar } from './Toolbar';
 import { SelectionBar } from './SelectionBar';
@@ -763,14 +764,34 @@ function Editor({ draft }: { draft: Draft }) {
     }
   };
 
-  const insertExtract = (h: Highlight, b: Book) => {
+  // Rappels stables : le panneau latéral (mémoïsé) n'est pas re-rendu à chaque frappe.
+  const insertExtract = useCallback(
+    (h: Highlight, b: Book): boolean => {
+      const e = engineRef.current;
+      if (!e || guardRef.current) return false;
+      const ok = e.insertCitation(quoteText(h), formatFootnote(h, b));
+      // Lien citation → extrait : signet _mglHl_<id> autour du texte cité.
+      tagInsertedCitation(e, h.id, quoteText(h));
+      if (!ok) toast('Citation insérée sans sa note : ajoutez-la avec le bouton Note de bas de page.', 'error');
+      return true;
+    },
+    [toast],
+  );
+  /** « Citer dans l'écrit » depuis le livre du panneau : la frappe reprend dans l'écrit, après la citation. */
+  const citeFromBook = useCallback(
+    (h: Highlight, b: Book): boolean => {
+      const ok = insertExtract(h, b);
+      if (ok) engineRef.current?.focus();
+      return ok;
+    },
+    [insertExtract],
+  );
+  const insertText = useCallback((text: string) => {
     const e = engineRef.current;
     if (!e || guardRef.current) return;
-    const ok = e.insertCitation(quoteText(h), formatFootnote(h, b));
-    // Lien citation → extrait : signet _mglHl_<id> autour du texte cité.
-    tagInsertedCitation(e, h.id, quoteText(h));
-    if (!ok) toast('Citation insérée sans sa note : ajoutez-la avec le bouton Note de bas de page.', 'error');
-  };
+    e.insertText(text);
+    e.focus();
+  }, []);
 
   const activeHeading = useMemo(() => {
     let cur = -1;
@@ -780,12 +801,12 @@ function Editor({ draft }: { draft: Draft }) {
     return cur;
   }, [outline, fmt.pos]);
 
-  const toggleExtracts = () => {
+  const toggleExtracts = useCallback(() => {
     setExtractsOpen((v) => {
       writePref(EXTRACTS_KEY, !v);
       return !v;
     });
-  };
+  }, []);
 
   const readMin = Math.max(1, Math.round(stats.words / 230));
   const statusLabel =
@@ -863,8 +884,8 @@ function Editor({ draft }: { draft: Draft }) {
             setVersionsOpen(false);
             if (!extractsOpen) toggleExtracts();
           }}
-          title="Extraits"
-          aria-label="Afficher les extraits"
+          title="Panneau latéral : livre, extraits, concepts, plan"
+          aria-label="Afficher le panneau latéral"
           aria-pressed={extractsOpen && !versionsOpen}
         >
           <PanelRight size={16} />
@@ -1048,7 +1069,9 @@ function Editor({ draft }: { draft: Draft }) {
         </div>
 
         {styleOpen && phase === 'ready' && <StyleReview draft={draft} stats={stats} engine={() => engineRef.current} onClose={() => setStyleOpen(false)} />}
-        {extractsOpen && !versionsOpen && <ExtractsPane disabled={!editable} onInsert={insertExtract} onClose={toggleExtracts} />}
+        {extractsOpen && !versionsOpen && (
+          <SidePanel draftId={draft.id} disabled={!editable} onInsertExtract={insertExtract} onCite={citeFromBook} onInsertText={insertText} onClose={toggleExtracts} />
+        )}
         {versionsOpen && phase === 'ready' && (
           <VersionsPanel
             draft={draft}

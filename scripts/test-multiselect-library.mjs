@@ -18,6 +18,7 @@ const check = (ok, msg) => {
 };
 const shot = async (page, name) => {
   fs.mkdirSync(SHOTS, { recursive: true });
+  await page.waitForTimeout(250); // fin des animations (cases à cocher, barre)
   await page.screenshot({ path: path.join(SHOTS, name + '.png') });
   console.log('capture:', path.join('shots/multiselect', name + '.png'));
 };

@@ -24,7 +24,8 @@ import {
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import { useShallow } from 'zustand/react/shallow';
-import { Check, GripVertical, LayoutGrid, Lightbulb, Link2, Maximize2, PanelLeft, Plus, Trash2, Unlink, X } from 'lucide-react';
+import { BookOpen, Check, Copy, GripVertical, LayoutGrid, Lightbulb, Link2, Maximize2, PanelLeft, Pencil, Plus, Trash2, Unlink, X } from 'lucide-react';
+import { ContextMenu, type MenuEntry } from '../workspaces/wsUi';
 import { uid, useStore } from '../../lib/store';
 import { CATEGORIES, CATEGORY_BY_ID, NOTE_KIND_BY_ID, RELATIONS, RELATION_BY_ID, catColor } from '../../lib/categories';
 import { locatorOf } from '../../lib/citation';
@@ -448,6 +449,7 @@ function Inner({ bookId }: { bookId: string }) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [selEdge, setSelEdge] = useState<string | null>(null);
   const [menu, setMenu] = useState<MenuState | null>(null);
+  const [nodeMenu, setNodeMenu] = useState<{ x: number; y: number; entries: MenuEntry[]; label: string } | null>(null);
   const [drawer, setDrawer] = useState(() => highlights.some((h) => !map.nodes.some((n) => n.highlightId === h.id)));
   const [filter, setFilter] = useState<CategoryId | 'note' | null>(null);
   const [animating, setAnimating] = useState(false);
@@ -729,12 +731,67 @@ function Inner({ bookId }: { bookId: string }) {
             setEditingId(null);
           }}
           onEdgeClick={(e, edge) => ctx.openEdge(edge.id, e.clientX, e.clientY)}
+          onNodeContextMenu={(e, node) => {
+            e.preventDefault();
+            setMenu(null);
+            const sel = rf.getNodes().filter((n) => n.selected);
+            const group = node.selected && sel.length > 1 ? sel : [node];
+            const mapNode = useStore.getState().getMap(bookId).nodes.find((n) => n.id === node.id);
+            const entries: MenuEntry[] = [];
+            if (group.length === 1 && mapNode) {
+              if (mapNode.highlightId) {
+                const hid = mapNode.highlightId;
+                entries.push({ label: 'Ouvrir dans le livre', icon: <BookOpen size={14} />, onClick: () => jumpToHighlight(hid) });
+              } else {
+                entries.push({ label: 'Modifier', icon: <Pencil size={14} />, onClick: () => setEditingId(node.id) });
+                entries.push({
+                  label: 'Dupliquer',
+                  icon: <Copy size={14} />,
+                  onClick: () => {
+                    const id = uid();
+                    mutate((m) => ({ ...m, nodes: [...m.nodes, { ...mapNode, id, x: mapNode.x + 30, y: mapNode.y + 30 }] }));
+                  },
+                });
+              }
+              entries.push({ sep: true });
+            }
+            entries.push({
+              label: group.length > 1 ? `Supprimer les ${group.length} cartes` : 'Supprimer la carte',
+              hint: group.some((n) => n.type === 'extract') ? 'extrait conservé' : undefined,
+              icon: <Trash2 size={14} />,
+              danger: true,
+              onClick: () => onDelete({ nodes: group, edges: [] }),
+            });
+            setNodeMenu({ x: e.clientX, y: e.clientY, entries, label: 'Menu de la carte' });
+          }}
+          onPaneContextMenu={(e) => {
+            e.preventDefault();
+            setMenu(null);
+            const at = rf.screenToFlowPosition({ x: e.clientX, y: e.clientY });
+            setNodeMenu({
+              x: e.clientX,
+              y: e.clientY,
+              label: 'Menu du schéma',
+              entries: [
+                {
+                  label: 'Nouvelle idée ici',
+                  icon: <Lightbulb size={14} />,
+                  onClick: () => {
+                    const id = uid();
+                    mutate((m) => ({ ...m, nodes: [...m.nodes, { id, highlightId: null, text: '', x: Math.round(at.x - NODE_W / 2), y: Math.round(at.y - NODE_H / 2) }] }));
+                    setTimeout(() => setEditingId(id), 60);
+                  },
+                },
+              ],
+            });
+          }}
           onMoveEnd={onMoveEnd}
         >
           <Background variant={BackgroundVariant.Dots} gap={22} size={1.6} color="var(--border-strong)" />
           <Controls position="bottom-left" showInteractive={false} showFitView={false} />
         </ReactFlow>
 
+        {nodeMenu && <ContextMenu x={nodeMenu.x} y={nodeMenu.y} entries={nodeMenu.entries} label={nodeMenu.label} onClose={() => setNodeMenu(null)} />}
         {!empty && (
           <div className="map-legend anim-fade" aria-label="Relations">
             {RELATIONS.map((r) => (

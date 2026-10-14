@@ -42,8 +42,10 @@ export function useFloating(
   const [style, setStyle] = useState<CSSProperties>({ visibility: 'hidden', left: 0, top: 0 });
   useLayoutEffect(() => {
     if (!el || !anchor) return;
+    // Taille de mise en page (offsetWidth) : la boîte mesurée pendant l'animation d'apparition
+    // (légère mise à l'échelle) est plus petite, et l'élément débordait du bord de la fenêtre.
     const r = el.getBoundingClientRect();
-    setStyle(placeFloating(anchor, r.width, r.height, prefer));
+    setStyle(placeFloating(anchor, el.offsetWidth || r.width, el.offsetHeight || r.height, prefer));
   }, [el, anchor?.left, anchor?.top, anchor?.width, anchor?.height, prefer]);
   return [setEl, style];
 }

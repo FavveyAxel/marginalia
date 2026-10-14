@@ -247,6 +247,13 @@ try {
   const mem = await wsItemsOf('Mémoire');
   ok('vers un autre espace : Livre 1 et 3 dans « Mémoire »', mem.map((i) => i.refId).sort().join() === 'b1,b3,b9');
   ok('… et sortis de « liberté »', (await wsItemsOf('liberté')).every((i) => i.refId !== 'b1' && i.refId !== 'b3'));
+  await page.locator('.ws-title').hover();
+  await page.keyboard.press('Meta+z');
+  await tick(400);
+  ok('⌘Z : le passage vers un autre espace est défait d’un coup', (await wsItemsOf('Mémoire')).length === 1 && (await wsItemsOf('liberté')).filter((i) => i.refId === 'b1' || i.refId === 'b3').length === 2);
+  await page.keyboard.press('Meta+Shift+z');
+  await tick(400);
+  ok('⌘⇧Z : rétabli', (await wsItemsOf('Mémoire')).map((i) => i.refId).sort().join() === 'b1,b3,b9');
 
   // ── Mode « Sélectionner » (cases à cocher) ──
   await page.getByRole('button', { name: 'Sélectionner' }).click();
@@ -307,6 +314,19 @@ try {
   ok('arbre : ⌘A sélectionne les éléments visibles de l’espace', (await page.locator('.ws-tree .ws-row-item.selected').count()) === visible && visible > 3, String(visible));
   await page.keyboard.press('Escape');
   ok('arbre : Échap vide', (await page.locator('.ws-tree .ws-row-item.selected').count()) === 0);
+  // Sélection de l'arbre effacée par un clic dans le vide de la vue, et par Échap hors de l'arbre.
+  await trow('Livre 5').click(meta);
+  await trow('Livre 9').click(meta);
+  ok('arbre : 2 sélectionnés', (await page.locator('.ws-tree .ws-row-item.selected').count()) === 2);
+  const vb = await page.locator('.ws-scroll').boundingBox();
+  await page.mouse.click(vb.x + vb.width - 30, vb.y + vb.height - 20);
+  await tick();
+  ok('arbre : clic dans le vide de la vue efface la sélection', (await page.locator('.ws-tree .ws-row-item.selected').count()) === 0 && (await page.locator('.ws-selbar').count()) === 0);
+  await trow('Livre 5').click(meta);
+  await page.evaluate(() => document.activeElement?.blur());
+  await page.keyboard.press('Escape');
+  await tick();
+  ok('arbre : Échap (focus hors de l’arbre) efface la sélection', (await page.locator('.ws-tree .ws-row-item.selected').count()) === 0);
   await shot('9-fin.png');
 
   const real = errors.filter((e) => !/favicon|Failed to load resource/.test(e));

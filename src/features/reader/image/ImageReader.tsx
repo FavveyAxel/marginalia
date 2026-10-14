@@ -420,6 +420,13 @@ export const ImageReader = forwardRef<EngineHandle, EngineProps>(function ImageR
     setZoneMode(false);
     P.current.onCreateHighlight({ anchor: t.anchor, text: t.text, locationLabel: t.label, category, printedPage: printedPage() }, withNote);
   };
+  const onCite = () => {
+    const t = takePending();
+    if (!t) return;
+    clearSelection();
+    setZoneMode(false);
+    P.current.onCite?.({ anchor: t.anchor, text: t.text, locationLabel: t.label, category: null, printedPage: printedPage() });
+  };
   const onMovementPick = () => {
     const t = takePending();
     if (!t) return;
@@ -902,7 +909,7 @@ export const ImageReader = forwardRef<EngineHandle, EngineProps>(function ImageR
       )}
 
       {(selRect || zoneScreenRect) && (
-        <SelectionToolbar rect={(zoneScreenRect ?? selRect)!} onPick={onPick} onMovement={onMovementPick} onCopy={onCopy} onDismiss={clearSelection} />
+        <SelectionToolbar rect={(zoneScreenRect ?? selRect)!} onPick={onPick} onMovement={onMovementPick} onCopy={onCopy} onDismiss={clearSelection} onCite={props.onCite ? onCite : undefined} />
       )}
     </div>
   );

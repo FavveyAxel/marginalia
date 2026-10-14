@@ -756,6 +756,13 @@ export const HtmlReader = forwardRef<EngineHandle, EngineProps>(function HtmlRea
     propsRef.current.onCreateHighlight({ anchor: t.anchor, text: t.quote, locationLabel: t.label, category, printedPage }, withNote);
   };
 
+  const onCite = () => {
+    const t = takeSelection();
+    if (!t) return;
+    const printedPage = printedPageAt(parsedRef.current!.pages, t.info.chapter, t.info.start);
+    propsRef.current.onCite?.({ anchor: t.anchor, text: t.quote, locationLabel: t.label, category: null, printedPage });
+  };
+
   const onMovement = () => {
     const t = takeSelection();
     if (!t) return;
@@ -1022,7 +1029,7 @@ export const HtmlReader = forwardRef<EngineHandle, EngineProps>(function HtmlRea
       <div className="html-scroll" ref={scrollRef} onClick={onClick} tabIndex={-1}>
         <div className={`html-doc html-fmt-${book.format}${revealed ? ' is-revealed' : ''}`} ref={docRef} style={docStyle} />
       </div>
-      {selRect && <SelectionToolbar rect={selRect} onPick={onPick} onMovement={onMovement} onCopy={onCopy} onDismiss={onDismiss} />}
+      {selRect && <SelectionToolbar rect={selRect} onPick={onPick} onMovement={onMovement} onCopy={onCopy} onDismiss={onDismiss} onCite={props.onCite ? onCite : undefined} />}
     </div>
   );
 });

@@ -1,7 +1,7 @@
 // Barre flottante au-dessus d'une sélection de texte (FIGÉ).
 import { useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import { Copy, MessageSquarePlus, Milestone } from 'lucide-react';
+import { Copy, MessageSquarePlus, Milestone, Quote } from 'lucide-react';
 import { CATEGORIES } from '../lib/categories';
 import type { CategoryId } from '../lib/types';
 import { CategoryDot, Kbd, useFloating } from './ui';
@@ -14,9 +14,11 @@ interface Props {
   onMovement(): void;
   onCopy(): void;
   onDismiss(): void;
+  /** Facultatif : « Citer dans l'écrit » (lecteur ouvert à côté de l'éditeur). Raccourci C. */
+  onCite?: () => void;
 }
 
-export function SelectionToolbar({ rect, onPick, onMovement, onCopy, onDismiss }: Props) {
+export function SelectionToolbar({ rect, onPick, onMovement, onCopy, onDismiss, onCite }: Props) {
   const [ref, style] = useFloating(rect, 'above');
 
   useEffect(() => {
@@ -34,13 +36,16 @@ export function SelectionToolbar({ rect, onPick, onMovement, onCopy, onDismiss }
       } else if (e.key.toLowerCase() === 'm') {
         e.preventDefault();
         onMovement();
+      } else if (onCite && e.key.toLowerCase() === 'c') {
+        e.preventDefault();
+        onCite();
       } else if (e.key === 'Escape') {
         onDismiss();
       }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [onPick, onMovement, onDismiss]);
+  }, [onPick, onMovement, onDismiss, onCite]);
 
   return createPortal(
     <div
@@ -51,6 +56,16 @@ export function SelectionToolbar({ rect, onPick, onMovement, onCopy, onDismiss }
       role="toolbar"
       aria-label="Annoter la sélection"
     >
+      {onCite && (
+        <>
+          <button className="cat-btn sel-cite" title="Citer dans l’écrit : crée l’extrait et l’insère au curseur (C)" onClick={onCite}>
+            <Quote size={13} />
+            Citer
+            <Kbd>C</Kbd>
+          </button>
+          <span className="sep" />
+        </>
+      )}
       {CATEGORIES.map((c) => (
         <button key={c.id} className="cat-btn" title={`${c.label} — ${c.description} (${c.key})`} onClick={() => onPick(c.id, false)}>
           <CategoryDot id={c.id} />

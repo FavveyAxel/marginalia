@@ -499,6 +499,13 @@ export const PdfReader = forwardRef<EngineHandle, EngineProps>(function PdfReade
       withNote,
     );
   };
+  const onCite = () => {
+    const s = (rootRef.current && readSelection(rootRef.current)) || selRef.current;
+    if (!s) return;
+    const p = P.current;
+    clearSelection();
+    p.onCite?.({ anchor: s.anchor, text: s.text, locationLabel: `p. ${s.page}`, category: null, printedPage: String(s.page + p.book.edition.pageOffset) });
+  };
   const onMovementPick = () => {
     const s = (rootRef.current && readSelection(rootRef.current)) || selRef.current;
     if (!s) return;
@@ -740,7 +747,7 @@ export const PdfReader = forwardRef<EngineHandle, EngineProps>(function PdfReade
         </div>
       )}
 
-      {selRect && <SelectionToolbar rect={selRect} onPick={onPick} onMovement={onMovementPick} onCopy={onCopy} onDismiss={clearSelection} />}
+      {selRect && <SelectionToolbar rect={selRect} onPick={onPick} onMovement={onMovementPick} onCopy={onCopy} onDismiss={clearSelection} onCite={props.onCite ? onCite : undefined} />}
     </div>
   );
 });

@@ -144,7 +144,8 @@ function addMovement(bookId: string, input: NewMovementInput) {
   s.toast(`${mv.title} marqué`, 'success');
 }
 
-const ReaderPane = memo(function ReaderPane({
+/** Volet de lecture (aussi utilisé, en mode compact, dans le panneau de l'éditeur). */
+export const ReaderPane = memo(function ReaderPane({
   paneKey,
   bookId,
   focused,
@@ -154,6 +155,7 @@ const ReaderPane = memo(function ReaderPane({
   onPopover,
   onClose,
   split,
+  onCite,
 }: {
   paneKey: PaneKey;
   bookId: string;
@@ -164,6 +166,8 @@ const ReaderPane = memo(function ReaderPane({
   onPopover(p: { id: string; rect: DOMRect } | null): void;
   onClose?: () => void;
   split: boolean;
+  /** « Citer dans l'écrit » (panneau de l'éditeur) : la sélection est citée au curseur. */
+  onCite?: (input: NewHighlightInput) => void;
 }) {
   const book = useStore(selectBook(bookId));
   const highlights = useStore(useShallow((s) => s.highlights.filter((h) => h.bookId === bookId)));
@@ -183,6 +187,9 @@ const ReaderPane = memo(function ReaderPane({
   onStateRef.current = onState;
   const onPopoverRef = useRef(onPopover);
   onPopoverRef.current = onPopover;
+  const onCiteRef = useRef(onCite);
+  onCiteRef.current = onCite;
+  const hasCite = !!onCite;
 
   useEffect(() => {
     if (!book) return;
@@ -280,8 +287,9 @@ const ReaderPane = memo(function ReaderPane({
         onStateRef.current({ ready: true });
       },
       onError: (m: string) => setError(m),
+      onCite: hasCite ? (input: NewHighlightInput) => onCiteRef.current?.(input) : undefined,
     }),
-    [bookId],
+    [bookId, hasCite],
   );
 
   const engineProps: EngineProps | null = useMemo(

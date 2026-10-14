@@ -46,6 +46,11 @@ export interface EngineProps {
   onPosition(pos: ReaderPosition, progress: number, locationLabel: string): void;
   /** Création depuis la barre de sélection. `withNote` : ouvrir l'éditeur de note. */
   onCreateHighlight(input: NewHighlightInput, withNote: boolean): Highlight;
+  /**
+   * Facultatif : « Citer dans l'écrit » (lecteur ouvert dans le panneau de l'éditeur).
+   * Absent : la barre de sélection n'affiche pas l'action. `input.category` vaut null.
+   */
+  onCite?(input: NewHighlightInput): void;
   /** « Début de mouvement » choisi dans la barre de sélection. */
   onCreateMovement(input: NewMovementInput): void;
   onHighlightClick(id: string, rect: DOMRect): void;

@@ -1,0 +1,513 @@
+/* Panneau droit à contenus multiples de l'éditeur (SidePanel.tsx, BookPane.tsx). */
+
+.ed-side {
+  position: relative;
+  width: 360px;
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  margin: 0 12px 12px 0;
+  /* `backwards`, pas `both` : une transformation laissée en vigueur ferait repeindre tout le
+     livre à chaque changement de sélection (voir html-reader.css). */
+  animation: slide-in-right var(--dur-med) var(--ease-out) backwards;
+}
+.ed-side.is-half {
+  width: 50%;
+}
+/* 50/50 : l'écrit garde toute la moitié restante (le plan de l'écrit se replie). */
+.ed-body:has(> .ed-side.is-half) > .ed-outline {
+  display: none;
+}
+
+/* ── Poignée de redimensionnement (bord gauche) ── */
+.ed-side-grip {
+  position: absolute;
+  z-index: 6;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 9px;
+  cursor: col-resize;
+  touch-action: none;
+  outline: none;
+}
+.ed-side-grip::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 3px;
+  width: 3px;
+  height: 36px;
+  margin-top: -18px;
+  border-radius: 2px;
+  background: var(--border-strong);
+  opacity: 0;
+  transition: opacity var(--dur) var(--ease), background var(--dur) var(--ease);
+}
+.ed-side:hover > .ed-side-grip::after,
+.ed-side-grip:focus-visible::after {
+  opacity: 1;
+}
+.ed-side-grip:hover::after,
+.ed-side.is-resizing > .ed-side-grip::after {
+  opacity: 1;
+  background: var(--focus);
+}
+.ed-side.is-resizing {
+  animation: none;
+}
+.ed-side.is-resizing,
+.ed-side.is-resizing * {
+  user-select: none !important;
+  -webkit-user-select: none !important;
+}
+.ed-side.is-resizing .ed-side-body {
+  pointer-events: none;
+}
+
+/* ── En-tête : sélecteur de contenu ── */
+.ed-side-head {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 10px 8px 8px 14px;
+  border-bottom: 1px solid var(--border);
+}
+.ed-side-tabs {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+}
+.ed-side-tabs button {
+  flex: 1 1 0;
+  min-width: 0;
+  padding: 0 6px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ed-side-body {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Contenus « Extraits », « Concepts », « Plan » : la liste du panneau Extraits, sans cadre. */
+.ed-extracts.ed-extracts-embedded {
+  width: auto;
+  flex: 1;
+  margin: 0;
+}
+.ed-side .ed-extracts-filters {
+  padding-top: 10px;
+}
+.ed-side-list-wrap {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ── Livre ── */
+.ed-book {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.ed-book-head {
+  position: relative;
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 6px 8px 6px 8px;
+  border-bottom: 1px solid var(--border);
+}
+.ed-book-title {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 3px 6px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--ink);
+  text-align: left;
+  cursor: default;
+  transition: background var(--dur) var(--ease);
+}
+.ed-book-title:hover {
+  background: var(--bg-hover);
+}
+.ed-book-title-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  line-height: 1.25;
+}
+.ed-book-title-main {
+  font-size: var(--fs-md, 13px);
+  font-weight: 600;
+}
+.ed-book-title-sub {
+  font-size: var(--fs-xs);
+  color: var(--muted);
+}
+.ed-book-swap {
+  flex: none;
+  color: var(--faint);
+  opacity: 0;
+  transition: opacity var(--dur) var(--ease);
+}
+.ed-book-title:hover .ed-book-swap {
+  opacity: 1;
+}
+/* Progression de lecture : filet sous l'en-tête */
+.ed-book-progress {
+  position: absolute;
+  left: 0;
+  bottom: -1px;
+  height: 2px;
+  background: color-mix(in srgb, var(--focus) 55%, transparent);
+  transition: width 400ms var(--ease);
+  pointer-events: none;
+}
+.ed-book-body {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+/* Le volet du lecteur, sans son propre cadre. */
+.ed-book-body > .reader-page {
+  flex: 1;
+  min-height: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+.ed-book-body .html-doc {
+  padding-top: 28px;
+}
+.ed-book-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 7;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--bg-panel);
+}
+.ed-book-overlay > * {
+  flex: 1;
+  min-height: 0;
+}
+.ed-book-toc {
+  overflow: hidden;
+}
+.ed-book-study {
+  overflow: auto;
+}
+.ed-book-overlay-head {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 8px 0 16px;
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  color: var(--muted);
+}
+
+/* ── Choix d'un livre ── */
+.ed-bookpick {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.ed-bookpick-head {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+}
+.ed-bookpick-head .ed-search {
+  flex: 1;
+}
+.ed-bookpick-list {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 6px 6px 12px;
+}
+.ed-bookpick-label {
+  padding: 6px 10px 4px;
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  color: var(--muted);
+}
+.ed-bookpick-item {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--ink);
+  text-align: left;
+  cursor: default;
+}
+.ed-bookpick-item.is-cursor {
+  background: var(--bg-hover);
+}
+.ed-bookpick-item.is-current .ed-bookpick-title::after {
+  content: ' · ouvert';
+  font-weight: 400;
+  color: var(--muted);
+}
+.ed-bookpick-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  line-height: 1.3;
+}
+.ed-bookpick-title {
+  font-size: var(--fs-md, 13px);
+  font-weight: 500;
+}
+.ed-bookpick-author {
+  font-size: var(--fs-xs);
+  color: var(--muted);
+}
+
+/* ── Concepts ── */
+.ed-cpt {
+  padding: 6px 4px 8px;
+  border-radius: var(--radius-md);
+}
+.ed-cpt + .ed-cpt {
+  border-top: 1px solid var(--border);
+}
+.ed-cpt-head {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 4px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--ink);
+  text-align: left;
+  cursor: default;
+}
+.ed-cpt-head:hover {
+  background: var(--bg-hover);
+}
+.ed-cpt-chev {
+  flex: none;
+  color: var(--muted);
+  transition: transform var(--dur) var(--ease);
+}
+.ed-cpt.is-open .ed-cpt-chev {
+  transform: rotate(90deg);
+}
+.ed-cpt-name {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--font-display);
+  font-size: 18px;
+  line-height: 1.2;
+}
+.ed-cpt-tag {
+  flex: none;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--bg-inset);
+  font-size: 10.5px;
+  color: var(--muted);
+}
+.ed-cpt-def {
+  margin: 2px 6px 0 24px;
+  font-family: var(--font-read);
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--ink-2);
+  user-select: text;
+  -webkit-user-select: text;
+}
+.ed-cpt-def.clamp {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.ed-cpt-more {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+  margin: 6px 0 0 18px;
+}
+.ed-cpt-more > .ed-xt-insert {
+  align-self: flex-start;
+  border-color: var(--border);
+  background: var(--bg-panel);
+  color: var(--ink);
+}
+.ed-cpt-sense {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 4px 6px;
+}
+.ed-cpt-sense p {
+  flex: 1;
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--ink-2);
+}
+.ed-cpt-none {
+  margin: 2px 6px;
+  font-size: var(--fs-sm);
+  color: var(--faint);
+}
+
+/* ── Plan ── */
+.ed-plan {
+  padding: 12px 14px 20px;
+}
+.ed-plan-title {
+  margin: 0 0 4px;
+  font-family: var(--font-display);
+  font-weight: 400;
+  font-size: 21px;
+  line-height: 1.2;
+}
+.ed-plan-sujet {
+  margin: 0 0 12px;
+  font-family: var(--font-read);
+  font-style: italic;
+  font-size: 13px;
+  color: var(--ink-2);
+}
+.ed-plan-block {
+  margin: 8px 0 12px;
+}
+.ed-plan-block p {
+  margin: 2px 0 0;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--ink-2);
+  white-space: pre-wrap;
+}
+.ed-plan-label {
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  color: var(--muted);
+}
+.ed-plan-node {
+  margin-top: 8px;
+}
+.ed-plan-node.d1 {
+  margin-left: 14px;
+}
+.ed-plan-node.d2 {
+  margin-left: 28px;
+}
+.ed-plan-node-head {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-height: 26px;
+}
+.ed-plan-num {
+  flex: none;
+  min-width: 1.6em;
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.ed-plan-node-title {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--ink);
+}
+.ed-plan-node.d0 > .ed-plan-node-head .ed-plan-node-title {
+  font-weight: 600;
+}
+.ed-plan-node-head .icon-btn,
+.ed-plan-note .icon-btn {
+  opacity: 0;
+  transition: opacity var(--dur) var(--ease);
+}
+.ed-plan-node-head:hover .icon-btn,
+.ed-plan-note:hover .icon-btn,
+.ed-plan-node-head .icon-btn:focus-visible {
+  opacity: 1;
+}
+.ed-plan-note-text {
+  margin: 0 0 4px 2.1em;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--muted);
+}
+.ed-plan-item {
+  margin-left: 1.6em;
+}
+.ed-plan-note {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 8px;
+  font-size: 12.5px;
+  color: var(--ink-2);
+}
+.ed-plan-note span {
+  flex: 1;
+}
+
+/* Barre de sélection du lecteur : « Citer » mis en avant. */
+.sel-toolbar .cat-btn.sel-cite {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+/* Mode concentration : le panneau se retire. */
+.ed-focus .ed-side {
+  display: none;
+}
+
+@media (max-width: 900px) {
+  .ed-side:not(.is-half) {
+    max-width: 320px;
+  }
+}
+
+/* Barre de sélection avec « Citer » (lecteur du panneau) : plus compacte, sans retour à la ligne. */
+.sel-toolbar:has(.sel-cite) .cat-btn {
+  white-space: nowrap;
+  padding: 0 7px;
+}
+.sel-toolbar:has(.sel-cite) .cat-btn:not(.sel-cite) .kbd {
+  display: none;
+}

@@ -18,10 +18,13 @@ export function ExtractsPane({
   onInsert,
   onClose,
   disabled,
+  embedded = false,
 }: {
   onInsert: (h: Highlight, book: Book) => void;
   onClose: () => void;
   disabled: boolean;
+  /** Dans le panneau à contenus multiples : sans en-tête ni cadre propres. */
+  embedded?: boolean;
 }) {
   const highlights = useStore(useShallow((s) => s.highlights));
   const books = useStore(useShallow((s) => s.books));
@@ -51,17 +54,19 @@ export function ExtractsPane({
   }, [highlights, byId, q, bookId]);
 
   return (
-    <aside className="ed-extracts panel anim-slide" aria-label="Extraits">
-      <div className="ed-extracts-head">
-        <h2>Extraits</h2>
-        <button
-          className="icon-btn sm"
-          onClick={onClose}
-          aria-label="Fermer le panneau"
-        >
-          <X size={15} />
-        </button>
-      </div>
+    <aside className={embedded ? "ed-extracts ed-extracts-embedded" : "ed-extracts panel anim-slide"} aria-label="Extraits">
+      {!embedded && (
+        <div className="ed-extracts-head">
+          <h2>Extraits</h2>
+          <button
+            className="icon-btn sm"
+            onClick={onClose}
+            aria-label="Fermer le panneau"
+          >
+            <X size={15} />
+          </button>
+        </div>
+      )}
       <div className="ed-extracts-filters">
         <label className="ed-search">
           <Search size={14} />

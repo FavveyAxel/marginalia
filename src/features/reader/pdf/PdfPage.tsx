@@ -134,6 +134,9 @@ export const PdfPage = memo(function PdfPage({ n, doc, w, h, scale, near, hls, m
         layer.dataset.scale = String(scale);
         textHost.current?.replaceChildren(layer);
       });
+      // Page démontée pendant le rendu : textLayer.cancel() rejette `textDone` (AbortException)
+      // alors que plus personne ne l'attend ; ne pas la laisser remonter comme erreur non gérée.
+      textDone.catch(() => undefined);
 
       await task.promise;
       if (cancelled) return;

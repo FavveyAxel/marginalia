@@ -76,6 +76,9 @@
   contain-intrinsic-size: auto 1200px;
   padding: 0 var(--html-gutter) 24px;
 }
+.html-warm .html-chapter {
+  content-visibility: visible;
+}
 .html-chapter + .html-chapter {
   padding-top: 48px;
 }

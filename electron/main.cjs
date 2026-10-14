@@ -82,9 +82,21 @@ function trusted(event) {
   const url = event.senderFrame ? event.senderFrame.url : '';
   return url.startsWith(APP_ORIGIN + '/') || (DEV_URL && url.startsWith(DEV_URL));
 }
+// ── Journal de diagnostic (local, dans le dossier de l'app) ──
+let diagStream = null;
+function diag(...parts) {
+  try {
+    if (!diagStream) diagStream = fs.createWriteStream(path.join(app.getPath('userData'), 'diagnostic.log'), { flags: 'a' });
+    diagStream.write(`${new Date().toISOString()} ${parts.map((p) => (typeof p === 'string' ? p : JSON.stringify(p))).join(' ')}\n`);
+  } catch {
+    /* jamais bloquant */
+  }
+}
+
 function handle(channel, fn) {
   ipcMain.handle(channel, (event, ...args) => {
     if (!trusted(event)) throw new Error('Appelant non autorisé');
+    if (channel !== 'marginalia:diag') diag('ipc', channel);
     return fn(event, ...args);
   });
 }
@@ -291,6 +303,8 @@ handle('marginalia:setTheme', async (e, mode) => {
   if (win && !win.isDestroyed()) win.setBackgroundColor(nativeTheme.shouldUseDarkColors ? '#121110' : '#efebe3');
 });
 
+handle('marginalia:diag', async (_e, ...parts) => diag('renderer', ...parts));
+
 handle('marginalia:listFonts', async () => {
   if (fontCache) return fontCache;
   const { execFile } = require('child_process');
@@ -442,6 +456,10 @@ function createWindow() {
   });
   mainWindow = win;
   win.once('ready-to-show', () => win.show());
+  for (const ev of ['maximize', 'unmaximize', 'enter-full-screen', 'leave-full-screen', 'minimize', 'restore', 'resized', 'moved', 'focus', 'blur']) {
+    win.on(ev, () => diag('window', ev, win.getBounds(), { max: win.isMaximized() }));
+  }
+  win.on('will-resize', (_e, b, d) => diag('window will-resize', b, d));
   win.on('closed', () => {
     if (mainWindow === win) mainWindow = null;
     rendererReady = false;

@@ -30,6 +30,7 @@ const api = {
   writeExternal: (path, data) => ipcRenderer.invoke('marginalia:writeExternal', path, data),
 
   saveBinary: (defaultName, data, format) => ipcRenderer.invoke('marginalia:saveBinary', defaultName, data, format),
+  diag: (...parts) => ipcRenderer.invoke('marginalia:diag', ...parts),
   listFonts: () => ipcRenderer.invoke('marginalia:listFonts'),
   windowDragStart: () => ipcRenderer.invoke('marginalia:windowDragStart'),
   windowDragEnd: () => ipcRenderer.invoke('marginalia:windowDragEnd'),

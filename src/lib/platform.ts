@@ -30,6 +30,8 @@ export interface HostApi {
   /** « Enregistrer sous » binaire ; renvoie le chemin choisi (ou un nom en navigateur), null si annulé. */
   saveBinary(defaultName: string, data: ArrayBuffer, format: ExportFormat): Promise<string | null>;
   /** Familles de polices installées sur l'ordinateur (app Mac uniquement). */
+  /** Journal de diagnostic local (app Mac). */
+  diag?(...parts: unknown[]): Promise<void>;
   listFonts?(): Promise<string[]>;
   /** Déplacement de la fenêtre par la barre du haut (app Mac). */
   windowDragStart?(): Promise<void>;

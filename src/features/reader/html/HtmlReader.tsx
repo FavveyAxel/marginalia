@@ -562,6 +562,24 @@ export const HtmlReader = forwardRef<EngineHandle, EngineProps>(function HtmlRea
     propsRef.current.onToc(parsed.toc);
     (async () => {
       await nextFrame();
+      // Pré-mise en page (sous le squelette) : chaque chapitre est rendu une fois, avec les polices
+      // définitives, pour que `contain-intrinsic-size: auto` mémorise sa vraie hauteur. Sans cela,
+      // la première sélection forçait la mise en page des chapitres hors écran : saccade et saut
+      // de la page (perçu comme un redimensionnement), puis plus rien aux sélections suivantes.
+      try {
+        await Promise.race([document.fonts?.ready ?? Promise.resolve(), new Promise((r) => setTimeout(r, 1500))]);
+      } catch {
+        /* polices : on continue */
+      }
+      const host = sectionsRef.current[0]?.parentElement;
+      if (host && alive) {
+        host.classList.add('html-warm');
+        void host.offsetHeight;
+        await nextFrame();
+        host.classList.remove('html-warm');
+        await nextFrame();
+      }
+      if (!alive) return;
       const init = propsRef.current.initialPosition;
       if (init && init.kind === 'html' && init.chapter >= 0 && init.chapter < parsed.chapters.length && (init.chapter > 0 || init.scroll > 0)) {
         await scrollStable(() => sectionTop(init.chapter) + init.scroll * (sectionsRef.current[init.chapter].offsetHeight || 0));

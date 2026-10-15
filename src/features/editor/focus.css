@@ -52,3 +52,10 @@
     transition: none;
   }
 }
+
+/* En concentration, l'éditeur couvre toute la fenêtre (barre latérale comprise) : sur Mac, la barre
+   du haut laisse la place aux trois boutons de la fenêtre (rouge, jaune, vert) en haut à gauche. */
+.platform-mac .ed-root.ed-focus .ed-topbar,
+.platform-linux .ed-root.ed-focus .ed-topbar {
+  padding-left: 84px;
+}

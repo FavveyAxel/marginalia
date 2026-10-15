@@ -402,3 +402,84 @@
   box-shadow: inset 3px 0 0 color-mix(in srgb, var(--bm-c, var(--bm-default)) 70%, transparent);
   animation: bm-flash 1.9s var(--ease-out) forwards;
 }
+
+/* ── Repères de page ──────────────────────────────────────────
+   Un <span> vide par page, posé à la première lettre de la page (HtmlReader, insertPageMarks).
+   Trait et numéro sont des pseudo-éléments en position absolue dans la colonne (.html-col) :
+   `top: auto` les laisse à la hauteur de la ligne où commence la page. Rien n'entre dans le
+   textContent (ancrages inchangés) ; rien ne se sélectionne ni ne se copie. */
+
+.html-doc {
+  --pg-rule: color-mix(in srgb, var(--ink) 14%, transparent);
+  --pg-tick: color-mix(in srgb, var(--ink) 28%, transparent);
+  --pg-num: color-mix(in srgb, var(--ink) 40%, transparent);
+}
+.pg-mark {
+  -webkit-user-select: none;
+  user-select: none;
+  pointer-events: none;
+}
+/* Le trait : un filet fin sur toute la largeur du texte, estompé aux deux bouts. */
+.pg-mark::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: -6px;
+  height: 1px;
+  margin-top: -0.5px;
+  background: linear-gradient(90deg, transparent, var(--pg-rule) 10%, var(--pg-rule) 94%, color-mix(in srgb, var(--pg-rule) 40%, transparent));
+}
+/* Le numéro : petit, en chiffres alignés, dans la marge droite (comme un folio). */
+.pg-mark::after {
+  content: attr(data-pg);
+  position: absolute;
+  left: calc(100% + 12px);
+  transform: translateY(-50%);
+  font: 500 11px / 1 var(--font-ui);
+  font-variant-numeric: tabular-nums lining-nums;
+  letter-spacing: 0.03em;
+  color: var(--pg-num);
+  white-space: nowrap;
+  pointer-events: auto;
+  cursor: default;
+}
+/* Page qui commence entre deux paragraphes : le trait passe au milieu de l'interligne. */
+.pg-mark.pg-block::before,
+.pg-mark.pg-block::after {
+  margin-top: calc(var(--html-fs, 19px) * -0.5);
+}
+/* Page qui commence au milieu d'un paragraphe : une fine encoche marque le mot exact. */
+.pg-mark.pg-inline {
+  border-left: 1px solid var(--pg-tick);
+  margin-right: -1px;
+  font-size: 0.62em;
+  vertical-align: 0.32em;
+}
+/* Début de chapitre : le séparateur de chapitre fait déjà le trait ; seul le numéro reste. */
+.pg-mark.pg-chap::before {
+  display: none;
+}
+.pg-mark.pg-chap::after {
+  margin-top: 0.6em;
+}
+/* Première page du livre : rien à séparer. */
+.pg-mark.pg-start::before,
+.pg-mark.pg-start::after {
+  display: none;
+}
+/* Réglages : trait seul, ou aucun repère (les éléments restent pour « Aller à la page »). */
+.pg-rule .pg-mark::after,
+.pg-off .pg-mark::before,
+.pg-off .pg-mark::after {
+  display: none;
+}
+.pg-off .pg-mark.pg-inline {
+  border-left: 0;
+  margin-right: 0;
+}
+@container html-reader (max-width: 560px) {
+  .pg-mark::after {
+    left: calc(100% + 6px);
+    font-size: 9.5px;
+  }
+}

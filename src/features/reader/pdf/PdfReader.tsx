@@ -13,6 +13,8 @@ import { readSelection, type PdfSelection } from './selection';
 import { buildIndex, collectDomText, findAll, makeSnippet, mergeLineRects, normalizeQuery, rawSpanRects, spanOf, toNorm, type TextIndex } from './textindex';
 import './pdf-reader.css';
 import { fmtKeys } from '../../../lib/keys';
+import { findPage, lastLabel, type PageStatus } from '../pages';
+import { PageJumpField, type ReturnPoint } from '../PageJump';
 
 const GUTTER = 36; // marge latérale (repères de mouvement)
 const GAP = 14; // espace entre les pages
@@ -106,6 +108,10 @@ export const PdfReader = forwardRef<EngineHandle, EngineProps>(function PdfReade
   const [pulse, setPulse] = useState<{ id: string; k: number } | null>(null);
   const [flash, setFlash] = useState<{ page: number; rect: NormRect; color: string; k: number } | null>(null);
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; point: BookmarkPoint; copy: string } | null>(null);
+  /** Libellés de page du PDF (« i », « ii », « 1 »…), null s'il n'en a pas ou s'ils valent les numéros. */
+  const [labels, setLabels] = useState<string[] | null>(null);
+  const labelsRef = useRef(labels);
+  labelsRef.current = labels;
 
   const selRef = useRef<PdfSelection | null>(null);
   const posRef = useRef<Pos>({ page: 1, offset: 0 });
@@ -130,6 +136,7 @@ export const PdfReader = forwardRef<EngineHandle, EngineProps>(function PdfReade
     setDoc(null);
     setSizes(null);
     setMarks(null);
+    setLabels(null);
     (async () => {
       const pdf = await task.promise;
       if (!alive) return;
@@ -148,6 +155,11 @@ export const PdfReader = forwardRef<EngineHandle, EngineProps>(function PdfReade
       const toc: TocItem[] = await loadToc(pdf).catch(() => []);
       if (!alive) return;
       P.current.onToc(toc);
+      // Numérotation imprimée (PageLabels) : une page physique 17 peut être la page « 1 » du livre.
+      const raw = await pdf.getPageLabels().catch(() => null);
+      if (!alive) return;
+      const usable = !!raw && raw.length === pdf.numPages && raw.some((l, i) => (l ?? '').trim() !== String(i + 1)) && raw.every((l) => (l ?? '').trim());
+      setLabels(usable ? raw!.map((l) => l.trim()) : null);
       setSizes(out);
       setDoc(pdf);
     })().catch((e) => {
@@ -594,6 +606,13 @@ export const PdfReader = forwardRef<EngineHandle, EngineProps>(function PdfReade
     setSelRect(null);
   };
 
+  /** Page imprimée d'une page du fichier : décalage saisi par l'utilisateur, sinon libellé du PDF. */
+  const printedOf = (page: number) => {
+    const off = P.current.book.edition.pageOffset;
+    const l = labelsRef.current;
+    return !off && l ? l[page - 1] ?? String(page) : String(page + off);
+  };
+
   const onPick = (category: CategoryId | null, withNote: boolean, plain?: boolean) => {
     const s = (rootRef.current && readSelection(rootRef.current)) || selRef.current;
     if (!s) return;
@@ -606,7 +625,7 @@ export const PdfReader = forwardRef<EngineHandle, EngineProps>(function PdfReade
         locationLabel: `p. ${s.page}`,
         category,
         plain: plain || undefined,
-        printedPage: String(s.page + p.book.edition.pageOffset),
+        printedPage: printedOf(s.page),
       },
       withNote,
     );
@@ -616,7 +635,7 @@ export const PdfReader = forwardRef<EngineHandle, EngineProps>(function PdfReade
     if (!s) return;
     const p = P.current;
     clearSelection();
-    p.onCite?.({ anchor: s.anchor, text: s.text, locationLabel: `p. ${s.page}`, category: null, printedPage: String(s.page + p.book.edition.pageOffset) });
+    p.onCite?.({ anchor: s.anchor, text: s.text, locationLabel: `p. ${s.page}`, category: null, printedPage: printedOf(s.page) });
   };
   const onMovementPick = () => {
     const s = (rootRef.current && readSelection(rootRef.current)) || selRef.current;
@@ -766,6 +785,36 @@ export const PdfReader = forwardRef<EngineHandle, EngineProps>(function PdfReade
     [scrollToY],
   );
 
+  // ── Pages : indicateur, « Aller à la page » ──
+  const pageLabels = (): string[] => {
+    const d = docRef.current;
+    if (!d) return [];
+    return labelsRef.current ?? Array.from({ length: d.numPages }, (_, i) => String(i + 1));
+  };
+  const statusOf = (page: number): PageStatus | null => {
+    const d = docRef.current;
+    if (!d) return null;
+    const l = labelsRef.current;
+    const label = l ? l[page - 1] ?? String(page) : String(page);
+    return { label, last: l ? lastLabel(l) : String(d.numPages), count: d.numPages, estimated: false, physical: l && label !== String(page) ? page : undefined };
+  };
+  const goToPage = (query: string): string | null => {
+    const r = findPage(pageLabels(), query);
+    if (!r.ok) return r.message;
+    scrollToY(r.index + 1, 0, 8);
+    return null;
+  };
+  const capturePage = (): ReturnPoint | null => {
+    const pt = readingPoint();
+    if (!pt || pt.position.kind !== 'pdf') return null;
+    const { page, offset } = pt.position;
+    return { label: statusOf(page)?.label ?? String(page), back: () => scrollToY(page, offset, Math.max(40, (scrollRef.current?.clientHeight ?? 600) * 0.14)) };
+  };
+  const pageStatusNow = useMemo(() => (doc ? statusOf(curPage) : null), [doc, curPage, labels]);
+  useEffect(() => {
+    P.current.onPage?.(pageStatusNow);
+  }, [pageStatusNow]);
+
   // ── EngineHandle ──
   useImperativeHandle(
     ref,
@@ -851,13 +900,14 @@ export const PdfReader = forwardRef<EngineHandle, EngineProps>(function PdfReade
         const e = scrollRef.current?.querySelector(`[data-bm-id="${CSS.escape(id)}"]`);
         return e ? e.getBoundingClientRect() : null;
       },
+      goToPage,
+      pageStatus: () => statusOf(posRef.current.page),
     }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [markHit, pageIndex, scrollToY],
   );
 
   // ── Rendu ──
-  const numPages = doc?.numPages ?? 0;
   const pct = Math.round(scale * 100);
   const activePage = props.activeHighlightId ? pageOfHl.get(props.activeHighlightId) ?? 0 : 0;
 
@@ -903,8 +953,8 @@ export const PdfReader = forwardRef<EngineHandle, EngineProps>(function PdfReade
             <Plus size={14} />
           </button>
           <span className="pdf-zoom-sep" />
-          <span className="pdf-zoom-page" data-testid="pdf-page">
-            p. {curPage} / {numPages}
+          <span className="pdf-zoom-page">
+            <PageJumpField status={pageStatusNow} onGo={goToPage} capture={capturePage} request={props.pageRequest} variant="inline" />
           </span>
           <span className="pdf-zoom-sep" />
           <button className={`btn btn-ghost btn-sm pdf-fit ${zoom === 'fit' ? 'is-on' : ''}`} onClick={() => applyZoom('fit')} title={fmtKeys("Ajuster à la largeur (⌘0)")}>

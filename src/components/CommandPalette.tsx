@@ -8,6 +8,7 @@ import {
   Brain,
   FileText,
   CornerDownLeft,
+  CornerDownRight,
   FilePen,
   FolderPlus,
   Folder,
@@ -27,6 +28,7 @@ import { getSecurity } from '../features/security/state';
 import { kindColor } from '../lib/categories';
 import { Kbd } from './ui';
 import { createBoard, createBoardIn } from '../features/map/model/actions';
+import { parsePageQuery, requestGoToPage } from '../features/reader/pages';
 import './command.css';
 
 const normRaw = (x: string) => x.normalize('NFD').replace(/\p{Diacritic}/gu, '').toLowerCase();
@@ -90,6 +92,8 @@ function Palette() {
       maps: s.maps,
     })),
   );
+  // Livre ouvert : « Aller à la page… » et « page 45 » / « p. xii » / « 45 ».
+  const readerBookId = useStore((s) => (s.route.name === 'reader' ? s.route.bookId : null));
   const [q, setQ] = useState('');
   const [focus, setFocus] = useState(0);
   const listRef = useRef<HTMLDivElement>(null);
@@ -143,6 +147,9 @@ function Palette() {
       act('settings', 'Réglages : confidentialité et sécurité', <ShieldCheck size={15} />, nav({ name: 'settings' }), { keywords: 'chiffrement mot de passe verrouiller sécurité clé de secours touch id préférences' }),
       ...(host.security && getSecurity()?.lock
         ? [act('lock', 'Verrouiller maintenant', <Lock size={15} />, () => void host.security?.lockNow(), { hint: '⇧⌘L', keywords: 'verrouillage sécurité mot de passe' })]
+        : []),
+      ...(readerBookId
+        ? [act('goto-page', 'Aller à la page…', <CornerDownRight size={15} />, () => requestGoToPage(), { hint: '⌘⌥G', keywords: 'page numéro aller sauter' })]
         : []),
       act('library', 'Bibliothèque', <BookOpen size={15} />, nav({ name: 'library' }), { keywords: 'livres' }),
       act('extracts', 'Extraits', <Highlighter size={15} />, nav({ name: 'extracts' }), { keywords: 'citations surlignages notes' }),
@@ -312,7 +319,7 @@ function Palette() {
         }),
       );
     return items;
-  }, [books, drafts, concepts, highlights, workspaces, plans, args, studies, bookmarks, maps]);
+  }, [books, drafts, concepts, highlights, workspaces, plans, args, studies, bookmarks, maps, readerBookId]);
 
   const byGroup = useMemo(() => {
     const m = new Map<string, Cmd[]>(GROUPS.map((g) => [g, []]));
@@ -338,8 +345,20 @@ function Palette() {
       const cap = terms.length ? MAX : g === 'Actions' ? list.length : MAX_EMPTY;
       out.push(...list.slice(0, cap));
     }
+    const page = readerBookId ? parsePageQuery(q) : null;
+    if (page) {
+      out.unshift({
+        id: 'a-goto-page-' + page,
+        group: 'Actions',
+        label: `Aller à la page ${page}`,
+        meta: books.find((b) => b.id === readerBookId)?.title,
+        icon: <CornerDownRight size={15} />,
+        text: '',
+        run: () => requestGoToPage(page),
+      });
+    }
     return out;
-  }, [byGroup, q]);
+  }, [byGroup, q, readerBookId, books]);
 
   useEffect(() => setFocus(0), [q]);
   useEffect(() => inputRef.current?.focus(), []);

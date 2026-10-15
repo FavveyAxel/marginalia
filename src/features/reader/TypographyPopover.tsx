@@ -1,4 +1,4 @@
-// Réglages d'affichage du lecteur (thème, police, taille, interligne, largeur, connecteurs).
+// Réglages d'affichage du lecteur (thème, police, taille, interligne, largeur, connecteurs, repères de page).
 import { useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { useStore } from '../../lib/store';
@@ -70,6 +70,7 @@ export function TypographyPopover({ anchor, onClose }: { anchor: DOMRect; onClos
   }, []);
 
   const set = (patch: Partial<Settings>) => update(patch);
+  const pageMarks = s.pageMarks ?? 'numbered';
 
   return createPortal(
     <div
@@ -121,6 +122,32 @@ export function TypographyPopover({ anchor, onClose }: { anchor: DOMRect; onClos
           <span />
         </button>
       </label>
+      <label className="typo-switch-row">
+        <span>
+          <span className="typo-switch-title">Marquer les pages</span>
+          <span className="typo-switch-sub">Un trait discret à chaque changement de page</span>
+        </span>
+        <button
+          type="button"
+          role="switch"
+          aria-checked={pageMarks !== 'off'}
+          className={`typo-switch ${pageMarks !== 'off' ? 'on' : ''}`}
+          onClick={() => set({ pageMarks: pageMarks === 'off' ? 'numbered' : 'off' })}
+          data-testid="page-marks-switch"
+        >
+          <span />
+        </button>
+      </label>
+      {pageMarks !== 'off' && (
+        <div className="segmented typo-seg typo-seg-sub" role="radiogroup" aria-label="Repères de page">
+          <button role="radio" aria-checked={pageMarks === 'numbered'} className={pageMarks === 'numbered' ? 'active' : ''} onClick={() => set({ pageMarks: 'numbered' })}>
+            Trait et numéro
+          </button>
+          <button role="radio" aria-checked={pageMarks === 'rule'} className={pageMarks === 'rule' ? 'active' : ''} onClick={() => set({ pageMarks: 'rule' })}>
+            Trait seul
+          </button>
+        </div>
+      )}
       <div
         className="typo-preview"
         style={{

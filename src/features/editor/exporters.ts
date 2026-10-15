@@ -1,7 +1,7 @@
 // Exports texte (Markdown, HTML, TXT) et HTML d'impression A4 (PDF), générés depuis
 // le .docx exporté (modèle de blocs de docx.ts) : ce qui est exporté est exactement
 // ce que contient le fichier Word.
-import type { Block, DocModel, Inline } from './docx';
+import type { Block, BlockFmt, DocModel, DocTypography, Inline, TextFmt } from './docx';
 
 export type TextFormat = 'md' | 'html' | 'txt';
 
@@ -41,7 +41,7 @@ function inlineMd(inl: Inline[], nums: Map<string, number>): string {
     })
     .join('');
 }
-function inlineHtml(inl: Inline[], nums: Map<string, number>, noteLinks = true): string {
+function inlineHtml(inl: Inline[], nums: Map<string, number>, noteLinks = true, tc?: TypoCtx, para?: BlockFmt): string {
   return inl
     .map((i) => {
       if (i.t === 'br') return '<br>';
@@ -51,6 +51,8 @@ function inlineHtml(inl: Inline[], nums: Map<string, number>, noteLinks = true):
         return noteLinks ? `<sup class="fnref"><a href="#fn${n}" id="fnref${n}">${n}</a></sup>` : `<sup class="fnref">${n}</sup>`;
       }
       let t = escHtml(i.text);
+      const css = tc ? runCss(i, para ?? tc.typo.base, tc) : '';
+      if (css) t = `<span style="${escHtml(css)}">${t}</span>`;
       if (i.u) t = `<u>${t}</u>`;
       if (i.b) t = `<strong>${t}</strong>`;
       if (i.i) t = `<em>${t}</em>`;
@@ -134,8 +136,203 @@ export function toText(m: DocModel): string {
   return out.join('\n').replace(/\n{3,}/g, '\n\n').trim() + '\n';
 }
 
+// ── Typographie du document (PDF, HTML) ──────────────────────
+// Les exports PDF et HTML reprennent la police, les tailles, l'interligne, l'alignement, les
+// retraits et la mise en forme des runs du .docx (DocModel.typo, Block.fmt, Inline). Un modèle
+// sans typographie (construit à la main) garde la présentation par défaut.
+
+type Mode = 'print' | 'screen';
+interface TypoCtx {
+  typo: DocTypography;
+  mode: Mode;
+}
+
+const SANS_RE = /sans|arial|helvetica|verdana|tahoma|calibri|segoe|avenir|futura|gill|optima|grotesk|\binter\b|roboto|lato|frutiger|myriad|trebuchet|gothic|franklin|aptos|candara|corbel|lucida grande|system-ui|-apple-system/i;
+const MONO_RE = /mono|courier|consolas|menlo|monaco|\bcode\b|typewriter/i;
+const SCRIPT_RE = /caveat|script|brush|handwrit|comic/i;
+const FALLBACKS: Record<'serif' | 'sans-serif' | 'monospace' | 'cursive', string[]> = {
+  serif: ['Georgia', 'Times New Roman', 'serif'],
+  'sans-serif': ['Helvetica Neue', 'Arial', 'sans-serif'],
+  monospace: ['Menlo', 'Consolas', 'Courier New', 'monospace'],
+  cursive: ['cursive'],
+};
+const GENERIC = new Set(['serif', 'sans-serif', 'monospace', 'cursive', 'fantasy', 'system-ui']);
+const cssFontName = (f: string) => f.replace(/['"\\<>;{}]/g, '').trim();
+
+/** Famille générique d'une police (table des polices du .docx, sinon d'après le nom). */
+export function genericFamily(font: string, fonts: DocTypography['fonts'] = {}): 'serif' | 'sans-serif' | 'monospace' | 'cursive' {
+  const g = fonts[font]?.generic;
+  if (g) return g;
+  if (MONO_RE.test(font)) return 'monospace';
+  if (SCRIPT_RE.test(font)) return 'cursive';
+  if (SANS_RE.test(font)) return 'sans-serif';
+  return 'serif';
+}
+
+/** Pile CSS : la police du document d'abord, puis sa remplaçante déclarée, puis des polices de même genre. */
+export function fontStack(font: string, fonts: DocTypography['fonts'] = {}): string {
+  const out: string[] = [];
+  const add = (f: string | undefined) => {
+    const n = f && cssFontName(f);
+    if (n && !out.some((x) => x.toLowerCase() === n.toLowerCase())) out.push(n);
+  };
+  add(font);
+  add(fonts[font]?.alt);
+  for (const f of FALLBACKS[genericFamily(font, fonts)]) add(f);
+  return out.map((f) => (GENERIC.has(f) ? f : `'${f}'`)).join(', ');
+}
+
+const r3 = (n: number) => String(Math.round(n * 1000) / 1000);
+/** Taille : points (impression) ou em relatifs à `rel` (écran). */
+const len = (pt: number, tc: TypoCtx, rel: number) => (tc.mode === 'print' ? `${r3(pt)}pt` : `${r3(pt / rel)}em`);
+/** Interligne CSS : un « simple » de Word vaut environ 1,15 fois la taille de la police. */
+function lineHeight(f: BlockFmt, tc: TypoCtx, size: number, heading = false): string | null {
+  if (f.line === undefined) return null;
+  if (f.lineRule === 'auto' || f.lineRule === undefined) {
+    const v = f.line * 1.15;
+    if (tc.mode === 'screen') return heading ? r3(Math.min(1.4, Math.max(1.15, v))) : r3(Math.min(2.2, Math.max(1.5, v)));
+    return r3(v);
+  }
+  if (tc.mode === 'screen') return heading ? '1.25' : '1.6';
+  // exact / au moins : hauteur en points
+  return f.lineRule === 'atLeast' ? r3(Math.max(f.line / size, 1.15)) : `${r3(f.line)}pt`;
+}
+
+/** Déclarations de caractères de `f` qui diffèrent de `ref` (toutes si `ref` est absent). */
+function textDecls(f: TextFmt, tc: TypoCtx, relSize: number, ref?: TextFmt, tags = false): string[] {
+  const d: string[] = [];
+  const diff = (k: keyof TextFmt) => f[k] !== undefined && (!ref || f[k] !== ref[k]);
+  if (f.font && diff('font')) d.push(`font-family: ${fontStack(f.font, tc.typo.fonts)}`);
+  if (f.size && diff('size')) d.push(`font-size: ${len(f.size, tc, relSize)}`);
+  // gras / italique / souligné à true : balises <strong>, <em>, <u> pour les runs
+  if (diff('b') && !(tags && f.b)) d.push(`font-weight: ${f.b ? 'bold' : 'normal'}`);
+  if (diff('i') && !(tags && f.i)) d.push(`font-style: ${f.i ? 'italic' : 'normal'}`);
+  const u = tags ? false : !!(f.u ?? ref?.u);
+  const s = !!(f.s ?? ref?.s);
+  if (diff('s') || (!tags && diff('u'))) d.push(`text-decoration: ${[u ? 'underline' : '', s ? 'line-through' : ''].filter(Boolean).join(' ') || 'none'}`);
+  else if (tags && f.u === false && ref?.u) d.push('text-decoration: none');
+  // écran : le noir « imprimé » suit le thème clair / sombre de la page ; les autres couleurs sont gardées
+  if (f.color && diff('color') && !(tc.mode === 'screen' && f.color === '#000000')) d.push(`color: ${f.color}`);
+  if (f.hl && diff('hl')) d.push(`background-color: ${f.hl}`);
+  if (diff('sc')) d.push(`font-variant: ${f.sc ? 'small-caps' : 'normal'}`);
+  if (diff('caps')) d.push(`text-transform: ${f.caps ? 'uppercase' : 'none'}`);
+  if (f.va && diff('va')) {
+    d.push(`vertical-align: ${f.va}`);
+    if (!f.size) d.push('font-size: 0.65em');
+  }
+  return d;
+}
+
+/** Déclarations de paragraphe (complètes si `ref` est absent : remplacent la présentation par défaut). */
+function paraDecls(f: BlockFmt, tc: TypoCtx, ref?: BlockFmt, opts: { heading?: boolean; list?: boolean } = {}): string[] {
+  const d: string[] = [];
+  const size = f.size ?? tc.typo.base.size ?? 12;
+  const diff = (k: keyof BlockFmt) => !ref || f[k] !== ref[k];
+  // écran : longueurs en em, à recalculer quand la taille du bloc change
+  const resized = tc.mode === 'screen' && diff('size');
+  if (diff('align')) d.push(`text-align: ${f.align ?? 'left'}`);
+  if (diff('firstLine') || (resized && f.firstLine)) d.push(`text-indent: ${f.firstLine ? len(f.firstLine, tc, size) : '0'}`);
+  if (!opts.list) {
+    // retrait suspendu : la première ligne revient vers la gauche, le reste du paragraphe reste en retrait
+    if (diff('indLeft') || (resized && f.indLeft)) d.push(`margin-left: ${f.indLeft ? len(f.indLeft, tc, size) : '0'}`);
+    if (diff('indRight') || (resized && f.indRight)) d.push(`margin-right: ${f.indRight ? len(f.indRight, tc, size) : '0'}`);
+  }
+  if (diff('before') || (resized && f.before)) d.push(`margin-top: ${f.before ? len(f.before, tc, size) : '0'}`);
+  if (diff('after') || (resized && f.after)) d.push(`margin-bottom: ${f.after ? len(f.after, tc, size) : '0'}`);
+  if (diff('line') || diff('lineRule') || resized || (f.lineRule === 'atLeast' && diff('size'))) {
+    const lh = lineHeight(f, tc, size, opts.heading);
+    if (lh) d.push(`line-height: ${lh}`);
+  }
+  return d;
+}
+
+/** Règle complète d'un genre de bloc (police, taille relative à la base en mode écran). */
+function kindRule(sel: string, f: BlockFmt, tc: TypoCtx, opts: { heading?: boolean; list?: boolean } = {}): string {
+  const base = tc.typo.base;
+  const full: TextFmt = { ...f, b: !!f.b, i: !!f.i, u: !!f.u, s: !!f.s, sc: !!f.sc, caps: !!f.caps };
+  const text = textDecls(full, tc, 1).map((x) =>
+    // écran : tailles relatives à la taille de base du document (variable --b)
+    tc.mode === 'screen' && x.startsWith('font-size:') && f.size ? `font-size: calc(var(--b) * ${r3(f.size / (base.size ?? 12))})` : x,
+  );
+  if (!f.color) text.push('color: inherit');
+  if (!f.hl) text.push('background-color: transparent');
+  return `${sel} { ${[...text, ...paraDecls(f, tc, undefined, opts)].join('; ')}; }`;
+}
+
+/** Format CSS de la page : nom (A4, letter…) quand il correspond, pour un PDF aux dimensions exactes. */
+const PAPERS: [string, number, number][] = [
+  ['A4', 595.28, 841.89],
+  ['A5', 419.53, 595.28],
+  ['A3', 841.89, 1190.55],
+  ['letter', 612, 792],
+  ['legal', 612, 1008],
+];
+function pageSize(w: number, h: number): string {
+  const near = (a: number, b: number) => Math.abs(a - b) < 1.5;
+  for (const [name, pw, ph] of PAPERS) {
+    if (near(w, pw) && near(h, ph)) return name;
+    if (near(w, ph) && near(h, pw)) return `${name} landscape`;
+  }
+  return `${r3(w)}pt ${r3(h)}pt`;
+}
+
+function typoCss(m: DocModel, tc: TypoCtx): string {
+  const t = tc.typo;
+  const base = t.base;
+  const size = base.size ?? 12;
+  const shift = headingShift(m);
+  const out: string[] = [];
+  const root = tc.mode === 'print' ? 'body' : 'main';
+  const rootDecls = [`font-family: ${fontStack(base.font ?? 'Times New Roman', t.fonts)}`];
+  if (tc.mode === 'print') rootDecls.push(`font-size: ${r3(size)}pt`);
+  else rootDecls.push(`--b: ${r3((1.125 * size) / 12)}rem`, 'font-size: var(--b)');
+  const lh = lineHeight(base, tc, size);
+  if (lh) rootDecls.push(`line-height: ${lh}`);
+  if (base.color && !(tc.mode === 'screen' && base.color === '#000000')) rootDecls.push(`color: ${base.color}`);
+  out.push(`${root} { ${rootDecls.join('; ')}; }`);
+  if (tc.mode === 'print' && t.page) {
+    const p = t.page;
+    out.push(`@page { size: ${pageSize(p.width, p.height)}; margin: ${r3(p.top)}pt ${r3(p.right)}pt ${r3(p.bottom)}pt ${r3(p.left)}pt; }`);
+  }
+  // Citation : la mise en forme passe par le paragraphe (retraits, taille).
+  out.push('blockquote { margin: 0; font-size: inherit; line-height: inherit; }');
+  const k = t.kinds;
+  out.push(kindRule('p', k.p ?? base, tc));
+  if (k.quote) out.push(kindRule('blockquote p', k.quote, tc));
+  if (k.li) out.push(kindRule('li', k.li, tc, { list: true }));
+  if (k.title) out.push(kindRule('h1.title', k.title, tc, { heading: true }));
+  (['h1', 'h2', 'h3', 'h4'] as const).forEach((kind) => {
+    const f = k[kind];
+    if (!f) return;
+    const lvl = headingLevel({ kind, inlines: [] }, shift);
+    out.push(kindRule(`h${lvl}:not(.title)`, f, tc, { heading: true }));
+  });
+  if (k.note) {
+    const nf: BlockFmt = { ...k.note, firstLine: 0, indLeft: 0, indRight: 0, before: 0 };
+    out.push(kindRule('.footnotes li', nf, tc, { list: true }));
+    if (k.note.size) out.push(`.footnotes { font-size: ${tc.mode === 'print' ? `${r3(k.note.size)}pt` : `calc(var(--b) * ${r3(k.note.size / size)})`}; }`);
+  }
+  return out.join('\n');
+}
+
+/** Style en ligne d'un bloc : ce qui diffère du style usuel de son genre (mise en forme directe, autre style). */
+function blockCss(b: Block, tc: TypoCtx): string {
+  if (!b.fmt) return '';
+  const ref = (b.kind === 'p' ? tc.typo.kinds.p : tc.typo.kinds[b.kind]) ?? tc.typo.base;
+  const size = b.fmt.size ?? 12;
+  const text = textDecls(b.fmt, tc, ref.size ?? size, ref).map((x) =>
+    tc.mode === 'screen' && x.startsWith('font-size:') && b.fmt?.size ? `font-size: calc(var(--b) * ${r3(b.fmt.size / (tc.typo.base.size ?? 12))})` : x,
+  );
+  return [...text, ...paraDecls(b.fmt, tc, ref, { heading: b.kind !== 'p' && b.kind !== 'quote' && b.kind !== 'li', list: b.kind === 'li' })].join('; ');
+}
+
+/** Style en ligne d'un run : ce qui diffère de son paragraphe. */
+function runCss(i: TextFmt, para: BlockFmt, tc: TypoCtx): string {
+  return textDecls(i, tc, para.size ?? tc.typo.base.size ?? 12, para, true).join('; ');
+}
+
 // ── HTML ─────────────────────────────────────────────────────
-function bodyHtml(m: DocModel, noteLinks: boolean): string {
+function bodyHtml(m: DocModel, noteLinks: boolean, tc?: TypoCtx): string {
   const nums = noteNumbers(m);
   const shift = headingShift(m);
   const out: string[] = [];
@@ -150,7 +347,9 @@ function bodyHtml(m: DocModel, noteLinks: boolean): string {
   };
   for (const b of m.blocks) {
     if (isEmpty(b)) continue;
-    const html = inlineHtml(b.inlines, nums, noteLinks);
+    const html = inlineHtml(b.inlines, nums, noteLinks, tc, b.fmt);
+    const css = tc ? blockCss(b, tc) : '';
+    const st = css ? ` style="${escHtml(css)}"` : '';
     if (b.kind === 'li') {
       const lvl = b.level ?? 0;
       if (stack.length && lvl === 0 && stack[0].listId !== b.listId) closeTo(0);
@@ -162,28 +361,52 @@ function bodyHtml(m: DocModel, noteLinks: boolean): string {
       }
       const top = stack[stack.length - 1];
       if (top.liOpen) out.push('</li>');
-      out.push(`<li>${html}`);
+      out.push(`<li${st}>${html}`);
       top.liOpen = true;
       continue;
     }
     closeTo(0);
     if (isHeading(b)) {
       const l = headingLevel(b, shift);
-      out.push(`<h${l}${b.kind === 'title' ? ' class="title"' : ''}>${html}</h${l}>`);
-    } else if (b.kind === 'quote') out.push(`<blockquote><p>${html}</p></blockquote>`);
-    else out.push(`<p>${html}</p>`);
+      out.push(`<h${l}${b.kind === 'title' ? ' class="title"' : ''}${st}>${html}</h${l}>`);
+    } else if (b.kind === 'quote') out.push(`<blockquote><p${st}>${html}</p></blockquote>`);
+    else out.push(`<p${st}>${html}</p>`);
   }
   closeTo(0);
   if (m.noteOrder.length) {
     out.push('<section class="footnotes" aria-label="Notes"><hr><ol>');
+    const nf = tc?.typo.kinds.note ?? tc?.typo.base;
     for (const id of m.noteOrder) {
       const n = nums.get(id)!;
-      const paras = (m.notes.get(id) ?? []).map((p) => inlineHtml(p, nums, noteLinks).trim()).join(' ');
+      const paras = (m.notes.get(id) ?? []).map((p) => inlineHtml(p, nums, noteLinks, tc, nf).trim()).join(' ');
       out.push(`<li id="fn${n}">${paras}${noteLinks ? ` <a href="#fnref${n}" class="fnback" aria-label="Retour au texte">↩</a>` : ''}</li>`);
     }
     out.push('</ol></section>');
   }
   return out.join('\n');
+}
+
+/** Polices (familles) employées par le document : base, styles, paragraphes et runs. */
+export function usedFonts(m: DocModel): string[] {
+  const set = new Set<string>();
+  const t = m.typo;
+  if (!t) return [];
+  const add = (f?: string) => f && set.add(f);
+  add(t.base.font);
+  Object.values(t.kinds).forEach((k) => add(k?.font));
+  const inl = (xs: Inline[]) => xs.forEach((x) => x.t === 'text' && add(x.font));
+  for (const b of m.blocks) {
+    if (isEmpty(b)) continue;
+    add(b.fmt?.font);
+    inl(b.inlines);
+  }
+  for (const id of m.noteOrder) (m.notes.get(id) ?? []).forEach(inl);
+  return [...set];
+}
+
+export interface ExportOptions {
+  /** Règles @font-face (polices fournies avec l'app, en data:) à inclure dans le document. */
+  fontCss?: string;
 }
 
 const SCREEN_CSS = `
@@ -202,32 +425,40 @@ sup.fnref a { text-decoration: none; color: inherit; }
 @media (prefers-color-scheme: dark) { body { background: #1c1b19; color: #ece6da; } .footnotes hr { border-color: #4a443a; } a { color: #7aa2ff; } }
 `;
 
-export function toHtml(m: DocModel, title: string): string {
+/** Typographie écran : le document garde ses polices, tailles et mises en forme, dans une colonne lisible. */
+function screenTypoCss(m: DocModel): string {
+  return m.typo ? typoCss(m, { typo: m.typo, mode: 'screen' }) : '';
+}
+
+export function toHtml(m: DocModel, title: string, opts: ExportOptions = {}): string {
+  const tc: TypoCtx | undefined = m.typo ? { typo: m.typo, mode: 'screen' } : undefined;
   return `<!doctype html>
 <html lang="fr">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${escHtml(title)}</title>
-<style>${SCREEN_CSS}</style>
+<style>${opts.fontCss ?? ''}${SCREEN_CSS}${screenTypoCss(m)}</style>
 </head>
 <body>
 <main>
-${bodyHtml(m, true)}
+${bodyHtml(m, true, tc)}
 </main>
 </body>
 </html>
 `;
 }
 
-/** HTML autonome pour l'impression A4 (marges 2,5 cm), notes regroupées en fin de document. */
-export function toPrintHtml(m: DocModel, title: string): string {
+/** HTML autonome pour l'impression (format et marges du document, A4 2,5 cm par défaut), notes en fin de document. */
+export function toPrintHtml(m: DocModel, title: string, opts: ExportOptions = {}): string {
+  const tc: TypoCtx | undefined = m.typo ? { typo: m.typo, mode: 'print' } : undefined;
   return `<!doctype html>
 <html lang="fr">
 <head>
 <meta charset="utf-8">
 <title>${escHtml(title)}</title>
 <style>
+${opts.fontCss ?? ''}
 @page { size: A4; margin: 2.5cm; }
 html { -webkit-print-color-adjust: exact; }
 body { margin: 0; color: #000; background: #fff; font-family: 'Times New Roman', 'Iowan Old Style', Georgia, serif; font-size: 12pt; line-height: 1.5; }
@@ -246,18 +477,19 @@ sup.fnref { font-size: 8pt; line-height: 0; }
 .footnotes hr { border: 0; border-top: 0.5pt solid #000; width: 5cm; margin: 0 0 6pt; }
 .footnotes ol { padding-left: 0.8cm; margin: 0; }
 .footnotes li { margin: 0 0 3pt; }
+${tc ? typoCss(m, tc) : ''}
 </style>
 </head>
 <body>
-${bodyHtml(m, false)}
+${bodyHtml(m, false, tc)}
 </body>
 </html>
 `;
 }
 
-export function exportText(m: DocModel, format: TextFormat, title: string): string {
+export function exportText(m: DocModel, format: TextFormat, title: string, opts: ExportOptions = {}): string {
   if (format === 'md') return toMarkdown(m);
-  if (format === 'html') return toHtml(m, title);
+  if (format === 'html') return toHtml(m, title, opts);
   return toText(m);
 }
 

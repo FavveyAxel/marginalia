@@ -1100,9 +1100,20 @@ handle('marginalia:saveBinary', async (_e, defaultName, data, format) => {
 });
 
 // ── HTML → PDF (A4) ──────────────────────────────────────────
+// Le document n'exécute aucun script (CSP script-src 'none', injectée ici) ; JavaScript reste activé
+// dans la fenêtre pour que le processus principal puisse attendre le chargement des polices
+// (document.fonts.ready) avant d'imprimer : sans cela, une police embarquée (Literata en data:)
+// pourrait ne pas être encore décodée et le PDF partirait avec la police de repli.
+const PRINT_CSP = `<meta http-equiv="Content-Security-Policy" content="script-src 'none'; object-src 'none'">`;
+function withPrintCsp(html) {
+  const s = String(html);
+  const m = /<head\b[^>]*>/i.exec(s);
+  return m ? s.slice(0, m.index + m[0].length) + PRINT_CSP + s.slice(m.index + m[0].length) : PRINT_CSP + s;
+}
+
 handle('marginalia:printToPdf', async (_e, html) => {
   const tmpFile = path.join(os.tmpdir(), `marginalia-print-${crypto.randomBytes(8).toString('hex')}.html`);
-  await fsp.writeFile(tmpFile, String(html), 'utf8');
+  await fsp.writeFile(tmpFile, withPrintCsp(html), 'utf8');
   const partition = `print-${crypto.randomBytes(6).toString('hex')}`; // session éphémère (en mémoire)
   const ses = session.fromPartition(partition);
   const fileUrl = pathToFileURL(tmpFile).toString();
@@ -1117,7 +1128,7 @@ handle('marginalia:printToPdf', async (_e, html) => {
     height: 1123,
     webPreferences: {
       offscreen: true,
-      javascript: false,
+      javascript: true, // scripts du document bloqués par la CSP ; sert à attendre les polices
       sandbox: true,
       contextIsolation: true,
       nodeIntegration: false,
@@ -1128,8 +1139,14 @@ handle('marginalia:printToPdf', async (_e, html) => {
     win.webContents.on('will-navigate', (ev) => ev.preventDefault());
     win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
     await win.loadURL(fileUrl);
+    // Polices (data:) chargées et décodées avant l'impression ; plafond de 5 s par sécurité.
+    await Promise.race([
+      win.webContents.executeJavaScript('document.fonts.ready.then(() => document.fonts.status)', true).catch(() => null),
+      new Promise((r) => setTimeout(r, 5000)),
+    ]);
     await new Promise((r) => setTimeout(r, 150)); // laisse les images data: se décoder
-    const pdf = await win.webContents.printToPDF({ pageSize: 'A4', printBackground: true });
+    // preferCSSPageSize : le format du document (@page size) l'emporte ; A4 sinon.
+    const pdf = await win.webContents.printToPDF({ pageSize: 'A4', printBackground: true, preferCSSPageSize: true });
     return new Uint8Array(pdf.buffer, pdf.byteOffset, pdf.byteLength);
   } finally {
     if (!win.isDestroyed()) win.destroy();

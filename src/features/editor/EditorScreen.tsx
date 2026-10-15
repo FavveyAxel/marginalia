@@ -8,7 +8,8 @@ import { formatFootnote } from '../../lib/citation';
 import { Kbd, Skeleton } from '../../components/ui';
 import type { DocEngine, EngineState, EngineStats, OutlineItem } from './engine';
 import { ensureA4SectPr, parseDocx } from './docx';
-import { exportText, safeFileName, toPrintHtml } from './exporters';
+import { exportText, safeFileName, toPrintHtml, usedFonts } from './exporters';
+import { bundledFontFaceCss } from './exportFonts';
 import {
   fmtInt,
   words,
@@ -795,7 +796,9 @@ function Editor({ draft }: { draft: Draft }) {
         else if (format === 'pdf') {
           let pdf: ArrayBuffer;
           try {
-            pdf = await host.printToPdf(toPrintHtml(g.model, d.title));
+            // polices fournies avec l'app (Literata…) incluses : la fenêtre d'impression n'a pas accès au réseau
+            const fontCss = await bundledFontFaceCss(usedFonts(g.model));
+            pdf = await host.printToPdf(toPrintHtml(g.model, d.title, { fontCss }));
           } catch (err) {
             console.warn(err);
             toast(host.kind === 'browser' ? `L’export PDF n’est disponible que dans l’app ${isMac ? 'Mac' : 'de bureau'}. Essayez Word ou Page web.` : 'L’export PDF a échoué. Réessayez, ou exportez en Word.', 'error');
@@ -803,7 +806,8 @@ function Editor({ draft }: { draft: Draft }) {
           }
           path = await host.saveBinary(`${name}.pdf`, pdf, 'pdf');
         } else {
-          const text = exportText(g.model, format, d.title);
+          const fontCss = format === 'html' ? await bundledFontFaceCss(usedFonts(g.model)) : '';
+          const text = exportText(g.model, format, d.title, { fontCss });
           const bytes = new TextEncoder().encode(text);
           path = await host.saveBinary(`${name}.${format}`, bytes.buffer as ArrayBuffer, format);
         }

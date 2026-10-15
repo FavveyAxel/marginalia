@@ -79,8 +79,48 @@ export async function ensureA4SectPr(data: ArrayBuffer): Promise<{ data: ArrayBu
 }
 
 // ── Modèle de lecture ────────────────────────────────────────
+/**
+ * Mise en forme de caractères (exports fidèles : PDF, HTML). Valeurs absentes = héritées.
+ * `b` / `i` / `u` à false : explicitement désactivés (ex. run non gras dans un titre gras).
+ */
+export interface TextFmt {
+  /** Famille de police (nom Word, polices de thème résolues). */
+  font?: string;
+  /** Taille en points. */
+  size?: number;
+  b?: boolean;
+  i?: boolean;
+  u?: boolean;
+  /** Couleur du texte, « #rrggbb ». */
+  color?: string;
+  /** Surlignage / trame de fond, couleur CSS « #rrggbb ». */
+  hl?: string;
+  /** Barré. */
+  s?: boolean;
+  /** Petites capitales / capitales. */
+  sc?: boolean;
+  caps?: boolean;
+  /** Exposant / indice. */
+  va?: 'super' | 'sub';
+}
+/** Mise en forme de paragraphe ; longueurs en points. */
+export interface ParaFmt {
+  align?: 'left' | 'center' | 'right' | 'justify';
+  /** Retraits gauche / droit et de première ligne (négatif = retrait suspendu). */
+  indLeft?: number;
+  indRight?: number;
+  firstLine?: number;
+  /** Espacements avant / après. */
+  before?: number;
+  after?: number;
+  /** Interligne : multiple (lineRule auto, 1 = simple) ou hauteur en points (exact / au moins). */
+  line?: number;
+  lineRule?: 'auto' | 'exact' | 'atLeast';
+}
+export type BlockFmt = TextFmt & ParaFmt;
+
 export type Inline =
-  | { t: 'text'; text: string; b?: boolean; i?: boolean; u?: boolean }
+  | ({ t: 'text'; text: string } & TextFmt)
   | { t: 'br' }
   | { t: 'note'; id: string };
 
@@ -93,6 +133,20 @@ export interface Block {
   ordered?: boolean;
   /** Identifiant de liste (numId) pour regrouper / numéroter. */
   listId?: string;
+  /** Style de paragraphe Word (pStyle) et mise en forme effective du paragraphe (style + directe). */
+  styleId?: string;
+  fmt?: BlockFmt;
+}
+/** Typographie du document (styles.xml, thème, sectPr), pour des exports PDF / HTML fidèles. */
+export interface DocTypography {
+  /** Style de paragraphe par défaut (docDefaults + Normal). */
+  base: BlockFmt;
+  /** Mise en forme effective de chaque genre de bloc (style usuel du genre), et des notes. */
+  kinds: Partial<Record<BlockKind | 'note', BlockFmt>>;
+  /** Format de page en points (sectPr de fin de corps). */
+  page?: { width: number; height: number; top: number; right: number; bottom: number; left: number };
+  /** Table des polices : famille générique et police de remplacement (w:altName). */
+  fonts: Record<string, { generic?: 'serif' | 'sans-serif' | 'monospace' | 'cursive'; alt?: string }>;
 }
 export interface DocModel {
   blocks: Block[];
@@ -107,9 +161,11 @@ export interface DocModel {
    * comptés seulement pour G2 à l'enregistrement, au cas où le moteur les affiche dans le flux.
    */
   extraWords: number;
+  /** Typographie (absente pour un modèle construit à la main : les exports gardent leurs valeurs par défaut). */
+  typo?: DocTypography;
 }
 
-const el = (n: Element, local: string) => Array.from(n.children).filter((c) => c.localName === local && c.namespaceURI === W_NS);
+const el =(n: Element, local: string) => Array.from(n.children).filter((c) => c.localName === local && c.namespaceURI === W_NS);
 const first = (n: Element, local: string) => el(n, local)[0] ?? null;
 const wattr = (n: Element | null, name: string) => (n ? n.getAttributeNS(W_NS, name) ?? n.getAttribute('w:' + name) : null);
 const onOff = (n: Element | null) => {
@@ -172,6 +228,228 @@ function kindFromName(name: string): BlockKind | null {
   return null;
 }
 
+// ── Typographie (styles.xml, thème, table des polices) ──
+const HIGHLIGHT: Record<string, string> = {
+  yellow: '#ffff00',
+  green: '#00ff00',
+  cyan: '#00ffff',
+  magenta: '#ff00ff',
+  blue: '#0000ff',
+  red: '#ff0000',
+  darkBlue: '#000080',
+  darkCyan: '#008080',
+  darkGreen: '#008000',
+  darkMagenta: '#800080',
+  darkRed: '#800000',
+  darkYellow: '#808000',
+  darkGray: '#808080',
+  lightGray: '#c0c0c0',
+  black: '#000000',
+  white: '#ffffff',
+};
+const hex = (v: string | null) => (v && /^[0-9a-f]{6}$/i.test(v) ? `#${v.toLowerCase()}` : undefined);
+const num = (v: string | null) => (v !== null && v !== '' && Number.isFinite(Number(v)) ? Number(v) : undefined);
+const tw = (v: string | null) => {
+  const n = num(v);
+  return n === undefined ? undefined : n / 20;
+};
+
+/** Polices de thème (a:majorFont / a:minorFont, script latin). */
+function parseTheme(xml: string | null): { major?: string; minor?: string } {
+  if (!xml) return {};
+  const doc = new DOMParser().parseFromString(xml, 'application/xml');
+  const face = (tag: string) => {
+    const f = Array.from(doc.getElementsByTagName('*')).find((e) => e.localName === tag);
+    const latin = f ? Array.from(f.children).find((c) => c.localName === 'latin') : null;
+    return latin?.getAttribute('typeface') || undefined;
+  };
+  return { major: face('majorFont'), minor: face('minorFont') };
+}
+
+function parseFontTable(xml: string | null): DocTypography['fonts'] {
+  const out: DocTypography['fonts'] = {};
+  if (!xml) return out;
+  const doc = new DOMParser().parseFromString(xml, 'application/xml');
+  for (const f of Array.from(doc.getElementsByTagNameNS(W_NS, 'font'))) {
+    const name = wattr(f, 'name');
+    if (!name) continue;
+    const fam = wattr(first(f, 'family'), 'val');
+    const pitch = wattr(first(f, 'pitch'), 'val');
+    const generic = pitch === 'fixed' || fam === 'modern' ? 'monospace' : fam === 'roman' ? 'serif' : fam === 'swiss' ? 'sans-serif' : fam === 'script' ? 'cursive' : undefined;
+    const alt = wattr(first(f, 'altName'), 'val') || undefined;
+    out[name] = { ...(generic ? { generic } : {}), ...(alt ? { alt } : {}) };
+  }
+  return out;
+}
+
+type Theme = { major?: string; minor?: string };
+
+/** Mise en forme de caractères d'un w:rPr (sans héritage). */
+function readRPr(rpr: Element | null, theme: Theme): TextFmt {
+  const f: TextFmt = {};
+  if (!rpr) return f;
+  const rf = first(rpr, 'rFonts');
+  if (rf) {
+    const th = (v: string | null) => (v ? (/^major/.test(v) ? theme.major : /^minor/.test(v) ? theme.minor : undefined) : undefined);
+    // Les attributs de thème l'emportent sur les noms explicites (comportement de Word).
+    const font = th(wattr(rf, 'asciiTheme')) || th(wattr(rf, 'hAnsiTheme')) || wattr(rf, 'ascii') || wattr(rf, 'hAnsi') || undefined;
+    if (font) f.font = font;
+  }
+  const sz = num(wattr(first(rpr, 'sz'), 'val'));
+  if (sz) f.size = sz / 2;
+  const b = first(rpr, 'b');
+  if (b) f.b = onOff(b);
+  const i = first(rpr, 'i');
+  if (i) f.i = onOff(i);
+  const u = first(rpr, 'u');
+  if (u) f.u = (wattr(u, 'val') ?? 'single') !== 'none';
+  const color = hex(wattr(first(rpr, 'color'), 'val'));
+  if (color) f.color = color;
+  const hlv = wattr(first(rpr, 'highlight'), 'val');
+  const shd = hex(wattr(first(rpr, 'shd'), 'fill'));
+  if (hlv && hlv !== 'none') {
+    if (HIGHLIGHT[hlv]) f.hl = HIGHLIGHT[hlv];
+  } else if (shd) f.hl = shd;
+  const st = first(rpr, 'strike') ?? first(rpr, 'dstrike');
+  if (st) f.s = onOff(st);
+  const sc = first(rpr, 'smallCaps');
+  if (sc) f.sc = onOff(sc);
+  const caps = first(rpr, 'caps');
+  if (caps) f.caps = onOff(caps);
+  const va = wattr(first(rpr, 'vertAlign'), 'val');
+  if (va === 'superscript') f.va = 'super';
+  else if (va === 'subscript') f.va = 'sub';
+  return f;
+}
+
+/** Mise en forme de paragraphe d'un w:pPr (sans héritage). */
+function readPPr(ppr: Element | null): ParaFmt {
+  const f: ParaFmt = {};
+  if (!ppr) return f;
+  const jc = wattr(first(ppr, 'jc'), 'val');
+  if (jc) f.align = jc === 'center' ? 'center' : jc === 'right' || jc === 'end' ? 'right' : /^(both|distribute|justify|thaiDistribute|lowKashida|mediumKashida|highKashida)$/.test(jc) ? 'justify' : 'left';
+  const ind = first(ppr, 'ind');
+  if (ind) {
+    const l = tw(wattr(ind, 'left') ?? wattr(ind, 'start'));
+    if (l !== undefined) f.indLeft = l;
+    const r = tw(wattr(ind, 'right') ?? wattr(ind, 'end'));
+    if (r !== undefined) f.indRight = r;
+    const fl = tw(wattr(ind, 'firstLine'));
+    const hg = tw(wattr(ind, 'hanging'));
+    if (hg !== undefined) f.firstLine = -hg;
+    else if (fl !== undefined) f.firstLine = fl;
+  }
+  const sp = first(ppr, 'spacing');
+  if (sp) {
+    const on = (v: string | null) => ['1', 'true', 'on'].includes(v ?? '');
+    const b = tw(wattr(sp, 'before'));
+    if (on(wattr(sp, 'beforeAutospacing'))) f.before = 14;
+    else if (b !== undefined) f.before = b;
+    const a = tw(wattr(sp, 'after'));
+    if (on(wattr(sp, 'afterAutospacing'))) f.after = 14;
+    else if (a !== undefined) f.after = a;
+    const line = num(wattr(sp, 'line'));
+    if (line) {
+      const rule = (wattr(sp, 'lineRule') ?? 'auto') as ParaFmt['lineRule'];
+      f.lineRule = rule === 'exact' || rule === 'atLeast' ? rule : 'auto';
+      f.line = f.lineRule === 'auto' ? line / 240 : line / 20;
+    }
+  }
+  return f;
+}
+
+/** `b` complète `a` (les valeurs de `b` l'emportent). */
+function mergeFmt<T extends object>(a: T, b: T): T {
+  const out = { ...a } as Record<string, unknown>;
+  for (const [k, v] of Object.entries(b)) if (v !== undefined) out[k] = v;
+  if ((b as ParaFmt).line !== undefined) out.lineRule = (b as ParaFmt).lineRule;
+  return out as T;
+}
+
+interface StyleDef {
+  type: string;
+  basedOn: string | null;
+  r: TextFmt;
+  p: ParaFmt;
+}
+
+/** Résolution des styles (héritage basedOn → docDefaults), comme Word. */
+class TypoResolver {
+  private defs = new Map<string, StyleDef>();
+  private cache = new Map<string, BlockFmt>();
+  readonly defaults: BlockFmt;
+  readonly defaultPara: string | null = null;
+  readonly defaultChar: string | null = null;
+  constructor(stylesXml: string | null, readonly theme: Theme) {
+    let dflt: BlockFmt = {};
+    if (stylesXml) {
+      const doc = new DOMParser().parseFromString(stylesXml, 'application/xml');
+      const dd = doc.getElementsByTagNameNS(W_NS, 'docDefaults')[0];
+      if (dd) {
+        const rd = first(dd, 'rPrDefault');
+        const pd = first(dd, 'pPrDefault');
+        dflt = mergeFmt<BlockFmt>(readPPr(pd ? first(pd, 'pPr') : null), readRPr(rd ? first(rd, 'rPr') : null, theme));
+      }
+      for (const s of Array.from(doc.getElementsByTagNameNS(W_NS, 'style'))) {
+        const id = wattr(s, 'styleId');
+        if (!id) continue;
+        const type = wattr(s, 'type') ?? 'paragraph';
+        this.defs.set(id, { type, basedOn: wattr(first(s, 'basedOn'), 'val'), r: readRPr(first(s, 'rPr'), theme), p: readPPr(first(s, 'pPr')) });
+        const isDefault = ['1', 'true', 'on'].includes(wattr(s, 'default') ?? '');
+        if (isDefault && type === 'paragraph' && !this.defaultPara) this.defaultPara = id;
+        if (isDefault && type === 'character' && !this.defaultChar) this.defaultChar = id;
+      }
+    }
+    this.defaults = dflt;
+    if (!this.defaultPara && this.defs.has('Normal')) this.defaultPara = 'Normal';
+  }
+  has(id: string): boolean {
+    return this.defs.has(id);
+  }
+  /** Chaîne d'un style, de la racine au style lui-même. */
+  private chain(id: string): StyleDef[] {
+    const out: StyleDef[] = [];
+    const seen = new Set<string>();
+    for (let cur: string | null = id; cur && !seen.has(cur) && out.length < 20; ) {
+      seen.add(cur);
+      const d = this.defs.get(cur);
+      if (!d) break;
+      out.unshift(d);
+      cur = d.basedOn;
+    }
+    return out;
+  }
+  /** Mise en forme effective d'un style de paragraphe (docDefaults + chaîne basedOn). */
+  para(id: string | null): BlockFmt {
+    const sid = id && this.defs.has(id) ? id : this.defaultPara;
+    const key = sid ?? '';
+    const hit = this.cache.get(key);
+    if (hit) return hit;
+    let f: BlockFmt = { ...this.defaults };
+    if (sid) for (const d of this.chain(sid)) f = mergeFmt<BlockFmt>(mergeFmt<BlockFmt>(f, d.p), d.r);
+    this.cache.set(key, f);
+    return f;
+  }
+  /** Mise en forme d'un style de caractères (chaîne basedOn, sans docDefaults). */
+  char(id: string | null): TextFmt {
+    if (!id || id === this.defaultChar) return {};
+    let f: TextFmt = {};
+    for (const d of this.chain(id)) if (d.type === 'character' || d.type === 'paragraph') f = mergeFmt<TextFmt>(f, d.r);
+    return f;
+  }
+}
+
+/** Champs de mise en forme de caractères égaux ? (fusion des runs consécutifs) */
+const FMT_KEYS: (keyof TextFmt)[] = ['font', 'size', 'b', 'i', 'u', 'color', 'hl', 's', 'sc', 'caps', 'va'];
+function sameFmt(a: TextFmt, b: TextFmt): boolean {
+  return FMT_KEYS.every((k) => a[k] === b[k]);
+}
+function pickFmt(f: TextFmt): TextFmt {
+  const out: TextFmt = {};
+  for (const k of FMT_KEYS) if (f[k] !== undefined) (out as Record<string, unknown>)[k] = f[k];
+  return out;
+}
+
 function parseNumbering(xml: string | null): Map<string, Map<number, boolean>> {
   // numId → (ilvl → ordered ?)
   const out = new Map<string, Map<number, boolean>>();
@@ -194,7 +472,7 @@ function parseNumbering(xml: string | null): Map<string, Map<number, boolean>> {
 }
 
 /** Inlines d'un paragraphe (runs, liens, insertions, champs simples, sdt). */
-function parseInlines(p: Element, notes: string[] | null, counter: { words: string[] }): Inline[] {
+function parseInlines(p: Element, notes: string[] | null, counter: { words: string[] }, typo?: TypoResolver): Inline[] {
   const out: Inline[] = [];
   const walk = (n: Element) => {
     for (const c of Array.from(n.children)) {
@@ -236,10 +514,12 @@ function parseInlines(p: Element, notes: string[] | null, counter: { words: stri
   let inField = 0; // fldChar begin…separate : instructions à ignorer
   const run = (r: Element) => {
     const rpr = first(r, 'rPr');
-    const b = rpr ? onOff(first(rpr, 'b')) : false;
-    const i = rpr ? onOff(first(rpr, 'i')) : false;
-    const uEl = rpr ? first(rpr, 'u') : null;
-    const u = !!uEl && (wattr(uEl, 'val') ?? 'single') !== 'none';
+    // Mise en forme directe du run (style de caractères + rPr) ; celle du paragraphe est dans Block.fmt.
+    const fmt = pickFmt(
+      typo
+        ? mergeFmt<TextFmt>(typo.char(rpr ? wattr(first(rpr, 'rStyle'), 'val') : null), readRPr(rpr, typo.theme))
+        : readRPr(rpr, {}),
+    );
     for (const c of Array.from(r.children)) {
       if (c.namespaceURI !== W_NS) continue;
       switch (c.localName) {
@@ -248,8 +528,8 @@ function parseInlines(p: Element, notes: string[] | null, counter: { words: stri
           counter.words.push(text);
           if (inField === 1) break;
           const last = out[out.length - 1];
-          if (last && last.t === 'text' && !!last.b === b && !!last.i === i && !!last.u === u) last.text += text;
-          else out.push({ t: 'text', text, ...(b ? { b } : {}), ...(i ? { i } : {}), ...(u ? { u } : {}) });
+          if (last && last.t === 'text' && sameFmt(last, fmt)) last.text += text;
+          else out.push({ t: 'text', text, ...fmt });
           break;
         }
         case 'delText':
@@ -297,7 +577,10 @@ export async function parseDocx(data: ArrayBuffer): Promise<DocModel> {
   const stylesXml = (await zip.file('word/styles.xml')?.async('string')) ?? null;
   const numXml = (await zip.file('word/numbering.xml')?.async('string')) ?? null;
   const fnXml = (await zip.file('word/footnotes.xml')?.async('string')) ?? null;
+  const themeXml = (await zip.file('word/theme/theme1.xml')?.async('string')) ?? null;
+  const fontXml = (await zip.file('word/fontTable.xml')?.async('string')) ?? null;
   const styles = parseStyles(stylesXml);
+  const typo = new TypoResolver(stylesXml, parseTheme(themeXml));
   const numbering = parseNumbering(numXml);
   const doc = new DOMParser().parseFromString(docXml, 'application/xml');
   if (doc.getElementsByTagName('parsererror').length) throw new Error('XML du document illisible');
@@ -320,7 +603,9 @@ export async function parseDocx(data: ArrayBuffer): Promise<DocModel> {
       counter.words.push('\n');
       return;
     }
-    const block: Block = { kind, inlines: parseInlines(p, noteOrder, counter) };
+    const sid = styleId && typo.has(styleId) ? styleId : typo.defaultPara;
+    const fmt = mergeFmt<BlockFmt>(typo.para(sid), readPPr(ppr));
+    const block: Block = { kind, inlines: parseInlines(p, noteOrder, counter, typo), fmt, ...(sid ? { styleId: sid } : {}) };
     counter.words.push('\n');
     if (numPr && (kind === 'p' || kind === 'quote')) {
       const numId = wattr(first(numPr, 'numId'), 'val') ?? '';
@@ -355,7 +640,7 @@ export async function parseDocx(data: ArrayBuffer): Promise<DocModel> {
     for (const fn of Array.from(fdoc.getElementsByTagNameNS(W_NS, 'footnote'))) {
       const ty = wattr(fn, 'type');
       if (ty === 'separator' || ty === 'continuationSeparator' || ty === 'continuationNotice') continue;
-      const paras = el(fn, 'p').map((p) => trimNote(parseInlines(p, null, { words: [] })));
+      const paras = el(fn, 'p').map((p) => trimNote(parseInlines(p, null, { words: [] }, typo)));
       notes.set(wattr(fn, 'id') ?? '', paras);
     }
   }
@@ -369,7 +654,65 @@ export async function parseDocx(data: ArrayBuffer): Promise<DocModel> {
     for (const t of Array.from(tb.getElementsByTagNameNS(W_NS, 't'))) extra.push(t.textContent ?? '');
     extra.push('\n');
   }
-  return { blocks, notes, noteOrder: order, bodyWords: countWords(counter.words.join('')), extraWords: countWords(extra.join(' ')) };
+  return {
+    blocks,
+    notes,
+    noteOrder: order,
+    bodyWords: countWords(counter.words.join('')),
+    extraWords: countWords(extra.join(' ')),
+    typo: docTypography(typo, blocks, body, fnXml, parseFontTable(fontXml)),
+  };
+}
+
+/** Styles usuels de chaque genre de bloc, si aucun bloc du document ne les utilise. */
+const KIND_STYLES: Record<BlockKind | 'note', string[]> = {
+  title: ['Title', 'Titre'],
+  h1: ['Heading1', 'Titre1'],
+  h2: ['Heading2', 'Titre2'],
+  h3: ['Heading3', 'Titre3'],
+  h4: ['Heading4', 'Titre4'],
+  p: [],
+  quote: ['Quote', 'Citation'],
+  li: ['ListParagraph', 'Paragraphedeliste'],
+  note: ['FootnoteText', 'Notedebasdepage'],
+};
+
+function docTypography(typo: TypoResolver, blocks: Block[], body: Element | undefined, fnXml: string | null, fonts: DocTypography['fonts']): DocTypography {
+  const base = typo.para(typo.defaultPara);
+  const kinds: DocTypography['kinds'] = {};
+  for (const k of Object.keys(KIND_STYLES) as (BlockKind | 'note')[]) {
+    if (k === 'note') continue;
+    // style le plus fréquent parmi les blocs du genre
+    const counts = new Map<string, number>();
+    for (const b of blocks) if (b.kind === k) counts.set(b.styleId ?? '', (counts.get(b.styleId ?? '') ?? 0) + 1);
+    const top = [...counts].sort((a, b) => b[1] - a[1])[0]?.[0];
+    const id = top !== undefined ? top : k === 'p' ? typo.defaultPara : KIND_STYLES[k].find((x) => typo.has(x));
+    if (top !== undefined || id) kinds[k] = typo.para(id || null);
+  }
+  // Notes : style du premier paragraphe de note, sinon FootnoteText.
+  let noteStyle: string | null | undefined = KIND_STYLES.note.find((x) => typo.has(x));
+  if (fnXml) {
+    const m = /<w:footnote\b(?![^>]*w:type="(?:separator|continuationSeparator|continuationNotice)")[\s\S]*?<w:pStyle w:val="([^"]+)"/.exec(fnXml);
+    if (m && typo.has(m[1])) noteStyle = m[1];
+  }
+  if (noteStyle) kinds.note = typo.para(noteStyle);
+  // Page : dernier sectPr du corps.
+  let page: DocTypography['page'];
+  const sect = body ? el(body, 'sectPr').pop() : undefined;
+  if (sect) {
+    const sz = first(sect, 'pgSz');
+    const mar = first(sect, 'pgMar');
+    const w = tw(wattr(sz, 'w'));
+    const h = tw(wattr(sz, 'h'));
+    if (w && h) {
+      const m = (k: string, d: number) => {
+        const v = tw(wattr(mar, k));
+        return v === undefined ? d : Math.abs(v);
+      };
+      page = { width: w, height: h, top: m('top', 72), right: m('right', 72), bottom: m('bottom', 72), left: m('left', 72) };
+    }
+  }
+  return { base, kinds, ...(page ? { page } : {}), fonts };
 }
 
 function trimNote(inl: Inline[]): Inline[] {

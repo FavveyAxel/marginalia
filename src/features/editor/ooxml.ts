@@ -62,6 +62,13 @@ const ORDERS: Record<string, string[][]> = {
   ][0]
     .split(' ')
     .map((n) => [`w:${n}`]),
+  // CT_RPr / CT_ParaRPr : rFonts ajouté après sz (patchStyleElement, moteur) rendrait le style invalide pour Word.
+  'w:rPr': (
+    'ins del moveFrom moveTo rStyle rFonts b bCs i iCs caps smallCaps strike dstrike outline shadow emboss imprint noProof snapToGrid vanish ' +
+    'webHidden color spacing w kern position sz szCs highlight u effect bdr shd fitText vertAlign rtl cs em lang eastAsianLayout specVanish oMath rPrChange'
+  )
+    .split(' ')
+    .map((n) => [`w:${n}`]),
   'w:tblPr': 'tblStyle tblpPr tblOverlap bidiVisual tblStyleRowBandSize tblStyleColBandSize tblW jc tblCellSpacing tblInd tblBorders shd tblLayout tblCellMar tblLook tblCaption tblDescription tblPrChange'
     .split(' ')
     .map((n) => [`w:${n}`]),
@@ -380,6 +387,38 @@ export function fixTocTabs(docXml: string): string {
   );
 }
 
+// ── Table des polices ──
+const SANS_FONT = /sans|arial|helvetica|verdana|tahoma|calibri|segoe|avenir|futura|gill|optima|grotesk|\binter\b|roboto|lato|frutiger|myriad|trebuchet|gothic|franklin|aptos|candara|corbel/i;
+const MONO_FONT = /mono|courier|consolas|menlo|monaco|\bcode\b|typewriter/i;
+const SCRIPT_FONT = /caveat|script|brush|handwrit|comic/i;
+/** Remplaçantes déclarées (w:altName) des polices fournies avec l'app. */
+const FONT_ALT: Record<string, string> = { Literata: 'Georgia', 'Instrument Serif': 'Georgia', Caveat: 'Comic Sans MS' };
+
+/** Polices nommées (w:ascii / w:hAnsi) dans des parties XML. */
+export function referencedFonts(xmls: string[]): string[] {
+  const set = new Set<string>();
+  for (const x of xmls) for (const m of x.matchAll(/<w:rFonts\b[^>]*>/g)) for (const a of m[0].matchAll(/\sw:(?:ascii|hAnsi)="([^"]+)"/g)) set.add(a[1].replace(/&amp;/g, '&'));
+  return [...set];
+}
+
+/**
+ * Ajoute à fontTable.xml les polices employées qui n'y figurent pas, avec leur famille (roman, swiss…) :
+ * un Word où elles manquent les remplace alors par une police de même genre. Chaîne inchangée sinon.
+ */
+export function completeFontTable(fontXml: string, fonts: string[]): string {
+  const have = new Set([...fontXml.matchAll(/<w:font\b[^>]*\sw:name="([^"]+)"/g)].map((m) => m[1].replace(/&amp;/g, '&')));
+  const add = fonts.filter((f) => f && !have.has(f));
+  if (!add.length || !/<\/w:fonts>\s*$/.test(fontXml)) return fontXml;
+  const el = add
+    .map((f) => {
+      const fam = MONO_FONT.test(f) ? 'modern' : SCRIPT_FONT.test(f) ? 'script' : SANS_FONT.test(f) ? 'swiss' : 'roman';
+      const alt = FONT_ALT[f];
+      return `<w:font w:name="${escAttr(f)}">${alt ? `<w:altName w:val="${alt}"/>` : ''}<w:charset w:val="00"/><w:family w:val="${fam}"/><w:pitch w:val="${fam === 'modern' ? 'fixed' : 'variable'}"/></w:font>`;
+    })
+    .join('');
+  return fontXml.replace(/<\/w:fonts>\s*$/, `${el}</w:fonts>`);
+}
+
 // ── Point d'entrée ──
 const XML_PART = /^(word\/(?:[^/]+|_rels\/[^/]+)\.(?:xml|rels)|\[Content_Types\]\.xml|docProps\/[^/]+\.xml|_rels\/\.rels|customXml\/[^/]+\.xml)$/;
 
@@ -396,6 +435,11 @@ export async function normalizeDocx(data: ArrayBuffer): Promise<ArrayBuffer> {
     parts.set('word/document.xml', fixTocTabs(doc));
     const st = parts.get('word/styles.xml');
     if (st) parts.set('word/styles.xml', addMissingStyles(st, doc + [...parts].filter(([k]) => /footer|header/.test(k)).map(([, v]) => v).join('')));
+  }
+  const ft = parts.get('word/fontTable.xml');
+  if (ft) {
+    const used = referencedFonts([...parts].filter(([k]) => /^word\/(document|styles|footnotes|endnotes|header\d*|footer\d*)\.xml$/.test(k)).map(([, v]) => v));
+    parts.set('word/fontTable.xml', completeFontTable(ft, used));
   }
   for (const [n, x] of parts) parts.set(n, fixNamespaces(reorderXml(x)));
   let changed = false;

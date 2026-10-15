@@ -299,6 +299,11 @@ const SECTIONS: Section[] = [
       { title: 'Au clavier', text: 'Tab : nouvelle idée qui soutient la carte choisie, placée dessous. Entrée : modifier une idée (sur un extrait : carte sœur) ; ⇧ Entrée : carte sœur. Échap : terminer. Flèches : passer à la carte voisine. Double-clic dans le vide : nouvelle idée. ⇧1 : tout voir ; ⇧2 : zoom sur la sélection. La mini-carte, en bas à droite, se replie.', keys: ['Tab', '↩', '⇧1', '⇧2'] },
       { title: 'Zones', text: 'Sélectionnez des cartes puis « Encadrer dans une zone » (barre de sélection, clic droit ou ⌘G) : un cadre coloré et titré les regroupe (double-clic sur le titre pour le renommer). Glisser le titre déplace la zone avec ses cartes ; la poignée en bas à droite l’agrandit. Une carte glissée dans une zone en fait partie. Replier la zone n’en laisse qu’une étiquette (« Kant · 3 cartes »), ses liens vers le reste de la carte en pointillé ; la supprimer garde les cartes. « Ranger » déplace chaque zone d’un bloc, son contenu tel quel.', keys: ['⌘G'] },
       { title: 'Points à revoir', text: 'La pastille « 3 points à revoir » de la barre signale une thèse sans argument, une objection sans réponse, des extraits classés pas encore placés (bouton « Placer ») ou des cartes isolées. Un clic sur un signal centre la carte concernée ; « Afficher les signaux » les marque d’un point sur la carte.' },
+      {
+        title: 'Suivre une chaîne',
+        text: 'Quand la carte grandit, on ne voit plus ce qui tient quoi. Choisissez une carte puis « Suivre la chaîne » (clic droit, bouton à maillons de la barre, ou L) : seule sa chaîne reste nette — ce qui la soutient, la précise ou l’illustre, et ce qui appuie ces appuis, plus les objections et leurs réponses, dans la couleur de leur relation ; le reste s’estompe. Un petit panneau fait le diagnostic : « 3 appuis indépendants · chaîne la plus longue : 2 · 1 objection sans réponse », et signale un point fragile (« tout repose sur… » : un clic le centre). « Conséquences » suit aussi ce que la carte soutient. Cliquer une autre carte recentre la chaîne sur elle ; Échap ou un clic dans le vide en sort. Exemple : la thèse « l’homme est condamné à être libre » ne repose que sur « l’existence précède l’essence » — si cette idée tombe, tout tombe : c’est elle qu’il faut étayer.',
+        keys: ['L', 'Esc'],
+      },
       { title: 'Exporter, versions', text: '« Exporter » enregistre la carte en image PNG, SVG ou PDF, toujours sur fond clair, sous le nom de la carte. « Insérer dans un écrit » copie l’image et ouvre l’écrit choisi (ou un nouveau) : collez-la avec ⌘V. « Versions » garde des instantanés : les vôtres (« Créer une version… ») et ceux pris d’office avant un rangement, une conversion ou la suppression de plusieurs cartes ; survolez pour un aperçu, « Restaurer » est annulable.', keys: ['⌘V'] },
       { title: 'Pourquoi ce lien ?', text: 'Dans le menu d’un lien, « Pourquoi ? » note le ressort du rapport (« par analogie », « par l’absurde »…). Un petit crayon sur le lien le signale ; la note s’affiche au survol, sous le nom de la relation, et figure dans l’export.' },
 
@@ -430,6 +435,7 @@ const SHORTCUTS_ALL: [string, string][] = [
   ['⌥⇧↑ / ⌥⇧↓', 'Déplacer une section du plan'],
   ['⌘S', 'Enregistrer l’écrit'],
   ['⌘A', 'Tout sélectionner (listes)'],
+  ['L', 'Suivre la chaîne de la carte choisie (Carte)'],
   ['Échap', 'Fermer / désélectionner'],
   ['⌃⌘S', 'Replier / afficher la barre latérale'],
   ['⌘?', 'Ouvrir cette aide'],

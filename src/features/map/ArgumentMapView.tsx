@@ -25,7 +25,7 @@ import '@xyflow/react/dist/style.css';
 import '@fontsource/caveat/400.css';
 import '@fontsource/caveat/600.css';
 import { useShallow } from 'zustand/react/shallow';
-import { BookOpen, ChevronsDownUp, ChevronsUpDown, Copy, CornerDownRight, Lightbulb, Map as MapIcon, Maximize2, Palette, PanelLeft, Pencil, ScanSearch, Star, Trash2, Wand2, X, AlignStartVertical, MousePointer2, Group, History } from 'lucide-react';
+import { BookOpen, ChevronsDownUp, ChevronsUpDown, Copy, CornerDownRight, Lightbulb, Map as MapIcon, Maximize2, Palette, PanelLeft, Pencil, ScanSearch, Star, Trash2, Wand2, X, AlignStartVertical, MousePointer2, Group, History, Link2 } from 'lucide-react';
 import { ContextMenu, type MenuEntry } from '../workspaces/wsUi';
 import { separateUndoStep, uid, useStore } from '../../lib/store';
 import { RELATIONS, kindLabel, type ExtractKind } from '../../lib/categories';
@@ -55,6 +55,7 @@ import type { MapZone } from '../../lib/types';
 import { PASSAGE_TYPE, dropPassage, isPassageDrag, usePassagePlacer } from './ui/passage/passage';
 import { useMovementPriority } from './ui/movement/movement';
 import { useBarOverlap } from './ui/useBarOverlap';
+import { CHAIN_KEY, ChainButton, ChainPanel, useChainCtl } from './ui/chain';
 import './map.css';
 
 const EMPTY_MAP: ArgumentMap = { bookId: '', nodes: [], edges: [], viewport: null };
@@ -264,6 +265,8 @@ function Inner({ source, tools }: { source: MapSource; tools?: MapToolbarItem[] 
   }, [rf]);
   /** Cartes masquées par les zones repliées. */
   const hidden = useMemo(() => hiddenNodeIds(map), [map]);
+  /** « Suivre une chaîne » (ui/chain.tsx) : commande stable ; le mode ne re-rend pas la vue. */
+  const chain = useChainCtl();
   const { gaps, messages: gapMsgs } = useMapGaps(map);
   const marks = useMemo(() => (gapMarksOn ? gapMarks(gaps) : new Map<string, string>()), [gapMarksOn, gaps]);
   const versionCount = useMapVersions(key).length;
@@ -1003,6 +1006,14 @@ function Inner({ source, tools }: { source: MapSource; tools?: MapToolbarItem[] 
         select([next]);
         reveal(next);
       }
+    } else if (e.key === 'Escape' && chain.rootId) {
+      stop();
+      chain.stop();
+    } else if (matchKeys(e, CHAIN_KEY) && (one || chain.rootId)) {
+      // L : suivre la chaîne de la carte choisie (de nouveau : quitter).
+      stop();
+      if (one && one.id !== chain.rootId) chain.start(one.id);
+      else chain.stop();
     } else if (e.key === 'Escape') {
       if (selectTool) setSelectTool(false);
       if (sel.length || selEdge) {
@@ -1076,6 +1087,11 @@ function Inner({ source, tools }: { source: MapSource; tools?: MapToolbarItem[] 
           },
         });
       }
+      entries.push(
+        chain.rootId === node.id
+          ? { label: 'Quitter la chaîne', icon: <Link2 size={14} />, hint: 'Échap', onClick: chain.stop }
+          : { label: 'Suivre la chaîne', icon: <Link2 size={14} />, hint: CHAIN_KEY, onClick: () => chain.start(node.id) },
+      );
       entries.push({ label: 'Nouvelle idée reliée dessous', icon: <CornerDownRight size={14} />, hint: 'Tab', onClick: () => addChild(node.id) });
       if (m.centralId === node.id) entries.push({ label: 'Ne plus marquer comme thèse centrale', icon: <Star size={14} />, onClick: () => setCentral(undefined) });
       else if (centralId !== node.id) entries.push({ label: 'Marquer comme thèse centrale', icon: <Star size={14} />, onClick: () => setCentral(node.id) });
@@ -1129,6 +1145,7 @@ function Inner({ source, tools }: { source: MapSource; tools?: MapToolbarItem[] 
     { id: 'export', order: 10, group: 'share', node: <ExportMenu mapKey={key} empty={empty} sizes={sizes} /> },
     { id: 'versions', order: 20, group: 'share', node: panelBtn('versions', 'Versions', <History size={14} />, versionCount ? `Versions de la carte (${versionCount})` : 'Versions de la carte') },
   ];
+  toolbarItems.push({ id: 'chain', order: 5, group: 'chain', node: <ChainButton ctl={chain} selected={selIds} /> });
   if (tools) toolbarItems.push(...tools);
   if (gaps.total) toolbarItems.push({ id: 'gaps', order: 90, group: 'gaps', node: <GapsPill total={gaps.total} open={sidePanel === 'gaps'} onClick={() => setSidePanel((p) => (p === 'gaps' ? null : 'gaps'))} /> });
 
@@ -1196,11 +1213,14 @@ function Inner({ source, tools }: { source: MapSource; tools?: MapToolbarItem[] 
           onNodeDragStop={onNodeDragStop}
           onSelectionDragStart={onNodeDragStart}
           onSelectionDragStop={onNodeDragStop}
-          onNodeClick={() => {
+          onNodeClick={(_, node) => {
             setSelEdge(null);
             setMenu(null);
+            // Chaîne suivie : cliquer une autre carte la recentre sur celle-ci.
+            if (chain.rootId && chain.rootId !== node.id) chain.start(node.id);
           }}
           onPaneClick={() => {
+            chain.stop();
             setSelEdge(null);
             setMenu(null);
             setEditingId(null);
@@ -1353,6 +1373,16 @@ function Inner({ source, tools }: { source: MapSource; tools?: MapToolbarItem[] 
             onClose={() => setSidePanel(null)}
           />
         )}
+        <ChainPanel
+          ctl={chain}
+          map={map}
+          hidden={hidden}
+          onFocus={focusNode}
+          onFit={(ids) => {
+            const ns = rf.getNodes().filter((n) => ids.includes(n.id) && !n.hidden);
+            if (ns.length) fitBox(rf.getNodesBounds(ns), 450, 1);
+          }}
+        />
         {sidePanel === 'versions' && <VersionsPanel mapKey={key} onClose={() => setSidePanel(null)} />}
 
         {menu && menuEdge && (

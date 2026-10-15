@@ -1,0 +1,198 @@
+/* ═══ « Suivre une chaîne » ═══
+   Mode actif quand le panneau est monté dans .map-root : tout s'estompe ici ; la feuille de style
+   générée par ui/chain.tsx (chainCss) rend leur netteté aux cartes et liens de la chaîne.
+   Seules l'opacité et le filtre changent : aucune remise en page, transitions sur le compositeur. */
+
+.map-root {
+  --chain-ring-root: 0 0 0 2px var(--bg-page), 0 0 0 4px color-mix(in srgb, var(--focus) 70%, transparent), var(--map-card-shadow-hover);
+  --chain-ring-objection: 0 0 0 1.5px color-mix(in srgb, var(--rel-objecte) 55%, transparent), var(--map-card-shadow);
+  --chain-ring-reply: 0 0 0 1.5px color-mix(in srgb, var(--rel-repond) 50%, transparent), var(--map-card-shadow);
+  --chain-ring-consequence: 0 0 0 1.5px color-mix(in srgb, var(--focus) 35%, transparent), var(--map-card-shadow);
+}
+
+.map-flow .react-flow__node,
+.map-flow .react-flow__edge {
+  transition:
+    opacity 300ms var(--ease),
+    filter 300ms var(--ease);
+}
+.map-flow .map-pill {
+  transition:
+    background 180ms var(--ease),
+    box-shadow 180ms var(--ease),
+    padding 220ms var(--ease-out),
+    opacity 300ms var(--ease);
+}
+/* Le glissement animé garde sa propre transition. */
+.map-flow .react-flow__node.map-glide {
+  transition:
+    transform 520ms cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 300ms var(--ease),
+    filter 300ms var(--ease);
+}
+
+.map-root:has(> .map-chain-panel) .map-flow .react-flow__node {
+  opacity: 0.18;
+  filter: grayscale(1);
+}
+.map-root:has(> .map-chain-panel) .map-flow .react-flow__edge {
+  opacity: 0.1;
+}
+/* Étiquettes de liens (hors des liens) : estompées, sauf celles de la chaîne. */
+.map-root:has(> .map-chain-panel) .map-pill,
+.map-root:has(> .map-chain-panel) .map-together {
+  opacity: 0.15;
+}
+
+/* La légende des relations laisse la place au panneau (les liens gardent leur couleur). */
+.map-root:has(> .map-chain-panel) .map-legend {
+  opacity: 0;
+  transition: opacity 200ms var(--ease);
+}
+
+/* ── Panneau ── */
+.map-chain-panel {
+  position: absolute;
+  left: 50%;
+  top: 12px;
+  translate: -50% 0;
+  z-index: 8;
+  width: max-content;
+  min-width: 300px;
+  max-width: min(520px, calc(100% - 32px));
+  padding: 10px 12px 10px 14px;
+  border-radius: var(--radius-lg);
+  background: color-mix(in srgb, var(--bg-panel) 94%, transparent);
+  backdrop-filter: blur(8px);
+  box-shadow: var(--shadow-md);
+  font-family: var(--font-ui);
+  color: var(--ink);
+}
+.map-chain-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+.map-chain-ico {
+  flex: none;
+  color: var(--focus);
+}
+.map-chain-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--fs-md);
+  color: var(--ink-2);
+}
+.map-chain-title b {
+  font-family: var(--font-read);
+  font-weight: 500;
+  color: var(--ink);
+}
+.map-chain-diag {
+  margin: 5px 0 0 21px;
+  font-size: var(--fs-sm);
+  line-height: 1.45;
+  color: var(--ink-2);
+}
+.map-chain-diag > span {
+  white-space: nowrap;
+}
+.map-chain-diag i {
+  font-style: normal;
+  color: var(--faint);
+}
+.map-chain-diag .warn {
+  color: color-mix(in srgb, var(--rel-objecte) 78%, var(--ink));
+}
+.map-chain-fragile {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  width: calc(100% - 21px);
+  margin: 8px 0 0 21px;
+  padding: 6px 9px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--cat-these) 14%, transparent);
+  color: color-mix(in srgb, var(--cat-these) 50%, var(--ink));
+  font: var(--fs-sm) / 1.4 var(--font-ui);
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--dur) var(--ease);
+}
+.map-chain-fragile:hover {
+  background: color-mix(in srgb, var(--cat-these) 24%, transparent);
+}
+.map-chain-fragile svg {
+  flex: none;
+  margin-top: 2px;
+}
+.map-chain-fragile b {
+  font-family: var(--font-read);
+  font-weight: 500;
+}
+.map-chain-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin: 9px 0 0 21px;
+}
+.map-chain-seg {
+  display: inline-flex;
+  padding: 2px;
+  border-radius: 999px;
+  background: var(--bg-inset);
+}
+.map-chain-seg button {
+  height: 24px;
+  padding: 0 11px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted);
+  font: 500 var(--fs-sm) var(--font-ui);
+  cursor: pointer;
+  transition:
+    background var(--dur) var(--ease),
+    color var(--dur) var(--ease);
+}
+.map-chain-seg button.on {
+  background: var(--bg-panel);
+  color: var(--ink);
+  box-shadow: var(--shadow-sm);
+}
+.map-chain-quit {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 26px;
+  padding: 0 6px 0 9px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--ink-2);
+  font: var(--fs-sm) var(--font-ui);
+  cursor: pointer;
+}
+.map-chain-quit:hover {
+  background: var(--bg-hover);
+}
+.map-chain-quit kbd {
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: var(--bg-inset);
+  color: var(--muted);
+  font: var(--fs-xs) var(--font-ui);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .map-flow .react-flow__node,
+  .map-flow .react-flow__edge,
+  .map-flow .map-pill {
+    transition: none;
+  }
+}

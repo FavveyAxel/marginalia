@@ -116,6 +116,17 @@ export function resolvePath(base: string, href: string): { path: string; frag: s
 
 const isExternal = (href: string) => /^[a-z][a-z0-9+.-]*:/i.test(href);
 
+/**
+ * Numéro de la page imprimée annoncée par un repère pagebreak (EPUB 3 epub:type, ARIA
+ * doc-pagebreak) : title, aria-label, texte du repère, sinon l'id (« page_12 », « pg12 », « p-xii »).
+ */
+function pagebreakLabel(el: Element, id: string | null): string {
+  const t = squash(el.getAttribute('title')) || squash(el.getAttribute('aria-label')) || squash(el.textContent);
+  if (t) return t.replace(/^(?:page|p\.)\s*/i, '');
+  const m = id ? /(?:^|[^a-z])(?:page|pg|p)[_\-.]?([0-9]+|[ivxlcdm]+)$/i.exec(id) : null;
+  return m ? m[1] : '';
+}
+
 // ── Préparation de la source (document inerte) puis assainissement ─────────
 
 interface PrepareCtx {
@@ -153,7 +164,7 @@ function prepareSource(root: Element, ctx: PrepareCtx) {
     if (id) el.setAttribute('data-fid', id);
     el.removeAttribute('id');
     const epubType = el.getAttributeNS(OPS_NS, 'type') ?? el.getAttribute('epub:type');
-    if (epubType && /\bpagebreak\b/.test(epubType)) el.setAttribute('data-pagebreak', el.getAttribute('title') ?? squash(el.textContent));
+    if ((epubType && /\bpagebreak\b/.test(epubType)) || /\bdoc-pagebreak\b/.test(el.getAttribute('role') ?? '')) el.setAttribute('data-pagebreak', pagebreakLabel(el, id));
     if (el.localName === 'a') {
       const href = el.getAttribute('href');
       el.removeAttribute('href');
@@ -641,6 +652,15 @@ async function fromEpub(data: ArrayBuffer, book: Book): Promise<ParsedDoc> {
       offset = offsetOf(root, target, 0);
     }
     pages.push({ chapter, offset, label: e.label });
+  }
+  // Sans page-list : les repères pagebreak du texte lui-même (EPUB 3 epub:type, ARIA doc-pagebreak).
+  if (!pages.length) {
+    chapters.forEach((c, chapter) => {
+      c.el.querySelectorAll('[data-pagebreak]').forEach((el) => {
+        const label = el.getAttribute('data-pagebreak') ?? '';
+        if (label) pages.push({ chapter, offset: offsetOf(c.el, el, 0), label });
+      });
+    });
   }
   pages.sort((a, b) => a.chapter - b.chapter || a.offset - b.offset);
 

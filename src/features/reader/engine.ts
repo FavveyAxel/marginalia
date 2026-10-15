@@ -3,6 +3,7 @@
 // HtmlReader (EPUB/DOCX/MD/TXT/HTML) et PdfReader l'implémentent.
 // ─────────────────────────────────────────────────────────────
 import type { Anchor, Book, Bookmark, CategoryId, Highlight, Movement, ReaderPosition, Settings, TocItem } from '../../lib/types';
+import type { PageRequest, PageStatus } from './pages';
 
 export interface SearchHit {
   id: string;
@@ -80,6 +81,10 @@ export interface EngineProps {
   onBookmarkClick?(id: string, rect: DOMRect): void;
   /** « Ajouter un signet ici » (barre de sélection, clic droit). */
   onAddBookmark?(point: BookmarkPoint, rect: DOMRect | null): void;
+  /** Page en cours (« p. 12 / 240 ») ; null si le document n'a pas de pages repérées. */
+  onPage?(status: PageStatus | null): void;
+  /** « Aller à la page » demandé (⌘⌥G, ⌘K) : le PDF ouvre le champ de sa barre de zoom ou y va. */
+  pageRequest?: PageRequest;
 }
 
 export interface EngineHandle {
@@ -99,4 +104,8 @@ export interface EngineHandle {
   bookmarkAtView?(list: Bookmark[]): string | null;
   /** Rectangle du repère d'un signet à l'écran (pour y ancrer le popover). */
   getBookmarkRect?(id: string): DOMRect | null;
+  /** « Aller à la page » (libellé imprimé, romain, ou page estimée) : null si fait, sinon le message d'erreur. */
+  goToPage?(query: string): string | null;
+  /** Page en cours, à la demande. */
+  pageStatus?(): PageStatus | null;
 }

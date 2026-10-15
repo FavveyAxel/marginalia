@@ -355,3 +355,10 @@
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
+/* Variante des repères de page, sous l’interrupteur « Marquer les pages ». */
+.typo-seg-sub {
+  margin-top: 8px;
+}
+.typo-seg-sub button {
+  font-size: var(--fs-sm);
+}

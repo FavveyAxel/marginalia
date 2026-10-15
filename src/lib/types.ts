@@ -530,6 +530,8 @@ export interface Settings {
   docxMigrated?: boolean;
   /** Barre latérale repliée en rail d'icônes. */
   sidebarCollapsed?: boolean;
+  /** Repères de page dans le texte (EPUB…) : trait et numéro (défaut), trait seul, ou aucun. */
+  pageMarks?: 'numbered' | 'rule' | 'off';
   /** Éditeur : marques de mise en forme (¶, espaces, police et style des paragraphes), affichage seulement. */
   showFormatMarks?: boolean;
 }

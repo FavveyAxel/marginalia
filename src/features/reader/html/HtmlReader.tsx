@@ -18,6 +18,7 @@ import type { BookmarkPoint, EngineHandle, EngineProps, SearchHit } from '../eng
 import { bookmarkColor, clipWords, proposeLabel, sentenceAt } from '../bookmarks/bookmarks';
 import { allIndexes, fold, isBlockEl, locate, makeAnchor, offsetOf, rangeFor, resolveAnchor, unwrapAll, wrapOffsets, type Folded, type TextSpan } from './anchoring';
 import { parseBook, printedPageAt, ReaderError, type ParsedDoc } from './parse';
+import { ESTIMATED_NOTE, findPage, lastLabel, paginate, type Pagination, type PageStatus } from '../pages';
 import './html-reader.css';
 
 interface HlState {
@@ -59,6 +60,67 @@ function connectorRegex(): RegExp {
 
 const nextFrame = () => new Promise<void>((r) => requestAnimationFrame(() => r()));
 
+/**
+ * Repères de page dans un chapitre (encore détaché du document) : un <span> VIDE par page,
+ * posé à la première lettre de la page. Le trait et le numéro sont dessinés en CSS
+ * (pseudo-éléments) : rien n'entre dans le textContent (offsets des surlignages inchangés),
+ * rien ne se sélectionne ni ne se copie. Un seul parcours des nœuds texte par chapitre.
+ */
+function insertPageMarks(
+  root: HTMLElement,
+  chapter: number,
+  text: string,
+  entries: { index: number; offset: number; label: string }[],
+  estimated: boolean,
+): HTMLElement[] {
+  const nodes: Text[] = [];
+  const starts: number[] = [];
+  const w = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  let pos = 0;
+  let n: Node | null;
+  while ((n = w.nextNode())) {
+    nodes.push(n as Text);
+    starts.push(pos);
+    pos += (n as Text).data.length;
+  }
+  const out: HTMLElement[] = [];
+  const lead = text.search(/\S/);
+  let k = 0;
+  for (const e of entries) {
+    let eff = Math.max(0, Math.min(e.offset, text.length));
+    while (eff < text.length && /\s/.test(text[eff])) eff++;
+    const el = document.createElement('span');
+    el.className = 'pg-mark';
+    el.setAttribute('data-pg', e.label);
+    el.setAttribute('data-pg-index', String(e.index));
+    el.setAttribute('aria-hidden', 'true');
+    el.title = estimated ? `Page ${e.label} — ${ESTIMATED_NOTE}` : `Page ${e.label}`;
+    const blockStart = eff === 0 || text[eff - 1] === '\n';
+    el.classList.add(blockStart ? 'pg-block' : 'pg-inline');
+    // Début du chapitre (rien que des blancs avant) : le séparateur de chapitre fait déjà le trait.
+    if (lead < 0 || eff <= lead) el.classList.add(e.index === 0 && chapter === 0 ? 'pg-start' : 'pg-chap');
+    while (k < nodes.length - 1 && eff >= starts[k] + nodes[k].data.length) k++;
+    const node = nodes[k];
+    if (!node) {
+      root.appendChild(el);
+    } else if (eff >= text.length) {
+      // Page annoncée tout au bout du chapitre (repère final) : après le dernier texte.
+      node.parentNode!.insertBefore(el, node.nextSibling);
+    } else {
+      const local = eff - starts[k];
+      let at = node;
+      if (local > 0) {
+        at = node.splitText(local);
+        nodes[k] = at;
+        starts[k] = eff;
+      }
+      at.parentNode!.insertBefore(el, at);
+    }
+    out.push(el);
+  }
+  return out;
+}
+
 export const HtmlReader = forwardRef<EngineHandle, EngineProps>(function HtmlReader(props, ref) {
   const { book, data, settings } = props;
   const propsRef = useRef(props);
@@ -83,6 +145,14 @@ export const HtmlReader = forwardRef<EngineHandle, EngineProps>(function HtmlRea
   const navTokenRef = useRef(0);
   /** Signets résolus (ancrage → offsets), recalculés seulement si l'ancrage change. */
   const bmCacheRef = useRef(new Map<string, { sig: string; span: TextSpan | null }>());
+  /** Pages du livre (imprimées ou estimées), leurs repères dans le texte, et 1re page de chaque chapitre. */
+  const pagRef = useRef<Pagination | null>(null);
+  const pgMarksRef = useRef<HTMLElement[]>([]);
+  const pgFirstRef = useRef<number[]>([]);
+  const pgStatusRef = useRef('');
+  /** Libellés des pages (dans l'ordre) et dernière page affichée, calculés une fois par ouverture. */
+  const pgLabelsRef = useRef<string[]>([]);
+  const pgLastRef = useRef('');
   const [loaded, setLoaded] = useState(0);
   const [selRect, setSelRect] = useState<DOMRect | null>(null);
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; point: BookmarkPoint; copy: string } | null>(null);
@@ -294,6 +364,84 @@ export const HtmlReader = forwardRef<EngineHandle, EngineProps>(function HtmlRea
     if (sc.scrollTop + sc.clientHeight >= sc.scrollHeight - 2) progress = 1;
     if (!restoringRef.current) anchorRef.current = captureAnchor() ?? anchorRef.current;
     propsRef.current.onPosition({ kind: 'html', chapter: ch, scroll: Number(fraction.toFixed(5)) }, Math.max(0, Math.min(1, progress)), parsed.chapters[ch].label);
+    emitPage();
+  };
+
+  // ── Pages ─────────────────────────────────────────────────
+
+  /** Marge au-dessus d'un début de page après « Aller à la page » : la ligne précédente reste visible. */
+  const pageLead = () => {
+    const s = propsRef.current.settings;
+    return Math.round(s.fontSize * s.lineHeight * 1.2 + 10);
+  };
+
+  /** Page lue : dernier repère passé au-dessus de la ligne de lecture (haut de la fenêtre). */
+  const pageAtView = (): number => {
+    const sc = scrollRef.current;
+    const pag = pagRef.current;
+    const secs = sectionsRef.current;
+    if (!sc || !pag || !pag.pages.length || !secs.length) return -1;
+    const scRect = sc.getBoundingClientRect();
+    const y = scRect.top + Math.max(pageLead() + 12, Math.min(sc.clientHeight * 0.2, 160));
+    let lo = 0;
+    let hi = secs.length - 1;
+    let ch = 0;
+    while (lo <= hi) {
+      const mid = (lo + hi) >> 1;
+      if (secs[mid].getBoundingClientRect().top <= y) {
+        ch = mid;
+        lo = mid + 1;
+      } else hi = mid - 1;
+    }
+    const first = pgFirstRef.current;
+    const marks = pgMarksRef.current;
+    let a = first[ch];
+    let b = first[ch + 1] - 1;
+    let ans = first[ch] - 1;
+    while (a <= b) {
+      const mid = (a + b) >> 1;
+      if (marks[mid].getBoundingClientRect().top <= y) {
+        ans = mid;
+        a = mid + 1;
+      } else b = mid - 1;
+    }
+    return ans;
+  };
+
+  const pageStatus = (): PageStatus | null => {
+    const pag = pagRef.current;
+    if (!pag || !pag.pages.length) return null;
+    const i = pageAtView();
+    return {
+      label: i >= 0 ? pag.pages[i].label : '',
+      last: pgLastRef.current,
+      count: pag.pages.length,
+      estimated: pag.kind === 'estimated',
+    };
+  };
+
+  const emitPage = () => {
+    const st = pageStatus();
+    const sig = st ? `${st.label}|${st.last}|${st.count}|${st.estimated}` : '';
+    if (sig === pgStatusRef.current) return;
+    pgStatusRef.current = sig;
+    propsRef.current.onPage?.(st);
+  };
+
+  /** « Aller à la page » : null si c'est fait, sinon le message à montrer. */
+  const goToPage = (query: string): string | null => {
+    const pag = pagRef.current;
+    if (!pag || !pag.pages.length) return 'Ce document n’a pas de pages repérées';
+    const r = findPage(pgLabelsRef.current, query);
+    if (!r.ok) return r.message;
+    const el = pgMarksRef.current[r.index];
+    if (!el) return null;
+    smoothTo(() => {
+      const sc = scrollRef.current;
+      if (!sc || !el.isConnected) return null;
+      return el.getBoundingClientRect().top - sc.getBoundingClientRect().top + sc.scrollTop - pageLead();
+    });
+    return null;
   };
   const scheduleReport = () => {
     if (reportTimer.current) clearTimeout(reportTimer.current);
@@ -655,6 +803,9 @@ export const HtmlReader = forwardRef<EngineHandle, EngineProps>(function HtmlRea
     activeElsRef.current = [];
     connectorsOnRef.current = false;
     anchorRef.current = null;
+    pagRef.current = null;
+    pgMarksRef.current = [];
+    pgFirstRef.current = [];
     setRevealed(false);
     if (docRef.current) docRef.current.textContent = '';
     parseBook(book, data)
@@ -667,6 +818,25 @@ export const HtmlReader = forwardRef<EngineHandle, EngineProps>(function HtmlRea
         const doc = docRef.current!;
         const roots: HTMLElement[] = [];
         const sections: HTMLElement[] = [];
+        // Pages (une fois par livre ouvert) : repères posés dans les chapitres encore détachés.
+        const pag = paginate(parsed.pages, parsed.chapters.map((c) => c.text));
+        const perChapter: { index: number; offset: number; label: string }[][] = parsed.chapters.map(() => []);
+        pag.pages.forEach((p, index) => perChapter[p.chapter]?.push({ index, offset: p.offset, label: p.label }));
+        const marks: HTMLElement[] = [];
+        const first: number[] = [];
+        let seen = 0;
+        parsed.chapters.forEach((c, i) => {
+          first.push(seen);
+          seen += perChapter[i].length;
+          marks.push(...insertPageMarks(c.el, i, c.text, perChapter[i], pag.kind === 'estimated'));
+        });
+        first.push(seen);
+        pagRef.current = pag;
+        pgLabelsRef.current = pag.pages.map((p) => p.label);
+        pgLastRef.current = pag.kind === 'estimated' ? String(pag.pages.length) : lastLabel(pgLabelsRef.current);
+        pgMarksRef.current = marks;
+        pgFirstRef.current = first;
+        pgStatusRef.current = '';
         parsed.chapters.forEach((c, i) => {
           const sec = document.createElement('section');
           sec.className = 'html-chapter';
@@ -1262,6 +1432,8 @@ export const HtmlReader = forwardRef<EngineHandle, EngineProps>(function HtmlRea
         const el = docRef.current?.querySelector(`[data-bm-id="${CSS.escape(id)}"]`);
         return el ? el.getBoundingClientRect() : null;
       },
+      goToPage,
+      pageStatus,
     }),
     [],
   );
@@ -1306,7 +1478,7 @@ export const HtmlReader = forwardRef<EngineHandle, EngineProps>(function HtmlRea
   return (
     <div className="html-reader">
       <div className="html-scroll" ref={scrollRef} onClick={onClick} onContextMenu={onContextMenu} tabIndex={-1}>
-        <div className={`html-doc html-fmt-${book.format}${revealed ? ' is-revealed' : ''}`} ref={docRef} style={docStyle} />
+        <div className={`html-doc html-fmt-${book.format}${revealed ? ' is-revealed' : ''} pg-${settings.pageMarks ?? 'numbered'}`} ref={docRef} style={docStyle} />
       </div>
       {selRect && (
         <SelectionToolbar

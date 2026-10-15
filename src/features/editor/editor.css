@@ -1594,3 +1594,19 @@
 .ed-selecting .ed-card {
   user-select: none;
 }
+
+/* Curseur d'écriture sur toute la page, y compris pendant une sélection au glisser :
+   SuperDoc peint les pages hors du contenteditable, et l'app est en user-select: none,
+   donc « cursor: auto » y donnait la flèche dès qu'on sélectionnait. */
+.ed-engine-in .presentation-editor__viewport,
+.ed-engine-in .superdoc-page,
+.ed-engine-in .superdoc-page * {
+  cursor: text;
+}
+.ed-engine-in .superdoc-page a[href],
+.ed-engine-in .superdoc-page a[href] * {
+  cursor: pointer;
+}
+.ed-engine-in .superdoc-page img {
+  cursor: default;
+}

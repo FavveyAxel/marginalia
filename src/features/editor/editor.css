@@ -1613,7 +1613,7 @@
   cursor: default;
 }
 
-/* Barre d'insertion (après un clic) : jaune-orangé, fine, un peu plus courte que la ligne,
+/* Barre d'insertion (après un clic) : jaune-orangé, fine, à la hauteur des lettres (≈ 70 % de la ligne),
    et qui clignote en fondu. SuperDoc la recrée à chaque frappe ou déplacement : l'animation
    repart donc pleine, et ne commence à clignoter qu'après un court repos. */
 .ed-engine-in .presentation-editor__selection-caret {
@@ -1621,8 +1621,8 @@
   width: 2px !important;
   border-radius: 1px !important;
   box-shadow: none !important;
-  transform: scaleY(0.84);
-  transform-origin: 50% 55%;
+  transform: scaleY(0.7);
+  transform-origin: 50% 62%;
   animation: ed-caret-blink 1.05s ease-in-out 0.5s infinite;
 }
 @keyframes ed-caret-blink {

@@ -1595,19 +1595,15 @@
   user-select: none;
 }
 
-/* Curseur de souris « I » d'écriture, jaune cerné de sombre (visible sur page claire comme sombre),
-   plus court que le I système, sur toute la zone où l'on peut écrire : la page entière (marges et
-   lignes vides comprises) et l'espace autour, y compris pendant une sélection au glisser.
-   SuperDoc peint les pages hors du contenteditable et l'app est en user-select: none : sans ces
-   règles, « cursor: auto » y donnait la flèche. */
-.ed-engine-in {
-  --ed-ibeam: url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A//www.w3.org/2000/svg%27%20width%3D%277%27%20height%3D%2715%27%20viewBox%3D%270%200%207%2015%27%3E%3Cpath%20d%3D%27M1.6%201.5H5.4M3.5%201.5V13.5M1.6%2013.5H5.4%27%20fill%3D%27none%27%20stroke%3D%27%23141310%27%20stroke-opacity%3D%27.8%27%20stroke-width%3D%272.3%27%20stroke-linecap%3D%27round%27%20stroke-linejoin%3D%27round%27/%3E%3Cpath%20d%3D%27M1.6%201.5H5.4M3.5%201.5V13.5M1.6%2013.5H5.4%27%20fill%3D%27none%27%20stroke%3D%27%23FFC83D%27%20stroke-width%3D%271.15%27%20stroke-linecap%3D%27round%27%20stroke-linejoin%3D%27round%27/%3E%3C/svg%3E") 3 7, text;
-}
+/* Souris : le « I » du système sur toute la zone où l'on écrit (page entière, marges et lignes
+   vides comprises, et autour de la page), y compris pendant une sélection au glisser.
+   SuperDoc peint les pages hors du contenteditable et l'app est en user-select: none :
+   sans ces règles, « cursor: auto » y donnait la flèche. */
 .ed-engine-in .presentation-editor__viewport,
 .ed-engine-in .presentation-editor__viewport *,
 .ed-engine-in .superdoc-page,
 .ed-engine-in .superdoc-page * {
-  cursor: var(--ed-ibeam);
+  cursor: text;
 }
 .ed-engine-in .superdoc-page a[href],
 .ed-engine-in .superdoc-page a[href] * {
@@ -1615,4 +1611,27 @@
 }
 .ed-engine-in .superdoc-page img {
   cursor: default;
+}
+
+/* Barre d'insertion (après un clic) : jaune-orangé, fine, un peu plus courte que la ligne,
+   et qui clignote en fondu. SuperDoc la recrée à chaque frappe ou déplacement : l'animation
+   repart donc pleine, et ne commence à clignoter qu'après un court repos. */
+.ed-engine-in .presentation-editor__selection-caret {
+  background-color: var(--ed-caret, #ffb21e) !important;
+  width: 2px !important;
+  border-radius: 1px !important;
+  box-shadow: none !important;
+  transform: scaleY(0.84);
+  transform-origin: 50% 55%;
+  animation: ed-caret-blink 1.05s ease-in-out 0.5s infinite;
+}
+@keyframes ed-caret-blink {
+  0%, 42% { opacity: 1; }
+  55%, 88% { opacity: 0.08; }
+  100% { opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ed-engine-in .presentation-editor__selection-caret {
+    animation: none;
+  }
 }

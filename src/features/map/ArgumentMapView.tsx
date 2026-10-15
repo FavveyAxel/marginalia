@@ -26,7 +26,7 @@ import '@fontsource/caveat/400.css';
 import '@fontsource/caveat/600.css';
 import { useShallow } from 'zustand/react/shallow';
 import { CircleHelp, Crosshair, Orbit } from 'lucide-react';
-import { BookOpen, ChevronsDownUp, ChevronsUpDown, Copy, CornerDownRight, Lightbulb, Map as MapIcon, Maximize2, Palette, PanelLeft, Pencil, ScanSearch, Star, Trash2, Wand2, Waypoints, X, AlignStartVertical, MousePointer2, Group, History } from 'lucide-react';
+import { BookOpen, ChevronsDownUp, ChevronsUpDown, Copy, CornerDownRight, Lightbulb, Map as MapIcon, Maximize2, Palette, PanelLeft, Pencil, ScanSearch, Star, Trash2, Wand2, Waypoints, X, AlignStartVertical, MousePointer2, Group, History, Link2 } from 'lucide-react';
 import { ContextMenu, type MenuEntry } from '../workspaces/wsUi';
 import { separateUndoStep, uid, useStore } from '../../lib/store';
 import { RELATIONS, kindLabel, type ExtractKind } from '../../lib/categories';
@@ -63,6 +63,7 @@ import { CENTER_W, centerBarEntries, centerNodeEntries, poseCenterEntries } from
 import { FOLD_KEYS, foldAllEntries, foldNodeEntries, useFoldView } from './ui/fold';
 import { BacklinksButton, MapPicker, PortalBackPill, PortalToolButton, portalMenuEntries, useBacklinkCount, type PortalData } from './ui/portal';
 import { portalNode } from './model/portals';
+import { CHAIN_KEY, ChainButton, ChainPanel, useChainCtl } from './ui/chain';
 import './map.css';
 
 const EMPTY_MAP: ArgumentMap = { bookId: '', nodes: [], edges: [], viewport: null };
@@ -278,6 +279,8 @@ function Inner({ source, tools }: { source: MapSource; tools?: MapToolbarItem[] 
   const hidden = useMemo(() => new Set([...hiddenNodeIds(map), ...folds.hidden]), [map, folds]);
   const centerNode = useMemo(() => mapCenter(map), [map]);
   const foldRef = useRef<(id: string) => void>(() => {});
+  /** « Suivre une chaîne » (ui/chain.tsx) : commande stable ; le mode ne re-rend pas la vue. */
+  const chain = useChainCtl();
   const { gaps, messages: gapMsgs } = useMapGaps(map);
   const marks = useMemo(() => (gapMarksOn ? gapMarks(gaps) : new Map<string, string>()), [gapMarksOn, gaps]);
   const versionCount = useMapVersions(key).length;
@@ -1101,6 +1104,14 @@ function Inner({ source, tools }: { source: MapSource; tools?: MapToolbarItem[] 
         select([next]);
         reveal(next);
       }
+    } else if (e.key === 'Escape' && chain.rootId) {
+      stop();
+      chain.stop();
+    } else if (matchKeys(e, CHAIN_KEY) && (one || chain.rootId)) {
+      // L : suivre la chaîne de la carte choisie (de nouveau : quitter).
+      stop();
+      if (one && one.id !== chain.rootId) chain.start(one.id);
+      else chain.stop();
     } else if (e.key === 'Escape') {
       if (selectTool) setSelectTool(false);
       if (sel.length || selEdge) {
@@ -1176,6 +1187,11 @@ function Inner({ source, tools }: { source: MapSource; tools?: MapToolbarItem[] 
           },
         });
       }
+      entries.push(
+        chain.rootId === node.id
+          ? { label: 'Quitter la chaîne', icon: <Link2 size={14} />, hint: 'Échap', onClick: chain.stop }
+          : { label: 'Suivre la chaîne', icon: <Link2 size={14} />, hint: CHAIN_KEY, onClick: () => chain.start(node.id) },
+      );
       entries.push({ label: 'Nouvelle idée reliée dessous', icon: <CornerDownRight size={14} />, hint: 'Tab', onClick: () => addChild(node.id) });
       entries.push(...foldNodeEntries(folds.info.get(node.id), () => onToggleFold(node.id)));
       entries.push(...centerNodeEntries(mapNode, convertCenter));
@@ -1261,6 +1277,7 @@ function Inner({ source, tools }: { source: MapSource; tools?: MapToolbarItem[] 
       </button>
     ),
   });
+  toolbarItems.push({ id: 'chain', order: 6, group: 'chain', node: <ChainButton ctl={chain} selected={selIds} /> });
   if (tools) toolbarItems.push(...tools);
   toolbarItems.push({ id: 'portal-link', order: 30, group: 'portal', node: <PortalToolButton onOpen={(x, y) => setPortalPick({ x, y })} /> });
   if (backlinkCount) toolbarItems.push({ id: 'backlinks', order: 31, group: 'portal', node: <BacklinksButton mapKey={key} /> });
@@ -1332,11 +1349,14 @@ function Inner({ source, tools }: { source: MapSource; tools?: MapToolbarItem[] 
           onNodeDragStop={onNodeDragStop}
           onSelectionDragStart={onNodeDragStart}
           onSelectionDragStop={onNodeDragStop}
-          onNodeClick={() => {
+          onNodeClick={(_, node) => {
             setSelEdge(null);
             setMenu(null);
+            // Chaîne suivie : cliquer une autre carte la recentre sur celle-ci.
+            if (chain.rootId && chain.rootId !== node.id) chain.start(node.id);
           }}
           onPaneClick={() => {
+            chain.stop();
             setSelEdge(null);
             setMenu(null);
             setEditingId(null);
@@ -1508,6 +1528,16 @@ function Inner({ source, tools }: { source: MapSource; tools?: MapToolbarItem[] 
             onClose={() => setSidePanel(null)}
           />
         )}
+        <ChainPanel
+          ctl={chain}
+          map={map}
+          hidden={hidden}
+          onFocus={focusNode}
+          onFit={(ids) => {
+            const ns = rf.getNodes().filter((n) => ids.includes(n.id) && !n.hidden);
+            if (ns.length) fitBox(rf.getNodesBounds(ns), 450, 1);
+          }}
+        />
         {sidePanel === 'versions' && <VersionsPanel mapKey={key} onClose={() => setSidePanel(null)} />}
 
         {menu && menuEdge && (

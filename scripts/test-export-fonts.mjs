@@ -164,7 +164,7 @@ async function browserPart() {
     check('PDF (HTML) : corps en Arial 11 pt', /font-family: 'Arial', 'Helvetica Neue', sans-serif; font-size: 11pt/.test(rule(pr, 'body')), rule(pr, 'body'));
     check('PDF (HTML) : paragraphes en Arial 11 pt, justifiés', /'Arial'/.test(rule(pr, 'p')) && /font-size: 11pt/.test(rule(pr, 'p')) && /text-align: justify/.test(rule(pr, 'p')), rule(pr, 'p'));
     check('PDF (HTML) : titres de partie en Georgia 20 pt gras', /'Georgia'/.test(rule(pr, 'h1:not(.title)')) && /font-size: 20pt/.test(rule(pr, 'h1:not(.title)')) && /font-weight: bold/.test(rule(pr, 'h1:not(.title)')), rule(pr, 'h1:not(.title)'));
-    check('PDF (HTML) : run en Literata 14 pt, rouge', /<span style="font-family: 'Literata', 'Georgia', 'Times New Roman', serif; font-size: 14pt; color: #c00000">spécial<\/span>/.test(pr), /<span[^>]*>spécial/.exec(pr)?.[0]);
+    check('PDF (HTML) : run en Literata 14 pt, rouge', /<span style="font-family: 'Literata', 'Georgia', 'Times New Roman', 'Times', serif; font-size: 14pt; color: #c00000">spécial<\/span>/.test(pr), /<span[^>]*>spécial/.exec(pr)?.[0]);
     check('PDF (HTML) : citation en retrait (style Quote)', /margin-left: 42.55pt/.test(rule(pr, 'blockquote p')), rule(pr, 'blockquote p'));
     check('PDF (HTML) : notes en 10 pt', /font-size: 10pt/.test(rule(pr, '.footnotes li')));
     check('PDF (HTML) : format et marges du document', /@page \{ size: A4; margin: 70.85pt 70.85pt 70.85pt 70.85pt; \}/.test(pr));
@@ -218,7 +218,7 @@ async function browserPart() {
     fs.writeFileSync(path.join(OUT, 'fixture-impression.html'), p2);
     check('fixture PDF : @page Lettre US', /@page \{ size: letter; margin: 72pt 54pt 72pt 54pt; \}/.test(p2));
     check('fixture PDF : Calibri avec repli sans empattement', /font-family: 'Calibri', 'Helvetica Neue', 'Arial', sans-serif/.test(rule(p2, 'body')), rule(p2, 'body'));
-    check('fixture PDF : bloc Garamond (style perso) en ligne', /<p style="font-family: 'Garamond', 'Georgia', 'Times New Roman', serif; font-size: 12pt; text-align: justify; text-indent: 28.35pt; line-height: 1.725">/.test(p2), /<p style="[^"]*Garamond[^"]*">/.exec(p2)?.[0]);
+    check('fixture PDF : bloc Garamond (style perso) en ligne', /<p style="font-family: 'Garamond', 'Times New Roman', 'Times', 'Georgia', serif; font-size: 12pt; text-align: justify; text-indent: 28.35pt; line-height: 1.725">/.test(p2), /<p style="[^"]*Garamond[^"]*">/.exec(p2)?.[0]);
     check('fixture PDF : run Courier (monospace, 9 pt, couleur, surlignage, barré, petites capitales)', /<span style="font-family: 'Courier New', 'Menlo', 'Consolas', monospace; font-size: 9pt; text-decoration: line-through; color: #ff0000; background-color: #ffff00; font-variant: small-caps">code barré<\/span>/.test(p2), /<span[^>]*>code barré/.exec(p2)?.[0]);
     check('fixture PDF : run du style de caractères (Literata, italique)', /<em><span style="font-family: 'Literata'[^"]*">accent<\/span><\/em>/.test(p2), /<em>.{0,120}accent/.exec(p2)?.[0]);
     check('fixture PDF : exposant', /<span style="vertical-align: super; font-size: 0.65em">e<\/span>/.test(p2));

@@ -23,6 +23,26 @@ function headingLevel(b: Block, shift: number): number {
 }
 const isHeading = (b: Block) => b.kind === 'title' || b.kind === 'h1' || b.kind === 'h2' || b.kind === 'h3' || b.kind === 'h4';
 const isEmpty = (b: Block) => !b.inlines.some((i) => (i.t === 'text' && i.text.trim()) || i.t === 'note');
+/** Index des blocs vides « voulus » (lignes blanches entre deux textes, hors listes) : à garder dans les exports. */
+function blankLines(m: DocModel): Set<number> {
+  let first = -1;
+  let last = -1;
+  m.blocks.forEach((b, i) => {
+    if (!isEmpty(b)) {
+      if (first < 0) first = i;
+      last = i;
+    }
+  });
+  const out = new Set<number>();
+  m.blocks.forEach((b, i) => {
+    if (i > first && i < last && isEmpty(b) && b.kind !== 'li' && !b.inlines.some((x) => x.t === 'br')) out.add(i);
+  });
+  return out;
+}
+/** Marqueur de ligne blanche (MD, TXT) : survit à la fusion des lignes vides, retiré à la fin. */
+const BLANK = '\u0000blank';
+const finishText = (out: string[]) =>
+  out.join('\n').replace(/\n{3,}/g, '\n\n').trim().replace(new RegExp(BLANK, 'g'), '') + '\n';
 
 // ── Inline ───────────────────────────────────────────────────
 function inlineMd(inl: Inline[], nums: Map<string, number>): string {
@@ -71,8 +91,13 @@ export function toMarkdown(m: DocModel): string {
   const out: string[] = [];
   const counters: number[] = [];
   let prevList: string | null = null;
-  for (const b of m.blocks) {
-    if (isEmpty(b)) continue;
+  const blanks = blankLines(m);
+  for (const [bi, b] of m.blocks.entries()) {
+    if (isEmpty(b)) {
+      // ligne blanche voulue : paragraphe insécable (affiché vide par les lecteurs Markdown)
+      if (blanks.has(bi)) out.push('&nbsp;', '');
+      continue;
+    }
     const text = inlineMd(b.inlines, nums).trim();
     if (b.kind === 'li') {
       const lvl = b.level ?? 0;
@@ -108,8 +133,12 @@ export function toText(m: DocModel): string {
   const out: string[] = [];
   const counters: number[] = [];
   let prevList: string | null = null;
-  for (const b of m.blocks) {
-    if (isEmpty(b)) continue;
+  const blanks = blankLines(m);
+  for (const [bi, b] of m.blocks.entries()) {
+    if (isEmpty(b)) {
+      if (blanks.has(bi)) out.push(BLANK); // une ligne vide de plus que l'écart normal entre paragraphes
+      continue;
+    }
     const text = inlineTxt(b.inlines, nums).trim();
     if (b.kind === 'li') {
       const lvl = b.level ?? 0;
@@ -133,7 +162,7 @@ export function toText(m: DocModel): string {
       out.push(`[${nums.get(id)}] ${paras.map((p) => inlineTxt(p, nums).trim()).join(' ')}`);
     }
   }
-  return out.join('\n').replace(/\n{3,}/g, '\n\n').trim() + '\n';
+  return finishText(out);
 }
 
 // ── Typographie du document (PDF, HTML) ──────────────────────
@@ -151,7 +180,8 @@ const SANS_RE = /sans|arial|helvetica|verdana|tahoma|calibri|segoe|avenir|futura
 const MONO_RE = /mono|courier|consolas|menlo|monaco|\bcode\b|typewriter/i;
 const SCRIPT_RE = /caveat|script|brush|handwrit|comic/i;
 const FALLBACKS: Record<'serif' | 'sans-serif' | 'monospace' | 'cursive', string[]> = {
-  serif: ['Georgia', 'Times New Roman', 'serif'],
+  // Même repli que l'éditeur (SuperDoc retombe sur Times New Roman) : le PDF ressemble à l'écran.
+  serif: ['Times New Roman', 'Times', 'Georgia', 'serif'],
   'sans-serif': ['Helvetica Neue', 'Arial', 'sans-serif'],
   monospace: ['Menlo', 'Consolas', 'Courier New', 'monospace'],
   cursive: ['cursive'],
@@ -290,6 +320,8 @@ function typoCss(m: DocModel, tc: TypoCtx): string {
   if (lh) rootDecls.push(`line-height: ${lh}`);
   if (base.color && !(tc.mode === 'screen' && base.color === '#000000')) rootDecls.push(`color: ${base.color}`);
   out.push(`${root} { ${rootDecls.join('; ')}; }`);
+  // Césure comme dans Word : seulement si le document l'active (sinon des coupures « ju-rare » apparaissent).
+  if (t.hyphenate) out.push('p, li { hyphens: auto; }');
   if (tc.mode === 'print' && t.page) {
     const p = t.page;
     out.push(`@page { size: ${pageSize(p.width, p.height)}; margin: ${r3(p.top)}pt ${r3(p.right)}pt ${r3(p.bottom)}pt ${r3(p.left)}pt; }`);
@@ -345,8 +377,16 @@ function bodyHtml(m: DocModel, noteLinks: boolean, tc?: TypoCtx): string {
       out.push(top.ordered ? '</ol>' : '</ul>');
     }
   };
-  for (const b of m.blocks) {
-    if (isEmpty(b)) continue;
+  // Paragraphes vides : avec la typographie du document (PDF, page web), ce sont des lignes blanches
+  // voulues pour aérer le texte — gardées, sauf en fin de document. Sans typographie : ignorés.
+  const blanks = blankLines(m);
+  for (const [bi, b] of m.blocks.entries()) {
+    if (isEmpty(b)) {
+      if (!tc || !blanks.has(bi)) continue;
+      const css = blockCss(b, tc);
+      out.push(`<p class="blank"${css ? ` style="${escHtml(css)}"` : ''}>&nbsp;</p>`);
+      continue;
+    }
     const html = inlineHtml(b.inlines, nums, noteLinks, tc, b.fmt);
     const css = tc ? blockCss(b, tc) : '';
     const st = css ? ` style="${escHtml(css)}"` : '';
@@ -415,7 +455,7 @@ body { margin: 0; background: #fbf9f4; color: #1d1a15; }
 main { max-width: 42rem; margin: 0 auto; padding: 3rem 1.5rem 5rem; font-family: 'Iowan Old Style', 'Literata', Georgia, 'Times New Roman', serif; font-size: 1.125rem; line-height: 1.65; }
 h1, h2, h3, h4 { line-height: 1.25; font-weight: 600; margin: 2em 0 0.6em; }
 h1.title { text-align: center; font-weight: 400; font-size: 2.2rem; margin-top: 0; }
-p { margin: 0 0 0.9em; text-align: justify; hyphens: auto; }
+p { margin: 0 0 0.9em; text-align: justify; hyphens: manual; }
 blockquote { margin: 1.2em 2.2rem; font-size: 0.95em; }
 blockquote p { margin: 0; }
 sup.fnref a { text-decoration: none; color: inherit; }
@@ -467,7 +507,7 @@ h1 { font-size: 16pt; margin: 24pt 0 6pt; }
 h2 { font-size: 14pt; margin: 18pt 0 6pt; }
 h3 { font-size: 12pt; font-style: italic; margin: 12pt 0 6pt; }
 h1.title { text-align: center; font-weight: normal; font-size: 20pt; margin: 0 0 18pt; }
-p { margin: 0 0 6pt; text-align: justify; hyphens: auto; orphans: 3; widows: 3; }
+p { margin: 0 0 6pt; text-align: justify; hyphens: manual; orphans: 3; widows: 3; }
 blockquote { margin: 6pt 1cm 10pt 1.5cm; font-size: 11pt; line-height: 1.25; }
 blockquote p { margin: 0; }
 ul, ol { margin: 0 0 6pt; padding-left: 1.2cm; }

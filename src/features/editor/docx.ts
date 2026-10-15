@@ -147,6 +147,8 @@ export interface DocTypography {
   page?: { width: number; height: number; top: number; right: number; bottom: number; left: number };
   /** Table des polices : famille générique et police de remplacement (w:altName). */
   fonts: Record<string, { generic?: 'serif' | 'sans-serif' | 'monospace' | 'cursive'; alt?: string }>;
+  /** Coupure automatique des mots activée dans le document (w:autoHyphenation). Absent : pas de césure. */
+  hyphenate?: boolean;
 }
 export interface DocModel {
   blocks: Block[];
@@ -579,6 +581,8 @@ export async function parseDocx(data: ArrayBuffer): Promise<DocModel> {
   const fnXml = (await zip.file('word/footnotes.xml')?.async('string')) ?? null;
   const themeXml = (await zip.file('word/theme/theme1.xml')?.async('string')) ?? null;
   const fontXml = (await zip.file('word/fontTable.xml')?.async('string')) ?? null;
+  const settingsXml = (await zip.file('word/settings.xml')?.async('string')) ?? '';
+  const hyphenate = /<w:autoHyphenation(?:\s*\/>|\s+w:val="(?:1|true|on)")/.test(settingsXml);
   const styles = parseStyles(stylesXml);
   const typo = new TypoResolver(stylesXml, parseTheme(themeXml));
   const numbering = parseNumbering(numXml);
@@ -660,7 +664,7 @@ export async function parseDocx(data: ArrayBuffer): Promise<DocModel> {
     noteOrder: order,
     bodyWords: countWords(counter.words.join('')),
     extraWords: countWords(extra.join(' ')),
-    typo: docTypography(typo, blocks, body, fnXml, parseFontTable(fontXml)),
+    typo: { ...docTypography(typo, blocks, body, fnXml, parseFontTable(fontXml)), ...(hyphenate ? { hyphenate: true } : {}) },
   };
 }
 

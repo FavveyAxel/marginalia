@@ -2,6 +2,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   ArrowRight,
+  BookA,
   BookOpen,
   Bookmark,
   Brain,
@@ -41,7 +42,153 @@ interface Section {
   intro: string;
   items: Item[];
   go?: { label: string; route?: Route; run?: () => void };
+  /** Mode d'emploi : à quoi ça sert, comment s'en servir pas à pas, un exemple et une astuce. */
+  guide?: Guide;
 }
+interface Guide {
+  why: string;
+  how: string[];
+  example?: string;
+  tip?: string;
+}
+
+const GUIDES: Record<string, Guide> = {
+  demarrer: {
+    why: 'Marginalia accompagne tout le travail sur un texte : le lire de près, comprendre comment il raisonne, garder ce qui compte, puis s’en servir pour écrire (explication de texte, dissertation, exposé, fiche).',
+    how: [
+      'Importez un livre ou un texte (EPUB, PDF, photo d’une page…).',
+      'Lisez-le et surlignez les passages importants : chaque passage surligné devient un « extrait ».',
+      'Donnez un rôle aux extraits qui comptent (problème, thèse, argument…), rattachez-les à des concepts, reliez-les sur la carte d’argument.',
+      'Préparez un plan, révisez avec des cartes de mémorisation, puis écrivez en citant vos extraits.',
+    ],
+    tip: 'Rien ne vous oblige à tout utiliser : on peut se contenter de lire et surligner, et n’ouvrir les autres outils que le jour où on en a besoin.',
+  },
+  importer: {
+    why: 'Faire entrer dans Marginalia les textes que vous étudiez, sous une forme qu’on peut lire, surligner et citer.',
+    how: [
+      'Cliquez sur « Importer » (en bas de la barre latérale ou en haut de la Bibliothèque), ou glissez un fichier dans la fenêtre.',
+      'Le livre apparaît dans la Bibliothèque avec sa couverture, son titre et son auteur ; cliquez dessus pour l’ouvrir.',
+      'Ouvrez « Infos » sur un livre pour préciser l’édition, l’année, le traducteur et le décalage de pages : vos citations seront exactes.',
+    ],
+    example: 'Une photo de la page 42 d’un livre papier : importez-la, son texte est reconnu et vous pouvez le surligner comme un livre numérique.',
+  },
+  lire: {
+    why: 'Lire confortablement et ne jamais perdre sa place, même entre plusieurs livres.',
+    how: [
+      'Ouvrez un livre depuis la Bibliothèque ou « Reprendre » sur l’accueil.',
+      'Naviguez par le sommaire à gauche ; réglez la taille et la police avec « T ».',
+      'Posez un signet sur un passage à retrouver ; ouvrez un second livre à côté pour comparer.',
+    ],
+    tip: 'Le panneau de droite (Extraits, Fiche-texte, Signets) et le sommaire se replient pour lire en plein espace.',
+  },
+  annoter: {
+    why: 'Garder les passages importants et, si vous le souhaitez, noter le rôle de chacun dans le raisonnement de l’auteur. C’est le cœur de l’app : tout ce que vous surlignez se retrouve ensuite dans vos concepts, plans, cartes de révision et écrits.',
+    how: [
+      'Sélectionnez un passage à la souris : une petite barre apparaît au-dessus.',
+      'Pour simplement le marquer : « Surligner » (H). Pour indiquer son rôle : une catégorie (1 à 6). Pour réagir : N, puis écrivez votre note.',
+      'Le passage devient un extrait, visible dans le panneau Extraits à droite. Cliquez-le pour y revenir, ajoutez une note, rattachez un concept, changez sa catégorie.',
+    ],
+    example: '« Je pense, donc je suis » → Thèse (2). La phrase qui explique pourquoi on ne peut douter de soi en train de douter → Argument (3). « Le malin génie » → Exemple (6). Votre remarque « ce n’est pas un raisonnement mais une intuition ? » → Note (N).',
+    tip: 'Les catégories : Problème = la question que le texte affronte ; Thèse = la réponse de l’auteur ; Argument = ce qui la justifie ; Thèse adverse = la position qu’il combat ; Concept = une définition ou distinction ; Exemple = un cas concret. Dans le doute, surlignez simplement (H) et classez plus tard.',
+  },
+  carte: {
+    why: 'Voir d’un coup d’œil comment un texte raisonne : quelle thèse, soutenue par quels arguments, contre quelle objection. Indispensable pour une explication de texte ou pour comparer deux auteurs.',
+    how: [
+      'Dans un livre, passez de « Lecture » à « Carte » (en haut).',
+      'Glissez vos extraits depuis le tiroir « À placer » sur la carte ; ajoutez vos propres idées avec « Idée ».',
+      'Tirez un lien depuis le bord d’une carte vers une autre, puis choisissez la relation : soutient, objecte à, répond à, précise, illustre.',
+      'Réorganisez en déplaçant les cartes ; clic droit sur une carte pour la modifier, la dupliquer ou la supprimer.',
+    ],
+    example: 'Thèse « l’homme est condamné à être libre » ← soutenue par « l’existence précède l’essence » ← illustrée par l’exemple du garçon de café ; objection « déterminismes sociaux » → à laquelle répond « la mauvaise foi ».',
+    tip: 'Ne confondez pas avec les « cartes » de la Révision : ici ce sont les cases d’un schéma, là-bas des fiches de mémorisation.',
+  },
+  concepts: {
+    why: 'Construire votre propre lexique philosophique : un concept (liberté, devoir, conscience…) n’a pas le même sens chez Kant, Spinoza ou Sartre. La fiche garde ces sens côte à côte, avec les passages qui les montrent.',
+    how: [
+      'Ouvrez « Concepts » et créez-en un (« Nouveau concept »), ou chargez les notions du programme avec le menu « … ».',
+      'Dans la fiche, ajoutez un « sens » par auteur ou par livre, avec sa définition.',
+      'Rattachez des extraits : depuis le panneau Extraits du lecteur, ou depuis la fiche. Ajoutez des liens avec d’autres concepts (à distinguer de, s’oppose à, proche de).',
+    ],
+    example: 'Liberté — chez Spinoza : comprendre la nécessité qui nous détermine ; chez Sartre : choix absolu sans excuse. Lien : « à distinguer de » libre arbitre.',
+    tip: 'Une fiche de concept peut générer des cartes de révision « définition » en un clic.',
+  },
+  arguments: {
+    why: 'Mettre un raisonnement à plat pour le comprendre ou le critiquer : quelles prémisses, quelle conclusion, et surtout ce que l’auteur suppose sans le dire.',
+    how: [
+      'Ouvrez « Arguments » puis « Nouvel argument ».',
+      'Écrivez les prémisses une à une (dans vos mots ou ceux du texte), en les appuyant si besoin sur un extrait ; ajoutez les prémisses implicites.',
+      'Écrivez la conclusion ; l’aperçu « Forme standard » se copie pour vos copies.',
+    ],
+    example: 'P1 : tout ce qui est fait par contrainte n’est pas libre. P2 (implicite) : obéir aux lois est une contrainte. C : donc obéir aux lois n’est pas être libre — c’est P2 que Rousseau conteste.',
+  },
+  plans: {
+    why: 'Préparer une dissertation : poser le sujet et la problématique, organiser les parties, et y ranger d’avance les extraits, concepts et arguments qui serviront.',
+    how: [
+      'Ouvrez « Plans » puis « Nouveau plan » ; écrivez le sujet et la problématique.',
+      'Ajoutez des parties et sous-parties.',
+      'Ouvrez « Ressources » et glissez vos extraits, concepts et arguments dans les parties.',
+      '« Envoyer vers l’éditeur » crée un écrit avec ces titres et vos citations, prêt à rédiger.',
+    ],
+    example: '« Peut-on être libre sans lois ? » — I. La liberté comme absence d’entraves (Hobbes) ; II. La loi comme condition de la liberté (Rousseau) ; III. L’autonomie : se donner sa propre loi (Kant).',
+  },
+  revision: {
+    why: 'Retenir durablement définitions, thèses et citations. L’app vous les représente juste avant que vous les oubliiez (répétition espacée) : peu de temps par jour, beaucoup de mémoire à long terme.',
+    how: [
+      'Ouvrez « Révision » puis « Créer des cartes » : choisissez un type (définition, thèse, texte à trous, citation, carte libre) et la source (vos extraits, vos concepts).',
+      'Lancez une session : lisez la question, cherchez la réponse, retournez la carte.',
+      'Notez honnêtement si vous saviez : l’app décide quand vous la reverrez.',
+    ],
+    tip: 'Mieux vaut 10 minutes chaque jour qu’une heure la veille : réglez le nombre de nouvelles cartes par jour pour garder un rythme tenable.',
+  },
+  ecrire: {
+    why: 'Rédiger vos dissertations, explications et fiches dans un vrai traitement de texte (compatible Word), sans quitter vos lectures : vos extraits et vos livres restent à portée de main pour citer.',
+    how: [
+      'Ouvrez « Écrits » puis « Nouveau » (un modèle : vide, dissertation, explication de texte, fiche…) ou ouvrez un .docx existant.',
+      'Écrivez ; ouvrez le panneau de droite pour afficher un livre, vos extraits, vos concepts ou un plan, et cliquez « Citer » pour insérer une citation référencée.',
+      'Enregistrez (⌘S) ; exportez en Word, PDF, Markdown, page web ou texte.',
+    ],
+    tip: 'Les versions se créent toutes seules : en cas de mauvaise manipulation, ouvrez « Versions » pour comparer et revenir en arrière.',
+  },
+  espaces: {
+    why: 'Rassembler au même endroit tout ce qui sert à un travail précis (un cours, une dissertation, un exposé), sans rien déplacer ni dupliquer.',
+    how: [
+      'Dans la barre latérale, « + » à côté d’Espaces pour en créer un.',
+      'Ajoutez-y des livres, écrits, plans, arguments ou cartes : glisser-déposer, menu « Ajouter à un espace », ou import depuis l’espace.',
+      'Organisez en groupes et sous-groupes ; sélectionnez plusieurs éléments pour les déplacer d’un coup.',
+    ],
+    example: 'Espace « Le liberté » : les livres sur le serment, votre dissertation, le plan, les arguments de Kant sur le mensonge.',
+  },
+  organiser: {
+    why: 'Retrouver n’importe quoi, et ne jamais perdre un travail par erreur.',
+    how: [
+      '⌘K pour chercher partout (livres, extraits, concepts, signets…).',
+      'Historique : voir ce qui a été fait et revenir à l’état d’avant une action.',
+      'Corbeille : récupérer un élément supprimé pendant 30 jours.',
+    ],
+  },
+  apparence: {
+    why: 'Travailler longtemps sans fatigue visuelle, en sachant que vos textes restent chez vous.',
+    how: ['Choisissez le thème en bas de la barre latérale (automatique, clair, sombre, sépia).', 'Dans Écrire, le menu Affichage règle la teinte de la page et le zoom.'],
+  },
+};
+
+/** Notions de l'app, définies en une phrase. */
+const GLOSSARY: [string, string][] = [
+  ['Extrait', 'Un passage que vous avez surligné dans un livre. Il garde sa place exacte dans le texte, sa catégorie éventuelle, votre note et ses concepts.'],
+  ['Surlignage simple', 'Un extrait sans catégorie ni note (touche H) : pour marquer vite, classer plus tard.'],
+  ['Catégorie', 'Le rôle d’un extrait dans le raisonnement : Problème, Thèse, Argument, Thèse adverse, Concept, Exemple.'],
+  ['Note de marge', 'Votre réaction à un passage (« ma voix ») : reformulation, question, critique, présupposé.'],
+  ['Mouvement', 'Le début d’une nouvelle étape du texte (touche M), pour découper un passage en explication de texte.'],
+  ['Fiche-texte', 'L’étude d’un passage : problème, thèse, enjeu, mouvements — la base d’une explication de texte.'],
+  ['Concept', 'Une notion (liberté, conscience…) avec ses différents sens selon les auteurs et les extraits qui l’illustrent.'],
+  ['Argument', 'Un raisonnement reconstruit : prémisses (dont les implicites) et conclusion.'],
+  ['Carte d’argument', 'Le schéma d’un livre : des cases (extraits, idées) reliées par des flèches (soutient, objecte…).'],
+  ['Carte de révision', 'Une fiche question/réponse pour mémoriser, présentée au bon moment.'],
+  ['Plan', 'Sujet, problématique et parties d’une dissertation, garnies d’extraits, concepts et arguments.'],
+  ['Écrit', 'Un document que vous rédigez (fichier Word), dans Écrits.'],
+  ['Espace de travail', 'Un dossier thématique qui regroupe des éléments sans les dupliquer.'],
+  ['Signet', 'Un marque-page nommé dans un livre.'],
+];
 
 const K = ({ children }: { children: ReactNode }) => <kbd className="help-kbd">{typeof children === 'string' ? fmtKeys(children) : children}</kbd>;
 
@@ -264,7 +411,8 @@ export function HelpView() {
     if (!words.length) return all;
     return all.map((s) => {
       const hit = (t: string) => words.every((w) => fold(t).includes(w));
-      if (hit(s.title + ' ' + s.intro)) return s;
+      const g = GUIDES[s.id];
+      if (hit(s.title + ' ' + s.intro + (g ? ` ${g.why} ${g.how.join(' ')} ${g.example ?? ''} ${g.tip ?? ''}` : ''))) return s;
       const items = s.items.filter((i) => hit(`${i.title} ${textOf(i.text)} ${(i.keys ?? []).map(fmtKeys).join(' ')}`));
       return items.length ? { ...s, items } : null;
     }).filter((s): s is Section => !!s);
@@ -312,6 +460,10 @@ export function HelpView() {
               <span>{s.title}</span>
             </button>
           ))}
+          <button className={`help-index-item ${active === 'lexique' ? 'active' : ''}`} onClick={() => goTo('lexique')}>
+            <BookA size={16} />
+            <span>Lexique</span>
+          </button>
           <button className={`help-index-item ${active === 'raccourcis' ? 'active' : ''}`} onClick={() => goTo('raccourcis')}>
             <Keyboard size={16} />
             <span>Raccourcis clavier</span>
@@ -329,6 +481,30 @@ export function HelpView() {
                   {s.title}
                 </h2>
                 <p className="help-intro">{s.intro}</p>
+                {GUIDES[s.id] && !q.trim() && (
+                  <div className="help-guide">
+                    <div className="help-guide-col">
+                      <h3>À quoi ça sert</h3>
+                      <p>{fmtKeys(GUIDES[s.id].why)}</p>
+                      {GUIDES[s.id].example && (
+                        <p className="help-example">
+                          <strong>Exemple — </strong>
+                          {GUIDES[s.id].example}
+                        </p>
+                      )}
+                    </div>
+                    <div className="help-guide-col">
+                      <h3>Comment s’en servir</h3>
+                      <ol>
+                        {GUIDES[s.id].how.map((h) => (
+                          <li key={h}>{fmtKeys(h)}</li>
+                        ))}
+                      </ol>
+                    </div>
+                    {GUIDES[s.id].tip && <p className="help-tip">💡 {fmtKeys(GUIDES[s.id].tip!)}</p>}
+                  </div>
+                )}
+                {GUIDES[s.id] && !q.trim() && <h3 className="help-sub">Ce que vous pouvez faire</h3>}
                 <div className="help-items">
                   {s.items.map((it) => (
                     <div key={it.title} className="help-item">
@@ -351,6 +527,30 @@ export function HelpView() {
                 )}
               </section>
             ))}
+            {(() => {
+              const words = fold(q.trim()).split(/\s+/).filter(Boolean);
+              const rows = GLOSSARY.filter(([t, d]) => words.every((w) => fold(`${t} ${d}`).includes(w)));
+              if (!rows.length) return null;
+              return (
+                <section id="help-lexique" className="help-section">
+                  <h2>
+                    <span className="help-icon">
+                      <BookA size={16} />
+                    </span>
+                    Lexique de l’app
+                  </h2>
+                  <p className="help-intro">Les mots de Marginalia, en une phrase chacun.</p>
+                  <dl className="help-glossary">
+                    {rows.map(([t, d]) => (
+                      <div key={t}>
+                        <dt>{t}</dt>
+                        <dd>{d}</dd>
+                      </div>
+                    ))}
+                  </dl>
+                </section>
+              );
+            })()}
             {!q.trim() && (
               <section id="help-raccourcis" className="help-section">
                 <h2>

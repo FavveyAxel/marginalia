@@ -42,3 +42,6 @@
 .help-glossary dt { font-weight: 600; color: var(--ink); font-size: var(--fs-md); }
 .help-glossary dd { margin: 2px 0 0; color: var(--ink-2); font-size: var(--fs-sm); line-height: 1.5; }
 @media (max-width: 1100px) { .help-guide { grid-template-columns: 1fr; } }
+.help-steps { margin: 0; padding-left: 1.2em; font-size: var(--fs-sm); line-height: 1.5; color: var(--ink-2); }
+.help-steps li + li { margin-top: 4px; }
+#help-parcours .help-items { grid-template-columns: 1fr; }

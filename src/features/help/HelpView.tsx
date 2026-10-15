@@ -2,6 +2,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   ArrowRight,
+  Route as RouteIcon,
   BookA,
   BookOpen,
   Bookmark,
@@ -61,6 +62,7 @@ const GUIDES: Record<string, Guide> = {
       'Donnez un rôle aux extraits qui comptent (problème, thèse, argument…), rattachez-les à des concepts, reliez-les sur la carte d’argument.',
       'Préparez un plan, révisez avec des cartes de mémorisation, puis écrivez en citant vos extraits.',
     ],
+    example: 'Vous étudiez le « Discours de la méthode » : vous importez l’EPUB, surlignez la thèse du cogito, créez le concept « doute », reliez thèse et arguments sur la carte, puis rédigez votre explication en citant vos extraits d’un clic.',
     tip: 'Rien ne vous oblige à tout utiliser : on peut se contenter de lire et surligner, et n’ouvrir les autres outils que le jour où on en a besoin.',
   },
   importer: {
@@ -79,6 +81,7 @@ const GUIDES: Record<string, Guide> = {
       'Naviguez par le sommaire à gauche ; réglez la taille et la police avec « T ».',
       'Posez un signet sur un passage à retrouver ; ouvrez un second livre à côté pour comparer.',
     ],
+    example: 'Vous comparez Hobbes et Rousseau sur l’état de nature : ouvrez le Léviathan, puis le bouton à deux colonnes pour afficher le Discours sur l’origine de l’inégalité à côté, et posez un signet (⌘D) sur chaque passage clé.',
     tip: 'Le panneau de droite (Extraits, Fiche-texte, Signets) et le sommaire se replient pour lire en plein espace.',
   },
   annoter: {
@@ -138,6 +141,7 @@ const GUIDES: Record<string, Guide> = {
       'Lancez une session : lisez la question, cherchez la réponse, retournez la carte.',
       'Notez honnêtement si vous saviez : l’app décide quand vous la reverrez.',
     ],
+    example: 'Une carte « Définition » : recto « Conatus (Spinoza) », verso « l’effort par lequel chaque chose s’efforce de persévérer dans son être ». Une carte « Texte à trous » : « L’homme est un ___ pour l’homme » (loup — Hobbes).',
     tip: 'Mieux vaut 10 minutes chaque jour qu’une heure la veille : réglez le nombre de nouvelles cartes par jour pour garder un rythme tenable.',
   },
   ecrire: {
@@ -147,6 +151,7 @@ const GUIDES: Record<string, Guide> = {
       'Écrivez ; ouvrez le panneau de droite pour afficher un livre, vos extraits, vos concepts ou un plan, et cliquez « Citer » pour insérer une citation référencée.',
       'Enregistrez (⌘S) ; exportez en Word, PDF, Markdown, page web ou texte.',
     ],
+    example: 'Explication de texte sur Descartes : nouveau modèle « Explication de texte », panneau de droite sur « Livre », vous sélectionnez « je pense, donc je suis » et cliquez « Citer » : la citation et sa référence (édition, page) s’insèrent ; ⌘-clic dessus vous ramène au passage.',
     tip: 'Les versions se créent toutes seules : en cas de mauvaise manipulation, ouvrez « Versions » pour comparer et revenir en arrière.',
   },
   espaces: {
@@ -165,10 +170,12 @@ const GUIDES: Record<string, Guide> = {
       'Historique : voir ce qui a été fait et revenir à l’état d’avant une action.',
       'Corbeille : récupérer un élément supprimé pendant 30 jours.',
     ],
+    example: 'Vous cherchez la phrase sur le « malin génie » sans savoir où vous l’avez surlignée : ⌘K, tapez « malin génie », l’extrait apparaît avec son livre ; Entrée vous y amène.',
   },
   apparence: {
     why: 'Travailler longtemps sans fatigue visuelle, en sachant que vos textes restent chez vous.',
     how: ['Choisissez le thème en bas de la barre latérale (automatique, clair, sombre, sépia).', 'Dans Écrire, le menu Affichage règle la teinte de la page et le zoom.'],
+    example: 'Le soir : thème Sombre et page « Sombre » dans Écrire ; vos exports PDF restent pourtant noir sur blanc.',
   },
 };
 
@@ -211,6 +218,26 @@ const SECTIONS: Section[] = [
       },
     ],
     go: { label: 'Aller à l’accueil', route: { name: 'home' } },
+  },
+  {
+    id: 'parcours',
+    title: 'Parcours complets',
+    icon: <RouteIcon size={16} />,
+    intro: 'Des exemples de bout en bout, pour voir comment les outils s’enchaînent.',
+    items: [
+      {
+        title: 'Préparer une explication de texte',
+        text: '1. Importez le livre et ouvrez le passage étudié. 2. Surlignez : la question (Problème, 1), la réponse de l’auteur (Thèse, 2), ses justifications (Argument, 3), la position qu’il combat (Thèse adverse, 4) ; marquez chaque nouvelle étape du raisonnement avec M. 3. Ouvrez l’onglet Fiche-texte : problème, thèse et enjeu se préparent, les mouvements apparaissent. 4. Passez sur « Carte » pour dessiner le raisonnement. 5. Dans Écrits, nouveau modèle « Explication de texte », panneau de droite sur « Extraits » : citez au fil de la rédaction.',
+      },
+      {
+        title: 'Préparer une dissertation',
+        text: '1. Dans Plans, « Nouveau plan » : écrivez le sujet (« Peut-on être libre sans lois ? ») et la problématique. 2. Créez trois parties. 3. Ouvrez « Ressources » et glissez dans chaque partie vos extraits (Hobbes, Rousseau, Kant), vos concepts (liberté, loi, autonomie) et vos arguments reconstruits. 4. « Envoyer vers l’éditeur » : l’écrit est créé avec vos titres et citations. 5. Rédigez en mode concentration (⌘⇧F), puis exportez en Word ou PDF.',
+      },
+      {
+        title: 'Réviser avant un examen',
+        text: '1. Dans Concepts, chargez les notions du programme (menu « … »). 2. Pour chaque notion, ajoutez un sens par auteur. 3. Dans Révision, « Créer des cartes » : définitions depuis vos concepts, thèses depuis vos extraits Thèse. 4. Chaque jour, une courte session : l’app vous représente ce que vous êtes sur le point d’oublier.',
+      },
+    ],
   },
   {
     id: 'importer',
@@ -509,7 +536,18 @@ export function HelpView() {
                   {s.items.map((it) => (
                     <div key={it.title} className="help-item">
                       <h3>{it.title}</h3>
-                      <p>{typeof it.text === 'string' ? fmtKeys(it.text) : it.text}</p>
+                      {typeof it.text === 'string' && /^1\. /.test(it.text) ? (
+                        <ol className="help-steps">
+                          {it.text
+                            .split(/\s*\d+\. /)
+                            .filter(Boolean)
+                            .map((step) => (
+                              <li key={step}>{fmtKeys(step)}</li>
+                            ))}
+                        </ol>
+                      ) : (
+                        <p>{typeof it.text === 'string' ? fmtKeys(it.text) : it.text}</p>
+                      )}
                       {it.keys && (
                         <div className="help-keys">
                           {it.keys.map((k) => (

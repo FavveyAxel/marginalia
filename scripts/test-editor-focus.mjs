@@ -80,9 +80,9 @@ const dimOpacities = (page) =>
       const r = f.getBoundingClientRect();
       return r.bottom > 0 && r.top < innerHeight;
     });
-    const cur = vis.filter((f) => f.classList.contains('ed-cur')).map((f) => Number(getComputedStyle(f).opacity));
-    const others = vis.filter((f) => !f.classList.contains('ed-cur')).map((f) => Number(getComputedStyle(f).opacity));
-    const curText = vis.filter((f) => f.classList.contains('ed-cur')).map((f) => f.textContent.slice(0, 40));
+    const cur = vis.filter((f) => Number(getComputedStyle(f).opacity) > 0.9).map((f) => Number(getComputedStyle(f).opacity));
+    const others = vis.filter((f) => Number(getComputedStyle(f).opacity) <= 0.9).map((f) => Number(getComputedStyle(f).opacity));
+    const curText = vis.filter((f) => Number(getComputedStyle(f).opacity) > 0.9).map((f) => f.textContent.slice(0, 40));
     return { cur, others, curText };
   });
 
@@ -185,6 +185,25 @@ try {
   await page.waitForTimeout(600);
   const dim2 = await dimOpacities(page);
   check('le paragraphe estompé suit le curseur', dim2.curText.length && !dim2.curText.some((t) => t.startsWith('§15')), dim2.curText.join(' | '));
+  // Aucun clignotement pendant la frappe : le paragraphe courant ne repasse jamais par l'opacité estompée.
+  await page.evaluate(() => {
+    window.__dimMin = 1;
+    window.__dimRun = true;
+    const loop = () => {
+      if (!window.__dimRun) return;
+      const r = window.__ed.engine().caretBlockRange();
+      if (r) for (const f of document.querySelectorAll('.superdoc-page [data-layout-fragment-id][data-pm-start]')) {
+        const s = +f.dataset.pmStart, e = +f.dataset.pmEnd;
+        if (s < r.to && Math.max(e, s + 1) > r.from && !f.closest('.superdoc-page-header, .superdoc-page-footer')) window.__dimMin = Math.min(window.__dimMin, +getComputedStyle(f).opacity);
+      }
+      requestAnimationFrame(loop);
+    };
+    requestAnimationFrame(loop);
+  });
+  await page.keyboard.type('abcdefgh', { delay: 70 });
+  await page.waitForTimeout(400);
+  const dimMin = await page.evaluate(() => ((window.__dimRun = false), window.__dimMin));
+  check('frappe : le paragraphe courant ne clignote pas', dimMin > 0.9, `opacité minimale ${dimMin}`);
 
   // ── Menu : machine à écrire ──
   await page.mouse.move(700, 30, { steps: 6 });
@@ -271,7 +290,7 @@ try {
   await page.keyboard.press('Escape');
   await page.waitForTimeout(300);
   check('Échap (interface visible) : quitte la concentration', await page.evaluate(() => !document.querySelector('.ed-focus') && !document.querySelector('.ed-dim')));
-  check('hors concentration : paragraphes non estompés', await page.evaluate(() => !document.querySelector('.ed-cur')));
+  check('hors concentration : paragraphes non estompés', await page.evaluate(() => !document.querySelector('style[data-ed-dim]')));
   check('hors concentration : machine à écrire toujours active', await page.evaluate(() => document.querySelector('.ed-scroll').classList.contains('ed-tw')));
   await page.evaluate(() => window.__ed.save(false));
   await page.waitForTimeout(500);

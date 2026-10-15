@@ -167,7 +167,7 @@ export function useChromeAutoHide(rootRef: MutableRefObject<HTMLElement | null>,
 const FRAGMENTS = '.superdoc-page [data-layout-fragment-id][data-pm-start]';
 
 /**
- * Marque `.ed-cur` les fragments peints du bloc qui contient le curseur (CSS : les autres sont
+ * Garde à pleine opacité les fragments peints du bloc qui contient le curseur (les autres sont
  * estompés sous .ed-dim). Recalculé à chaque transaction (`tick`) et à chaque repeinture.
  */
 export function useParagraphDim(hostRef: MutableRefObject<HTMLElement | null>, engine: () => DocEngine | null, active: boolean, tick: unknown) {
@@ -176,34 +176,46 @@ export function useParagraphDim(hostRef: MutableRefObject<HTMLElement | null>, e
   useEffect(() => {
     const host = hostRef.current;
     if (!host) return;
-    const clear = () => host.querySelectorAll('.ed-cur').forEach((el) => el.classList.remove('ed-cur'));
+    // Le bloc courant est désigné par une feuille de style (sélecteur sur data-pm-start) plutôt que
+    // par une classe posée sur les éléments : SuperDoc repeint les fragments à chaque frappe, et
+    // une classe disparaissait le temps d'une image, d'où un clignotement à chaque caractère.
+    // Un sélecteur d'attribut s'applique aussitôt aux fragments repeints, sans transition.
+    const sheet = document.createElement('style');
+    sheet.dataset.edDim = '';
+    document.head.appendChild(sheet);
+    let last = '';
+    const write = (css: string) => {
+      if (css !== last) sheet.textContent = last = css;
+    };
     if (!active) {
-      clear();
       apply.current = () => {};
+      sheet.remove();
       return;
     }
     apply.current = () => {
       const range = engine()?.caretBlockRange() ?? null;
-      for (const el of host.querySelectorAll<HTMLElement>(FRAGMENTS)) {
-        let cur = false;
-        if (range && !el.closest('.superdoc-page-header, .superdoc-page-footer')) {
+      const starts = new Set<string>();
+      if (range) {
+        for (const el of host.querySelectorAll<HTMLElement>(FRAGMENTS)) {
+          if (el.closest('.superdoc-page-header, .superdoc-page-footer')) continue;
           const story = el.dataset.layoutStory;
           const s = Number(el.dataset.pmStart);
           const e = Number(el.dataset.pmEnd);
-          if ((!story || story === 'body') && Number.isFinite(s) && Number.isFinite(e)) cur = s < range.to && Math.max(e, s + 1) > range.from;
+          if ((!story || story === 'body') && Number.isFinite(s) && Number.isFinite(e) && s < range.to && Math.max(e, s + 1) > range.from) starts.add(String(s));
         }
-        // seulement si l'état change : nos propres modifications ne relancent pas l'observateur
-        if (el.classList.contains('ed-cur') !== cur) el.classList.toggle('ed-cur', cur);
       }
+      write(
+        [...starts]
+          .map((v) => `.ed-dim .superdoc-page [data-layout-fragment-id][data-pm-start="${v}"]:not([data-layout-fragment-id] *){opacity:1;transition:none}`)
+          .join('\n'),
+      );
     };
     apply.current();
-    // SuperDoc repeint (ou réutilise et renumérote) les fragments à chaque frappe : réappliqué
-    // dans le rappel de l'observateur (microtâche), donc avant que la page ne s'affiche.
     const mo = new MutationObserver(() => apply.current());
-    mo.observe(host, { childList: true, subtree: true, attributes: true, attributeFilter: ['data-pm-start', 'data-pm-end', 'class'] });
+    mo.observe(host, { childList: true, subtree: true, attributes: true, attributeFilter: ['data-pm-start', 'data-pm-end'] });
     return () => {
       mo.disconnect();
-      clear();
+      sheet.remove();
     };
   }, [active, hostRef, engine]);
 

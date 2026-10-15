@@ -981,6 +981,113 @@ export async function openDocEngine(host: HTMLElement, data: ArrayBuffer, opts: 
     };
   };
 
+  /** État de mise en forme de `ed` (éditeur, ou éditeur à sélection simulée : reproduire la mise en forme). */
+  const stateOf = (ed: Any): EngineState => {
+    const st: EngineState = {
+      bold: false,
+      italic: false,
+      underline: false,
+      strike: false,
+      superscript: false,
+      subscript: false,
+      smallCaps: false,
+      fontFamily: null,
+      fontSize: null,
+      color: null,
+      highlight: null,
+      align: 'left',
+      lineHeight: null,
+      spaceBefore: 0,
+      spaceAfter: 0,
+      indentLeft: 0,
+      firstLine: 0,
+      style: 'body',
+      styleId: null,
+      list: null,
+      listLevel: 0,
+      inTable: false,
+      link: null,
+      empty: true,
+      pos: 0,
+    };
+    if (!ed) return st;
+    const { selection } = ed.state;
+    st.pos = selection.from;
+    st.empty = selection.empty;
+    let af: Any[] = [];
+    try {
+      af = SuperDoc.getActiveFormatting(ed) ?? [];
+    } catch {
+      af = [];
+    }
+    const get = (n: string) => af.find((x) => x.name === n)?.attrs;
+    st.bold = !!get('bold') && get('bold').value !== false;
+    st.italic = !!get('italic') && get('italic').value !== false;
+    st.underline = !!get('underline') && get('underline').underlineType !== 'none';
+    st.strike = !!get('strike') && get('strike').value !== false;
+    const rp = get('runProperties')?.runProperties ?? {};
+    const va = rp.vertAlign ?? get('vertAlign')?.vertAlign;
+    st.superscript = va === 'superscript';
+    st.subscript = va === 'subscript';
+    st.smallCaps = !!rp.smallCaps;
+    st.fontFamily = familyName(get('fontFamily')?.fontFamily);
+    const fs = get('fontSize')?.fontSize;
+    st.fontSize = fs ? parseFloat(String(fs)) || null : null;
+    st.color = get('color')?.color ?? null;
+    st.highlight = get('highlight')?.color ?? null;
+    const linkMark = marksAtSelection(ed).find((m: Any) => m.type.name === 'link');
+    st.link = linkMark?.attrs?.href ?? null;
+    // valeurs héritées des marques résolues (styles) si rien d'explicite
+    if (!st.fontFamily || !st.fontSize) {
+      const ts = (selection.$from.marks() as Any[]).find((m) => m.type.name === 'textStyle')?.attrs;
+      st.fontFamily ??= familyName(ts?.fontFamily);
+      if (!st.fontSize && ts?.fontSize) st.fontSize = parseFloat(String(ts.fontSize)) || null;
+    }
+    const d = paraDepth(selection.$from);
+    if (d > 0) {
+      const p = selection.$from.node(d);
+      const pp = p.attrs.paragraphProperties ?? {};
+      st.styleId = pp.styleId ?? null;
+      st.style = kindOfStyle(pp.styleId, pp);
+      const eff = effectiveStyleProps(stylesXml, pp.styleId ?? null);
+      const np = pp.numberingProperties;
+      if (np) {
+        st.listLevel = Number(np.ilvl ?? 0);
+        const listType = p.attrs.listRendering?.numberingType ?? p.attrs.listRendering?.markerType;
+        st.list = /bullet/i.test(String(listType ?? '')) ? 'bullet' : 'ordered';
+        if (!listType) {
+          const txt = String(p.attrs.listRendering?.markerText ?? '');
+          st.list = /^[\d\w]+[.)]?$/.test(txt) ? 'ordered' : 'bullet';
+        }
+      }
+      const jc = pp.justification ?? eff.align;
+      st.align = jc === 'both' || jc === 'justify' ? 'justify' : jc === 'center' ? 'center' : jc === 'right' || jc === 'end' ? 'right' : 'left';
+      const sp = pp.spacing ?? {};
+      if (sp.line != null && (sp.lineRule ?? 'auto') === 'auto') st.lineHeight = Math.round((Number(sp.line) / 240) * 100) / 100;
+      else if (sp.line == null) st.lineHeight = eff.lineSpacing ?? 1;
+      st.spaceBefore = Number(sp.before ?? eff.before ?? 0);
+      st.spaceAfter = Number(sp.after ?? eff.after ?? 0);
+      const ind = pp.indent ?? {};
+      st.indentLeft = Number(ind.left ?? 0);
+      st.firstLine = ind.firstLine != null ? Number(ind.firstLine) : ind.hanging != null ? -Number(ind.hanging) : Number(eff.firstLine ?? 0);
+      if (!st.fontFamily) st.fontFamily = eff.fontFamily ?? null;
+      if (!st.fontSize) st.fontSize = eff.fontSize ?? null;
+    }
+    // (sélection de cellules : $from est entre les cellules, hors paragraphe)
+    for (let k = selection.$from.depth; k > 0; k--) if (selection.$from.node(k).type.name === 'table') st.inTable = true;
+    return st;
+  };
+  /** État de mise en forme pour la sélection [a, b], sans toucher à la sélection réelle. */
+  const stateAt = (ed: Any, a: number, b: number): EngineState => {
+    const sel = ed.state.selection.constructor.create(ed.state.doc, a, b);
+    const st = ed.state.apply(ed.state.tr.setSelection(sel));
+    try {
+      return stateOf(Object.create(ed, { state: { value: st } }));
+    } catch {
+      return stateOf(ed);
+    }
+  };
+
   const engine: DocEngine = {
     exportDocx,
     plainText(o) {
@@ -1016,100 +1123,7 @@ export async function openDocEngine(host: HTMLElement, data: ArrayBuffer, opts: 
       return out;
     },
     state() {
-      const ed = body();
-      const st: EngineState = {
-        bold: false,
-        italic: false,
-        underline: false,
-        strike: false,
-        superscript: false,
-        subscript: false,
-        smallCaps: false,
-        fontFamily: null,
-        fontSize: null,
-        color: null,
-        highlight: null,
-        align: 'left',
-        lineHeight: null,
-        spaceBefore: 0,
-        spaceAfter: 0,
-        indentLeft: 0,
-        firstLine: 0,
-        style: 'body',
-        styleId: null,
-        list: null,
-        listLevel: 0,
-        inTable: false,
-        link: null,
-        empty: true,
-        pos: 0,
-      };
-      if (!ed) return st;
-      const { selection } = ed.state;
-      st.pos = selection.from;
-      st.empty = selection.empty;
-      let af: Any[] = [];
-      try {
-        af = SuperDoc.getActiveFormatting(ed) ?? [];
-      } catch {
-        af = [];
-      }
-      const get = (n: string) => af.find((x) => x.name === n)?.attrs;
-      st.bold = !!get('bold') && get('bold').value !== false;
-      st.italic = !!get('italic') && get('italic').value !== false;
-      st.underline = !!get('underline') && get('underline').underlineType !== 'none';
-      st.strike = !!get('strike') && get('strike').value !== false;
-      const rp = get('runProperties')?.runProperties ?? {};
-      const va = rp.vertAlign ?? get('vertAlign')?.vertAlign;
-      st.superscript = va === 'superscript';
-      st.subscript = va === 'subscript';
-      st.smallCaps = !!rp.smallCaps;
-      st.fontFamily = familyName(get('fontFamily')?.fontFamily);
-      const fs = get('fontSize')?.fontSize;
-      st.fontSize = fs ? parseFloat(String(fs)) || null : null;
-      st.color = get('color')?.color ?? null;
-      st.highlight = get('highlight')?.color ?? null;
-      const linkMark = marksAtSelection(ed).find((m: Any) => m.type.name === 'link');
-      st.link = linkMark?.attrs?.href ?? null;
-      // valeurs héritées des marques résolues (styles) si rien d'explicite
-      if (!st.fontFamily || !st.fontSize) {
-        const ts = (selection.$from.marks() as Any[]).find((m) => m.type.name === 'textStyle')?.attrs;
-        st.fontFamily ??= familyName(ts?.fontFamily);
-        if (!st.fontSize && ts?.fontSize) st.fontSize = parseFloat(String(ts.fontSize)) || null;
-      }
-      const d = paraDepth(selection.$from);
-      if (d > 0) {
-        const p = selection.$from.node(d);
-        const pp = p.attrs.paragraphProperties ?? {};
-        st.styleId = pp.styleId ?? null;
-        st.style = kindOfStyle(pp.styleId, pp);
-        const eff = effectiveStyleProps(stylesXml, pp.styleId ?? null);
-        const np = pp.numberingProperties;
-        if (np) {
-          st.listLevel = Number(np.ilvl ?? 0);
-          const listType = p.attrs.listRendering?.numberingType ?? p.attrs.listRendering?.markerType;
-          st.list = /bullet/i.test(String(listType ?? '')) ? 'bullet' : 'ordered';
-          if (!listType) {
-            const txt = String(p.attrs.listRendering?.markerText ?? '');
-            st.list = /^[\d\w]+[.)]?$/.test(txt) ? 'ordered' : 'bullet';
-          }
-        }
-        const jc = pp.justification ?? eff.align;
-        st.align = jc === 'both' || jc === 'justify' ? 'justify' : jc === 'center' ? 'center' : jc === 'right' || jc === 'end' ? 'right' : 'left';
-        const sp = pp.spacing ?? {};
-        if (sp.line != null && (sp.lineRule ?? 'auto') === 'auto') st.lineHeight = Math.round((Number(sp.line) / 240) * 100) / 100;
-        else if (sp.line == null) st.lineHeight = eff.lineSpacing ?? 1;
-        st.spaceBefore = Number(sp.before ?? eff.before ?? 0);
-        st.spaceAfter = Number(sp.after ?? eff.after ?? 0);
-        const ind = pp.indent ?? {};
-        st.indentLeft = Number(ind.left ?? 0);
-        st.firstLine = ind.firstLine != null ? Number(ind.firstLine) : ind.hanging != null ? -Number(ind.hanging) : Number(eff.firstLine ?? 0);
-        if (!st.fontFamily) st.fontFamily = eff.fontFamily ?? null;
-        if (!st.fontSize) st.fontSize = eff.fontSize ?? null;
-      }
-      // (sélection de cellules : $from est entre les cellules, hors paragraphe)
-      for (let k = selection.$from.depth; k > 0; k--) if (selection.$from.node(k).type.name === 'table') st.inTable = true;
-      return st;
+      return stateOf(body());
     },
 
     // ── Caractères ──

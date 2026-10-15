@@ -141,7 +141,7 @@ async function main() {
         quote: getComputedStyle(document.querySelector('.map-extract .map-node-text')).fontFamily,
         caveat: document.fonts.check('20px Caveat'),
       }));
-      check(/Caveat/.test(fonts.idea) && fonts.caveat, '1. idée en police manuscrite embarquée (Caveat)', fonts.idea);
+      check(/Literata/.test(fonts.idea) && !/Caveat/.test(fonts.idea), '1. idée en serif de lecture (lisible)', fonts.idea);
       check(!/Caveat/.test(fonts.quote), '1. extrait en typographie de citation', fonts.quote);
       // Marquer comme thèse centrale (clic droit)
       await page.locator('.react-flow__node[data-id="n-arg2"]').click({ button: 'right' });

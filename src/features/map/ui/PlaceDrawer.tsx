@@ -1,5 +1,5 @@
 // Tiroir « À placer » : extraits du livre pas encore posés sur la carte.
-import { type CSSProperties } from 'react';
+import { Fragment, type CSSProperties } from 'react';
 import { GripVertical, PanelLeft, Plus, X } from 'lucide-react';
 import { CATEGORIES, catColor, kindColor, kindLabel, kindOf, type ExtractKind } from '../../../lib/categories';
 import { locatorOf } from '../../../lib/citation';
@@ -15,6 +15,7 @@ export function PlaceDrawer({
   onClose,
   onAdd,
   bookOf,
+  priority,
 }: {
   open: boolean;
   highlights: Highlight[];
@@ -26,6 +27,8 @@ export function PlaceDrawer({
   onAdd(hid: string): void;
   /** Carte libre : nom court du livre de l'extrait. */
   bookOf?(h: Highlight): string | undefined;
+  /** Carte d'un mouvement : extraits à proposer en premier (section « Dans ce mouvement »). */
+  priority?: { ids: ReadonlySet<string>; label: string };
 }) {
   if (!open)
     return (
@@ -34,7 +37,17 @@ export function PlaceDrawer({
         {unplaced.length > 0 && <span>{unplaced.length}</span>}
       </button>
     );
-  const shown = unplaced.filter((h) => (filter === null ? true : kindOf(h) === filter));
+  const filtered = unplaced.filter((h) => (filter === null ? true : kindOf(h) === filter));
+  const first = priority ? filtered.filter((h) => priority.ids.has(h.id)) : [];
+  const shown = priority ? [...first, ...filtered.filter((h) => !priority.ids.has(h.id))] : filtered;
+  const section = (i: number) =>
+    !priority || !shown.length ? null : i === 0 && first.length ? (
+      <div className="map-drawer-section" data-testid="drawer-priority">
+        {priority.label} <span>{first.length}</span>
+      </div>
+    ) : i === first.length ? (
+      <div className="map-drawer-section other">Ailleurs dans le livre</div>
+    ) : null;
   const chip = (id: ExtractKind, label: string, dot?: string) => (
     <button key={id} className={`chip ${filter === id ? 'active' : ''}`} onClick={() => setFilter(filter === id ? null : id)}>
       {dot && <span className="cat-dot" style={{ background: dot }} />}
@@ -61,10 +74,13 @@ export function PlaceDrawer({
       </div>
       <div className="map-drawer-list anim-stagger">
         {shown.map((h, i) => (
+          <Fragment key={h.id}>
+          {section(i)}
           <div
             key={h.id}
             className="map-drawer-item lift"
             data-hl={h.id}
+            data-prio={priority?.ids.has(h.id) ? '1' : undefined}
             style={{ '--c': kindColor(h), '--i': i } as CSSProperties}
             draggable
             onDragStart={(e) => {
@@ -85,6 +101,7 @@ export function PlaceDrawer({
               <Plus size={14} />
             </button>
           </div>
+          </Fragment>
         ))}
         {shown.length === 0 && (
           <p className="map-drawer-none muted">

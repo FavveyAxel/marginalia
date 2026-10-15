@@ -1,5 +1,5 @@
 // Barre d'outils flottante de la carte : idée, rangement automatique, outil de sélection, cadrage.
-import { useEffect, useRef, useState } from 'react';
+import { Fragment, useEffect, useRef, useState, type ReactNode } from 'react';
 import { ChevronDown, GitFork, Lightbulb, ListOrdered, Maximize2, Columns2, ScanSearch, SquareDashedMousePointer, Wand2 } from 'lucide-react';
 import { fmtKeys } from '../../../lib/keys';
 import { LAYOUTS, type LayoutKind } from './layouts';
@@ -10,6 +10,20 @@ const LAYOUT_ICON: Record<LayoutKind, JSX.Element> = {
   chrono: <ListOrdered size={15} />,
 };
 
+/**
+ * Point d'extension de la barre : chaque fonctionnalité y ajoute ses boutons (export, versions,
+ * signaux de manques, lecture guidée…). Les éléments sont triés par `order` (croissant) et
+ * regroupés par `group` : un séparateur entre deux groupes. Placés après les outils de base.
+ */
+export interface MapToolbarItem {
+  id: string;
+  node: ReactNode;
+  /** Ordre d'affichage (défaut 100). */
+  order?: number;
+  /** Groupe (défaut 'extra') : un séparateur sépare deux groupes voisins. */
+  group?: string;
+}
+
 export function MapToolbar({
   empty,
   hasSelection,
@@ -19,6 +33,7 @@ export function MapToolbar({
   onToggleSelect,
   onZoomSelection,
   onFitAll,
+  items = [],
 }: {
   empty: boolean;
   hasSelection: boolean;
@@ -28,6 +43,7 @@ export function MapToolbar({
   onToggleSelect(): void;
   onZoomSelection(): void;
   onFitAll(): void;
+  items?: MapToolbarItem[];
 }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement | null>(null);
@@ -100,6 +116,15 @@ export function MapToolbar({
       <button className="icon-btn map-bar-icon" data-act="fit" onClick={onFitAll} disabled={empty} title={fmtKeys('Tout voir (⇧1)')}>
         <Maximize2 size={15} />
       </button>
+      {[...items]
+        .filter((it) => it.node)
+        .sort((a, b) => (a.order ?? 100) - (b.order ?? 100))
+        .map((it, i, arr) => (
+          <Fragment key={it.id}>
+            {(i === 0 || (arr[i - 1].group ?? 'extra') !== (it.group ?? 'extra')) && <span className="map-bar-sep" />}
+            {it.node}
+          </Fragment>
+        ))}
     </div>
   );
 }

@@ -46,6 +46,8 @@ export interface RelEdgeData extends Record<string, unknown> {
   hover: boolean;
   /** Lien qui vient d'être créé : il se dessine progressivement. */
   fresh: boolean;
+  /** « Pourquoi ? » : note du lien (affichée au survol, sous le nom de la relation). */
+  note?: string;
 }
 
 /** L'utilisateur préfère moins d'animations. */

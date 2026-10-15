@@ -6,6 +6,7 @@ import { RELATIONS, RELATION_BY_ID } from '../../../lib/categories';
 import type { EdgeStrength } from '../../../lib/types';
 import { NODE_H, NODE_W, useMapCtx, type RelEdgeData } from './ctx';
 import type { Pt } from './geom';
+import { EdgeNoteMark, EdgeNoteText } from './EdgeNote';
 
 interface Rect {
   x: number;
@@ -214,16 +215,20 @@ export function RelEdge({ id, source, target, data, selected }: EdgeProps) {
       <EdgeLabelRenderer>
         <button
           type="button"
-          className={`map-pill nodrag nopan ${selected ? 'sel' : ''} ${showLabel ? 'show' : ''}`}
+          className={`map-pill nodrag nopan ${selected ? 'sel' : ''} ${showLabel ? 'show' : ''} ${d.note ? 'has-note' : ''}`}
           data-edge={id}
           style={{ transform: `translate(-50%, -50%) translate(${mid.x}px, ${mid.y}px)`, '--c': color } as CSSProperties}
           onClick={open}
           onMouseEnter={() => ctx.hoverEdge(id)}
           onMouseLeave={() => ctx.hoverEdge(null)}
-          aria-label={`Relation : ${rel.label}`}
+          aria-label={`Relation : ${rel.label}${d.note ? ` — ${d.note}` : ''}`}
         >
           <i />
-          <span className="map-pill-label">{rel.label}</span>
+          {d.note && <EdgeNoteMark />}
+          <span className="map-pill-label">
+            {rel.label}
+            {d.note && <EdgeNoteText note={d.note} />}
+          </span>
         </button>
         {trunk && d.lead && (
           <span

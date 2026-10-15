@@ -27,6 +27,7 @@ import type {
 } from './types';
 import { host, type PickedFile, extOf } from './platform';
 import { createDraftFromFile, isDraftFile } from './draftImport';
+import { sniffFile } from './sniff';
 import { extractMetadata } from '../features/library/metadata';
 import { TRACKED, applyChange, composeChanges, deepEqual, diffData, revert, type Data, type UndoCol, type UndoData } from '../features/history/engine';
 import { cascade, cascadeMany, danglingRefs } from '../features/trash/cascade';
@@ -717,7 +718,9 @@ export const useStore = create<State>()(tracked((set, get) => ({
         const meta = await extractMetadata(f);
         const id = uid();
         const ext = extOf(f.name);
-        const fileName = `source.${ext || 'bin'}`;
+        // Extension réelle d'après le contenu (photo sans extension, extension trompeuse…).
+        const sniffedExt = sniffFile(f.data).ext;
+        const fileName = `source.${sniffedExt ?? (ext || 'bin')}`;
         await host.storeFile(id, fileName, f.data);
         const book: Book = {
           id,

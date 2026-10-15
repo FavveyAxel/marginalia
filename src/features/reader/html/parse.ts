@@ -4,6 +4,7 @@
 import DOMPurify from 'dompurify';
 import type { Book, TocItem } from '../../../lib/types';
 import { isBlockEl, offsetOf } from './anchoring';
+import { looksBinary } from '../../../lib/sniff';
 
 export interface Chapter {
   /** Conteneur détaché (.html-chapter-text) prêt à être inséré. */
@@ -675,6 +676,9 @@ export async function parseBook(book: Book, data: ArrayBuffer): Promise<ParsedDo
     case 'md':
       return fromMarkdown(data, book);
     case 'txt':
+      // Un fichier binaire (photo mal reconnue…) ne doit pas être affiché comme un texte : des
+      // mégaoctets de caractères illisibles figeaient ou faisaient planter la fenêtre.
+      if (looksBinary(data)) throw new ReaderError('Ce fichier n’est pas un texte lisible.');
       return fromTxt(data, book);
     case 'html':
       return fromHtml(data, book);

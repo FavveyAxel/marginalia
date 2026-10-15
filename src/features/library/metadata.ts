@@ -3,6 +3,7 @@
 import JSZip from 'jszip';
 import type { BookFormat, Edition } from '../../lib/types';
 import { extOf, IMAGE_EXTENSIONS, type PickedFile } from '../../lib/platform';
+import { looksBinary, sniffFile } from '../../lib/sniff';
 import { imageThumbnail } from '../reader/image/decode';
 
 export interface BookMetadata {
@@ -319,7 +320,10 @@ function htmlMeta(f: PickedFile): Partial<BookMetadata> {
 
 export async function extractMetadata(f: PickedFile): Promise<BookMetadata> {
   const ext = extOf(f.name);
-  const format = formatOf(ext);
+  // Le contenu l'emporte sur le nom : une photo sans extension reste une image.
+  const sniffed = sniffFile(f.data);
+  const format = sniffed.format ?? formatOf(ext);
+  if (format === 'txt' && looksBinary(f.data)) throw new Error(`« ${f.name} » n’est pas un format pris en charge`);
   let found: Partial<BookMetadata> = {};
   try {
     if (format === 'epub') found = await epubMeta(f);

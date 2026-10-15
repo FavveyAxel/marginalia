@@ -1,0 +1,286 @@
+/* 14. Présentation (lecture guidée) : plein écran sobre, une carte à la fois. */
+.map-root.pres-root {
+  position: fixed;
+  inset: 0;
+  z-index: 900;
+  background: radial-gradient(130% 100% at 50% 42%, var(--bg-page) 0%, color-mix(in srgb, var(--bg-page) 88%, var(--ink)) 100%);
+}
+.pres-flow .react-flow__pane {
+  cursor: default;
+}
+.pres-flow .react-flow__node {
+  transition: opacity 420ms var(--ease-out), filter 420ms var(--ease-out);
+}
+.pres-flow .react-flow__node.pres-future {
+  opacity: 0.16;
+  filter: saturate(0.3);
+}
+.pres-flow .react-flow__node.pres-seen {
+  opacity: 0.5;
+}
+.pres-flow .react-flow__node.pres-cur {
+  opacity: 1;
+  z-index: 10 !important;
+}
+.pres-flow .react-flow__node.pres-cur .map-node {
+  box-shadow:
+    0 0 0 2px color-mix(in srgb, var(--c) 70%, transparent),
+    0 0 0 9px color-mix(in srgb, var(--c) 14%, transparent),
+    var(--map-card-shadow-lift);
+}
+.pres-flow .react-flow__node .map-node,
+.pres-flow .react-flow__node .map-node * {
+  cursor: pointer;
+}
+.pres-flow .react-flow__handle.map-h {
+  opacity: 0 !important;
+  pointer-events: none;
+}
+.pres-flow .react-flow__edge {
+  transition: opacity 420ms var(--ease-out);
+}
+.pres-flow .react-flow__edge.pres-edge-dim {
+  opacity: 0.1;
+}
+.pres-flow .react-flow__edge.pres-edge-seen {
+  opacity: 0.42;
+}
+.pres-flow .react-flow__edge.pres-edge-lit .map-edge-halo {
+  stroke: currentColor;
+  opacity: 0.16;
+}
+.pres-root .map-pill {
+  pointer-events: none;
+}
+.pres-root .map-pill:not(.sel) {
+  display: none;
+}
+
+/* Carte masquée : le rôle seulement */
+.pres-node {
+  position: relative;
+}
+.pres-mask {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  border-radius: 14px;
+  background:
+    repeating-linear-gradient(135deg, color-mix(in srgb, var(--c) 7%, transparent) 0 10px, transparent 10px 20px),
+    color-mix(in srgb, var(--c) 10%, var(--bg-panel));
+  border: 1px solid color-mix(in srgb, var(--c) 35%, transparent);
+  color: var(--ink);
+  text-align: center;
+  animation: pres-mask-in 260ms var(--ease-out) both;
+}
+.pres-mask b {
+  font-family: var(--font-display);
+  font-size: 26px;
+  font-weight: 400;
+  letter-spacing: -0.01em;
+  color: color-mix(in srgb, var(--c) 62%, var(--ink));
+}
+.pres-mask small {
+  font-size: 11.5px;
+  color: var(--muted);
+}
+@keyframes pres-mask-in {
+  from {
+    opacity: 0;
+  }
+}
+
+/* Bandeau du haut */
+.pres-top {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 8;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 18px 22px 30px 28px;
+  background: linear-gradient(to bottom, var(--bg-page) 0%, color-mix(in srgb, var(--bg-page) 85%, transparent) 55%, transparent 100%);
+  pointer-events: none;
+}
+.pres-top > * {
+  pointer-events: auto;
+}
+.pres-kicker {
+  font-size: 10.5px;
+  font-weight: 650;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.pres-title {
+  max-width: 50vw;
+  font-family: var(--font-display);
+  font-size: 19px;
+  color: var(--ink-2);
+}
+.pres-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 32px;
+  padding: 0 14px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--bg-panel);
+  color: var(--ink-2);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  box-shadow: var(--shadow-sm);
+}
+.pres-toggle:hover {
+  background: var(--bg-hover);
+}
+.pres-toggle.on {
+  border-color: color-mix(in srgb, var(--focus) 50%, transparent);
+  background: color-mix(in srgb, var(--focus) 12%, var(--bg-panel));
+  color: var(--focus);
+}
+.pres-close {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--bg-panel);
+  color: var(--ink-2);
+  cursor: pointer;
+  box-shadow: var(--shadow-sm);
+}
+.pres-close:hover {
+  background: var(--bg-hover);
+  color: var(--ink);
+}
+
+/* Légende de l'étape et navigation */
+.pres-foot {
+  position: absolute;
+  left: 50%;
+  bottom: 30px;
+  translate: -50% 0;
+  z-index: 8;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  width: min(720px, calc(100vw - 48px));
+  pointer-events: none;
+}
+.pres-foot > * {
+  pointer-events: auto;
+}
+.pres-caption {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 14px 26px 15px;
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--bg-panel) 94%, transparent);
+  backdrop-filter: blur(8px);
+  box-shadow: var(--shadow-md);
+  border-top: 3px solid var(--c);
+  text-align: center;
+  max-width: 100%;
+}
+.pres-role {
+  font-family: var(--font-display);
+  font-size: 27px;
+  line-height: 1.05;
+  font-weight: 400;
+  letter-spacing: -0.01em;
+  color: color-mix(in srgb, var(--c) 58%, var(--ink));
+}
+.pres-text {
+  font-size: 14px;
+  line-height: 1.45;
+  color: var(--ink-2);
+}
+.pres-nav {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px;
+  border-radius: 999px;
+  background: var(--bg-panel);
+  box-shadow: var(--shadow-sm);
+}
+.pres-nav-btn {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--ink-2);
+  cursor: pointer;
+}
+.pres-nav-btn:hover:not(:disabled) {
+  background: var(--bg-hover);
+  color: var(--ink);
+}
+.pres-nav-btn:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+.pres-count {
+  min-width: 64px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  font-size: 13px;
+  color: var(--ink-2);
+}
+.pres-count i {
+  font-style: normal;
+  color: var(--faint, var(--muted));
+  margin: 0 2px;
+}
+.pres-keys {
+  font-size: 11px;
+  color: var(--muted);
+}
+.pres-empty {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+}
+
+/* Barre de progression */
+.pres-progress {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 3px;
+  z-index: 9;
+  background: color-mix(in srgb, var(--ink) 7%, transparent);
+}
+.pres-progress span {
+  display: block;
+  height: 100%;
+  background: var(--focus);
+  border-radius: 0 2px 2px 0;
+  transition: width 420ms var(--ease-out);
+}
+@media (prefers-reduced-motion: reduce) {
+  .pres-flow .react-flow__node,
+  .pres-flow .react-flow__edge,
+  .pres-progress span {
+    transition: none;
+  }
+}

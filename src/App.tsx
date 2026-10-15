@@ -26,6 +26,7 @@ import { useDocxMigration } from './features/library/docxMigration';
 import { HelpView } from './features/help/HelpView';
 import { BoardView } from './features/map/BoardView';
 import { fmtKeys, isMac, isMod, isWindows, matchKeys } from './lib/keys';
+import { useFormatRepair } from './features/library/formatRepair';
 
 function useTheme(theme: ThemeId) {
   useEffect(() => {
@@ -369,6 +370,7 @@ export function App() {
   useNativeMenu();
   useAppleBooksSync();
   useDocxMigration();
+  useFormatRepair();
   useResizeDiagnostics();
 
   useEffect(() => {

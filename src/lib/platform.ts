@@ -79,7 +79,7 @@ export interface HostApi {
   /** Réécrit un fichier externe (copie .bak préalable). Refusé hors Electron. */
   writeExternal(path: string, data: ArrayBuffer): Promise<void>;
   /** « Enregistrer sous » binaire ; renvoie le chemin choisi (ou un nom en navigateur), null si annulé. */
-  saveBinary(defaultName: string, data: ArrayBuffer, format: ExportFormat): Promise<string | null>;
+  saveBinary(defaultName: string, data: ArrayBuffer, format: SaveFormat): Promise<string | null>;
   /** Journal de diagnostic local (app de bureau). */
   diag?(...parts: unknown[]): Promise<void>;
   /** Familles de polices installées sur l'ordinateur (app de bureau uniquement). */
@@ -124,17 +124,21 @@ export interface HostApi {
 }
 
 export type ExportFormat = 'docx' | 'pdf' | 'md' | 'html' | 'txt';
+/** Formats d'« Enregistrer sous » binaire (exports de l'éditeur + images de la carte). */
+export type SaveFormat = ExportFormat | 'png' | 'svg';
 
-export const EXPORT_MIME: Record<ExportFormat, string> = {
+export const EXPORT_MIME: Record<SaveFormat, string> = {
   docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
   pdf: 'application/pdf',
   md: 'text/markdown;charset=utf-8',
   html: 'text/html;charset=utf-8',
   txt: 'text/plain;charset=utf-8',
+  png: 'image/png',
+  svg: 'image/svg+xml',
 };
 
 /** Images importées comme documents (photo ou scan d'une page : texte reconnu par OCR). */
-export const IMAGE_EXTENSIONS = ['jpg', 'jpeg', 'png', 'webp', 'heic', 'heif', 'tif', 'tiff'];
+export const IMAGE_EXTENSIONS = ['jpg', 'jpeg', 'png', 'webp', 'heic', 'heif', 'tif', 'tiff', 'gif', 'bmp', 'avif'];
 
 /** Fichiers dérivés d'un document image, rangés à côté de la source (supprimés avec elle). */
 export const DERIVED_FILES = ['ocr.json', 'display.jpg'];

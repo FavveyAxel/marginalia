@@ -1,6 +1,6 @@
 // Vue d'un espace (ou d'un de ses groupes) : sous-groupes en tuiles, éléments en cartes.
 import { useEffect, useMemo, useRef, useState, type DragEvent } from 'react';
-import { Check, CheckSquare, ChevronRight, FilePen, Folder, FolderPlus, MoreHorizontal, Network, PackagePlus, Pencil, Upload } from 'lucide-react';
+import { Check, CheckSquare, ChevronRight, FilePen, Folder, FolderPlus, GitCompareArrows, MoreHorizontal, Network, PackagePlus, Pencil, Upload } from 'lucide-react';
 import { LassoBox, useLasso, useMultiSelect, useSelectionKeys, type MultiSelect } from '../../lib/useMultiSelect';
 import { useStore } from '../../lib/store';
 import type { ArgumentMap, WorkspaceGroup } from '../../lib/types';
@@ -25,6 +25,7 @@ import { groupMenu, itemMenu, workspaceMenu } from './wsMenus';
 import { useWsDialogs } from './wsDialogs';
 import { importHere, newBoardHere, newDraftHere } from './wsActions';
 import { SelectionBar, useSelOwner, useSelectionActions } from './wsSelection';
+import { CompareDialog } from '../map/ui/compare/CompareDialog';
 import './workspaces.css';
 import { OS_TEXT, fmtKeys } from '../../lib/keys';
 
@@ -44,6 +45,8 @@ export function WorkspaceView({ workspaceId, groupId }: { workspaceId: string; g
   const [newGroup, setNewGroup] = useState(false);
   const [renamingTile, setRenamingTile] = useState<string | null>(null);
   const [selectMode, setSelectMode] = useState(false);
+  /** « Comparer deux auteurs » : null fermé ; `first` : livre imposé (menu d'un livre). */
+  const [comparing, setComparing] = useState<{ first: string | null } | null>(null);
   const m = useMenu();
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -76,6 +79,7 @@ export function WorkspaceView({ workspaceId, groupId }: { workspaceId: string; g
     newDraftHere: (w, g) => void newDraftHere(w, g),
     newBoardHere: (w, g) => void newBoardHere(w, g),
   });
+  ctx.compareWith = (bookId) => setComparing({ first: bookId });
 
   // ── Sélection multiple (éléments affichés ici, dans l'ordre affiché) ──
   const here = useMemo(() => items.filter((i) => i.item.groupId === effGroupId), [items, effGroupId]);
@@ -252,6 +256,9 @@ export function WorkspaceView({ workspaceId, groupId }: { workspaceId: string; g
               <button className="btn" onClick={() => newBoardHere(workspaceId, effGroupId)} title="Carte libre : idées, extraits de plusieurs livres, cartes venues d’autres cartes">
                 <Network size={14} /> Nouvelle carte ici
               </button>
+              <button className="btn" onClick={() => setComparing({ first: null })} data-testid="ws-compare" title="Carte libre avec les thèses et arguments de deux livres, une colonne par auteur">
+                <GitCompareArrows size={14} /> Comparer deux livres…
+              </button>
               {here.length > 0 && (
                 <button
                   className={`btn ws-select-toggle ${selectMode ? 'on' : ''}`}
@@ -360,6 +367,14 @@ export function WorkspaceView({ workspaceId, groupId }: { workspaceId: string; g
       {actions.dialog}
       {m.menu && <ContextMenu x={m.menu.x} y={m.menu.y} entries={m.menu.entries} label={m.menu.label} onClose={m.close} />}
       {dialogs}
+      {comparing && (
+        <CompareDialog
+          firstId={comparing.first}
+          prefer={scope.filter((i) => i.item.kind === 'book').map((i) => i.item.refId)}
+          into={{ workspaceId, groupId: effGroupId }}
+          onClose={() => setComparing(null)}
+        />
+      )}
     </div>
   );
 }

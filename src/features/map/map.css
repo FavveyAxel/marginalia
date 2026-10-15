@@ -1059,3 +1059,767 @@
   font-size: var(--fs-xs);
 }
 
+
+/* ═══ 12. Zones (sous les cartes, dans la vue de React Flow) ═══ */
+.map-zones {
+  position: absolute;
+  left: 0;
+  top: 0;
+  z-index: -1; /* sous les liens et les cartes, dans la vue */
+  pointer-events: none;
+}
+.map-zone {
+  position: absolute;
+  left: 0;
+  top: 0;
+  box-sizing: border-box;
+  border-radius: 20px;
+  border: 1.5px dashed color-mix(in srgb, var(--zc) 40%, transparent);
+  background:
+    linear-gradient(to bottom, color-mix(in srgb, var(--zc) 9%, transparent), color-mix(in srgb, var(--zc) 4.5%, transparent) 64px),
+    color-mix(in srgb, var(--zc) 4.5%, transparent);
+  pointer-events: none;
+  transition:
+    background var(--dur) var(--ease),
+    border-color var(--dur) var(--ease),
+    box-shadow var(--dur) var(--ease);
+}
+:root[data-theme='dark'] .map-zone {
+  border-color: color-mix(in srgb, var(--zc) 34%, transparent);
+  background:
+    linear-gradient(to bottom, color-mix(in srgb, var(--zc) 9%, transparent), color-mix(in srgb, var(--zc) 4%, transparent) 64px),
+    color-mix(in srgb, var(--zc) 4%, transparent);
+}
+.map-zones.glide .map-zone {
+  transition: transform 520ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+.map-zone.drop {
+  border-style: solid;
+  border-color: color-mix(in srgb, var(--zc) 62%, transparent);
+  background: color-mix(in srgb, var(--zc) 11%, transparent);
+  box-shadow: 0 0 0 5px color-mix(in srgb, var(--zc) 10%, transparent);
+}
+.map-zone.moving {
+  border-style: solid;
+  box-shadow: 0 18px 40px -24px color-mix(in srgb, var(--zc) 60%, rgba(0, 0, 0, 0.5));
+}
+.map-zone-head {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 8px 0 16px;
+  border-radius: 20px 20px 0 0;
+  pointer-events: all;
+  cursor: grab;
+  font-family: var(--font-ui);
+}
+.map-zone-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  font-weight: 650;
+  letter-spacing: 0.01em;
+  color: color-mix(in srgb, var(--zc) 70%, var(--ink));
+}
+.map-zone-count {
+  flex: none;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--zc) 11%, transparent);
+  color: color-mix(in srgb, var(--zc) 48%, var(--muted));
+  font-size: 11px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.map-zone-tools {
+  margin-left: 2px;
+  display: flex;
+  gap: 1px;
+  opacity: 0;
+  transition: opacity var(--dur) var(--ease);
+}
+.map-zone-head:hover .map-zone-tools,
+.map-zone-head:focus-within .map-zone-tools {
+  opacity: 1;
+}
+.map-zone-btn {
+  flex: none;
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: color-mix(in srgb, var(--zc) 55%, var(--ink-2));
+  cursor: default;
+}
+.map-zone-btn:hover {
+  background: color-mix(in srgb, var(--zc) 15%, transparent);
+  color: color-mix(in srgb, var(--zc) 75%, var(--ink));
+}
+.map-zone-input {
+  min-width: 80px;
+  max-width: 100%;
+  height: 24px;
+  padding: 0 7px;
+  border: 0;
+  border-radius: 7px;
+  outline: 2px solid color-mix(in srgb, var(--zc) 45%, transparent);
+  background: var(--bg-panel);
+  color: var(--ink);
+  font: 650 13px var(--font-ui);
+}
+.map-zone-resize {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 22px;
+  height: 22px;
+  pointer-events: all;
+  cursor: nwse-resize;
+}
+.map-zone-resize::after {
+  content: '';
+  position: absolute;
+  right: 6px;
+  bottom: 6px;
+  width: 8px;
+  height: 8px;
+  border-right: 2px solid color-mix(in srgb, var(--zc) 45%, transparent);
+  border-bottom: 2px solid color-mix(in srgb, var(--zc) 45%, transparent);
+  border-bottom-right-radius: 4px;
+  transition: border-color var(--dur) var(--ease);
+}
+.map-zone-resize:hover::after {
+  border-color: color-mix(in srgb, var(--zc) 80%, transparent);
+}
+/* Zone repliée : étiquette compacte */
+.map-zone.collapsed {
+  border-style: solid;
+  border-color: color-mix(in srgb, var(--zc) 38%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--zc) 12%, var(--bg-panel));
+  box-shadow: var(--map-card-shadow);
+}
+.map-zone-chip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 36px;
+  padding: 0 14px 0 6px;
+  pointer-events: all;
+  cursor: grab;
+  font-family: var(--font-ui);
+}
+.map-zone-chip .map-zone-title {
+  max-width: 260px;
+}
+body.map-zone-grabbing,
+body.map-zone-grabbing * {
+  cursor: grabbing !important;
+}
+
+/* Zone repliée : liens sortants suggérés (étiquette → carte visible) */
+.map-zone-links {
+  position: absolute;
+  left: 0;
+  top: 0;
+  overflow: visible;
+  pointer-events: none;
+}
+.map-zone-links line {
+  stroke-width: 1.3;
+  stroke-dasharray: 2 5;
+  stroke-linecap: round;
+  opacity: 0.7;
+}
+
+/* Vue étroite (carte libre à côté de la barre latérale) : la mini-carte passe au-dessus de la
+   barre d'outils au lieu de la chevaucher. */
+.map-root.map-narrow .map-flow .react-flow__minimap.map-minimap,
+.map-root.map-narrow .map-mini-toggle {
+  bottom: 70px;
+}
+
+/* ═══ Panneaux latéraux (signaux, versions) ═══ */
+.map-side {
+  position: absolute;
+  right: 12px;
+  top: 12px;
+  width: 316px;
+  max-height: calc(100% - 92px);
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-panel);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-md);
+  z-index: 8;
+  transform-origin: 100% 0;
+  font-family: var(--font-ui);
+}
+.map-side-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 10px 6px 14px;
+}
+.map-side-head h3 {
+  flex: 1;
+  margin: 0;
+  font-size: var(--fs-lg);
+  font-weight: 600;
+}
+.map-side-ico {
+  flex: none;
+  color: var(--muted);
+}
+.map-side-ico.warn {
+  color: color-mix(in srgb, var(--cat-these) 80%, var(--ink));
+}
+.map-side-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 4px 10px 12px;
+}
+.map-side-none,
+.map-side-note {
+  margin: 4px 14px 8px;
+  font-size: var(--fs-xs);
+  line-height: 1.45;
+  color: var(--muted);
+}
+.map-side-none {
+  margin: 10px 4px;
+  font-size: var(--fs-sm);
+}
+.map-side-switch {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 14px 6px;
+  padding: 6px 0 10px;
+  border-bottom: 1px solid var(--border);
+  font-size: var(--fs-sm);
+  color: var(--ink-2);
+}
+
+/* ═══ 15. Signaux de manques ═══ */
+.map-gaps-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 30px;
+  padding: 0 12px 0 11px;
+  border: 0;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--cat-these) 13%, transparent);
+  color: color-mix(in srgb, var(--cat-these) 55%, var(--ink));
+  font: 500 var(--fs-sm) var(--font-ui);
+  white-space: nowrap;
+  cursor: default;
+  transition: background var(--dur) var(--ease);
+}
+.map-gaps-pill:hover,
+.map-gaps-pill.on {
+  background: color-mix(in srgb, var(--cat-these) 22%, transparent);
+}
+.map-gaps-pill i {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--cat-these);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--cat-these) 22%, transparent);
+}
+.map-gap-group {
+  padding: 8px 4px 10px;
+}
+.map-gap-group + .map-gap-group {
+  border-top: 1px solid var(--border);
+}
+.map-gap-group h4 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-size: var(--fs-md);
+  font-weight: 600;
+}
+.map-gap-hint {
+  margin: 2px 0 6px 16px;
+  font-size: var(--fs-xs);
+  color: var(--muted);
+}
+.map-gap-dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--cat-these);
+}
+.map-gap-dot.k-objection {
+  background: var(--cat-objection);
+}
+.map-gap-dot.k-unplaced {
+  background: var(--cat-concept);
+}
+.map-gap-dot.k-isolated {
+  background: var(--muted);
+}
+.map-gap-group ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.map-gap-item {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 30px;
+  padding: 0 8px 0 16px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--ink);
+  font-size: var(--fs-sm);
+  text-align: left;
+  cursor: default;
+}
+.map-gap-item:hover {
+  background: var(--bg-hover);
+}
+.map-gap-go {
+  flex: none;
+  margin-left: auto;
+  color: var(--faint);
+}
+.map-gap-item:hover .map-gap-go {
+  color: var(--ink-2);
+}
+.map-gap-hl {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-left: 12px;
+  padding: 7px 7px 7px 9px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--c);
+  background: var(--bg-page);
+}
+.map-gap-hl + .map-gap-hl {
+  margin-top: 4px;
+}
+.map-gap-hl .body {
+  flex: 1;
+  min-width: 0;
+}
+.map-gap-hl .cat {
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  color: color-mix(in srgb, var(--c) 52%, var(--ink));
+}
+.map-gap-hl p {
+  margin: 2px 0 0;
+  font-family: var(--font-read);
+  font-size: 12.5px;
+  line-height: 1.4;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+}
+.map-gap-place {
+  flex: none;
+  height: 26px;
+}
+.map-gap-all {
+  margin: 8px 0 0 12px;
+}
+/* Marques sur les cartes concernées (option « Afficher les signaux ») */
+.map-flow .react-flow__node.map-gap::after {
+  content: '';
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  background: var(--cat-these);
+  box-shadow: 0 0 0 2.5px var(--bg-page);
+  pointer-events: none;
+  z-index: 3;
+}
+.map-flow .react-flow__node.map-gap-objection::after {
+  background: var(--cat-objection);
+}
+.map-flow .react-flow__node.map-gap-isolated::after {
+  background: var(--muted);
+}
+.map-flow .react-flow__node.map-gap::before {
+  position: absolute;
+  right: 0;
+  top: -24px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--bg-panel);
+  box-shadow: var(--shadow-sm);
+  color: var(--ink-2);
+  font: 500 11px var(--font-ui);
+  white-space: nowrap;
+  opacity: 0;
+  transform: translateY(3px);
+  transition:
+    opacity var(--dur) var(--ease),
+    transform var(--dur) var(--ease);
+  pointer-events: none;
+  z-index: 3;
+}
+.map-flow .react-flow__node.map-gap-these::before {
+  content: 'Thèse sans argument';
+}
+.map-flow .react-flow__node.map-gap-objection::before {
+  content: 'Objection sans réponse';
+}
+.map-flow .react-flow__node.map-gap-isolated::before {
+  content: 'Carte isolée';
+}
+.map-flow .react-flow__node.map-gap:hover::before {
+  opacity: 1;
+  transform: none;
+}
+/* Carte mise en évidence (clic sur un signal) */
+.map-flow .react-flow__node.map-flash .map-node {
+  animation: map-flash 1.7s var(--ease-out) both;
+}
+@keyframes map-flash {
+  0%,
+  100% {
+    box-shadow: var(--map-card-shadow), 0 0 0 0 transparent;
+  }
+  18%,
+  58% {
+    box-shadow: var(--map-card-shadow), 0 0 0 6px color-mix(in srgb, var(--focus) 30%, transparent);
+  }
+  38% {
+    box-shadow: var(--map-card-shadow), 0 0 0 3px color-mix(in srgb, var(--focus) 45%, transparent);
+  }
+}
+
+/* ═══ 19. Versions ═══ */
+.map-ver-new {
+  display: flex;
+  gap: 6px;
+  padding: 2px 12px 4px 14px;
+}
+.map-ver-new input {
+  flex: 1;
+  min-width: 0;
+  height: 28px;
+  padding: 0 9px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-inset);
+  color: var(--ink);
+  font-size: var(--fs-sm);
+}
+.map-ver-new input:focus {
+  outline: 2px solid color-mix(in srgb, var(--focus) 45%, transparent);
+  outline-offset: -1px;
+}
+.map-ver-new .btn {
+  height: 28px;
+  white-space: nowrap;
+}
+.map-ver-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.map-ver {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 7px 6px 7px 8px;
+  border-radius: 8px;
+}
+.map-ver:hover {
+  background: var(--bg-hover);
+}
+.map-ver-dot {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  border: 1.5px solid var(--border-strong);
+  background: var(--bg-panel);
+}
+.map-ver-dot.named {
+  border-color: transparent;
+  background: var(--ink);
+  color: var(--bg-panel);
+}
+.map-ver-list .map-ver + .map-ver::before {
+  content: '';
+  position: absolute;
+  left: 16.5px;
+  top: -9px;
+  height: 16px;
+  border-left: 1.5px solid var(--border);
+}
+.map-ver-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  line-height: 1.3;
+}
+.map-ver-main b {
+  font-size: var(--fs-sm);
+  font-weight: 600;
+}
+.map-ver.auto .map-ver-main b {
+  font-weight: 500;
+  color: var(--ink-2);
+}
+.map-ver-main small {
+  font-size: var(--fs-xs);
+  color: var(--muted);
+}
+.map-ver-main .map-ver-sum {
+  color: var(--faint);
+  font-variant-numeric: tabular-nums;
+}
+.map-ver-rename {
+  height: 24px;
+  padding: 0 6px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-inset);
+  color: var(--ink);
+  font-size: var(--fs-sm);
+}
+.map-ver-acts {
+  flex: none;
+  display: flex;
+  gap: 1px;
+  opacity: 0;
+  transition: opacity var(--dur) var(--ease);
+}
+.map-ver:hover .map-ver-acts,
+.map-ver:focus-within .map-ver-acts {
+  opacity: 1;
+}
+.map-ver-acts .map-danger {
+  color: var(--danger);
+}
+.map-ver-preview {
+  position: absolute;
+  right: calc(100% + 10px);
+  width: 300px;
+  padding: 8px;
+  border-radius: var(--radius-md);
+  background: var(--bg-panel);
+  box-shadow: var(--shadow-lg);
+  pointer-events: none;
+}
+.map-ver-preview img {
+  display: block;
+  width: 100%;
+  height: 190px;
+  object-fit: contain;
+  border-radius: 6px;
+  background: #fbf9f4;
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.06);
+}
+.map-ver-preview span {
+  display: block;
+  margin-top: 6px;
+  font-size: var(--fs-xs);
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ═══ 20. Notes sur les liens ═══ */
+.map-pill-mark {
+  display: inline-grid;
+  place-items: center;
+  width: 13px;
+  height: 13px;
+  margin-left: 3px;
+  border-radius: 50%;
+  background: var(--bg-panel);
+  color: color-mix(in srgb, var(--c) 75%, var(--ink));
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--c) 40%, transparent);
+}
+.map-pill.show .map-pill-mark,
+.map-pill:hover .map-pill-mark {
+  display: none;
+}
+/* Pastille dépliée : au-dessus du lien sélectionné (qui passe devant les autres) et des cartes. */
+.map-pill.show,
+.map-pill:hover {
+  z-index: 12;
+}
+.map-pill.has-note.show,
+.map-pill.has-note:hover {
+  height: auto;
+  min-height: 18px;
+  padding: 4px 11px 5px 8px;
+  border-radius: 11px;
+}
+.map-pill.has-note .map-pill-label {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-start;
+}
+.map-pill.has-note.show .map-pill-label,
+.map-pill.has-note:hover .map-pill-label {
+  max-width: 230px;
+}
+.map-pill-note {
+  max-width: 220px;
+  margin-top: 1px;
+  white-space: normal;
+  text-align: left;
+  font: italic 400 12.5px/1.3 var(--font-read);
+  letter-spacing: 0;
+  color: var(--ink-2);
+}
+.map-note-field {
+  padding: 0 6px 4px;
+}
+.map-note-field .map-menu-title {
+  display: block;
+  padding: 6px 2px 5px;
+}
+.map-note-input {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  resize: none;
+  padding: 6px 9px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-inset);
+  color: var(--ink);
+  font: italic 13px/1.35 var(--font-read);
+}
+.map-note-input:focus {
+  outline: 2px solid color-mix(in srgb, var(--focus) 45%, transparent);
+  outline-offset: -1px;
+}
+.map-note-sugg {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 6px;
+}
+.map-note-sugg .chip {
+  height: 22px;
+  padding: 0 8px;
+  font-size: var(--fs-xs);
+}
+
+/* ═══ 18. « Insérer dans un écrit » ═══ */
+.map-insert {
+  padding-bottom: 14px;
+}
+.map-insert-new {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 4px 18px 6px 22px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-page);
+  color: var(--ink);
+  text-align: left;
+  cursor: default;
+  transition:
+    background var(--dur) var(--ease),
+    border-color var(--dur) var(--ease);
+}
+.map-insert-new:hover {
+  background: var(--bg-hover);
+  border-color: var(--border-strong);
+}
+.map-insert-ico {
+  flex: none;
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  border-radius: 9px;
+  background: var(--ink);
+  color: var(--bg-panel);
+}
+.map-insert-txt {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  line-height: 1.3;
+}
+.map-insert-txt b {
+  font-weight: 600;
+}
+.map-insert-txt small {
+  font-size: var(--fs-sm);
+  color: var(--muted);
+}
+.map-insert-label {
+  margin: 12px 22px 6px;
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  color: var(--muted);
+}
+.map-insert-list {
+  min-height: 0;
+  padding: 0 14px 0;
+}
+.map-insert-row {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 34px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--ink);
+  text-align: left;
+  cursor: default;
+}
+.map-insert-row:hover {
+  background: var(--bg-hover);
+}
+.map-insert-row-ico {
+  flex: none;
+  color: var(--muted);
+}
+.map-insert-when {
+  flex: none;
+  margin-left: auto;
+  font-size: var(--fs-xs);
+  color: var(--faint);
+}

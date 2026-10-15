@@ -4,6 +4,7 @@ import { Check, Link2, Trash2, Unlink } from 'lucide-react';
 import { RELATIONS } from '../../../lib/categories';
 import { useFloating } from '../../../components/ui';
 import type { EdgeStrength, MapEdge, RelationId } from '../../../lib/types';
+import { EdgeNoteField } from './EdgeNote';
 
 export interface EdgeMenuState {
   edgeId: string;
@@ -28,6 +29,7 @@ export function EdgeMenu({
   onDelete,
   onGroupWith,
   onUngroup,
+  onNote,
 }: {
   menu: EdgeMenuState;
   edges: MapEdge[];
@@ -38,6 +40,8 @@ export function EdgeMenu({
   onDelete(): void;
   onGroupWith(otherId: string): void;
   onUngroup(): void;
+  /** 20. Note du lien (« Pourquoi ? ») ; absent : pas de champ. */
+  onNote?(note: string): void;
 }) {
   const edge = edges.find((e) => e.id === menu.edgeId);
   const [view, setView] = useState<'main' | 'group'>('main');
@@ -103,6 +107,12 @@ export function EdgeMenu({
               </button>
             ))}
           </div>
+          {onNote && (
+            <>
+              <div className="divider" />
+              <EdgeNoteField key={edge.id} note={edge.note ?? ''} onSave={onNote} />
+            </>
+          )}
           <div className="divider" />
           {inGroup ? (
             <button className="menu-item" data-act="ungroup" onClick={onUngroup}>

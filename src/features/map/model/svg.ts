@@ -174,12 +174,20 @@ function edgeSvg(e: MapEdge, s: Rect, t: Rect): string {
   const my = (p0[1] + 3 * c0[1] + 3 * c1[1] + p1[1]) / 8;
   const label = rel.label;
   const lw = label.length * 6.4 + 14;
-  const note = e.note?.trim() ? `<title>${xml(e.note.trim())}</title>` : '';
+  const noteText = e.note?.trim() ?? '';
+  const note = noteText ? `<title>${xml(noteText)}</title>` : '';
+  // Note du lien (« par analogie »…) : en italique sous le nom de la relation.
+  const shown = noteText.length > 60 ? noteText.slice(0, 59).trimEnd() + '…' : noteText;
+  const nw = shown.length * 5.9 + 16;
+  const noteSvg = shown
+    ? `<rect class="edge-note" x="${r1(mx - nw / 2)}" y="${r1(my + 12)}" width="${r1(nw)}" height="18" rx="9" fill="${PAPER}" fill-opacity="0.92"/>` +
+      `<text x="${r1(mx)}" y="${r1(my + 25)}" text-anchor="middle" font-size="11.5" font-style="italic" fill="${MUTED}">${xml(shown)}</text>`
+    : '';
   return (
     `<g class="edge" data-id="${xml(e.id)}" data-relation="${rel.id}">${note}` +
     `<path d="${d}" fill="none" stroke="${c}" stroke-width="${w}"${rel.dashed ? ' stroke-dasharray="7 5"' : ''} marker-end="url(#arrow-${rel.id})"/>` +
     `<rect x="${r1(mx - lw / 2)}" y="${r1(my - 10)}" width="${r1(lw)}" height="20" rx="10" fill="${CARD}" stroke="${c}" stroke-width="1"/>` +
-    `<text x="${r1(mx)}" y="${r1(my + 4)}" text-anchor="middle" font-family="${xml(FONT_UI)}" font-size="11" fill="${c}">${xml(label)}${e.note?.trim() ? ' ✎' : ''}</text></g>`
+    `<text x="${r1(mx)}" y="${r1(my + 4)}" text-anchor="middle" font-family="${xml(FONT_UI)}" font-size="11" fill="${c}">${xml(label)}${noteText ? ' ✎' : ''}</text>${noteSvg}</g>`
   );
 }
 

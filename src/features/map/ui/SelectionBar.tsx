@@ -34,6 +34,7 @@ export function SelectionBar({
   onAlign,
   onColor,
   onDelete,
+  extra,
 }: {
   ids: string[];
   ideaCount: number;
@@ -41,6 +42,8 @@ export function SelectionBar({
   onAlign(k: AlignKind): void;
   onColor(c: string | undefined): void;
   onDelete(): void;
+  /** Boutons ajoutés par d'autres fonctionnalités (ex. « Encadrer dans une zone »), avant Supprimer. */
+  extra?: ReactNode;
 }) {
   return (
     <NodeToolbar nodeId={ids} isVisible={visible} position={Position.Top} offset={14}>
@@ -69,6 +72,12 @@ export function SelectionBar({
                 onClick={() => onColor(c.id)}
               />
             ))}
+          </>
+        )}
+        {extra && (
+          <>
+            <span className="map-bar-sep" />
+            {extra}
           </>
         )}
         <span className="map-bar-sep" />

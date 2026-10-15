@@ -1,5 +1,5 @@
 // Contenu des menus contextuels (identique dans l'arbre et dans la vue).
-import { ArrowRightLeft, ExternalLink, FolderPlus, FolderX, Palette, PackagePlus, Pencil, Trash2, Ungroup, Upload, FilePen, Network } from 'lucide-react';
+import { ArrowRightLeft, ExternalLink, GitCompareArrows, FolderPlus, FolderX, Palette, PackagePlus, Pencil, Trash2, Ungroup, Upload, FilePen, Network } from 'lucide-react';
 import { useStore } from '../../lib/store';
 import type { WorkspaceGroup, WorkspaceItem } from '../../lib/types';
 import { TINTS, TINT_LABEL, openItem, ungroup, type DragPayload } from './wsModel';
@@ -15,6 +15,8 @@ export interface MenuCtx {
   importHere?(workspaceId: string, groupId: string | null): void;
   newDraftHere?(workspaceId: string, groupId: string | null): void;
   newBoardHere?(workspaceId: string, groupId: string | null): void;
+  /** « Comparer avec un autre livre… » (carte libre à deux colonnes), sur un livre de l'espace. */
+  compareWith?(bookId: string): void;
 }
 
 export function workspaceMenu(ctx: MenuCtx, workspaceId: string, tint: string): MenuEntry[] {
@@ -58,6 +60,7 @@ export function groupMenu(ctx: MenuCtx, g: WorkspaceGroup): MenuEntry[] {
 export function itemMenu(ctx: MenuCtx, item: WorkspaceItem): MenuEntry[] {
   return [
     { label: 'Ouvrir', icon: <ExternalLink size={14} />, onClick: () => openItem(item) },
+    ...(item.kind === 'book' && ctx.compareWith ? [{ label: 'Comparer avec un autre livre…', icon: <GitCompareArrows size={14} />, onClick: () => ctx.compareWith!(item.refId) }] : []),
     { label: 'Déplacer vers…', icon: <ArrowRightLeft size={14} />, onClick: () => ctx.openMove({ type: 'item', id: item.id, workspaceId: item.workspaceId }) },
     { sep: true },
     { label: 'Retirer de l’espace', icon: <Trash2 size={14} />, danger: true, onClick: () => useStore.getState().removeFromWorkspace(item.id) },

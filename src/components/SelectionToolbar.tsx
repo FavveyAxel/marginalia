@@ -1,10 +1,11 @@
 // Barre flottante au-dessus d'une sélection de texte (FIGÉ).
-import { useEffect } from 'react';
+import { useContext, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { BookmarkPlus, Copy, Highlighter, MessageSquarePlus, Milestone, Quote } from 'lucide-react';
 import { CATEGORIES } from '../lib/categories';
 import type { CategoryId } from '../lib/types';
 import { CategoryDot, Kbd, useFloating } from './ui';
+import { CiteActionCtx } from './selectionCite';
 
 interface Props {
   rect: DOMRect;
@@ -22,6 +23,13 @@ interface Props {
 
 export function SelectionToolbar({ rect, onPick, onMovement, onCopy, onDismiss, onCite, onBookmark }: Props) {
   const [ref, style] = useFloating(rect, 'above');
+  // Action « Citer » personnalisée (panneau « Livre à côté » de la carte : « Sur la carte »).
+  const ca = useContext(CiteActionCtx);
+  useEffect(() => {
+    if (!ca?.register || !onCite) return;
+    ca.register(onCite);
+    return () => ca.register?.(null);
+  }, [ca, onCite]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -60,7 +68,8 @@ export function SelectionToolbar({ rect, onPick, onMovement, onCopy, onDismiss, 
       ref={ref}
       className="floating sel-toolbar"
       style={style}
-      onMouseDown={(e) => e.preventDefault()}
+      // Garder la sélection ; un bouton glissable doit pouvoir démarrer son glisser.
+      onMouseDown={(e) => !(e.target as HTMLElement).closest('[draggable="true"]') && e.preventDefault()}
       role="toolbar"
       aria-label="Annoter la sélection"
     >
@@ -77,9 +86,16 @@ export function SelectionToolbar({ rect, onPick, onMovement, onCopy, onDismiss, 
       <span className="sep" />
       {onCite && (
         <>
-          <button className="cat-btn sel-cite" title="Citer dans l’écrit : crée l’extrait et l’insère au curseur (C)" onClick={onCite}>
-            <Quote size={13} />
-            Citer
+          <button
+            className={`cat-btn sel-cite ${ca?.onDragStart ? 'sel-cite-drag' : ''}`}
+            title={ca?.title ?? 'Citer dans l’écrit : crée l’extrait et l’insère au curseur (C)'}
+            onClick={onCite}
+            draggable={ca?.onDragStart ? true : undefined}
+            onDragStart={ca?.onDragStart}
+            data-testid={ca?.testId}
+          >
+            {ca?.icon ?? <Quote size={13} />}
+            {ca?.label ?? 'Citer'}
             <Kbd>C</Kbd>
           </button>
           <span className="sep" />

@@ -18,7 +18,7 @@ import { TypographyPopover } from './TypographyPopover';
 import { ExtractsPanel } from '../annotations/ExtractsPanel';
 import { HighlightPopover } from '../annotations/HighlightPopover';
 import { StudyPanel } from '../study/StudyPanel';
-import { ArgumentMapView } from '../map/ArgumentMapView';
+import { ReaderMapTab } from '../map/ui/stage/ReaderMapTab';
 import { BookCover } from '../library/BookCover';
 import { bookToMarkdown } from '../../lib/exportMarkdown';
 import { PageSkeleton, useFloating } from '../../components/ui';
@@ -750,7 +750,7 @@ export function ReaderView({ bookId, tab, splitBookId }: Props) {
         </div>
         {tab === 'carte' && (
           <section className="panel reader-map">
-            <ArgumentMapView bookId={bookId} />
+            <ReaderMapTab bookId={bookId} />
           </section>
         )}
       </div>

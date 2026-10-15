@@ -1,14 +1,16 @@
 // Page d'une carte libre (« board ») : titre renommable, retour vers l'espace d'origine,
 // panneau « Ajouter » (extraits de tous les livres, autres cartes, concepts, idées) et le
 // composant de carte générique en mode `board` (voir BoardCanvas).
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { ArrowLeft, FileDown, FilePen, ListTree, MoreHorizontal, Pencil, Plus, Trash2 } from 'lucide-react';
 import { useStore } from '../../lib/store';
 import type { Route } from '../../lib/types';
 import { ContextMenu, InlineName, useMenu, type MenuEntry } from '../workspaces/wsUi';
-import { BoardCanvas } from './BoardCanvas';
+import { boardSource } from './BoardCanvas';
+import { MapStage } from './ui/stage/MapStage';
+import { ConvertDialog, type ConvertKind } from './ui/convert/ConvertDialog';
 import { AddPanel } from './board/AddPanel';
-import { boardTitle, convertToDraft, convertToPlan, deleteMap, renameMap, saveMapPdf } from './model/actions';
+import { boardTitle, deleteMap, renameMap, saveMapPdf } from './model/actions';
 import { isBoard } from './model/boards';
 import './board/board.css';
 
@@ -49,6 +51,8 @@ export function BoardView({ boardId }: { boardId: string }) {
   const [adding, setAdding] = useState(() => !!map && map.nodes.length === 0);
   const m = useMenu();
   const back = backTarget(boardId);
+  const [convert, setConvert] = useState<ConvertKind | null>(null);
+  const source = useMemo(() => boardSource(boardId), [boardId]);
 
   if (!map || !isBoard(map)) {
     return (
@@ -78,20 +82,13 @@ export function BoardView({ boardId }: { boardId: string }) {
       label: 'Transformer en plan',
       icon: <ListTree size={14} />,
       disabled: !map.nodes.length,
-      onClick: () => {
-        const id = convertToPlan(boardId, title);
-        useStore.getState().toast('Plan créé à partir de la carte', 'success', { label: 'Ouvrir', run: () => navigate({ name: 'plans', planId: id }) });
-      },
+      onClick: () => setConvert('plan'),
     },
     {
       label: 'Transformer en écrit',
       icon: <FilePen size={14} />,
       disabled: !map.nodes.length,
-      onClick: () =>
-        void run(
-          convertToDraft(boardId, title).then((id) => useStore.getState().toast('Écrit créé à partir de la carte', 'success', { label: 'Ouvrir', run: () => navigate({ name: 'write', draftId: id }) })),
-          'Impossible de créer l’écrit',
-        ),
+      onClick: () => setConvert('draft'),
     },
     { label: 'Exporter en PDF…', icon: <FileDown size={14} />, disabled: !map.nodes.length, onClick: () => void run(saveMapPdf(boardId), 'Export PDF impossible') },
     { sep: true },
@@ -153,10 +150,11 @@ export function BoardView({ boardId }: { boardId: string }) {
       </header>
       <div className="board-body">
         <div className="board-canvas">
-          <BoardCanvas boardKey={boardId} />
+          <MapStage mapKey={boardId} source={source} bookId={map.bookIds?.[0] ?? null} />
         </div>
         {adding && <AddPanel boardKey={boardId} onClose={() => setAdding(false)} />}
       </div>
+      {convert && <ConvertDialog mapKey={boardId} kind={convert} onClose={() => setConvert(null)} />}
       {m.menu && <ContextMenu x={m.menu.x} y={m.menu.y} entries={m.menu.entries} label={m.menu.label} onClose={m.close} />}
     </div>
   );

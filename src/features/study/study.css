@@ -226,6 +226,27 @@
   transition: color var(--dur) var(--ease);
 }
 .study-move-start:hover { color: var(--focus); }
+.study-move-map {
+  align-self: flex-start;
+  margin: 2px 0 0 28px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 22px;
+  padding: 0 9px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: transparent;
+  font: inherit;
+  font-size: 11.5px;
+  color: var(--ink-2);
+  cursor: pointer;
+  transition: background var(--dur) var(--ease), color var(--dur) var(--ease), border-color var(--dur) var(--ease);
+}
+.study-move-map:hover { background: var(--bg-hover); color: var(--ink); }
+.study-move-map svg { color: var(--muted); }
+.study-move-map.has { border-color: color-mix(in srgb, var(--focus) 40%, transparent); color: var(--focus); }
+.study-move-map.has svg { color: var(--focus); }
 .study-plan {
   gap: 6px;
   padding: 10px 12px;

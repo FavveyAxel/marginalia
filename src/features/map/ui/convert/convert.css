@@ -1,0 +1,112 @@
+/* 16. Conversions de la carte (plan, explication) : confirmation légère avec aperçu. */
+.cv-dialog {
+  padding: 20px 22px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.cv-head {
+  display: flex;
+  gap: 12px;
+}
+.cv-ico {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--focus) 12%, transparent);
+  color: var(--focus);
+}
+.cv-head h3 {
+  margin: 0 0 4px;
+  font-family: var(--font-display);
+  font-weight: 400;
+  font-size: 24px;
+  line-height: 1.15;
+}
+.cv-head p {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--ink-2);
+}
+.cv-field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.cv-field > span {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--muted);
+}
+.cv-stats {
+  display: flex;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.cv-stats li {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  padding: 8px 12px;
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--ink) 4%, transparent);
+  font-size: 12px;
+  color: var(--ink-2);
+}
+.cv-stats b {
+  font-family: var(--font-display);
+  font-weight: 400;
+  font-size: 26px;
+  line-height: 1.05;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+.cv-outline {
+  list-style: decimal outside;
+  margin: -4px 0 0;
+  padding: 0 0 0 22px;
+  font-size: 12.5px;
+  color: var(--ink-2);
+  line-height: 1.6;
+}
+.cv-outline li::marker {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.cv-outline .cv-more {
+  list-style: none;
+  color: var(--muted);
+  font-style: italic;
+}
+.cv-warn {
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--cat-probleme) 12%, transparent);
+  font-size: 12px;
+  color: var(--ink-2);
+}
+.cv-note {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  font-size: 11.5px;
+  color: var(--muted);
+}
+.cv-note svg {
+  flex: none;
+}
+.cv-foot {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding-top: 2px;
+}

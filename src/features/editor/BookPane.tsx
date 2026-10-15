@@ -186,11 +186,17 @@ export default function BookPane({
   bookId,
   onPickBook,
   onCite,
+  onCiteInput,
 }: {
   bookId: string | null;
   onPickBook(id: string): void;
   /** Insère la citation de l'extrait au curseur de l'écrit ; renvoie false si impossible. */
-  onCite(h: Highlight, b: Book): boolean;
+  onCite?(h: Highlight, b: Book): boolean;
+  /**
+   * Remplace « Citer » : la sélection est remise telle quelle (sans créer d'extrait). Sert au
+   * panneau « Livre à côté » de la carte d'argument (« Sur la carte », glisser sur la carte).
+   */
+  onCiteInput?(input: NewHighlightInput, bookId: string): void;
 }) {
   const exists = useStore((s) => !!bookId && s.books.some((b) => b.id === bookId));
   const [picking, setPicking] = useState(false);
@@ -204,6 +210,8 @@ export default function BookPane({
   const engineRef = useRef<EngineHandle | null>(null);
   const onCiteRef = useRef(onCite);
   onCiteRef.current = onCite;
+  const onCiteInputRef = useRef(onCiteInput);
+  onCiteInputRef.current = onCiteInput;
 
   // Nouveau livre : état du volet remis à zéro.
   useEffect(() => {
@@ -229,8 +237,9 @@ export default function BookPane({
       const s = useStore.getState();
       const b = s.books.find((x) => x.id === bookId);
       if (!b || !bookId) return;
+      if (onCiteInputRef.current) return onCiteInputRef.current(input, bookId);
       const h = s.addHighlight({ ...input, category: input.category ?? CITE_CATEGORY, bookId });
-      const ok = onCiteRef.current(h, b);
+      const ok = onCiteRef.current?.(h, b) ?? false;
       if (ok) {
         s.toast('Citation insérée, extrait créé', 'success', {
           label: 'Classer',

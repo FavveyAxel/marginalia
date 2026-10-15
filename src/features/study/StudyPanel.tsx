@@ -1,12 +1,13 @@
 // Fiche-texte : problème / thèse / enjeu, mouvements dans l'ordre du texte, plan généré.
 import { useMemo, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
-import { Copy, FilePlus2, Send, TextQuote, Trash2, X } from 'lucide-react';
+import { Copy, FilePlus2, Network, Send, TextQuote, Trash2, X } from 'lucide-react';
 import { uid, useStore } from '../../lib/store';
 import { CATEGORY_BY_ID } from '../../lib/categories';
 import type { Anchor, CategoryId, Movement, TextStudy } from '../../lib/types';
 import { createDraft } from '../editor/api';
 import { AutoTextarea } from './AutoTextarea';
+import { goToMovementMap } from '../map/ui/movement/movement';
 import { ROLE_SUGGESTIONS, compareAnchors, planLines, planText, sortMovements, studyHtml } from './studyUtils';
 import { CategoryDot, Kbd } from '../../components/ui';
 import './study.css';
@@ -124,6 +125,9 @@ function StudyBody({
   const [sending, setSending] = useState(false);
 
   const movements = useMemo(() => sortMovements(study.movements), [study.movements]);
+  // Mouvements qui ont déjà leur carte d'argument.
+  const mappedKey = useStore((s) => Object.values(s.maps).filter((x) => x.kind === 'movement' && x.studyId === study.id).map((x) => x.movementId).sort().join('|'));
+  const mapped = useMemo(() => new Set(mappedKey.split('|').filter(Boolean)), [mappedKey]);
   const lines = useMemo(() => planLines(study), [study]);
 
   const set = (p: Partial<TextStudy>) => patch('studies', study.id, p);
@@ -247,6 +251,8 @@ function StudyBody({
                 onChange={(p) => setMovement(m.id, p)}
                 onDelete={() => delMovement(m.id)}
                 onGoTo={() => onGoTo(m.anchor)}
+                onMap={() => goToMovementMap(study.id, m.id)}
+                hasMap={mapped.has(m.id)}
               />
             ))}
           </ol>
@@ -365,12 +371,17 @@ function MovementCard({
   onChange,
   onDelete,
   onGoTo,
+  onMap,
+  hasMap,
 }: {
   m: Movement;
   index: number;
   onChange(p: Partial<Movement>): void;
   onDelete(): void;
   onGoTo(): void;
+  /** Ouvre (ou crée) la carte d'argument du mouvement. */
+  onMap(): void;
+  hasMap: boolean;
 }) {
   const [focus, setFocus] = useState(false);
   const [confirm, setConfirm] = useState(false);
@@ -438,6 +449,9 @@ function MovementCard({
       </div>
       <button className="study-move-start" onClick={onGoTo} title="Aller au début du mouvement">
         « {m.startText.replace(/\s+/g, ' ').trim()}… »
+      </button>
+      <button className={`study-move-map ${hasMap ? 'has' : ''}`} onClick={onMap} data-testid="movement-map" title={hasMap ? 'Ouvrir la carte d’argument de ce mouvement' : 'Créer la carte d’argument de ce mouvement'}>
+        <Network size={12} /> Carte du mouvement
       </button>
     </li>
   );

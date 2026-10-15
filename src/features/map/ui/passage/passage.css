@@ -1,0 +1,161 @@
+/* 11. Livre à côté de la carte, menu de classement d'un passage déposé. */
+.map-stage {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  min-width: 0;
+}
+.map-stage.book-right {
+  flex-direction: row-reverse;
+}
+.map-stage-map {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  container-type: inline-size;
+}
+/* Carte étroite (livre à côté, tiroir) : les boutons de la scène gardent leur icône seule ;
+   plus étroite encore, tous les boutons de la barre (le libellé reste lu par les lecteurs d'écran). */
+@container (max-width: 1240px) {
+  .map-bar .map-bar-lbl {
+    display: none;
+  }
+}
+@container (max-width: 1000px) {
+  .map-bar .btn {
+    font-size: 0;
+    gap: 0;
+    padding: 0 9px;
+  }
+  .map-bar .btn .map-bar-caret {
+    display: none;
+  }
+  .map-bar {
+    max-width: calc(100% - 120px);
+  }
+}
+.map-bookside {
+  position: relative;
+  flex: none;
+  width: clamp(320px, 36%, 470px);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--bg-panel);
+  z-index: 2;
+}
+.map-bookside.at-left {
+  border-right: 1px solid var(--border);
+  box-shadow: 6px 0 18px -14px rgba(0, 0, 0, 0.35);
+}
+.map-bookside.at-right {
+  border-left: 1px solid var(--border);
+  box-shadow: -6px 0 18px -14px rgba(0, 0, 0, 0.35);
+}
+.map-bookside-bar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 34px;
+  padding: 0 6px 0 10px;
+  border-bottom: 1px solid var(--border);
+  background: color-mix(in srgb, var(--focus) 5%, var(--bg-panel));
+}
+.map-bookside-grip {
+  color: var(--faint);
+  flex: none;
+}
+.map-bookside-hint {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: 11.5px;
+  color: var(--muted);
+}
+.map-bookside-body {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.map-bookside-body > .ed-book {
+  flex: 1;
+}
+.map-bookside .reader-page {
+  border-radius: 0;
+  box-shadow: none;
+  border: 0;
+}
+
+/* Bouton « Sur la carte » de la barre de sélection : on peut le glisser */
+.sel-toolbar .sel-cite-drag {
+  cursor: grab;
+  user-select: none;
+  color: var(--focus);
+}
+.sel-toolbar .sel-cite-drag:active {
+  cursor: grabbing;
+}
+
+/* Menu de classement */
+.passage-menu {
+  position: fixed;
+  z-index: 1000;
+  width: 264px;
+  padding: 6px;
+}
+.passage-menu-head {
+  padding: 6px 8px 8px;
+  margin-bottom: 4px;
+  border-bottom: 1px solid var(--border);
+}
+.passage-menu-head span {
+  display: block;
+  font-size: 10.5px;
+  font-weight: 650;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.passage-menu-head p {
+  margin: 5px 0 0;
+  font-family: var(--font-read);
+  font-size: 12.5px;
+  line-height: 1.4;
+  color: var(--ink-2);
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.passage-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+.passage-menu-item.focused {
+  background: var(--bg-hover);
+}
+.passage-menu-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--c);
+  flex: none;
+  margin: 0 2px;
+}
+.passage-menu-ico {
+  color: var(--c);
+  flex: none;
+}
+.passage-menu-item .truncate {
+  flex: 1;
+}
+.passage-menu-hint {
+  font-size: 11px;
+  color: var(--faint);
+}

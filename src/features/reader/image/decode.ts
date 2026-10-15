@@ -13,6 +13,9 @@ const MIME: Record<string, string> = {
   png: 'image/png',
   webp: 'image/webp',
   heic: 'image/heic',
+  gif: 'image/gif',
+  bmp: 'image/bmp',
+  avif: 'image/avif',
   heif: 'image/heif',
   tif: 'image/tiff',
   tiff: 'image/tiff',
@@ -28,7 +31,7 @@ export class ImageDecodeError extends Error {}
 export const ORIENT: ImageBitmapOptions = { imageOrientation: 'from-image' };
 
 /** Type réel d'après les premiers octets (le nom de fichier peut mentir). */
-function sniff(bytes: Uint8Array): string | null {
+export function sniff(bytes: Uint8Array): string | null {
   const b = bytes;
   if (b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff) return 'jpeg';
   if (b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e && b[3] === 0x47) return 'png';
@@ -36,6 +39,9 @@ function sniff(bytes: Uint8Array): string | null {
   if ((b[0] === 0x49 && b[1] === 0x49 && b[2] === 0x2a) || (b[0] === 0x4d && b[1] === 0x4d && b[3] === 0x2a)) return 'tiff';
   const ftyp = String.fromCharCode(...b.slice(4, 12));
   if (ftyp.startsWith('ftyp') && /heic|heix|hevc|mif1|msf1|heif/.test(ftyp)) return 'heic';
+  if (ftyp.startsWith('ftyp') && /avif|avis/.test(ftyp)) return 'avif';
+  if (b[0] === 0x47 && b[1] === 0x49 && b[2] === 0x46 && b[3] === 0x38) return 'gif';
+  if (b[0] === 0x42 && b[1] === 0x4d) return 'bmp';
   return null;
 }
 

@@ -2060,3 +2060,321 @@ body.map-zone-grabbing * {
     7px 9px 0 5px color-mix(in srgb, var(--c) 28%, transparent),
     var(--map-card-shadow);
 }
+/* ═══ Portails entre cartes (ui/portal.tsx) ═══════════════════════════════
+   Carte « portail » (pile de feuilles, miniature, Ouvrir), pastille « ← Revenir à… »,
+   sélecteur de cartes, rétroliens, badge « aussi dans N cartes » des extraits.
+   Jetons sur body : le sélecteur s'ouvre hors de .map-root (portail React). */
+body {
+  --portal-board: #5d6fa3;
+  --portal-book: #a0703d;
+  --portal-movement: #3f8a82;
+}
+:root[data-theme='dark'] body {
+  --portal-board: #93a5d8;
+  --portal-book: #d3a26e;
+  --portal-movement: #79c2b8;
+}
+.map-node.map-portal {
+  --c: var(--portal-board);
+  width: 268px;
+  padding: 12px 14px 12px;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--c) 7%, var(--bg-panel)) 0%, var(--bg-panel) 62%);
+  /* Une seconde feuille dépasse en bas à droite : « une autre carte, derrière celle-ci ». */
+  box-shadow:
+    5px 5px 0 -1px var(--bg-panel),
+    5px 5px 0 0 color-mix(in srgb, var(--c) 30%, var(--map-card-border)),
+    var(--map-card-shadow);
+}
+.map-node.map-portal:hover {
+  box-shadow:
+    5px 5px 0 -1px var(--bg-panel),
+    5px 5px 0 0 color-mix(in srgb, var(--c) 45%, var(--map-card-border)),
+    var(--map-card-shadow-hover);
+}
+.react-flow__node.selected .map-node.map-portal,
+.map-node.map-portal.sel {
+  box-shadow:
+    5px 5px 0 -1px var(--bg-panel),
+    5px 5px 0 0 color-mix(in srgb, var(--c) 45%, var(--map-card-border)),
+    0 0 0 2px var(--bg-page),
+    0 0 0 3.5px var(--map-ring),
+    var(--map-card-shadow-hover);
+}
+.map-portal-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 9px;
+  color: color-mix(in srgb, var(--c) 75%, var(--ink));
+}
+.map-portal-head .map-node-cat {
+  color: inherit;
+}
+.map-portal-body {
+  display: grid;
+  grid-template-columns: 92px 1fr;
+  gap: 11px;
+  align-items: center;
+}
+.map-portal-thumb {
+  height: 62px;
+  border-radius: 7px;
+  overflow: hidden;
+  display: grid;
+  place-items: center;
+  background: color-mix(in srgb, var(--c) 6%, var(--bg-page));
+  border: 1px solid color-mix(in srgb, var(--c) 18%, var(--map-card-border));
+}
+.map-portal-thumb .ws-doc-board {
+  margin-top: 0;
+  width: 100%;
+  height: 100%;
+}
+.map-portal-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.map-portal-title {
+  font-family: var(--font-read);
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.3;
+  color: var(--ink);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+}
+.map-portal-sub {
+  font-size: var(--fs-xs);
+  font-style: italic;
+  color: var(--ink-2);
+}
+.map-portal-meta {
+  font-size: var(--fs-xs);
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.map-portal-foot {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 10px;
+}
+.map-portal-open {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 24px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 999px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  color: color-mix(in srgb, var(--c) 80%, var(--ink));
+  background: color-mix(in srgb, var(--c) 13%, transparent);
+  cursor: pointer;
+  transition:
+    background var(--dur) var(--ease),
+    gap var(--dur) var(--ease);
+}
+.map-portal-open:hover {
+  background: color-mix(in srgb, var(--c) 22%, transparent);
+  gap: 7px;
+}
+.map-portal-open:focus-visible {
+  outline: 2px solid var(--map-ring);
+  outline-offset: 2px;
+}
+.map-node.map-portal.missing {
+  --c: var(--faint);
+  border-style: dashed;
+  background: var(--bg-panel);
+  box-shadow: var(--map-card-shadow);
+}
+.map-portal-missing {
+  margin: 0 0 4px;
+  font-weight: 600;
+  color: var(--ink-2);
+}
+.map-portal.missing .map-portal-meta {
+  margin: 0;
+  line-height: 1.4;
+}
+.map-minimap .mm-portal {
+  fill: color-mix(in srgb, var(--portal-board) 45%, var(--map-paper));
+}
+
+/* Pastille « ← Revenir à <carte> » */
+.map-portal-back {
+  position: absolute;
+  /* Sous la légende des relations (en haut à droite), pour ne jamais la chevaucher. */
+  top: 54px;
+  left: 50%;
+  translate: -50% 0;
+  z-index: 8;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: min(420px, calc(100% - 40px));
+  height: 30px;
+  padding: 0 14px 0 11px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--bg-panel) 92%, transparent);
+  backdrop-filter: blur(6px);
+  box-shadow: var(--shadow-md);
+  color: var(--ink-2);
+  font: inherit;
+  font-size: var(--fs-sm, 13px);
+  cursor: pointer;
+}
+.map-portal-back:hover {
+  background: var(--bg-hover);
+  color: var(--ink);
+}
+.map-portal-back b {
+  font-weight: 600;
+  color: var(--ink);
+  min-width: 0;
+}
+.map-portal-back-lbl {
+  white-space: nowrap;
+}
+
+/* Sélecteur « Lien vers une autre carte… » */
+.map-portal-picker {
+  width: 340px;
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  border: 1px solid var(--border);
+}
+.map-portal-picker-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 2px 4px;
+  color: var(--ink-2);
+  font-size: var(--fs-sm, 13px);
+}
+.map-portal-picker-search {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  height: 32px;
+  padding: 0 10px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--bg-page);
+  color: var(--muted);
+}
+.map-portal-picker-search:focus-within {
+  border-color: color-mix(in srgb, var(--focus) 60%, var(--border));
+}
+.map-portal-picker-search input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+}
+.map-portal-picker-list {
+  max-height: 300px;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.map-portal-picker-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.map-portal-picker-row.focused {
+  background: var(--bg-hover);
+}
+.map-portal-picker-ico {
+  --c: var(--portal-board);
+  flex: none;
+  width: 26px;
+  height: 26px;
+  display: grid;
+  place-items: center;
+  border-radius: 7px;
+  color: color-mix(in srgb, var(--c) 85%, var(--ink));
+  background: color-mix(in srgb, var(--c) 14%, transparent);
+}
+.map-portal-picker-ico[data-kind='book'] {
+  --c: var(--portal-book);
+}
+.map-portal-picker-ico[data-kind='movement'] {
+  --c: var(--portal-movement);
+}
+.map-portal-picker-txt {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.map-portal-picker-txt b {
+  font-weight: 600;
+  font-size: 13.5px;
+}
+.map-portal-picker-txt small {
+  color: var(--muted);
+  font-size: var(--fs-xs);
+}
+.map-portal-picker-empty {
+  padding: 10px 6px;
+  margin: 0;
+  font-size: var(--fs-sm, 13px);
+}
+
+/* Badge « aussi dans N cartes » (extraits posés sur plusieurs cartes) */
+.map-reuse-wrap {
+  position: absolute;
+  right: 12px;
+  bottom: -9px;
+  z-index: 2;
+}
+.map-reuse {
+  height: 18px;
+  padding: 0 8px;
+  border: 1px solid var(--map-card-border);
+  border-radius: 999px;
+  background: var(--bg-panel);
+  color: var(--muted);
+  font: inherit;
+  font-size: 10.5px;
+  letter-spacing: 0.01em;
+  line-height: 16px;
+  cursor: pointer;
+  opacity: 0.85;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
+  transition:
+    opacity var(--dur) var(--ease),
+    color var(--dur) var(--ease),
+    border-color var(--dur) var(--ease);
+}
+.map-node:hover .map-reuse,
+.map-reuse:hover,
+.map-reuse:focus-visible {
+  opacity: 1;
+  color: var(--ink-2);
+  border-color: var(--border-strong);
+}
+/* ═══ fin Portails ═══ */

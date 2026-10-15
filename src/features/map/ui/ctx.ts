@@ -18,6 +18,8 @@ export interface MapUiCtx {
   openEdge(id: string, x: number, y: number): void;
   hoverEdge(id: string | null): void;
   jump(highlightId: string): void;
+  /** Clé de la carte affichée (portails, badge « aussi dans N cartes »). */
+  mapKey?: string;
 }
 export const MapCtx = createContext<MapUiCtx | null>(null);
 export const useMapCtx = () => useContext(MapCtx) as MapUiCtx;

@@ -26,7 +26,7 @@ import '@fontsource/caveat/400.css';
 import '@fontsource/caveat/600.css';
 import { useShallow } from 'zustand/react/shallow';
 import { CircleHelp, Crosshair, Orbit } from 'lucide-react';
-import { BookOpen, ChevronsDownUp, ChevronsUpDown, Copy, CornerDownRight, Lightbulb, Map as MapIcon, Maximize2, Palette, PanelLeft, Pencil, ScanSearch, Star, Trash2, Wand2, X, AlignStartVertical, MousePointer2, Group, History } from 'lucide-react';
+import { BookOpen, ChevronsDownUp, ChevronsUpDown, Copy, CornerDownRight, Lightbulb, Map as MapIcon, Maximize2, Palette, PanelLeft, Pencil, ScanSearch, Star, Trash2, Wand2, Waypoints, X, AlignStartVertical, MousePointer2, Group, History } from 'lucide-react';
 import { ContextMenu, type MenuEntry } from '../workspaces/wsUi';
 import { separateUndoStep, uid, useStore } from '../../lib/store';
 import { RELATIONS, kindLabel, type ExtractKind } from '../../lib/categories';
@@ -61,6 +61,8 @@ import { addCenter, layoutRootId, mapCenter, relationToward, setNodeCenter, type
 import { foldAll, toggleFold, unfoldAll, unfoldTo } from './model/fold';
 import { CENTER_W, centerBarEntries, centerNodeEntries, poseCenterEntries } from './ui/center';
 import { FOLD_KEYS, foldAllEntries, foldNodeEntries, useFoldView } from './ui/fold';
+import { BacklinksButton, MapPicker, PortalBackPill, PortalToolButton, portalMenuEntries, useBacklinkCount, type PortalData } from './ui/portal';
+import { portalNode } from './model/portals';
 import './map.css';
 
 const EMPTY_MAP: ArgumentMap = { bookId: '', nodes: [], edges: [], viewport: null };
@@ -297,16 +299,18 @@ function Inner({ source, tools }: { source: MapSource; tools?: MapToolbarItem[] 
         return {
           ...(o ?? {}),
           id: n.id,
-          type: n.highlightId ? 'extract' : n.kind ? 'center' : 'idea',
+          type: n.portal ? 'portal' : n.highlightId ? 'extract' : n.kind ? 'center' : 'idea',
           position: { x: n.x, y: n.y },
           className: [glide.has(n.id) ? 'map-glide' : '', marks.get(n.id) ?? '', flash === n.id ? 'map-flash' : '', fold?.folded ? 'map-folded' : ''].filter(Boolean).join(' ') || undefined,
           hidden: hidden.has(n.id),
           selected: hasWant ? n.id === want : !hidden.has(n.id) && (o?.selected ?? false),
-          data: n.highlightId
-            ? ({ highlight: h, central, collapsed: n.collapsed, book: h ? bookTags.get(h.bookId) : undefined, fold } as ExtractData)
-            : n.kind
-              ? { text: n.text, kind: n.kind, fold }
-              : ({ text: n.text, central, color: n.color, fold } as IdeaData),
+          data: n.portal
+            ? ({ portal: n.portal, central, fold } as PortalData)
+            : n.highlightId
+              ? ({ highlight: h, central, collapsed: n.collapsed, book: h ? bookTags.get(h.bookId) : undefined, fold } as ExtractData)
+              : n.kind
+                ? { text: n.text, kind: n.kind, fold }
+                : ({ text: n.text, central, color: n.color, fold } as IdeaData),
         } as Node;
       });
     });
@@ -465,6 +469,20 @@ function Inner({ source, tools }: { source: MapSource; tools?: MapToolbarItem[] 
 
   const addIdea = () => newIdea(freePosition());
 
+  // ── Portails vers d'autres cartes (ui/portal.tsx) ──
+  const [portalPick, setPortalPick] = useState<{ x: number; y: number; at?: Pt; retarget?: string } | null>(null);
+  const backlinkCount = useBacklinkCount(key);
+  const placePortal = useCallback(
+    (target: string, title: string, at?: Pt, retarget?: string) => {
+      if (retarget) return mutate((m) => ({ ...m, nodes: m.nodes.map((n) => (n.id === retarget ? { ...n, portal: target, text: title } : n)) }));
+      const id = uid();
+      pendingSelect.current = id;
+      mutate((m) => ({ ...m, nodes: [...m.nodes, portalNode(target, at ?? freePosition(), id, title)] }));
+      later(() => reveal(id), 90);
+    },
+    [mutate, freePosition, reveal],
+  );
+
   /** Tab : carte « enfant » placée dessous, qui soutient la carte choisie. */
   const addChild = useCallback(
     (parentId: string) => {
@@ -519,6 +537,7 @@ function Inner({ source, tools }: { source: MapSource; tools?: MapToolbarItem[] 
       },
       hoverEdge: setHoverEdge,
       jump: (hid) => jumpToHighlight(hid),
+      mapKey: key,
     }),
     [editingId, mutate, jumpToHighlight, bookId, addChild],
   );
@@ -1131,7 +1150,9 @@ function Inner({ source, tools }: { source: MapSource; tools?: MapToolbarItem[] 
     const mapNode = m.nodes.find((n) => n.id === node.id);
     const entries: MenuEntry[] = [];
     if (group.length === 1 && mapNode) {
-      if (mapNode.highlightId) {
+      if (mapNode.portal) {
+        entries.push(...portalMenuEntries(key, mapNode.portal, () => setPortalPick({ x: e.clientX, y: e.clientY, retarget: node.id })));
+      } else if (mapNode.highlightId) {
         const hid = mapNode.highlightId;
         entries.push({ label: 'Ouvrir dans le livre', icon: <BookOpen size={14} />, onClick: () => jumpToHighlight(hid) });
         const long = !!document.querySelector(`.react-flow__node[data-id="${CSS.escape(node.id)}"] .map-node.long`);
@@ -1189,6 +1210,7 @@ function Inner({ source, tools }: { source: MapSource; tools?: MapToolbarItem[] 
     const has = map.nodes.length > 0;
     const entries: MenuEntry[] = [{ label: 'Nouvelle idée ici', icon: <Lightbulb size={14} />, hint: 'double-clic', onClick: () => newIdea({ x: at.x - NODE_W / 2, y: at.y - 40 }) }];
     if (!centerNode) entries.push(...poseCenterEntries((k) => poseCenter(k, { x: at.x - CENTER_W / 2, y: at.y - 50 }), ' ici'));
+    entries.push({ label: 'Lien vers une autre carte…', icon: <Waypoints size={14} />, onClick: () => setPortalPick({ x: e.clientX, y: e.clientY, at: { x: at.x - 130, y: at.y - 40 } }) });
     if (has) {
       entries.push({ label: 'Ranger', icon: <Wand2 size={14} />, children: layoutEntries() });
       entries.push(...foldAllEntries(folds.info, () => onFoldAll(true), () => onFoldAll(false)));
@@ -1240,11 +1262,14 @@ function Inner({ source, tools }: { source: MapSource; tools?: MapToolbarItem[] 
     ),
   });
   if (tools) toolbarItems.push(...tools);
+  toolbarItems.push({ id: 'portal-link', order: 30, group: 'portal', node: <PortalToolButton onOpen={(x, y) => setPortalPick({ x, y })} /> });
+  if (backlinkCount) toolbarItems.push({ id: 'backlinks', order: 31, group: 'portal', node: <BacklinksButton mapKey={key} /> });
   if (gaps.total) toolbarItems.push({ id: 'gaps', order: 90, group: 'gaps', node: <GapsPill total={gaps.total} open={sidePanel === 'gaps'} onClick={() => setSidePanel((p) => (p === 'gaps' ? null : 'gaps'))} /> });
 
   const miniClass = (n: Node) => {
     if (n.type === 'idea') return 'mm-idea';
     if (n.type === 'center') return 'mm-center';
+    if (n.type === 'portal') return 'mm-portal';
     const h = (n.data as ExtractData).highlight;
     const c = h ? (h.category ?? (h.plain ? 'plain' : 'note')) : 'note';
     return `mm-${c}${(n.data as ExtractData).central ? ' mm-central' : ''}`;
@@ -1387,6 +1412,16 @@ function Inner({ source, tools }: { source: MapSource; tools?: MapToolbarItem[] 
           </button>
         )}
 
+        <PortalBackPill mapKey={key} />
+        {portalPick && (
+          <MapPicker
+            x={portalPick.x}
+            y={portalPick.y}
+            exceptKey={key}
+            onPick={(target, title) => placePortal(target, title, portalPick.at, portalPick.retarget)}
+            onClose={() => setPortalPick(null)}
+          />
+        )}
         {nodeMenu && <ContextMenu x={nodeMenu.x} y={nodeMenu.y} entries={nodeMenu.entries} label={nodeMenu.label} onClose={() => setNodeMenu(null)} />}
         {!empty && !sidePanel && (
           <div className="map-legend anim-fade" aria-label="Relations">

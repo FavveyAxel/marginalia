@@ -73,6 +73,8 @@ export interface SvgOpts {
   sizes?: SizeMap;
   title?: string;
   padding?: number;
+  /** Portails : titre et nature actuels de la carte cible (null : introuvable). Sinon : texte mémorisé. */
+  portalInfo?: (key: string) => { title: string; kind: string } | null;
 }
 
 export interface SvgResult {
@@ -95,7 +97,8 @@ export function mapToSvg(map: ArgumentMap, lk: MapLookup, opts: SvgOpts = {}): S
   const zones = map.zones ?? [];
   const multiBook = mapKindOf(map) === 'board';
 
-  const textOf = new Map(nodes.map((n) => [n.id, nodeText(n, lk)]));
+  const portalOf = (n: MapNode) => (n.portal ? (opts.portalInfo ? opts.portalInfo(n.portal) : { title: clean(n.text) || 'Carte', kind: 'Carte' }) : null);
+  const textOf = new Map(nodes.map((n) => [n.id, n.portal ? (portalOf(n)?.title ?? 'Carte introuvable') : nodeText(n, lk)]));
   const rect = new Map<string, Rect>(nodes.map((n) => [n.id, isCenter(n) ? centerRect(n, textOf.get(n.id)!, opts.sizes) : nodeRect(n, textOf.get(n.id)!, opts.sizes)]));
   const zoneRect = (z: MapZone): Rect => (z.collapsed ? { x: z.x, y: z.y, w: z.w, h: ZONE_BAR } : z);
   const bb = unionRects([...rect.values(), ...zones.map(zoneRect)]) ?? { x: 0, y: 0, w: 400, h: 200 };
@@ -147,7 +150,7 @@ export function mapToSvg(map: ArgumentMap, lk: MapLookup, opts: SvgOpts = {}): S
     const f = n.folded ? folds.get(n.id) : undefined;
     const badge = f?.count ? foldBadgeSvg(r, f.count) : null;
     if (badge) out.push(badge.behind);
-    out.push(isCenter(n) ? centerNodeSvg(n, r, textOf.get(n.id)!) : nodeSvg(n, r, textOf.get(n.id)!, lk, multiBook, n.id === map.centralId));
+    out.push(n.portal ? portalSvg(n, r, portalOf(n)) : isCenter(n) ? centerNodeSvg(n, r, textOf.get(n.id)!) : nodeSvg(n, r, textOf.get(n.id)!, lk, multiBook, n.id === map.centralId));
     if (badge) out.push(badge.front);
   }
   out.push('</g>');
@@ -233,4 +236,19 @@ function tint(hex: string): string {
   const v = [0, 2, 4].map((i) => parseInt(full.slice(i, i + 2), 16));
   if (v.some((x) => Number.isNaN(x))) return POSTIT;
   return '#' + v.map((x) => Math.round(x + (255 - x) * 0.85).toString(16).padStart(2, '0')).join('');
+}
+
+/** Carte « portail » : cadre doublé (une pile de feuilles), « PORTAIL · nature », titre de la carte cible. */
+function portalSvg(n: MapNode, r: Rect, info: { title: string; kind: string } | null): string {
+  const accent = '#5b6b8c';
+  const lines = wrapText(info ? `→ ${info.title}` : 'Carte introuvable', undefined, 3);
+  const tx = r.x + 16;
+  const tspans = lines.map((l, i) => `<tspan x="${r1(tx)}" y="${r1(r.y + 46 + i * LINE_H)}">${xml(l)}</tspan>`).join('');
+  return (
+    `<g class="node portal" data-id="${xml(n.id)}" data-portal="${xml(n.portal ?? '')}">` +
+    `<rect x="${r1(r.x + 5)}" y="${r1(r.y + 5)}" width="${r1(r.w)}" height="${r1(r.h)}" rx="10" fill="${CARD}" stroke="${BORDER}" stroke-width="1"/>` +
+    `<rect x="${r1(r.x)}" y="${r1(r.y)}" width="${r1(r.w)}" height="${r1(r.h)}" rx="10" fill="${CARD}" stroke="${accent}" stroke-width="1.2"${info ? '' : ' stroke-dasharray="5 4"'}/>` +
+    `<text x="${r1(tx)}" y="${r1(r.y + 24)}" font-family="${xml(FONT_UI)}" font-size="11" font-weight="bold" letter-spacing="0.4" fill="${accent}">${xml(('Portail · ' + (info?.kind ?? 'carte')).toUpperCase())}</text>` +
+    `<text font-size="15" font-weight="bold" fill="${info ? INK : MUTED}">${tspans}</text></g>`
+  );
 }

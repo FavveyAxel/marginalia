@@ -241,6 +241,8 @@ export interface MapNode {
   kind?: 'question' | 'subject';
   /** Branche repliée (carte mentale) : ses descendantes sont masquées, pas supprimées. Voir model/fold.ts. */
   folded?: boolean;
+  /** Portail : clé (dans `maps`) de la carte vers laquelle cette carte mène. Absent : carte ordinaire. */
+  portal?: string;
 }
 
 /** Force d'un lien (1 faible, 2 normal, 3 fort). Absent : normal. */

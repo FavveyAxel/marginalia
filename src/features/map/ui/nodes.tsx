@@ -10,6 +10,7 @@ import { locatorOf } from '../../../lib/citation';
 import { roleLabel, useMapCtx, type ExtractData, type IdeaData } from './ctx';
 import { CenterNode } from './center';
 import { FoldToggle, type FoldData } from './fold';
+import { PortalNode, ReuseBadge } from './portal';
 
 const sides: [Position, string][] = [
   [Position.Top, 't'],
@@ -121,6 +122,7 @@ export function ExtractNode({ id, data, selected }: NodeProps) {
           ))}
         </div>
       )}
+      <ReuseBadge highlightId={h.id} mapKey={ctx.mapKey} />
       <Handles />
       <FoldToggle fold={(data as { fold?: FoldData }).fold} />
     </div>
@@ -198,4 +200,4 @@ export function IdeaNode({ id, data, selected }: NodeProps) {
   );
 }
 
-export const nodeTypes = { extract: ExtractNode, idea: IdeaNode, center: CenterNode };
+export const nodeTypes = { extract: ExtractNode, idea: IdeaNode, center: CenterNode, portal: PortalNode };

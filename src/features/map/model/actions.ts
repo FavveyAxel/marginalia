@@ -67,6 +67,7 @@ import { guidedReading, type GuidedStep } from './guided';
 import { svgToPdf, svgToPng } from './image';
 import { findMovementMap, movementCandidates, movementMapKey, movementRange, movementTitle } from './movements';
 import { mapToSvg, type SvgOpts, type SvgResult } from './svg';
+import { PORTAL_KIND_LABEL, portalTarget } from './portals';
 import { lightMap, makeVersion, pruneVersions, restoredMap, versionsOf } from './versions';
 import { collapseZone, createZoneAround, expandZone, moveZone, removeZone, resizeZone, updateZone, type CreateZoneOpts } from './zones';
 
@@ -288,7 +289,11 @@ export function candidatesOf(key: string): Highlight[] {
 export function exportSvg(key: string, opts: SvgOpts = {}): SvgResult {
   const m = readMap(key);
   const lk = lookup();
-  return mapToSvg(m, lk, { title: mapDisplayTitle(m, lk), ...opts });
+  const portalInfo = (k: string) => {
+    const t = portalTarget(S().maps, k, lk);
+    return t ? { title: t.title, kind: PORTAL_KIND_LABEL[t.kind] } : null;
+  };
+  return mapToSvg(m, lk, { title: mapDisplayTitle(m, lk), portalInfo, ...opts });
 }
 export async function exportPng(key: string, scale = 2, opts: SvgOpts = {}): Promise<ArrayBuffer> {
   const r = exportSvg(key, opts);

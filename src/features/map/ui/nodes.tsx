@@ -8,6 +8,8 @@ import { useStore } from '../../../lib/store';
 import { NOTE_KIND_BY_ID, kindColor } from '../../../lib/categories';
 import { locatorOf } from '../../../lib/citation';
 import { roleLabel, useMapCtx, type ExtractData, type IdeaData } from './ctx';
+import { CenterNode } from './center';
+import { FoldToggle, type FoldData } from './fold';
 
 const sides: [Position, string][] = [
   [Position.Top, 't'],
@@ -120,6 +122,7 @@ export function ExtractNode({ id, data, selected }: NodeProps) {
         </div>
       )}
       <Handles />
+      <FoldToggle fold={(data as { fold?: FoldData }).fold} />
     </div>
   );
 }
@@ -190,8 +193,9 @@ export function IdeaNode({ id, data, selected }: NodeProps) {
         <p className={`map-idea-text ${text ? '' : 'placeholder'}`}>{text || 'Double-clic pour écrire'}</p>
       )}
       <Handles />
+      <FoldToggle fold={(data as { fold?: FoldData }).fold} />
     </div>
   );
 }
 
-export const nodeTypes = { extract: ExtractNode, idea: IdeaNode };
+export const nodeTypes = { extract: ExtractNode, idea: IdeaNode, center: CenterNode };

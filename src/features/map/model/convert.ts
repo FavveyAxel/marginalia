@@ -7,6 +7,9 @@
 //   précisions, exemples → sous-parties ; objections et réponses → dernière partie « Discussion » ;
 //   chaque carte apporte son extrait (élément { kind: 'highlight' }) ou son texte (élément 'text') ;
 //   la note d'un lien devient l'idée directrice de la (sous-)partie.
+//   Centre de la carte (center.ts) : la problématique devient la problématique du plan, le sujet
+//   devient le sujet (et le thème du titre) ; les thèses qui répondent au centre (ou s'y
+//   rattachent) deviennent les parties, leurs arguments les sous-parties.
 //
 // Carte → écrit : brouillon d'explication de texte (HTML de CreateDraftOptions), dans l'ordre de
 //   la lecture guidée. Chaque extrait est cité « … » dans un <blockquote>, avec sa référence en note
@@ -24,6 +27,7 @@ import { formatFootnote } from '../../../lib/citation';
 import { esc } from '../../study/studyUtils';
 import { clean, defaultId, highlightOf, mapKindOf, nodeText, type IdFn, type MapLookup } from './core';
 import { guidedReading, type GuidedStep } from './guided';
+import { mapCenter } from './center';
 
 export function mapDisplayTitle(map: ArgumentMap, lk: MapLookup): string {
   if (map.title?.trim()) return map.title.trim();
@@ -64,8 +68,11 @@ export function mapToPlan(map: ArgumentMap, lk: MapLookup, opts: MapToPlanOpts =
   const item = (s: GuidedStep) => ({ id: id(), ref: refOf(s) });
   const pnode = (title: string, note: string, items: PlanNode['items'] = [], children: PlanNode[] = []): PlanNode => ({ id: id(), title, note, items, children });
 
+  const center = mapCenter(map);
+  const centerText = center ? clean(center.text) : '';
+  const fromCenter = (s: GuidedStep) => !!center && s.parentId === center.id;
   const problems = steps.filter((s) => s.role === 'probleme');
-  const theses = steps.filter((s) => s.role === 'these');
+  const theses = steps.filter((s) => s.role === 'these' && !fromCenter(s));
   const parts: PlanNode[] = [];
   const nodeOfStep = new Map<string, PlanNode>();
   const discussion: PlanNode[] = [];
@@ -73,10 +80,21 @@ export function mapToPlan(map: ArgumentMap, lk: MapLookup, opts: MapToPlanOpts =
 
   for (const s of steps) {
     switch (s.role) {
+      case 'these': {
+        // Thèse qui répond à la problématique (ou se rattache au sujet) : une partie du plan.
+        if (!fromCenter(s)) break;
+        const p = pnode(shortTitle(textOf(s)), noteOf(map, s), [item(s)]);
+        parts.push(p);
+        nodeOfStep.set(s.nodeId, p);
+        break;
+      }
       case 'argument':
       case 'opposition': {
         const p = pnode(shortTitle(textOf(s)), noteOf(map, s), [item(s)]);
-        parts.push(p);
+        // Argument d'une thèse-partie : sous-partie ; sinon, une partie.
+        const parent = s.role === 'argument' && s.parentId ? nodeOfStep.get(s.parentId) : null;
+        if (parent) parent.children.push(p);
+        else parts.push(p);
         nodeOfStep.set(s.nodeId, p);
         break;
       }
@@ -118,13 +136,15 @@ export function mapToPlan(map: ArgumentMap, lk: MapLookup, opts: MapToPlanOpts =
   if (rest.length) parts.push(pnode('Idées à intégrer', 'Cartes restantes de la carte d’argument, à répartir dans le plan.', rest));
 
   const these = theses.map(textOf).join(' ');
-  const title = opts.title?.trim() || `Plan — ${mapDisplayTitle(map, lk)}`;
+  const theme = center?.kind === 'subject' && centerText ? centerText : mapDisplayTitle(map, lk);
+  const title = opts.title?.trim() || `Plan — ${theme}`;
+  const sujet = [center?.kind === 'subject' ? centerText : '', ...problems.map(textOf)].filter(Boolean).join(' ');
   return {
     id: id(),
     title,
-    sujet: problems.map(textOf).join(' '),
+    sujet,
     definitions: '',
-    problematique: these,
+    problematique: center?.kind === 'question' && centerText ? centerText : these,
     parts,
     conclusion: '',
     draftId: null,
@@ -143,7 +163,11 @@ export interface MapToDraftOpts {
 export function mapToDraftHtml(map: ArgumentMap, lk: MapLookup, opts: MapToDraftOpts = {}): { title: string; html: string; citedHighlightIds: string[] } {
   const steps = guidedReading(map, lk);
   const byId = new Map(map.nodes.map((n) => [n.id, n]));
-  const title = opts.title?.trim() || `Explication — ${mapDisplayTitle(map, lk)}`;
+  const center = mapCenter(map);
+  const centerText = center ? clean(center.text) : '';
+  const fromCenter = (s: GuidedStep) => !!center && s.parentId === center.id;
+  const theme = center?.kind === 'subject' && centerText ? centerText : mapDisplayTitle(map, lk);
+  const title = opts.title?.trim() || `Explication — ${theme}`;
   const cited: string[] = [];
   const out: string[] = [`<h1>${esc(title)}</h1>`];
 
@@ -169,15 +193,25 @@ export function mapToDraftHtml(map: ArgumentMap, lk: MapLookup, opts: MapToDraft
     out.push('<p>[Expliquer : ce que dit le passage, comment il le dit, pourquoi.]</p>');
   };
 
-  const intro = steps.filter((s) => s.role === 'probleme' || s.role === 'these');
+  const isIntro = (s: GuidedStep) => s.role === 'problematique' || s.role === 'sujet' || s.role === 'probleme' || (s.role === 'these' && !fromCenter(s));
+  const intro = steps.filter(isIntro);
   out.push('<h2>Introduction</h2>');
   if (!intro.length) out.push('<p>[Situer le texte, dégager son problème et sa thèse.]</p>');
-  for (const s of intro) block(s);
-  const body = steps.filter((s) => s.role !== 'probleme' && s.role !== 'these' && s.role !== 'reste');
+  for (const s of intro) {
+    if (s.role === 'problematique' || s.role === 'sujet') {
+      // Le centre de la carte : la question posée (ou le thème), en tête de l'introduction.
+      out.push(`<p><em>${esc(s.caption)}.</em></p>`);
+      out.push(`<p><strong>${esc(centerText || (s.role === 'problematique' ? '[La problématique]' : '[Le sujet]'))}</strong></p>`);
+    } else block(s);
+  }
+  const body = steps.filter((s) => !isIntro(s) && s.role !== 'reste');
+  const centerTheses = new Set(body.filter((s) => s.role === 'these').map((s) => s.nodeId));
   if (body.length) out.push('<h2>Développement</h2>');
   for (const s of body) {
-    const top = s.role === 'argument' || s.role === 'objection' || s.role === 'opposition';
-    block(s, top ? `<h3>${esc(s.label.charAt(0).toUpperCase() + s.label.slice(1))}</h3>` : undefined);
+    const top = s.role === 'argument' || s.role === 'objection' || s.role === 'opposition' || s.role === 'these';
+    // Argument d'une thèse qui répond au centre : un niveau sous la thèse.
+    const h = s.role === 'argument' && s.parentId && centerTheses.has(s.parentId) ? 'h4' : 'h3';
+    block(s, top ? `<${h}>${esc(s.label.charAt(0).toUpperCase() + s.label.slice(1))}</${h}>` : undefined);
   }
   const rest = steps.filter((s) => s.role === 'reste');
   if (rest.length) {

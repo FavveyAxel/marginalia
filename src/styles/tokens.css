@@ -92,6 +92,7 @@
   --rel-oppose: #8a6a3b;
   --rel-precise: #3d7be0;
   --rel-illustre: #8c63d9;
+  --rel-rattache: #4f8f9c;
 
   color-scheme: light;
 }
@@ -153,6 +154,7 @@
   --rel-oppose: #c9a46e;
   --rel-precise: #6b9cf5;
   --rel-illustre: #a98af0;
+  --rel-rattache: #6fb7c4;
 
   color-scheme: dark;
 }

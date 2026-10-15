@@ -11,7 +11,7 @@ export type CategoryId = 'probleme' | 'these' | 'argument' | 'objection' | 'conc
 export type NoteKind = 'reformulation' | 'question' | 'critique' | 'presuppose';
 
 /** Relations de la carte d'argument. */
-export type RelationId = 'soutient' | 'objecte' | 'precise' | 'illustre' | 'repond' | 'oppose';
+export type RelationId = 'soutient' | 'objecte' | 'precise' | 'illustre' | 'repond' | 'oppose' | 'rattache';
 
 /** Édition de référence d'un document (pour les citations). */
 export interface Edition {
@@ -234,6 +234,13 @@ export interface MapNode {
   conceptId?: string;
   /** Carte copiée depuis une autre carte : clé de la carte et id de la carte d'origine. */
   from?: { mapKey: string; nodeId: string };
+  /**
+   * Centre de la carte (facultatif) : 'question' = problématique (« Peut-on avoir le droit de mentir ? »),
+   * 'subject' = sujet, thème à explorer (« Le mensonge »). Texte dans `text`. Absent : carte ordinaire.
+   */
+  kind?: 'question' | 'subject';
+  /** Branche repliée (carte mentale) : ses descendantes sont masquées, pas supprimées. Voir model/fold.ts. */
+  folded?: boolean;
 }
 
 /** Force d'un lien (1 faible, 2 normal, 3 fort). Absent : normal. */

@@ -81,6 +81,8 @@ export const RELATIONS: RelationDef[] = [
   { id: 'repond', label: 'répond à', dashed: false, cssVar: '--rel-repond' },
   { id: 'precise', label: 'précise', dashed: false, cssVar: '--rel-precise' },
   { id: 'illustre', label: 'illustre', dashed: true, cssVar: '--rel-illustre' },
+  // Carte mentale : une idée se rattache au sujet au centre de la carte (voir map/model/center.ts).
+  { id: 'rattache', label: 'se rattache à', dashed: false, cssVar: '--rel-rattache' },
 ];
 
 export const RELATION_BY_ID: Record<RelationId, RelationDef> = Object.fromEntries(

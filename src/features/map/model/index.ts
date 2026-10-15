@@ -12,6 +12,8 @@
 //   movements.ts  17. carte d'un mouvement de fiche-texte
 //   svg.ts        18. export SVG autonome ; image.ts : PNG (canvas ×2), PDF (host.printToPdf)
 //   versions.ts   19. instantanés
+//   center.ts     centre de la carte : problématique ou sujet
+//   fold.ts       replier / déplier des branches (carte mentale)
 //   actions.ts    les mêmes fonctions branchées sur le store (annulables, corbeille)
 //
 // Les fichiers purs (tous sauf image.ts et actions.ts) ne dépendent ni du store ni du DOM.
@@ -27,3 +29,5 @@ export * from './convert';
 export * from './movements';
 export * from './svg';
 export * from './versions';
+export * from './center';
+export * from './fold';

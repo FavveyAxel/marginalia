@@ -1,6 +1,6 @@
 // Barre d'outils flottante de la carte : idée, rangement automatique, outil de sélection, cadrage.
 import { Fragment, useEffect, useRef, useState, type ReactNode } from 'react';
-import { ChevronDown, GitFork, Lightbulb, ListOrdered, Maximize2, Columns2, ScanSearch, SquareDashedMousePointer, Wand2 } from 'lucide-react';
+import { ChevronDown, GitFork, Orbit, Lightbulb, ListOrdered, Maximize2, Columns2, ScanSearch, SquareDashedMousePointer, Wand2 } from 'lucide-react';
 import { fmtKeys } from '../../../lib/keys';
 import { LAYOUTS, type LayoutKind } from './layouts';
 
@@ -8,6 +8,7 @@ const LAYOUT_ICON: Record<LayoutKind, JSX.Element> = {
   arbre: <GitFork size={15} style={{ transform: 'rotate(180deg)' }} />,
   debat: <Columns2 size={15} />,
   chrono: <ListOrdered size={15} />,
+  radial: <Orbit size={15} />,
 };
 
 /**

@@ -20,6 +20,9 @@ import { locatorOf } from '../../../lib/citation';
 import { clean, highlightOf, mapKindOf, nodeText, type MapLookup } from './core';
 import { LINE_H, nodeRect, unionRects, wrapText, type Rect, type SizeMap } from './geometry';
 import { hiddenNodeIds } from './zones';
+import { isCenter } from './center';
+import { foldHiddenIds, foldInfo } from './fold';
+import { centerNodeSvg, centerRect, foldBadgeSvg } from './svgCenter';
 
 /** Valeurs du thème clair (src/styles/tokens.css). */
 export const LIGHT_COLORS: Record<string, string> = {
@@ -36,6 +39,7 @@ export const LIGHT_COLORS: Record<string, string> = {
   '--rel-repond': '#c8693a',
   '--rel-precise': '#3d7be0',
   '--rel-illustre': '#8c63d9',
+  '--rel-rattache': '#4f8f9c',
 };
 const INK = '#1d1a15';
 const MUTED = '#6f675a';
@@ -82,7 +86,9 @@ const ZONE_BAR = 44;
 
 export function mapToSvg(map: ArgumentMap, lk: MapLookup, opts: SvgOpts = {}): SvgResult {
   const pad = opts.padding ?? 40;
-  const hidden = hiddenNodeIds(map);
+  // Cartes masquées : zones repliées et branches repliées (la carte s'exporte telle qu'on la voit).
+  const hidden = new Set([...hiddenNodeIds(map), ...foldHiddenIds(map)]);
+  const folds = foldInfo(map);
   const nodes = map.nodes.filter((n) => !hidden.has(n.id));
   const shown = new Set(nodes.map((n) => n.id));
   const edges = map.edges.filter((e) => shown.has(e.source) && shown.has(e.target));
@@ -90,7 +96,7 @@ export function mapToSvg(map: ArgumentMap, lk: MapLookup, opts: SvgOpts = {}): S
   const multiBook = mapKindOf(map) === 'board';
 
   const textOf = new Map(nodes.map((n) => [n.id, nodeText(n, lk)]));
-  const rect = new Map<string, Rect>(nodes.map((n) => [n.id, nodeRect(n, textOf.get(n.id)!, opts.sizes)]));
+  const rect = new Map<string, Rect>(nodes.map((n) => [n.id, isCenter(n) ? centerRect(n, textOf.get(n.id)!, opts.sizes) : nodeRect(n, textOf.get(n.id)!, opts.sizes)]));
   const zoneRect = (z: MapZone): Rect => (z.collapsed ? { x: z.x, y: z.y, w: z.w, h: ZONE_BAR } : z);
   const bb = unionRects([...rect.values(), ...zones.map(zoneRect)]) ?? { x: 0, y: 0, w: 400, h: 200 };
   const titleH = opts.title ? 48 : 0;
@@ -136,7 +142,14 @@ export function mapToSvg(map: ArgumentMap, lk: MapLookup, opts: SvgOpts = {}): S
 
   // Cartes.
   out.push('<g class="nodes">');
-  for (const n of nodes) out.push(nodeSvg(n, rect.get(n.id)!, textOf.get(n.id)!, lk, multiBook, n.id === map.centralId));
+  for (const n of nodes) {
+    const r = rect.get(n.id)!;
+    const f = n.folded ? folds.get(n.id) : undefined;
+    const badge = f?.count ? foldBadgeSvg(r, f.count) : null;
+    if (badge) out.push(badge.behind);
+    out.push(isCenter(n) ? centerNodeSvg(n, r, textOf.get(n.id)!) : nodeSvg(n, r, textOf.get(n.id)!, lk, multiBook, n.id === map.centralId));
+    if (badge) out.push(badge.front);
+  }
   out.push('</g>');
 
   out.push('</g></svg>');

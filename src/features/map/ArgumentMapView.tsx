@@ -25,6 +25,7 @@ import '@xyflow/react/dist/style.css';
 import '@fontsource/caveat/400.css';
 import '@fontsource/caveat/600.css';
 import { useShallow } from 'zustand/react/shallow';
+import { CircleHelp, Crosshair, Orbit } from 'lucide-react';
 import { BookOpen, ChevronsDownUp, ChevronsUpDown, Copy, CornerDownRight, Lightbulb, Map as MapIcon, Maximize2, Palette, PanelLeft, Pencil, ScanSearch, Star, Trash2, Wand2, X, AlignStartVertical, MousePointer2, Group, History } from 'lucide-react';
 import { ContextMenu, type MenuEntry } from '../workspaces/wsUi';
 import { separateUndoStep, uid, useStore } from '../../lib/store';
@@ -55,6 +56,11 @@ import type { MapZone } from '../../lib/types';
 import { PASSAGE_TYPE, dropPassage, isPassageDrag, usePassagePlacer } from './ui/passage/passage';
 import { useMovementPriority } from './ui/movement/movement';
 import { useBarOverlap } from './ui/useBarOverlap';
+// Centre (problématique / sujet) et replis de branches (carte mentale).
+import { addCenter, layoutRootId, mapCenter, relationToward, setNodeCenter, type CenterKind } from './model/center';
+import { foldAll, toggleFold, unfoldAll, unfoldTo } from './model/fold';
+import { CENTER_W, centerBarEntries, centerNodeEntries, poseCenterEntries } from './ui/center';
+import { FOLD_KEYS, foldAllEntries, foldNodeEntries, useFoldView } from './ui/fold';
 import './map.css';
 
 const EMPTY_MAP: ArgumentMap = { bookId: '', nodes: [], edges: [], viewport: null };
@@ -92,7 +98,7 @@ function textKey(h: Highlight): number {
 }
 
 const sizeOf = (n: Node | undefined) => ({
-  w: n?.measured?.width ?? ((n?.data as { central?: boolean } | undefined)?.central ? CENTRAL_W : NODE_W),
+  w: n?.measured?.width ?? (n?.type === 'center' ? CENTER_W : (n?.data as { central?: boolean } | undefined)?.central ? CENTRAL_W : NODE_W),
   h: n?.measured?.height ?? NODE_H,
 });
 const boxOf = (n: Node): Box => ({ id: n.id, x: n.position.x, y: n.position.y, ...sizeOf(n) });
@@ -253,6 +259,8 @@ function Inner({ source, tools }: { source: MapSource; tools?: MapToolbarItem[] 
   // Thèse centrale : marquée explicitement, sinon la première thèse posée.
   const centralId = useMemo(() => {
     if (map.centralId && map.nodes.some((n) => n.id === map.centralId)) return map.centralId;
+    // Une carte qui a un centre (problématique / sujet) n'élit pas d'office de thèse centrale.
+    if (map.nodes.some((n) => n.kind)) return null;
     return map.nodes.find((n) => n.highlightId && hlById.get(n.highlightId)?.category === 'these')?.id ?? null;
   }, [map.centralId, map.nodes, hlById]);
 
@@ -263,7 +271,11 @@ function Inner({ source, tools }: { source: MapSource; tools?: MapToolbarItem[] 
     return out;
   }, [rf]);
   /** Cartes masquées par les zones repliées. */
-  const hidden = useMemo(() => hiddenNodeIds(map), [map]);
+  const folds = useFoldView(map);
+  /** Cartes masquées par les zones repliées et par les branches repliées. */
+  const hidden = useMemo(() => new Set([...hiddenNodeIds(map), ...folds.hidden]), [map, folds]);
+  const centerNode = useMemo(() => mapCenter(map), [map]);
+  const foldRef = useRef<(id: string) => void>(() => {});
   const { gaps, messages: gapMsgs } = useMapGaps(map);
   const marks = useMemo(() => (gapMarksOn ? gapMarks(gaps) : new Map<string, string>()), [gapMarksOn, gaps]);
   const versionCount = useMapVersions(key).length;
@@ -280,21 +292,25 @@ function Inner({ source, tools }: { source: MapSource; tools?: MapToolbarItem[] 
         const o = old.get(n.id);
         const h = n.highlightId ? (hlById.get(n.highlightId) ?? null) : null;
         const central = n.id === centralId;
+        const f = folds.info.get(n.id);
+        const fold = f ? { ...f, toggle: () => foldRef.current(n.id) } : undefined;
         return {
           ...(o ?? {}),
           id: n.id,
-          type: n.highlightId ? 'extract' : 'idea',
+          type: n.highlightId ? 'extract' : n.kind ? 'center' : 'idea',
           position: { x: n.x, y: n.y },
-          className: [glide.has(n.id) ? 'map-glide' : '', marks.get(n.id) ?? '', flash === n.id ? 'map-flash' : ''].filter(Boolean).join(' ') || undefined,
+          className: [glide.has(n.id) ? 'map-glide' : '', marks.get(n.id) ?? '', flash === n.id ? 'map-flash' : '', fold?.folded ? 'map-folded' : ''].filter(Boolean).join(' ') || undefined,
           hidden: hidden.has(n.id),
           selected: hasWant ? n.id === want : !hidden.has(n.id) && (o?.selected ?? false),
           data: n.highlightId
-            ? ({ highlight: h, central, collapsed: n.collapsed, book: h ? bookTags.get(h.bookId) : undefined } as ExtractData)
-            : ({ text: n.text, central, color: n.color } as IdeaData),
+            ? ({ highlight: h, central, collapsed: n.collapsed, book: h ? bookTags.get(h.bookId) : undefined, fold } as ExtractData)
+            : n.kind
+              ? { text: n.text, kind: n.kind, fold }
+              : ({ text: n.text, central, color: n.color, fold } as IdeaData),
         } as Node;
       });
     });
-  }, [map.nodes, hlById, centralId, glide, setNodes, bookTags, hidden, marks, flash]);
+  }, [map.nodes, hlById, centralId, glide, setNodes, bookTags, hidden, marks, flash, folds]);
 
   const edges = useMemo<Edge[]>(() => {
     const counts = new Map<string, MapEdge[]>();
@@ -457,9 +473,9 @@ function Inner({ source, tools }: { source: MapSource; tools?: MapToolbarItem[] 
       const b = boxOf(p);
       const boxes = rf.getNodes().map(boxOf);
       const at = freeSpot({ x: b.x + b.w / 2 - NODE_W / 2, y: b.y + b.h + 76 }, NODE_W, 96, boxes, { x: NODE_W + 32, y: 0 });
-      newIdea(at, { to: parentId, relation: 'soutient' });
+      newIdea(at, { to: parentId, relation: relationToward(readMap(), parentId) ?? 'soutient' });
     },
-    [rf, newIdea],
+    [rf, newIdea, readMap],
   );
 
   /** Entrée : carte « sœur » à droite, reliée au même parent par la même relation. */
@@ -522,7 +538,8 @@ function Inner({ source, tools }: { source: MapSource; tools?: MapToolbarItem[] 
         };
         const b1 = multi ? bookOfNode(c.source) : undefined;
         const b2 = multi ? bookOfNode(c.target) : undefined;
-        const relation: RelationId = b1 && b2 && b1 !== b2 ? 'oppose' : 'soutient';
+        // Vers le centre : « répond à » la problématique, « se rattache à » le sujet.
+        const relation: RelationId = relationToward(m, c.target) ?? (b1 && b2 && b1 !== b2 ? 'oppose' : 'soutient');
         mutate((mm) => ({ ...mm, edges: [...mm.edges, { id, source: c.source!, target: c.target!, relation, groupId: null }] }));
         markFresh(id);
       }
@@ -549,9 +566,12 @@ function Inner({ source, tools }: { source: MapSource; tools?: MapToolbarItem[] 
       }
       if (overId) return;
       const p = rf.screenToFlowPosition({ x: pt.clientX, y: pt.clientY });
-      newIdea({ x: p.x - NODE_W / 2, y: p.y - 28 }, { to: state.fromNode.id, relation: 'soutient', reverse: !reverse });
+      const toCenter = relationToward(readMap(), state.fromNode.id);
+      // Tiré depuis le centre : la nouvelle idée y répond (ou s'y rattache).
+      if (toCenter) newIdea({ x: p.x - NODE_W / 2, y: p.y - 28 }, { to: state.fromNode.id, relation: toCenter });
+      else newIdea({ x: p.x - NODE_W / 2, y: p.y - 28 }, { to: state.fromNode.id, relation: 'soutient', reverse: !reverse });
     },
-    [rf, newIdea, onConnect],
+    [rf, newIdea, onConnect, readMap],
   );
 
   const onDelete = useCallback(
@@ -696,7 +716,9 @@ function Inner({ source, tools }: { source: MapSource; tools?: MapToolbarItem[] 
       const ledges = m.edges.map((e) => ({ source: remap(e.source), target: remap(e.target), relation: e.relation })).filter((e) => e.source !== e.target);
       const boxes0 = [...free.map(boxOf), ...blocks.map((b) => ({ id: b.zone.id, x: b.zone.x, y: b.zone.y, w: b.w, h: b.h }))];
       const bb = bounds(boxes0)!;
-      const pos = layoutMap(kind, lnodes, ledges, centralId ? remap(centralId) : null, { x: bb.x, y: bb.y });
+      // Racine : le centre (problématique / sujet) s'il y en a un, sinon la thèse centrale.
+      const root = layoutRootId(m, centralId);
+      const pos = layoutMap(kind, lnodes, ledges, root ? remap(root) : null, { x: bb.x, y: bb.y });
       // Positions finales : cartes libres, puis contenu des zones décalé avec leur bloc.
       const npos = new Map<string, Pt>();
       const zpos = new Map<string, Pt>();
@@ -778,6 +800,50 @@ function Inner({ source, tools }: { source: MapSource; tools?: MapToolbarItem[] 
   );
   const setCentral = useCallback((id: string | undefined) => mutate((m) => ({ ...m, centralId: id })), [mutate]);
 
+  // ── Centre (problématique / sujet) et branches repliées ──
+  /** Pose le centre : au-dessus des cartes (centré), ou au milieu de la vue (carte vide), ou à `at`. */
+  const poseCenter = useCallback(
+    (kind: CenterKind, at?: Pt) => {
+      const m = readMap();
+      let pos = at;
+      if (!pos) {
+        const vis = rf.getNodes().filter((n) => !n.hidden);
+        const bb = bounds(vis.map(boxOf));
+        pos = bb ? { x: bb.x + bb.w / 2 - CENTER_W / 2, y: bb.y - 220 } : freePosition();
+      }
+      separateUndoStep();
+      const r = addCenter(m, kind, pos, { id: uid });
+      pendingSelect.current = r.id;
+      mutate(() => r.map);
+      later(() => setEditingId(r.id), 60);
+      later(() => reveal(r.id), 90);
+    },
+    [readMap, rf, freePosition, mutate, reveal],
+  );
+  const convertCenter = useCallback(
+    (id: string, kind: CenterKind | null) => {
+      separateUndoStep();
+      mutate((m) => setNodeCenter(m, id, kind));
+    },
+    [mutate],
+  );
+  const onToggleFold = useCallback(
+    (id: string) => {
+      separateUndoStep();
+      mutate((m) => toggleFold(m, id));
+    },
+    [mutate],
+  );
+  foldRef.current = onToggleFold;
+  const onFoldAll = useCallback(
+    (fold: boolean) => {
+      separateUndoStep();
+      mutate((m) => (fold ? foldAll(m) : unfoldAll(m)));
+      later(() => fitAll(450), 60);
+    },
+    [mutate, fitAll],
+  );
+
   // ── 12. Zones ──
   /** Encadre des cartes dans une nouvelle zone, dont le titre passe aussitôt en édition. */
   const frameInZone = useCallback(
@@ -852,6 +918,10 @@ function Inner({ source, tools }: { source: MapSource; tools?: MapToolbarItem[] 
     (id: string) => {
       const z = (readMap().zones ?? []).find((x) => x.collapsed && x.hiddenNodeIds?.includes(id));
       if (z) mutate((m) => expandZone(m, z.id));
+      // Carte dans une branche repliée : on déplie ses ancêtres.
+      const unf = unfoldTo(readMap(), id);
+      const unfolded = unf !== readMap();
+      if (unfolded) mutate(() => unf);
       later(() => {
         const n = rf.getNode(id);
         if (!n) return;
@@ -862,7 +932,7 @@ function Inner({ source, tools }: { source: MapSource; tools?: MapToolbarItem[] 
         rf.setCenter(b.x + b.w / 2 + shift, b.y + b.h / 2, { zoom, duration: reducedMotion() ? 0 : 420 });
         setFlash(id);
         later(() => setFlash((f) => (f === id ? null : f)), 1800);
-      }, z ? 80 : 0);
+      }, z || unfolded ? 80 : 0);
     },
     [readMap, mutate, rf, select, sidePanel],
   );
@@ -979,12 +1049,21 @@ function Inner({ source, tools }: { source: MapSource; tools?: MapToolbarItem[] 
     } else if (matchKeys(e, '⌘G') && sel.length) {
       stop();
       frameInZone(sel.map((n) => n.id));
+    } else if (matchKeys(e, FOLD_KEYS.foldAll) || matchKeys(e, FOLD_KEYS.unfoldAll)) {
+      // ⌥⇧↑ / ⌥⇧↓ : tout replier / tout déplier.
+      stop();
+      onFoldAll(matchKeys(e, FOLD_KEYS.foldAll));
+    } else if ((matchKeys(e, FOLD_KEYS.fold) || matchKeys(e, FOLD_KEYS.unfold)) && one) {
+      // ⌥↑ / ⌥↓ : replier / déplier la branche de la carte choisie.
+      stop();
+      const f = folds.info.get(one.id);
+      if (f && f.folded !== matchKeys(e, FOLD_KEYS.fold)) onToggleFold(one.id);
     } else if (e.key === 'Tab' && plain && !e.shiftKey && one) {
       stop();
       addChild(one.id);
     } else if (e.key === 'Enter' && plain && one) {
       stop();
-      if (one.type === 'idea' && !e.shiftKey) setEditingId(one.id);
+      if ((one.type === 'idea' || one.type === 'center') && !e.shiftKey) setEditingId(one.id);
       else addSibling(one.id);
     } else if (e.key.startsWith('Arrow') && plain) {
       stop();
@@ -996,7 +1075,7 @@ function Inner({ source, tools }: { source: MapSource; tools?: MapToolbarItem[] 
         commitPositions(new Map(sel.map((n) => [n.id, { x: n.position.x + d[0], y: n.position.y + d[1] }])), false);
         return;
       }
-      const from = one ?? all.find((n) => n.id === centralId) ?? all[0];
+      const from = one ?? all.find((n) => n.id === (centerNode?.id ?? centralId)) ?? all[0];
       if (!from) return;
       const next = one ? neighborIn(boxOf(one), all.map(boxOf), dir) : from.id;
       if (next) {
@@ -1066,7 +1145,7 @@ function Inner({ source, tools }: { source: MapSource; tools?: MapToolbarItem[] 
         }
       } else {
         entries.push({ label: 'Modifier', icon: <Pencil size={14} />, hint: fmtKeys('↩'), onClick: () => setEditingId(node.id) });
-        entries.push({ label: 'Couleur', icon: <Palette size={14} />, children: colorEntries([node.id], mapNode.color) });
+        if (!mapNode.kind) entries.push({ label: 'Couleur', icon: <Palette size={14} />, children: colorEntries([node.id], mapNode.color) });
         entries.push({
           label: 'Dupliquer',
           icon: <Copy size={14} />,
@@ -1077,7 +1156,11 @@ function Inner({ source, tools }: { source: MapSource; tools?: MapToolbarItem[] 
         });
       }
       entries.push({ label: 'Nouvelle idée reliée dessous', icon: <CornerDownRight size={14} />, hint: 'Tab', onClick: () => addChild(node.id) });
-      if (m.centralId === node.id) entries.push({ label: 'Ne plus marquer comme thèse centrale', icon: <Star size={14} />, onClick: () => setCentral(undefined) });
+      entries.push(...foldNodeEntries(folds.info.get(node.id), () => onToggleFold(node.id)));
+      entries.push(...centerNodeEntries(mapNode, convertCenter));
+      if (mapNode.kind) {
+        /* le centre n'est pas une thèse centrale */
+      } else if (m.centralId === node.id) entries.push({ label: 'Ne plus marquer comme thèse centrale', icon: <Star size={14} />, onClick: () => setCentral(undefined) });
       else if (centralId !== node.id) entries.push({ label: 'Marquer comme thèse centrale', icon: <Star size={14} />, onClick: () => setCentral(node.id) });
       entries.push({ label: 'Encadrer dans une zone', icon: <Group size={14} />, hint: fmtKeys('⌘G'), onClick: () => frameInZone([node.id]) });
       entries.push({ sep: true });
@@ -1105,9 +1188,11 @@ function Inner({ source, tools }: { source: MapSource; tools?: MapToolbarItem[] 
     const at = rf.screenToFlowPosition({ x: e.clientX, y: e.clientY });
     const has = map.nodes.length > 0;
     const entries: MenuEntry[] = [{ label: 'Nouvelle idée ici', icon: <Lightbulb size={14} />, hint: 'double-clic', onClick: () => newIdea({ x: at.x - NODE_W / 2, y: at.y - 40 }) }];
+    if (!centerNode) entries.push(...poseCenterEntries((k) => poseCenter(k, { x: at.x - CENTER_W / 2, y: at.y - 50 }), ' ici'));
     if (has) {
       entries.push({ label: 'Ranger', icon: <Wand2 size={14} />, children: layoutEntries() });
-      entries.push({ label: 'Tout sélectionner', icon: <MousePointer2 size={14} />, hint: fmtKeys('⌘A'), onClick: () => select(rf.getNodes().map((n) => n.id)) });
+      entries.push(...foldAllEntries(folds.info, () => onFoldAll(true), () => onFoldAll(false)));
+      entries.push({ label: 'Tout sélectionner', icon: <MousePointer2 size={14} />, hint: fmtKeys('⌘A'), onClick: () => select(rf.getNodes().filter((n) => !n.hidden).map((n) => n.id)) });
       entries.push({ label: 'Tout voir', icon: <Maximize2 size={14} />, hint: fmtKeys('⇧1'), onClick: () => fitAll(450) });
     }
     setNodeMenu({ x: e.clientX, y: e.clientY, label: 'Menu du schéma', entries });
@@ -1129,11 +1214,37 @@ function Inner({ source, tools }: { source: MapSource; tools?: MapToolbarItem[] 
     { id: 'export', order: 10, group: 'share', node: <ExportMenu mapKey={key} empty={empty} sizes={sizes} /> },
     { id: 'versions', order: 20, group: 'share', node: panelBtn('versions', 'Versions', <History size={14} />, versionCount ? `Versions de la carte (${versionCount})` : 'Versions de la carte') },
   ];
+  // Centre de la carte (problématique / sujet) et replis : menu « Centre » dans la barre.
+  const openBarMenu = (e: React.MouseEvent, entries: MenuEntry[], label: string) => {
+    const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    setNodeMenu({ x: r.left, y: r.bottom + 6, entries, label });
+  };
+  toolbarItems.push({
+    id: 'center',
+    order: 5,
+    group: 'center',
+    node: (
+      <button
+        className="btn btn-ghost btn-sm"
+        data-act="center"
+        aria-haspopup="menu"
+        title="Le centre de la carte : une problématique (question) ou un sujet (thème) ; replier / déplier les branches"
+        onClick={(e) => {
+          const entries = centerBarEntries(centerNode as { id: string; kind?: CenterKind } | null, { pose: (k) => poseCenter(k), goto: focusNode, convert: convertCenter });
+          const fa = foldAllEntries(folds.info, () => onFoldAll(true), () => onFoldAll(false));
+          openBarMenu(e, fa.length ? [...entries, { sep: true }, ...fa] : entries, 'Centre de la carte');
+        }}
+      >
+        <Crosshair size={14} /> Centre
+      </button>
+    ),
+  });
   if (tools) toolbarItems.push(...tools);
   if (gaps.total) toolbarItems.push({ id: 'gaps', order: 90, group: 'gaps', node: <GapsPill total={gaps.total} open={sidePanel === 'gaps'} onClick={() => setSidePanel((p) => (p === 'gaps' ? null : 'gaps'))} /> });
 
   const miniClass = (n: Node) => {
     if (n.type === 'idea') return 'mm-idea';
+    if (n.type === 'center') return 'mm-center';
     const h = (n.data as ExtractData).highlight;
     const c = h ? (h.category ?? (h.plain ? 'plain' : 'note')) : 'note';
     return `mm-${c}${(n.data as ExtractData).central ? ' mm-central' : ''}`;
@@ -1279,7 +1390,7 @@ function Inner({ source, tools }: { source: MapSource; tools?: MapToolbarItem[] 
         {nodeMenu && <ContextMenu x={nodeMenu.x} y={nodeMenu.y} entries={nodeMenu.entries} label={nodeMenu.label} onClose={() => setNodeMenu(null)} />}
         {!empty && !sidePanel && (
           <div className="map-legend anim-fade" aria-label="Relations">
-            {RELATIONS.map((r) => (
+            {RELATIONS.filter((r) => r.id !== 'rattache' || centerNode?.kind === 'subject' || map.edges.some((e) => e.relation === 'rattache')).map((r) => (
               <span key={r.id} style={{ '--c': `var(${r.cssVar})` } as CSSProperties}>
                 <svg width="22" height="8">
                   <line x1="1" y1="4" x2="21" y2="4" stroke="var(--c)" strokeWidth="1.75" strokeDasharray={r.dashed ? '5 3' : undefined} strokeLinecap="round" />
@@ -1310,6 +1421,15 @@ function Inner({ source, tools }: { source: MapSource; tools?: MapToolbarItem[] 
                 )}
                 <button className="btn" onClick={addIdea}>
                   <Lightbulb size={14} /> Ajouter une idée
+                </button>
+              </div>
+              <div className="map-empty-center">
+                <span>ou partez du cœur de la carte :</span>
+                <button className="btn btn-sm" data-act="pose-question" onClick={() => poseCenter('question')}>
+                  <CircleHelp size={14} /> Poser la problématique
+                </button>
+                <button className="btn btn-sm" data-act="pose-subject" onClick={() => poseCenter('subject')}>
+                  <Orbit size={14} /> Poser le sujet
                 </button>
               </div>
             </div>

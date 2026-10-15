@@ -1,16 +1,20 @@
 // Rangements automatiques de la carte (algorithmes maison, sans dépendance) :
 //  - « Arbre » : la thèse en haut, ce qui la soutient (ou l'attaque) dessous, de proche en proche ;
 //  - « Débat » : la thèse à gauche, arguments puis objections à droite, réponses à côté des objections ;
-//  - « Chronologique » : dans l'ordre du texte, les idées près des cartes qu'elles touchent.
+//  - « Chronologique » : dans l'ordre du texte, les idées près des cartes qu'elles touchent ;
+//  - « Radial » : carte mentale, le centre (problématique, sujet ou thèse) au milieu, ses branches autour (radial.ts).
+// La racine (`centralId`) est le centre de la carte s'il y en a un (model/center.ts), sinon la thèse centrale.
 import type { CategoryId, RelationId } from '../../../lib/types';
 import type { Pt } from './geom';
+import { radialPositions } from './radial';
 
-export type LayoutKind = 'arbre' | 'debat' | 'chrono';
+export type LayoutKind = 'arbre' | 'debat' | 'chrono' | 'radial';
 
 export const LAYOUTS: { id: LayoutKind; label: string; hint: string }[] = [
   { id: 'arbre', label: 'Arbre', hint: 'La thèse en haut, les arguments dessous' },
   { id: 'debat', label: 'Débat', hint: 'La thèse à gauche, objections et réponses à droite' },
   { id: 'chrono', label: 'Chronologique', hint: 'Dans l’ordre du texte' },
+  { id: 'radial', label: 'Radial', hint: 'Le centre au milieu, les branches tout autour' },
 ];
 
 export interface LNode {
@@ -31,7 +35,7 @@ export interface LEdge {
 }
 
 const CAT_ORDER: (CategoryId | null)[] = ['these', 'probleme', 'argument', 'objection', 'concept', 'exemple', null];
-const REL_ORDER: RelationId[] = ['soutient', 'precise', 'illustre', 'repond', 'objecte', 'oppose'];
+const REL_ORDER: RelationId[] = ['repond', 'rattache', 'soutient', 'precise', 'illustre', 'repond', 'objecte', 'oppose'];
 const CONTRA = new Set<RelationId>(['objecte', 'oppose']);
 
 interface Forest {
@@ -235,10 +239,29 @@ function chrono(nodes: LNode[], edges: LEdge[]): Map<string, Pt> {
   return out;
 }
 
+/** Radial : l'arbre de la racine en couronnes ; le reste (autres racines, cartes isolées) en arbre dessous. */
+function radial(nodes: LNode[], edges: LEdge[], centralId: string | null): Map<string, Pt> {
+  const size = new Map(nodes.map((n) => [n.id, n]));
+  const f = forest(nodes, edges, centralId);
+  const root = centralId && f.roots.includes(centralId) ? centralId : f.roots.length === 1 ? f.roots[0] : null;
+  const pos = radialPositions(root, root ? [] : f.roots, f.children, size);
+  const rest = nodes.filter((n) => !pos.has(n.id));
+  if (!rest.length) return pos;
+  const ids = new Set(rest.map((n) => n.id));
+  const sub = tree(rest, edges.filter((e) => ids.has(e.source) && ids.has(e.target)), null, false);
+  const placed = [...pos].map(([id, p]) => ({ ...p, w: size.get(id)!.w, h: size.get(id)!.h }));
+  const bottom = placed.length ? Math.max(...placed.map((p) => p.y + p.h)) + 140 : 0;
+  const left = placed.length ? Math.min(...placed.map((p) => p.x)) : 0;
+  const sx = Math.min(...[...sub.values()].map((p) => p.x));
+  const sy = Math.min(...[...sub.values()].map((p) => p.y));
+  for (const [id, p] of sub) pos.set(id, { x: p.x - sx + left, y: p.y - sy + bottom });
+  return pos;
+}
+
 /** Positions cibles (coordonnées de la carte, coin haut-gauche), recalées sur l'ancien coin haut-gauche. */
 export function layoutMap(kind: LayoutKind, nodes: LNode[], edges: LEdge[], centralId: string | null, origin: Pt): Map<string, Pt> {
   if (!nodes.length) return new Map();
-  const raw = kind === 'chrono' ? chrono(nodes, edges) : tree(nodes, edges, centralId, kind === 'debat');
+  const raw = kind === 'chrono' ? chrono(nodes, edges) : kind === 'radial' ? radial(nodes, edges, centralId) : tree(nodes, edges, centralId, kind === 'debat');
   const xs = [...raw.values()].map((p) => p.x);
   const ys = [...raw.values()].map((p) => p.y);
   const dx = origin.x - Math.min(...xs);

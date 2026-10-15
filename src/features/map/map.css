@@ -1826,3 +1826,237 @@ body.map-zone-grabbing * {
   font-size: var(--fs-xs);
   color: var(--faint);
 }
+
+/* ════════════════════════════════════════════════════════════════
+   CENTRE DE LA CARTE (problématique / sujet) ET BRANCHES REPLIÉES
+   (ui/center.tsx, ui/fold.tsx ; modèle : model/center.ts, model/fold.ts)
+   ════════════════════════════════════════════════════════════════ */
+
+/* ── Le centre : carte plus grande, texte centré, serif de lecture ── */
+.map-node.map-center {
+  width: 380px;
+  padding: 30px 30px 24px;
+  border-radius: 20px;
+  text-align: center;
+  border: 1.5px solid color-mix(in srgb, var(--c) 58%, transparent);
+  background:
+    radial-gradient(120% 90% at 50% 0%, color-mix(in srgb, var(--c) 9%, transparent), transparent 70%),
+    var(--bg-panel);
+  box-shadow:
+    0 0 0 6px color-mix(in srgb, var(--c) 9%, transparent),
+    0 0 0 6.5px color-mix(in srgb, var(--c) 16%, transparent),
+    var(--map-card-shadow);
+}
+.map-node.map-center::before {
+  display: none;
+}
+.map-node.map-center:hover {
+  box-shadow:
+    0 0 0 6px color-mix(in srgb, var(--c) 12%, transparent),
+    0 0 0 6.5px color-mix(in srgb, var(--c) 22%, transparent),
+    var(--map-card-shadow-hover);
+}
+.react-flow__node.selected .map-node.map-center,
+.map-node.map-center.sel,
+.map-node.map-center.editing {
+  box-shadow:
+    0 0 0 6px color-mix(in srgb, var(--c) 12%, transparent),
+    0 0 0 8px var(--bg-page),
+    0 0 0 9.5px var(--map-ring),
+    var(--map-card-shadow-hover);
+}
+.map-node.map-center.editing {
+  cursor: text;
+}
+/* Médaillon : « ? » pour une problématique, anneau pour un sujet */
+.map-center-mark {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  translate: -50% -50%;
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: var(--c);
+  color: var(--bg-panel);
+  font: 700 21px/1 var(--font-read);
+  box-shadow: 0 0 0 4px var(--bg-page), 0 4px 10px -4px color-mix(in srgb, var(--c) 70%, transparent);
+  pointer-events: none;
+}
+.map-center[data-center='subject'] .map-center-mark {
+  width: 26px;
+  height: 26px;
+  background: var(--bg-panel);
+  border: 2px solid var(--c);
+}
+.map-center-mark i {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--c);
+}
+.map-center-label {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  font: 650 10.5px/1 var(--font-ui);
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: color-mix(in srgb, var(--c) 72%, var(--ink));
+}
+.map-center-label::before,
+.map-center-label::after {
+  content: '';
+  width: 24px;
+  height: 1px;
+  background: color-mix(in srgb, var(--c) 45%, transparent);
+}
+:root[data-theme='dark'] .map-center-label {
+  color: color-mix(in srgb, var(--c) 88%, var(--ink));
+}
+.map-center-text,
+.map-center-input {
+  margin: 12px 0 0;
+  font-family: var(--font-read);
+  font-size: 21px;
+  font-weight: 500;
+  line-height: 1.32;
+  color: var(--ink);
+  text-wrap: balance;
+  overflow-wrap: anywhere;
+}
+.map-center-text.placeholder {
+  font-style: italic;
+  color: color-mix(in srgb, var(--ink) 38%, transparent);
+}
+.map-center-input {
+  display: block;
+  width: 100%;
+  min-height: 28px;
+  padding: 0;
+  border: 0;
+  resize: none;
+  overflow: hidden;
+  text-align: center;
+  background: transparent;
+  outline: none;
+  caret-color: var(--c);
+  user-select: text;
+  -webkit-user-select: text;
+}
+.map-center-input::placeholder {
+  font-style: italic;
+  color: color-mix(in srgb, var(--ink) 34%, transparent);
+}
+.map-minimap .mm-center {
+  fill: var(--ink);
+  fill-opacity: 0.8;
+}
+
+/* Carte vide : partir d'une problématique ou d'un sujet */
+.map-empty-center {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px dashed var(--border-strong);
+  font-size: var(--fs-sm);
+  color: var(--muted);
+}
+.map-empty-center span {
+  flex-basis: 100%;
+}
+
+/* ── Branches : pastille « − » / « +N » au bord inférieur ── */
+.map-fold {
+  position: absolute;
+  right: 18px;
+  bottom: 0;
+  translate: 0 50%;
+  z-index: 2;
+  display: grid;
+  place-items: center;
+  min-width: 20px;
+  height: 20px;
+  padding: 0;
+  border-radius: 999px;
+  border: 1px solid var(--border-strong);
+  background: var(--bg-panel);
+  color: var(--ink-2);
+  box-shadow: 0 0 0 2.5px var(--bg-page), var(--shadow-sm);
+  font: 650 11px/1 var(--font-ui);
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+  opacity: 0;
+  transition:
+    opacity var(--dur) var(--ease),
+    background var(--dur) var(--ease),
+    color var(--dur) var(--ease),
+    transform 220ms var(--ease-spring);
+}
+.map-center .map-fold {
+  right: 26px;
+}
+.react-flow__node:hover .map-fold,
+.react-flow__node.selected .map-fold,
+.map-fold:focus-visible,
+.map-fold.folded {
+  opacity: 1;
+}
+.map-fold:hover {
+  background: var(--ink);
+  color: var(--bg-panel);
+  border-color: var(--ink);
+  transform: scale(1.08);
+}
+.map-fold.folded {
+  padding: 0 7px;
+  background: var(--ink);
+  color: var(--bg-panel);
+  border-color: var(--ink);
+  letter-spacing: 0.02em;
+}
+.map-fold.folded:hover {
+  background: var(--focus);
+  border-color: var(--focus);
+}
+.react-flow__node.dragging .map-fold:not(.folded) {
+  opacity: 0;
+}
+/* Carte repliée : d'autres cartes « empilées » derrière elle */
+.map-flow .react-flow__node.map-folded .map-node {
+  --fold-bg: var(--bg-panel);
+  box-shadow:
+    5px 5px 0 -1px var(--fold-bg),
+    5px 5px 0 0 var(--map-card-border),
+    10px 10px 0 -2px var(--fold-bg),
+    10px 10px 0 -1px var(--map-card-border),
+    var(--map-card-shadow);
+}
+.map-flow .react-flow__node.map-folded .map-node.map-idea {
+  --fold-bg: color-mix(in srgb, var(--c) var(--map-postit-mix), var(--map-paper));
+  --map-card-border: color-mix(in srgb, var(--c) 30%, var(--map-card-border));
+}
+.map-flow .react-flow__node.map-folded.selected .map-node {
+  box-shadow:
+    0 0 0 2px var(--bg-page),
+    0 0 0 3.5px var(--map-ring),
+    6px 6px 0 -1px var(--fold-bg),
+    6px 6px 0 0 var(--map-card-border),
+    11px 11px 0 -2px var(--fold-bg),
+    11px 11px 0 -1px var(--map-card-border),
+    var(--map-card-shadow-hover);
+}
+.map-flow .react-flow__node.map-folded .map-node.map-center {
+  box-shadow:
+    0 0 0 6px color-mix(in srgb, var(--c) 9%, transparent),
+    7px 9px 0 4px var(--bg-panel),
+    7px 9px 0 5px color-mix(in srgb, var(--c) 28%, transparent),
+    var(--map-card-shadow);
+}

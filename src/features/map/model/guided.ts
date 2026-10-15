@@ -2,6 +2,8 @@
 // Lecture guidée d'une carte (pur, sans store ni DOM).
 //
 // Ordre de présentation, en suivant les liens :
+//   centre de la carte (problématique ou sujet, voir center.ts), puis les thèses qui y répondent
+//   (ou s'y rattachent), chacune développée comme ci-dessous ;
 //   problème(s) → thèse (carte centrale d'abord) et ses précisions / exemples
 //   → arguments (« soutient » la thèse), chacun suivi de ses sous-arguments, précisions, exemples
 //   → thèses opposées (« s’oppose à », cartes multi-livres) et leurs arguments
@@ -16,10 +18,13 @@
 // ─────────────────────────────────────────────────────────────
 import type { ArgumentMap, MapEdge, MapNode, RelationId } from '../../../lib/types';
 import { nodeCategory, nodeText, type MapLookup } from './core';
+import { mapCenter } from './center';
 
-export type GuidedRole = 'probleme' | 'these' | 'argument' | 'sous-argument' | 'exemple' | 'precision' | 'opposition' | 'objection' | 'reponse' | 'reste';
+export type GuidedRole = 'problematique' | 'sujet' | 'probleme' | 'these' | 'argument' | 'sous-argument' | 'exemple' | 'precision' | 'opposition' | 'objection' | 'reponse' | 'reste';
 
 export const GUIDED_ROLE_LABEL: Record<GuidedRole, string> = {
+  problematique: 'Problématique',
+  sujet: 'Sujet',
   probleme: 'Problème',
   these: 'Thèse',
   argument: 'Argument',
@@ -75,6 +80,10 @@ export function guidedReading(map: ArgumentMap, lk: MapLookup): GuidedStep[] {
 
   const nameOf = (role: GuidedRole, n: number): string => {
     switch (role) {
+      case 'problematique':
+        return 'la problématique';
+      case 'sujet':
+        return 'le sujet';
       case 'probleme':
         return n > 1 ? `le problème ${n}` : 'le problème';
       case 'these':
@@ -104,6 +113,7 @@ export function guidedReading(map: ArgumentMap, lk: MapLookup): GuidedStep[] {
   };
   const ref = (id: string | null) => (id ? (labels.get(id) ?? short(id)) : '');
 
+  const center = mapCenter(map);
   const visit = (id: string, role: GuidedRole, parentId: string | null, depth: number, rel?: RelationId) => {
     if (seen.has(id) || !nodes.has(id)) return false;
     const k = (counters[role] = (counters[role] ?? 0) + 1);
@@ -114,11 +124,22 @@ export function guidedReading(map: ArgumentMap, lk: MapLookup): GuidedStep[] {
     const parent = ref(parentId);
     let caption: string;
     switch (role) {
+      case 'problematique':
+        caption = 'La problématique : la question à résoudre';
+        break;
+      case 'sujet':
+        caption = 'Le sujet : le thème à explorer';
+        break;
       case 'probleme':
         caption = k > 1 ? `Problème ${k} : une autre question que le texte affronte` : 'Le problème : la question que le texte affronte';
         break;
       case 'these':
-        caption = k > 1 ? `Thèse ${k} : une autre affirmation de l’auteur` : 'La thèse : ce que l’auteur affirme';
+        caption =
+          parentId && center?.id === parentId
+            ? `Thèse ${k} : ${center.kind === 'question' ? 'répond à' : 'se rattache à'} ${parent}`
+            : k > 1
+              ? `Thèse ${k} : une autre affirmation de l’auteur`
+              : 'La thèse : ce que l’auteur affirme';
         break;
       case 'argument':
         caption = `Argument ${k} : soutient ${parent}`;
@@ -165,6 +186,11 @@ export function guidedReading(map: ArgumentMap, lk: MapLookup): GuidedStep[] {
   const opposedTo = (id: string) =>
     sorted(map.edges.filter((e) => e.relation === 'oppose' && (e.source === id || e.target === id)).map((e) => (e.source === id ? e.target : e.source)));
 
+  // 0. Le centre (problématique ou sujet) ouvre la lecture ; ce qui y répond (ou s'y rattache)
+  //    est présenté ensuite comme autant de thèses.
+  const centerTheses = center ? into(center.id, ['repond', 'rattache', 'soutient']) : [];
+  if (center) visit(center.id, center.kind === 'question' ? 'problematique' : 'sujet', null, 0);
+
   // 1. Problèmes.
   for (const p of sorted(map.nodes.filter((n) => cat(n.id) === 'probleme').map((n) => n.id))) visit(p, 'probleme', null, 0);
 
@@ -176,18 +202,21 @@ export function guidedReading(map: ArgumentMap, lk: MapLookup): GuidedStep[] {
     theses = map.nodes.filter((n) => support(n.id) > 0 && !map.edges.some((e) => e.source === n.id && e.relation === 'soutient')).map((n) => n.id);
   theses = sorted(theses).sort((a, b) => support(b) - support(a));
   if (map.centralId && nodes.has(map.centralId)) theses = [map.centralId, ...theses.filter((t) => t !== map.centralId)];
+  theses = [...centerTheses, ...theses.filter((t) => !centerTheses.includes(t))];
+  const fromCenter = new Set(centerTheses);
   const thesisQueue = [...theses];
   while (thesisQueue.length) {
     const t = thesisQueue.shift()!;
-    if (!visit(t, 'these', null, 0)) continue;
+    if (!visit(t, 'these', fromCenter.has(t) && center ? center.id : null, 0)) continue;
     expandThesis(t, 0);
     // Thèses opposées (et leurs arguments), juste après la thèse qu'elles contestent.
-    const opp = [...opposedTo(t)];
+    // (une thèse qui répond elle aussi au centre garde son rang de thèse.)
+    const opp = opposedTo(t).filter((o) => !fromCenter.has(o));
     while (opp.length) {
       const o = opp.shift()!;
       if (!visit(o, 'opposition', t, 0)) continue;
       expandThesis(o, 0);
-      opp.push(...opposedTo(o));
+      opp.push(...opposedTo(o).filter((x) => !fromCenter.has(x)));
     }
   }
 

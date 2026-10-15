@@ -303,7 +303,7 @@ t('SVG : XML valide, autonome, bons comptes (cartes, liens, zones, flèches)', (
   assert.equal(byClass(doc, 'g', 'node').length, 10);
   assert.equal(byClass(doc, 'g', 'edge').length, 6);
   assert.equal(byClass(doc, 'g', 'zone').length, 1);
-  assert.equal(doc.getElementsByTagName('marker').length, 6);
+  assert.equal(doc.getElementsByTagName('marker').length, 7); // une flèche par relation (dont « se rattache à »)
   assert.ok(!r.svg.includes('var('), 'aucune variable CSS');
   assert.ok(!/href="http|url\(http|@import/.test(r.svg), 'aucune ressource externe');
   assert.ok(r.svg.includes('fill="#fbf9f4"'), 'fond clair');

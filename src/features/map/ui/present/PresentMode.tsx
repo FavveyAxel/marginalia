@@ -18,6 +18,7 @@ import { mapDisplayTitle } from '../../model/convert';
 import { MapCtx, reducedMotion, type ExtractData, type IdeaData, type MapUiCtx, type RelEdgeData } from '../ctx';
 import { ExtractNode, IdeaNode } from '../nodes';
 import { ArrowDefs, edgeTypes } from '../edges';
+import { CenterNode, CENTER_TINT } from '../center';
 import './present.css';
 
 interface PresData {
@@ -44,7 +45,7 @@ function presented(Inner: ComponentType<NodeProps>) {
     );
   };
 }
-const presNodeTypes = { extract: presented(ExtractNode), idea: presented(IdeaNode) };
+const presNodeTypes = { extract: presented(ExtractNode), idea: presented(IdeaNode), center: presented(CenterNode) };
 
 const NOOP_CTX: MapUiCtx = {
   editingId: null,
@@ -100,12 +101,14 @@ function Present({ mapKey, onClose }: { mapKey: string; onClose(): void }) {
         const pres: PresData = {
           masked: hide && !revealed.has(n.id),
           role: labels.get(n.id) ?? 'Carte',
-          color: h ? kindColor(h) : n.color ? `var(${n.color})` : 'var(--cat-these)',
+          color: h ? kindColor(h) : n.kind ? CENTER_TINT[n.kind] : n.color ? `var(${n.color})` : 'var(--cat-these)',
         };
         const data = h
           ? ({ highlight: h, central: n.id === central, collapsed: cur ? false : n.collapsed, pres } as ExtractData)
-          : ({ text: n.text, central: n.id === central, color: n.color, pres } as IdeaData);
-        return { id: n.id, type: n.highlightId ? 'extract' : 'idea', position: { x: n.x, y: n.y }, data, className: state, draggable: false, selectable: false, connectable: false } as Node;
+          : n.kind
+            ? { text: n.text, kind: n.kind, pres }
+            : ({ text: n.text, central: n.id === central, color: n.color, pres } as IdeaData);
+        return { id: n.id, type: n.highlightId ? 'extract' : n.kind ? 'center' : 'idea', position: { x: n.x, y: n.y }, data, className: state, draggable: false, selectable: false, connectable: false } as Node;
       }),
     [map.nodes, hlById, order, step, i, hide, revealed, labels, central],
   );

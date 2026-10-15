@@ -624,9 +624,15 @@ async function deleteKeystore() {
 }
 
 const systemName = () => (IS_MAC ? 'le trousseau de macOS' : IS_WIN ? 'votre session Windows (DPAPI)' : 'le trousseau du système');
-/** Le trousseau du système peut-il protéger la clé ? (Linux : seulement avec un vrai trousseau.) */
-function systemStore() {
+/**
+ * Le trousseau du système peut-il protéger la clé ? (Linux : seulement avec un vrai trousseau.)
+ * `probe` = false (affichage de l'état) : sur Mac et Windows, on n'interroge PAS safeStorage —
+ * sur Mac, le premier appel ouvre le trousseau (et peut demander une autorisation, ou rester
+ * bloqué si le trousseau est verrouillé). Le trousseau n'est consulté qu'au moment de s'en servir.
+ */
+function systemStore(probe = true) {
   if (FAKE_SAFE) return { ok: true, name: systemName() };
+  if (!probe && (IS_MAC || IS_WIN)) return { ok: true, name: systemName() };
   try {
     if (!safeStorage.isEncryptionAvailable()) return { ok: false, reason: 'Le trousseau du système n’est pas disponible.' };
     if (process.platform === 'linux') {
@@ -719,7 +725,8 @@ function securityStatus() {
   return {
     available: true,
     platform: process.platform,
-    system: systemStore(),
+    // Sans chiffrement actif, l'état ne touche pas au trousseau (aucune invite au lancement).
+    system: systemStore(!!(ks && ks.enabled)),
     touchIdAvailable: touchIdAvailable(),
     encrypted: !!ks && !!ks.enabled,
     lock: !!ks && !!ks.lock.enabled,

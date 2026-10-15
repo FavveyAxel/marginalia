@@ -100,6 +100,7 @@ jobs:
 
       - name: Test de démarrage (Mac)
         if: runner.os == 'macOS'
+        timeout-minutes: 8
         shell: bash
         run: |
           exes=("release/builder/mac-arm64/Marginalia.app/Contents/MacOS/Marginalia")
@@ -113,6 +114,7 @@ jobs:
 
       - name: Test de démarrage (Windows x64)
         if: runner.os == 'Windows'
+        timeout-minutes: 8
         # La version arm64 ne peut pas s'exécuter sur une machine x64 : elle est fabriquée, pas lancée.
         run: node scripts/smoke-packaged.mjs release/builder/win-unpacked/Marginalia.exe
 

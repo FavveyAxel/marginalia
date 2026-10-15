@@ -88,6 +88,10 @@ const WIN_OVERRIDES: Record<string, Combo> = {
   '⌥⌘N': { cmd: false, ctrl: true, alt: false, shift: true, key: 'P' },
   // ⌘[ (revenir) : « [ » demande AltGr sur un clavier français ; Alt+← est l'usage de Windows.
   '⌘[': { cmd: false, ctrl: false, alt: true, shift: false, key: '←' },
+  // ⌘8 (marques de mise en forme ¶) : Ctrl+Maj+8, comme Word sous Windows…
+  '⌘8': { cmd: false, ctrl: true, alt: false, shift: true, key: '8' },
+  // …d'où la liste à puces (⌘⇧8) sur Ctrl+Maj+9 (Ctrl+Maj+L, celui de Word, verrouille l'app).
+  '⇧⌘8': { cmd: false, ctrl: true, alt: false, shift: true, key: '9' },
   // ⌘⇧H (remplacer) : Ctrl+H, comme Word sous Windows.
   '⇧⌘H': { cmd: false, ctrl: true, alt: false, shift: false, key: 'H' },
   // ⌘? (aide) : F1 sous Windows (Ctrl+? reste accepté).

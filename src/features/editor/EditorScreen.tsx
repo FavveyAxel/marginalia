@@ -46,6 +46,7 @@ import { ActiveClock, addVersion, addVersionFromLibrary, registerSnapshotter, re
 import { fmtKeys, isMac, isMod, matchKeys } from '../../lib/keys';
 import { readZoomPref, stepZoom, usePageTint, writeZoomPref } from './view';
 import { FocusButton, useChromeAutoHide, useFocusPrefs, useParagraphDim, useTypewriter } from './focus';
+import { FormatReveal, useFormatMarks } from './marks';
 import { CommentsButton, CommentsLayer, useComments } from './comments';
 
 type Phase = 'loading' | 'ready' | 'error';
@@ -60,6 +61,7 @@ const EXPORTS: { fmt: ExportFormat; label: string; ext: string }[] = [
 ];
 
 const EXTRACTS_KEY = 'marginalia.ed.extractsOpen';
+const REVEAL_KEY = 'marginalia.ed.markReveal';
 const readPref = (k: string, d: boolean) => {
   try {
     const v = localStorage.getItem(k);
@@ -161,6 +163,13 @@ function Editor({ draft }: { draft: Draft }) {
   const [stats, setStats] = useState<EngineStats>({ words: draft.wordCount, chars: 0, charsNoSpaces: 0 });
   const [focusMode, setFocusMode] = useState(false);
   const focusPrefs = useFocusPrefs();
+  // Marques de mise en forme (marks.tsx) : réglage conservé ; carte « Mise en forme » repliable.
+  const showMarks = useStore((s) => !!s.settings.showFormatMarks);
+  const toggleMarks = useCallback(() => {
+    const st = useStore.getState();
+    st.updateSettings({ showFormatMarks: !st.settings.showFormatMarks });
+  }, []);
+  const [revealOpen, setRevealOpen] = useState(() => readPref(REVEAL_KEY, true));
   const rootRef = useRef<HTMLDivElement>(null);
   const getEngine = useCallback(() => engineRef.current, []);
   const [extractsOpen, setExtractsOpen] = useState(() => readPref(EXTRACTS_KEY, true));
@@ -686,6 +695,18 @@ function Editor({ draft }: { draft: Draft }) {
     return () => window.removeEventListener('keydown', onKey);
   }, [save, focusMode]);
 
+  // ⌘8 (Ctrl+Maj+8 sous Windows) : marques de mise en forme, comme Word ; partout dans l'éditeur.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!matchKeys(e, '⌘8')) return;
+      e.preventDefault();
+      e.stopPropagation();
+      toggleMarks();
+    };
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
+  }, [toggleMarks]);
+
   useEffect(() => {
     // Phase de capture : avant le ProseMirror de SuperDoc et avant la palette (⌘K) de l'app.
     const onKey = (ev: KeyboardEvent) => {
@@ -723,7 +744,8 @@ function Editor({ draft }: { draft: Draft }) {
       else if (!ev.shiftKey && lk === 'r') act(() => eng.setAlign('right'));
       else if (!ev.shiftKey && lk === 'j') act(() => eng.setAlign('justify'));
       else if (ev.shiftKey && (code === 'Digit7' || code === 'Numpad7')) act(() => eng.toggleList('ordered'));
-      else if (ev.shiftKey && (code === 'Digit8' || code === 'Numpad8')) act(() => eng.toggleList('bullet'));
+      // (Windows : Ctrl+Maj+9, Ctrl+Maj+8 étant les marques de mise en forme — lib/keys)
+      else if (matchKeys(ev, '⌘⇧8')) act(() => eng.toggleList('bullet'));
       else if (!ev.shiftKey && k === 'Enter') act(() => eng.insertPageBreak());
       else if (!ev.shiftKey && lk === 'z') {
         const st = structuralRef.current;
@@ -916,12 +938,13 @@ function Editor({ draft }: { draft: Draft }) {
   const dimOn = focusMode && focusPrefs.dim && phase === 'ready';
   useParagraphDim(hostRef, getEngine, dimOn, fmt);
   useTypewriter(hostRef, getEngine, focusPrefs.typewriter && phase === 'ready');
+  useFormatMarks(hostRef, getEngine, showMarks && phase === 'ready', fmt);
   const comments = useComments({ engineRef, hostRef, ready: phase === 'ready', editable: editable && !layoutBusy, tick: commentsTick, caret: fmt.pos, notify: toast });
 
   return (
     <div
       ref={rootRef}
-      className={`ed-root ed-root-in ${focusMode ? 'ed-focus' : ''} ${chrome.hidden ? 'ed-chrome-off' : ''} ${dimOn ? 'ed-dim' : ''} ${focusPrefs.typewriter ? 'ed-typewriter' : ''} ${extractsOpen ? 'ed-has-extracts' : ''} ${comments.columnOn ? 'ed-cm-on' : ''} ${comments.shown ? '' : 'ed-cm-hidden'}`}
+      className={`ed-root ed-root-in ${focusMode ? 'ed-focus' : ''} ${chrome.hidden ? 'ed-chrome-off' : ''} ${dimOn ? 'ed-dim' : ''} ${focusPrefs.typewriter ? 'ed-typewriter' : ''} ${showMarks ? 'ed-marks' : ''} ${extractsOpen ? 'ed-has-extracts' : ''} ${comments.columnOn ? 'ed-cm-on' : ''} ${comments.shown ? '' : 'ed-cm-hidden'}`}
       style={{ '--cm-col': `${comments.colW}px` } as React.CSSProperties}
     >
       <header className="topbar ed-topbar">
@@ -1058,6 +1081,8 @@ function Editor({ draft }: { draft: Draft }) {
           setTint={setPageTint}
           undo={undo}
           redo={redo}
+          marks={showMarks}
+          toggleMarks={toggleMarks}
           notify={(m, t) => toast(m, t ?? 'info')}
         />
       </div>
@@ -1159,6 +1184,17 @@ function Editor({ draft }: { draft: Draft }) {
               </div>
             )}
           </div>
+          {phase === 'ready' && showMarks && (
+            <FormatReveal
+              engine={getEngine}
+              fmt={fmt}
+              open={revealOpen}
+              setOpen={(v) => {
+                writePref(REVEAL_KEY, v);
+                setRevealOpen(v);
+              }}
+            />
+          )}
           {phase === 'ready' && <WordGoal draft={draft} stats={stats} fmt={fmt} engine={() => engineRef.current} editable={editable} />}
         </div>
 

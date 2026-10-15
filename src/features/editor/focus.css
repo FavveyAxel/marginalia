@@ -1,10 +1,10 @@
 /* ── Mode concentration (focus.tsx) ───────────────────────────
    L'interface reste en place (aucun saut de mise en page) : elle s'efface en fondu pendant la
    frappe (.ed-chrome-off) et revient vite quand on la cherche. */
-.ed-focus :is(.ed-topbar, .ed-toolbar-row, .ed-outline, .ed-side, .ed-style, .ed-versions, .ver-compare, .ed-count, .wg-group, .wg-track, .cm-col, .cm-links) {
+.ed-focus :is(.ed-topbar, .ed-toolbar-row, .ed-outline, .ed-side, .ed-style, .ed-versions, .ver-compare, .ed-count, .wg-group, .wg-track, .cm-col, .cm-links, .ed-mk-reveal, .ed-mk-reveal-chip) {
   transition: opacity 180ms var(--ease-out);
 }
-.ed-focus.ed-chrome-off :is(.ed-topbar, .ed-toolbar-row, .ed-outline, .ed-side, .ed-style, .ed-versions, .ver-compare, .ed-count, .wg-group, .wg-track, .cm-col, .cm-links) {
+.ed-focus.ed-chrome-off :is(.ed-topbar, .ed-toolbar-row, .ed-outline, .ed-side, .ed-style, .ed-versions, .ver-compare, .ed-count, .wg-group, .wg-track, .cm-col, .cm-links, .ed-mk-reveal, .ed-mk-reveal-chip) {
   opacity: 0;
   pointer-events: none;
   transition: opacity 650ms ease;
@@ -43,8 +43,8 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .ed-focus :is(.ed-topbar, .ed-toolbar-row, .ed-outline, .ed-side, .ed-style, .ed-versions, .ver-compare, .ed-count, .wg-group, .wg-track, .cm-col, .cm-links),
-  .ed-focus.ed-chrome-off :is(.ed-topbar, .ed-toolbar-row, .ed-outline, .ed-side, .ed-style, .ed-versions, .ver-compare, .ed-count, .wg-group, .wg-track, .cm-col, .cm-links),
+  .ed-focus :is(.ed-topbar, .ed-toolbar-row, .ed-outline, .ed-side, .ed-style, .ed-versions, .ver-compare, .ed-count, .wg-group, .wg-track, .cm-col, .cm-links, .ed-mk-reveal, .ed-mk-reveal-chip),
+  .ed-focus.ed-chrome-off :is(.ed-topbar, .ed-toolbar-row, .ed-outline, .ed-side, .ed-style, .ed-versions, .ver-compare, .ed-count, .wg-group, .wg-track, .cm-col, .cm-links, .ed-mk-reveal, .ed-mk-reveal-chip),
   .ed-dim .superdoc-page [data-layout-fragment-id] {
     transition: none;
   }

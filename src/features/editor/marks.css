@@ -1,0 +1,334 @@
+/* ── Marques de mise en forme (marks.tsx) ───────────────────────
+   Affichage seulement : couches absolues sans contenu texte (glyphes en ::before), sans
+   événements de pointeur — la mise en page des lignes peintes ne bouge pas. */
+.ed-root {
+  --ed-mk-ink: color-mix(in srgb, var(--focus) 62%, var(--muted));
+  --ed-mk-run: color-mix(in srgb, var(--cat-probleme) 80%, transparent);
+}
+
+/* Glyphes posés dans chaque ligne peinte (.superdoc-line : position relative, line-height fixée) */
+.ed-mk-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  user-select: none;
+  -webkit-user-select: none;
+  white-space: pre;
+  word-spacing: normal;
+  letter-spacing: normal;
+  text-indent: 0;
+}
+.ed-mk {
+  position: absolute;
+  top: 0;
+  height: 100%;
+  line-height: inherit;
+  font-style: normal;
+  font-weight: 400;
+  font-synthesis: none;
+  color: var(--ed-mk-ink);
+  opacity: 0.75;
+  transform: translateX(-50%);
+}
+.ed-mk::before {
+  display: inline-block;
+}
+.ed-mk-sp::before {
+  content: '·';
+}
+.ed-mk-nb::before {
+  content: '°';
+  font-size: 0.8em;
+}
+.ed-mk-tab::before {
+  content: '→';
+  font-size: 0.85em;
+}
+.ed-mk-para,
+.ed-mk-br {
+  transform: none;
+  opacity: 0.85;
+}
+.ed-mk-para::before {
+  content: '¶';
+}
+.ed-mk-br::before {
+  content: '↵';
+  font-size: 0.85em;
+}
+/* Saut de page : pointillé jusqu'au bord de la colonne, libellé au milieu */
+.ed-mk-page {
+  transform: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(to right, var(--ed-mk-ink) 40%, transparent 0) left center / 6px 1px repeat-x;
+  font-family: var(--font-ui) !important;
+  letter-spacing: 0.02em;
+}
+.ed-mk-page::before {
+  content: 'Saut de page';
+  padding: 0 0.6em;
+  line-height: 1.4;
+  background: var(--sd-layout-page-bg, var(--bg-page));
+}
+/* Police ou taille qui change dans la ligne : pointillé sous le passage (infobulle sur le texte) */
+.ed-mk-run {
+  transform: none;
+  height: 0;
+  opacity: 1;
+  border-bottom: 1.5px dotted var(--ed-mk-run);
+}
+
+/* ── Étiquettes de paragraphe dans la marge (coordonnées du contenu défilant) ── */
+.ed-mk-tags {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 0;
+  height: 0;
+  z-index: 3;
+  pointer-events: none;
+}
+.ed-mk-tag {
+  position: absolute;
+  transform: translateX(-100%);
+  pointer-events: auto;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  padding: 0 6px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--bg-panel) 92%, transparent);
+  color: var(--muted);
+  font: 500 10.5px/15px var(--font-ui);
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: default;
+  font-variant-numeric: tabular-nums;
+}
+.ed-mk-tag > span {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ed-mk-tag-a,
+.ed-mk-tag-b {
+  display: none;
+}
+/* Marge étroite : police et taille, puis style et icône d'alignement, sur deux lignes */
+.ed-mk-tag.compact {
+  padding: 2px 4px;
+  font-size: 9.5px;
+  line-height: 11px;
+}
+.ed-mk-tag.compact .ed-mk-tag-full {
+  display: none;
+}
+.ed-mk-tag.compact .ed-mk-tag-a,
+.ed-mk-tag.compact .ed-mk-tag-b {
+  display: block;
+}
+.ed-mk-tag-a {
+  color: var(--ink-2);
+}
+.ed-mk-tag.compact .ed-mk-tag-b {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+}
+.ed-mk-tag-b > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ed-mk-tag-b svg {
+  flex: none;
+}
+.ed-mk-tag:hover {
+  color: var(--ink);
+  border-color: var(--border-strong);
+}
+.ed-mk-card {
+  position: absolute;
+  display: none;
+  z-index: 4;
+  min-width: 228px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-panel);
+  box-shadow: var(--shadow-md);
+  font: 12px/1.45 var(--font-ui);
+  color: var(--ink-2);
+  pointer-events: none;
+}
+.ed-mk-card.on {
+  display: grid;
+  gap: 2px;
+}
+.ed-mk-card div {
+  display: grid;
+  grid-template-columns: 76px 1fr;
+  gap: 8px;
+}
+.ed-mk-card span {
+  color: var(--muted);
+}
+.ed-mk-card b {
+  white-space: nowrap;
+  font-weight: 500;
+  color: var(--ink);
+}
+
+/* ── Révéler la mise en forme : carte flottante ── */
+.ed-mk-reveal {
+  position: absolute;
+  right: 22px;
+  bottom: 56px;
+  z-index: 6;
+  width: 244px;
+  padding: 8px 12px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-panel);
+  box-shadow: var(--shadow-md);
+  font-size: var(--fs-sm);
+  color: var(--ink-2);
+}
+.ed-root.ed-cm-on .ed-mk-reveal {
+  right: calc(var(--cm-col) + 58px);
+}
+.ed-mk-reveal header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 2px;
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.ed-mk-reveal header .icon-btn {
+  width: 20px;
+  height: 20px;
+  margin-right: -6px;
+}
+.ed-mk-reveal dl {
+  margin: 0;
+}
+.ed-mk-grouphead {
+  margin: 6px 0 2px;
+  padding-top: 6px;
+  border-top: 1px solid var(--border);
+  font-size: var(--fs-xs);
+  color: var(--muted);
+}
+.ed-mk-grouphead:first-child {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: 0;
+}
+.ed-mk-row {
+  display: grid;
+  grid-template-columns: 74px 1fr;
+  gap: 8px;
+  line-height: 1.55;
+}
+.ed-mk-row dt {
+  color: var(--muted);
+}
+.ed-mk-row dd {
+  margin: 0;
+  color: var(--ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+.ed-mk-row dd.mixed {
+  color: var(--muted);
+  font-style: italic;
+}
+.ed-mk-swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  box-shadow: inset 0 0 0 1px var(--border-strong);
+  flex: none;
+}
+
+.ed-mk-reveal-chip {
+  position: absolute;
+  right: 22px;
+  bottom: 56px;
+  z-index: 6;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 24px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg-panel);
+  box-shadow: var(--shadow-sm);
+  font-size: var(--fs-xs);
+  color: var(--muted);
+}
+.ed-mk-reveal-chip:hover {
+  color: var(--ink);
+  box-shadow: var(--shadow-md);
+}
+.ed-root.ed-cm-on .ed-mk-reveal-chip {
+  right: calc(var(--cm-col) + 58px);
+}
+
+/* Rangée en bas de la colonne du plan (position calculée dans marks.tsx) : la page reste dégagée */
+.ed-mk-reveal.docked {
+  padding: 8px 10px 10px;
+}
+.ed-mk-reveal.docked .ed-mk-row {
+  grid-template-columns: 74px 1fr;
+  gap: 4px;
+}
+.ed-mk-reveal.docked .ed-mk-row dd {
+  display: block;
+  white-space: normal;
+  line-height: 1.35;
+  padding: 2px 0;
+}
+/* « avant 24 pt · après 6 pt », retraits : une valeur par ligne dans la colonne étroite */
+.ed-mk-reveal.docked .ed-mk-sep {
+  display: block;
+  height: 0;
+  overflow: hidden;
+}
+.ed-mk-reveal.docked .ed-mk-swatch {
+  display: inline-block;
+  margin-right: 5px;
+  vertical-align: -1px;
+}
+.ed-mk-reveal.docked .ed-mk-row dt {
+  padding: 2px 0;
+  line-height: 1.35;
+}
+.ed-outline.ed-mk-docked {
+  padding-bottom: var(--ed-mk-card-h, 320px);
+}
+
+/* Jamais à l'impression */
+@media print {
+  .ed-mk-layer,
+  .ed-mk-tags,
+  .ed-mk-reveal,
+  .ed-mk-reveal-chip {
+    display: none !important;
+  }
+}

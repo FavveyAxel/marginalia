@@ -15,6 +15,7 @@ import {
   Lightbulb,
   ListTree,
   Network,
+  Pilcrow,
   Search,
   Sigma,
   SunMoon,
@@ -159,6 +160,18 @@ function Palette() {
         },
         { keywords: 'thème apparence mode' },
       ),
+      // Écrit ouvert : marques de mise en forme (¶), comme le bouton de la barre d'outils.
+      ...(st().route.name === 'write'
+        ? [
+            act(
+              'marks',
+              st().settings.showFormatMarks ? 'Masquer les marques de mise en forme' : 'Afficher les marques de mise en forme',
+              <Pilcrow size={15} />,
+              () => useStore.getState().updateSettings({ showFormatMarks: !useStore.getState().settings.showFormatMarks }),
+              { hint: '⌘8', keywords: 'pied de mouche ¶ caractères invisibles espaces police taille style révéler mise en forme' },
+            ),
+          ]
+        : []),
       act(
         'workspace',
         'Nouvel espace de travail',

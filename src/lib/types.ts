@@ -530,6 +530,8 @@ export interface Settings {
   docxMigrated?: boolean;
   /** Barre latérale repliée en rail d'icônes. */
   sidebarCollapsed?: boolean;
+  /** Éditeur : marques de mise en forme (¶, espaces, police et style des paragraphes), affichage seulement. */
+  showFormatMarks?: boolean;
 }
 
 export interface Database {

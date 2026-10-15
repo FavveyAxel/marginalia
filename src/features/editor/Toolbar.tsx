@@ -6,6 +6,7 @@ import {
   AlignJustify,
   AlignLeft,
   AlignRight,
+  AlignVerticalSpaceAround,
   Baseline,
   Bold,
   ChevronDown,
@@ -68,6 +69,9 @@ export interface ToolbarProps {
   setTint?: (t: PageTint) => void;
   undo: () => void;
   redo: () => void;
+  /** Marques de mise en forme (¶) affichées (marks.tsx). */
+  marks?: boolean;
+  toggleMarks?: () => void;
   notify: (message: string, tone?: 'info' | 'error' | 'success') => void;
 }
 
@@ -294,7 +298,7 @@ export function Toolbar(p: ToolbarProps) {
             })
           }
         </MenuButton>
-        <MenuButton label="Interligne et espacement" tb="spacing" icon={<Pilcrow size={15} />} disabled={!editable} menuClass="ed-spacing-menu">
+        <MenuButton label="Interligne et espacement" tb="spacing" icon={<AlignVerticalSpaceAround size={15} />} disabled={!editable} menuClass="ed-spacing-menu">
           {(close) => (
             <>
               <div className="ed-pop-title">Interligne</div>
@@ -341,6 +345,17 @@ export function Toolbar(p: ToolbarProps) {
             </>
           )}
         </MenuButton>
+        {p.toggleMarks && (
+          <TbButton
+            label={p.marks ? 'Masquer les marques de mise en forme' : 'Afficher les marques de mise en forme (¶, espaces, police et style des paragraphes)'}
+            shortcut={KEYS.marks}
+            active={!!p.marks}
+            onClick={p.toggleMarks}
+            data-tb="marks"
+          >
+            <Pilcrow size={15} />
+          </TbButton>
+        )}
       </Group>
 
       <Group label="Insertion">

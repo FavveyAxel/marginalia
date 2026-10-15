@@ -83,6 +83,54 @@ export interface EngineState {
   pos: number;
 }
 
+/** Interligne : multiple (auto) ou valeur fixe en points (exactement / au moins). */
+export type LineSpacing = { mult: number } | { pt: number; rule: 'exact' | 'atLeast' };
+
+/** Mise en forme d'un paragraphe (positions ProseMirror absolues). */
+export interface ParaFormat {
+  /** Avant le nœud paragraphe ; `end` après lui. */
+  pos: number;
+  end: number;
+  /** Aucun contenu peint (ligne vide). */
+  empty: boolean;
+  /** Début du premier contenu (texte, tabulation…) et fin du dernier ; pos + 1 si vide. */
+  firstStart: number;
+  lastEnd: number;
+  kind: ParaStyle | 'other';
+  /** Nom du style tel que dans le document (null : style par défaut). */
+  styleName: string | null;
+  /** Police et taille (pt) dominantes du paragraphe (au nombre de caractères). */
+  font: string | null;
+  size: number | null;
+  align: Align;
+  line: LineSpacing | null;
+  /** Espacements et retraits en twips. */
+  before: number;
+  after: number;
+  indentLeft: number;
+  indentRight: number;
+  firstLine: number;
+  /** Passages dont la police ou la taille diffère de celles du paragraphe. */
+  runs: { from: number; to: number; font: string | null; size: number | null }[];
+  /** Tabulations (position du nœud). */
+  tabs: number[];
+  /** Sauts de ligne / de page : `after` = fin du contenu qui les précède. */
+  breaks: { at: number; after: number; page: boolean }[];
+}
+
+/** Valeurs distinctes de la sélection : un tableau de plus d'une valeur signifie « mixte ». */
+export interface RevealFormat {
+  fonts: (string | null)[];
+  sizes: (number | null)[];
+  bold: boolean[];
+  italic: boolean[];
+  underline: boolean[];
+  colors: (string | null)[];
+  /** Paragraphes touchés par la sélection (au moins celui du curseur). */
+  paras: ParaFormat[];
+  empty: boolean;
+}
+
 export interface EngineStats {
   words: number;
   chars: number;
@@ -175,6 +223,10 @@ export interface DocEngine {
   caretBlockRange(): { from: number; to: number } | null;
   /** Mode concentration (focus.tsx) : rectangle (coordonnées écran) du curseur, ou null. */
   caretCoords(): { top: number; bottom: number } | null;
+  /** Marques de mise en forme (marks.tsx) : mise en forme de chaque paragraphe, dans l'ordre du document. */
+  paragraphFormats(): ParaFormat[];
+  /** « Révéler la mise en forme » (marks.tsx) : valeurs distinctes sur la sélection (plusieurs = mixte). */
+  revealFormatting(): RevealFormat;
   /** Insère des paragraphes de corps (texte brut) à la fin du document — tests et outils. */
   appendParagraph(text: string): void;
   undo(): void;
@@ -795,6 +847,138 @@ export async function openDocEngine(host: HTMLElement, data: ArrayBuffer, opts: 
   const rangeTarget = (ed: Any, from: number, to: number): Any | null => {
     ed.commands.setTextSelection({ from, to });
     return selectionTarget(ed);
+  };
+
+  // ── Marques de mise en forme (marks.tsx) : mise en forme résolue par paragraphe ──
+  // Cache : liste reconstruite seulement quand le document change ; chaque paragraphe inchangé
+  // (nœud ProseMirror identique) reprend son calcul précédent (positions relatives).
+  let fmtCache: { doc: Any; xml: string; list: ParaFormat[] } | null = null;
+  let effXml = '';
+  const effCache = new Map<string, StylePatch>();
+  const effOf = (id: string | null): StylePatch => {
+    if (effXml !== stylesXml) {
+      effCache.clear();
+      effXml = stylesXml;
+    }
+    const k = id ?? '';
+    let v = effCache.get(k);
+    if (!v) effCache.set(k, (v = effectiveStyleProps(stylesXml, id)));
+    return v;
+  };
+  const styleDisplayName = (id: string): string => {
+    const ls: Any[] = body()?.converter?.linkedStyles ?? [];
+    const s = ls.find((x) => x?.id === id);
+    return String(s?.definition?.attrs?.name ?? id);
+  };
+  const sizePt = (v: unknown): number | null => {
+    if (v == null || v === '') return null;
+    if (typeof v === 'number') return v;
+    const m = /^([\d.]+)\s*(pt|px)?$/.exec(String(v).trim());
+    if (!m) return null;
+    const n = parseFloat(m[1]);
+    return m[2] === 'px' ? Math.round(n * 0.75 * 2) / 2 : n;
+  };
+  /** Police et taille (pt) effectives d'un texte : marque textStyle, propriétés du run, puis style. */
+  const runFontOf = (run: Any | null, text: Any, eff: StylePatch): [string | null, number | null] => {
+    const ts = text.marks.find((m: Any) => m.type.name === 'textStyle')?.attrs;
+    const rp = run?.attrs?.runProperties ?? {};
+    const rf = rp.fontFamily;
+    const font = familyName(ts?.fontFamily) ?? (typeof rf === 'string' ? familyName(rf) : familyName(rf?.ascii ?? rf?.hAnsi)) ?? eff.fontFamily ?? null;
+    const size = sizePt(ts?.fontSize) ?? (rp.fontSize != null ? Number(rp.fontSize) / 2 : null) ?? eff.fontSize ?? null;
+    return [font, size];
+  };
+  type RelFormat = Omit<ParaFormat, 'pos' | 'end'>;
+  const nodeFmt = new WeakMap<object, { xml: string; f: RelFormat }>();
+  const PAINTED_ATOM = /^(tab|lineBreak|hardBreak|image|footnoteReference|endnoteReference)$/;
+  const relFormat = (n: Any): RelFormat => {
+    const pp = n.attrs.paragraphProperties ?? {};
+    const eff = effOf(pp.styleId ?? null);
+    const kind = kindOfStyle(pp.styleId, pp);
+    const jc = pp.justification ?? eff.align;
+    const align: Align = jc === 'both' || jc === 'justify' ? 'justify' : jc === 'center' ? 'center' : jc === 'right' || jc === 'end' ? 'right' : 'left';
+    const sp = pp.spacing ?? {};
+    const rule = sp.lineRule ?? 'auto';
+    const line: LineSpacing | null =
+      sp.line != null
+        ? rule === 'auto'
+          ? { mult: Math.round((Number(sp.line) / 240) * 100) / 100 }
+          : { pt: Math.round((Number(sp.line) / 20) * 10) / 10, rule: rule === 'exact' ? 'exact' : 'atLeast' }
+        : eff.lineSpacing != null
+          ? { mult: eff.lineSpacing }
+          : { mult: 1 };
+    const ind = pp.indent ?? {};
+    const counts = new Map<string, number>();
+    const segs: { from: number; to: number; font: string | null; size: number | null; key: string }[] = [];
+    const tabs: number[] = [];
+    const breaks: { at: number; after: number; page: boolean }[] = [];
+    let first = -1;
+    let last = -1;
+    n.descendants((c: Any, p: number, parent: Any) => {
+      const at = p + 1;
+      if (c.isText) {
+        const [font, size] = runFontOf(parent?.type?.name === 'run' ? parent : null, c, eff);
+        const key = `${(font ?? '').toLowerCase()}|${size ?? ''}`;
+        counts.set(key, (counts.get(key) ?? 0) + c.text.length);
+        const prev = segs[segs.length - 1];
+        if (prev && prev.key === key && at - prev.to <= 2) prev.to = at + c.nodeSize;
+        else segs.push({ from: at, to: at + c.nodeSize, font, size, key });
+        if (first < 0) first = at;
+        last = at + c.nodeSize;
+        return false;
+      }
+      const name = c.type.name;
+      if (PAINTED_ATOM.test(name)) {
+        if (name === 'tab') tabs.push(at);
+        else if (name === 'lineBreak' || name === 'hardBreak') {
+          const t = String(c.attrs?.pageBreakType ?? c.attrs?.lineBreakType ?? c.attrs?.type ?? '');
+          breaks.push({ at, after: last < 0 ? at : last, page: name === 'hardBreak' ? t !== 'textWrapping' && t !== 'line' : t === 'page' });
+        }
+        if (first < 0) first = at;
+        last = at + c.nodeSize;
+        return false;
+      }
+      return true;
+    });
+    let dom = '';
+    let best = -1;
+    for (const [k, v] of counts) if (v > best) (best = v), (dom = k);
+    const domSeg = segs.find((s) => s.key === dom);
+    const font = domSeg ? domSeg.font : eff.fontFamily ?? null;
+    const size = domSeg ? domSeg.size : eff.fontSize ?? null;
+    return {
+      empty: first < 0,
+      firstStart: first < 0 ? 1 : first,
+      lastEnd: last < 0 ? 1 : last,
+      kind,
+      styleName: pp.styleId ? styleDisplayName(String(pp.styleId)) : null,
+      font,
+      size,
+      align,
+      line,
+      before: Number(sp.before ?? eff.before ?? 0),
+      after: Number(sp.after ?? eff.after ?? 0),
+      indentLeft: Number(ind.left ?? 0),
+      indentRight: Number(ind.right ?? 0),
+      firstLine: ind.firstLine != null ? Number(ind.firstLine) : ind.hanging != null ? -Number(ind.hanging) : Number(eff.firstLine ?? 0),
+      runs: segs.filter((s) => s.key !== dom).map(({ from, to, font: f, size: z }) => ({ from, to, font: f, size: z })),
+      tabs,
+      breaks,
+    };
+  };
+  const paraFormatAt = (n: Any, pos: number): ParaFormat => {
+    let c = nodeFmt.get(n);
+    if (!c || c.xml !== stylesXml) nodeFmt.set(n, (c = { xml: stylesXml, f: relFormat(n) }));
+    const f = c.f;
+    return {
+      ...f,
+      pos,
+      end: pos + n.nodeSize,
+      firstStart: pos + f.firstStart,
+      lastEnd: pos + f.lastEnd,
+      runs: f.runs.map((r) => ({ ...r, from: pos + r.from, to: pos + r.to })),
+      tabs: f.tabs.map((t) => pos + t),
+      breaks: f.breaks.map((b) => ({ at: pos + b.at, after: pos + b.after, page: b.page })),
+    };
   };
 
   const engine: DocEngine = {
@@ -1574,6 +1758,80 @@ export async function openDocEngine(host: HTMLElement, data: ArrayBuffer, opts: 
       } catch {
         return null;
       }
+    },
+    paragraphFormats() {
+      const ed = body();
+      const doc = ed?.state?.doc;
+      if (!doc) return [];
+      if (fmtCache && fmtCache.doc === doc && fmtCache.xml === stylesXml) return fmtCache.list;
+      const list: ParaFormat[] = [];
+      doc.descendants((n: Any, pos: number) => {
+        if (n.type.name === 'paragraph') {
+          list.push(paraFormatAt(n, pos));
+          return false;
+        }
+        return true;
+      });
+      fmtCache = { doc, xml: stylesXml, list };
+      return list;
+    },
+    revealFormatting() {
+      const ed = body();
+      const out: RevealFormat = { fonts: [], sizes: [], bold: [], italic: [], underline: [], colors: [], paras: [], empty: true };
+      if (!ed) return out;
+      const add = <T,>(arr: T[], v: T) => {
+        if (!arr.some((x) => x === v)) arr.push(v);
+      };
+      const { from, to, empty } = ed.state.selection;
+      out.empty = empty;
+      const st = engine.state();
+      out.paras = selectedParagraphs(ed).map(({ node, pos }) => paraFormatAt(node, pos));
+      if (empty) {
+        add(out.fonts, st.fontFamily);
+        add(out.sizes, st.fontSize);
+        add(out.bold, st.bold);
+        add(out.italic, st.italic);
+        add(out.underline, st.underline);
+        add(out.colors, st.color);
+        return out;
+      }
+      ed.state.doc.nodesBetween(from, to, (n: Any, pos: number, parent: Any) => {
+        if (n.type.name === 'paragraph') {
+          const pp = n.attrs.paragraphProperties ?? {};
+          const eff = effOf(pp.styleId ?? null);
+          n.nodesBetween(Math.max(0, from - pos - 1), Math.min(n.content.size, to - pos - 1), (c: Any, _p: number, par: Any) => {
+            if (!c.isText) return true;
+            const [font, size] = runFontOf(par?.type?.name === 'run' ? par : null, c, eff);
+            add(out.fonts, font);
+            add(out.sizes, size);
+            const mk = (name: string) => c.marks.find((m: Any) => m.type.name === name)?.attrs;
+            const rp = par?.type?.name === 'run' ? par.attrs?.runProperties ?? {} : {};
+            const b = mk('bold');
+            add(out.bold, b ? b.value !== false : !!rp.bold && rp.bold !== false);
+            const i = mk('italic');
+            add(out.italic, i ? i.value !== false : !!rp.italic && rp.italic !== false);
+            const u = mk('underline');
+            add(out.underline, !!u && u.underlineType !== 'none');
+            add(out.colors, mk('textStyle')?.color ?? null);
+            return false;
+          });
+          return false;
+        }
+        void parent;
+        return true;
+      });
+      if (!out.fonts.length) {
+        add(out.fonts, st.fontFamily);
+        add(out.sizes, st.fontSize);
+        add(out.bold, st.bold);
+        add(out.italic, st.italic);
+        add(out.underline, st.underline);
+        add(out.colors, st.color);
+      }
+      // gras / italique venus du style (titres) : l'état du curseur les voit, pas les marques
+      if (out.bold.length === 1 && !out.bold[0] && st.bold) out.bold = [true];
+      if (out.italic.length === 1 && !out.italic[0] && st.italic) out.italic = [true];
+      return out;
     },
     appendParagraph(text) {
       touched = true;

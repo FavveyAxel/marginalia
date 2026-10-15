@@ -24,6 +24,7 @@ const MAC_KEYS = {
   ordered: '⌘⇧7',
   link: '⌘⇧K',
   pageBreak: '⌘↩',
+  marks: '⌘8',
   footnote: '⌘⌥F',
   h1: '⌘⌥1',
   h2: '⌘⌥2',

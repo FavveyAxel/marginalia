@@ -1,32 +1,28 @@
-import { useEffect, useState } from 'react';
+// Styles de toutes les vues, en premier : même ordre de cascade qu'avant le découpage du code.
+import './styles/cascade';
+import { Suspense, useEffect, useState } from 'react';
 import { BookOpen, Brain, CircleHelp, PanelLeftClose, PanelLeftOpen, Coffee, FilePen, Highlighter, History, Home, Laptop, Lightbulb, ListTree, Moon, Plus, Search, Sigma, Sun, Trash2, Upload } from 'lucide-react';
 import { useStore } from './lib/store';
 import { host, filesFromDrop } from './lib/platform';
 import type { Route, ThemeId } from './lib/types';
-import { Kbd } from './components/ui';
+import { Kbd, PageSkeleton } from './components/ui';
+import { lazyViews, loadAllViews, preloadViews } from './lazyViews';
 import { HomeView } from './features/home/HomeView';
 import { LibraryView } from './features/library/LibraryView';
-import { ReaderView } from './features/reader/ReaderView';
-import { ConceptsView } from './features/concepts/ConceptsView';
-import { AllExtractsView } from './features/annotations/AllExtractsView';
-import { ArgumentsView } from './features/arguments/ArgumentsView';
-import { RevisionView } from './features/revision/RevisionView';
 import { useDueCount } from './features/revision/useDueCount';
-import { PlansView } from './features/plans/PlansView';
-import { WriteView } from './features/editor/WriteView';
 import { WorkspaceTree } from './features/workspaces/WorkspaceTree';
-import { WorkspaceView } from './features/workspaces/WorkspaceView';
 import { CommandPalette } from './components/CommandPalette';
-import { TrashView } from './features/trash/TrashView';
-import { HistoryView } from './features/history/HistoryView';
 import { isTextEditingTarget } from './features/history/keys';
 import { useAppleBooksSync } from './features/library/appleBooks';
 import { useResizeDiagnostics } from './lib/diagnostics';
 import { useDocxMigration } from './features/library/docxMigration';
-import { HelpView } from './features/help/HelpView';
-import { BoardView } from './features/map/BoardView';
 import { fmtKeys, isMac, isMod, isWindows, matchKeys } from './lib/keys';
 import { useFormatRepair } from './features/library/formatRepair';
+import { ErrorBoundary } from './components/ErrorBoundary';
+
+// Vues chargées à la demande (découpage du code) : l'accueil et la bibliothèque sont dans le paquet
+// principal, le reste (lecteur, éditeur, carte, révision…) est préchargé en arrière-plan après l'affichage.
+const { ReaderView, ConceptsView, AllExtractsView, ArgumentsView, RevisionView, PlansView, WriteView, WorkspaceView, TrashView, HistoryView, HelpView, BoardView } = lazyViews;
 
 function useTheme(theme: ThemeId) {
   useEffect(() => {
@@ -361,6 +357,19 @@ function DropOverlay() {
   );
 }
 
+/** Ouverture du lecteur avant que son code soit chargé (bref) : page fantôme plein écran. */
+function ReaderFallback() {
+  return (
+    <div className="reader-fallback" aria-busy="true" style={{ height: '100vh', display: 'flex', background: 'var(--bg-app)' }}>
+      <PageSkeleton />
+    </div>
+  );
+}
+
+/** Nom des vues dans le journal et pour les tests (ErrorBoundary). */
+const VIEW_NAMES: Partial<Record<Route['name'], string>> = { write: 'éditeur', board: 'carte', workspace: 'espaces', home: 'accueil', library: 'bibliothèque' };
+const goHome = () => useStore.getState().navigate({ name: 'home' });
+
 export function App() {
   const ready = useStore((s) => s.ready);
   const route = useStore((s) => s.route);
@@ -374,8 +383,14 @@ export function App() {
   useResizeDiagnostics();
 
   useEffect(() => {
-    useStore.getState().init();
+    if (import.meta.env.DEV) void loadAllViews().then(() => useStore.getState().init());
+    else useStore.getState().init();
   }, []);
+
+  // Une fois l'interface affichée : précharger en tâche de fond les vues probables (lecteur d'abord).
+  useEffect(() => {
+    if (ready) return preloadViews();
+  }, [ready]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -441,11 +456,17 @@ export function App() {
   return (
     <>
       {route.name === 'reader' ? (
-        <ReaderView key={route.bookId} bookId={route.bookId} tab={route.tab} splitBookId={route.splitBookId} />
+        <ErrorBoundary key={route.bookId} view="lecteur" onHome={goHome}>
+          <Suspense fallback={<ReaderFallback />}>
+            <ReaderView key={route.bookId} bookId={route.bookId} tab={route.tab} splitBookId={route.splitBookId} />
+          </Suspense>
+        </ErrorBoundary>
       ) : (
         <div className="app">
           <Sidebar />
           <main className="main" key={route.name === 'workspace' ? route.workspaceId : route.name === 'board' ? 'board:' + route.boardId : route.name}>
+            <ErrorBoundary view={VIEW_NAMES[route.name] ?? route.name} onHome={route.name === 'home' ? undefined : goHome}>
+            <Suspense fallback={<PageSkeleton />}>
             {route.name === 'home' && <HomeView />}
             {route.name === 'library' && <LibraryView />}
             {route.name === 'workspace' && <WorkspaceView key={route.workspaceId} workspaceId={route.workspaceId} groupId={route.groupId} />}
@@ -459,6 +480,8 @@ export function App() {
             {route.name === 'history' && <HistoryView />}
             {route.name === 'help' && <HelpView />}
             {route.name === 'board' && <BoardView key={route.boardId} boardId={route.boardId} />}
+            </Suspense>
+            </ErrorBoundary>
           </main>
         </div>
       )}

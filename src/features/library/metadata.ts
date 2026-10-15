@@ -1,6 +1,5 @@
 // Extraction des métadonnées à l'import. Ne lève jamais d'erreur pour une métadonnée manquante :
 // en dernier recours, le titre est dérivé du nom de fichier.
-import JSZip from 'jszip';
 import type { BookFormat, Edition } from '../../lib/types';
 import { extOf, IMAGE_EXTENSIONS, type PickedFile } from '../../lib/platform';
 import { looksBinary, sniffFile } from '../../lib/sniff';
@@ -131,6 +130,7 @@ function resolvePath(base: string, href: string): string {
 
 // ── EPUB ─────────────────────────────────────────────────────
 async function epubMeta(f: PickedFile): Promise<Partial<BookMetadata>> {
+  const { default: JSZip } = await import('jszip');
   const zip = await JSZip.loadAsync(f.data);
   const container = zip.file('META-INF/container.xml');
   let opfPath = '';
@@ -253,6 +253,7 @@ async function pdfMeta(f: PickedFile): Promise<Partial<BookMetadata>> {
 
 // ── DOCX ─────────────────────────────────────────────────────
 async function docxMeta(f: PickedFile): Promise<Partial<BookMetadata>> {
+  const { default: JSZip } = await import('jszip');
   const zip = await JSZip.loadAsync(f.data);
   const core = zip.file('docProps/core.xml');
   if (!core) return {};

@@ -4,13 +4,19 @@ import './styles/tokens.css';
 import './styles/app.css';
 import { App } from './App';
 import { applyPlatformClass } from './lib/keys';
+import { installErrorReporting } from './lib/diagnostics';
+import { ErrorBoundary } from './components/ErrorBoundary';
 
 // Classe platform-mac / platform-win sur <html> avant le premier rendu (barre de titre, raccourcis).
 applyPlatformClass();
+// Erreurs non rattrapées → journal de diagnostic local (app de bureau).
+installErrorReporting();
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
-    <App />
+    <ErrorBoundary view="application">
+      <App />
+    </ErrorBoundary>
   </React.StrictMode>,
 );
 

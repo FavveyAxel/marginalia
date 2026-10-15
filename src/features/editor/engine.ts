@@ -267,6 +267,30 @@ export interface EngineOptions {
 type Any = any;
 
 let loading: Promise<Any> | null = null;
+// Fuite de SuperDoc : son peintre (DomPainter) pose sur window des écouteurs scroll/resize
+// (`() => this.updateVirtualWindow()`) qu'il ne retire pas quand le document est détruit. Chaque
+// ouverture d'écrit gardait ainsi en mémoire tout l'éditeur précédent (DOM des pages compris).
+// On repère ces écouteurs à leur source et on les retire à la destruction du moteur.
+const painterListeners = new Set<[string, EventListenerOrEventListenerObject]>();
+let liveEngines = 0;
+let listenerTrackerInstalled = false;
+function installListenerTracker() {
+  if (listenerTrackerInstalled) return;
+  listenerTrackerInstalled = true;
+  const add = window.addEventListener as (this: Window, type: string, listener: EventListenerOrEventListenerObject | null, options?: boolean | AddEventListenerOptions) => void;
+  window.addEventListener = function (this: Window, type: string, listener: EventListenerOrEventListenerObject | null, options?: boolean | AddEventListenerOptions) {
+    if (listener && (type === 'scroll' || type === 'resize') && typeof listener === 'function' && Function.prototype.toString.call(listener).includes('updateVirtualWindow'))
+      painterListeners.add([type, listener]);
+    return add.call(this, type, listener, options);
+  } as typeof window.addEventListener;
+}
+/** Retire les écouteurs de peintre restants (seulement si aucun autre moteur n'est ouvert). */
+function releasePainterListeners() {
+  if (liveEngines > 1) return;
+  for (const [type, l] of painterListeners) window.removeEventListener(type as 'scroll', l);
+  painterListeners.clear();
+}
+
 function loadSuperDoc(): Promise<Any> {
   const w = window as Any;
   if (w.SuperDoc) return Promise.resolve(w.SuperDoc);
@@ -319,6 +343,7 @@ const styleDef = (id: string) => STYLE_DEFS[id] ?? styleDefinition(id);
 /** Ouvre `data` (.docx) dans `host`. Rejette si le moteur ne devient pas prêt. */
 export async function openDocEngine(host: HTMLElement, data: ArrayBuffer, opts: EngineOptions = {}): Promise<DocEngine> {
   const SuperDoc = await loadSuperDoc();
+  installListenerTracker();
   let destroyed = false;
   let ready = false;
   // Les transactions de normalisation qui suivent l'ouverture ne sont pas des modifications ;
@@ -408,6 +433,8 @@ export async function openDocEngine(host: HTMLElement, data: ArrayBuffer, opts: 
     for (const ev of INPUT_EVENTS) document.removeEventListener(ev, onUserInput, true);
     throw e;
   });
+  liveEngines++;
+  let counted = true;
   await waitPainted();
 
   /** Éditeur du corps (pas la session de note éventuellement active). */
@@ -688,6 +715,7 @@ export async function openDocEngine(host: HTMLElement, data: ArrayBuffer, opts: 
   const dropStray = () => {
     for (const el of stray) el.remove();
     stray.clear();
+    releasePainterListeners();
   };
 
   /** Niveau de titre (1 à 3) d'un paragraphe (plan déplaçable). */
@@ -1596,6 +1624,8 @@ export async function openDocEngine(host: HTMLElement, data: ArrayBuffer, opts: 
         console.warn(e);
       }
       dropStray();
+      if (counted) liveEngines--;
+      counted = false;
     },
     debugEditor() {
       return { editor: body(), superdoc: sd, stylesXml };

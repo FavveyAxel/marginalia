@@ -26,7 +26,21 @@ import { Kbd } from './ui';
 import { createBoard, createBoardIn } from '../features/map/model/actions';
 import './command.css';
 
-const norm = (x: string) => x.normalize('NFD').replace(/\p{Diacritic}/gu, '').toLowerCase();
+const normRaw = (x: string) => x.normalize('NFD').replace(/\p{Diacritic}/gu, '').toLowerCase();
+// Mémo des formes normalisées : la palette indexe des milliers d'extraits à chaque ouverture,
+// et la normalisation Unicode en est l'essentiel du coût. Les textes inchangés d'une ouverture
+// à l'autre ne sont plus recalculés (mémo vidé au-delà d'une taille raisonnable).
+const NORM_MAX = 50_000;
+const normMemo = new Map<string, string>();
+const norm = (x: string) => {
+  let v = normMemo.get(x);
+  if (v === undefined) {
+    if (normMemo.size >= NORM_MAX) normMemo.clear();
+    v = normRaw(x);
+    normMemo.set(x, v);
+  }
+  return v;
+};
 const MAX = 6;
 const MAX_EMPTY = 4;
 
@@ -40,9 +54,15 @@ interface Cmd {
   hint?: string;
   /** Mots-clés de recherche (non affichés). */
   keywords?: string;
-  haystack: string;
+  /** Texte de recherche brut ; normalisé à la première recherche seulement (hay). */
+  text: string;
+  haystack?: string;
+  labelNorm?: string;
   run(): void;
 }
+
+const hay = (c: Cmd) => (c.haystack ??= norm(c.text));
+const labelNorm = (c: Cmd) => (c.labelNorm ??= norm(c.label));
 
 const GROUPS = ['Actions', 'Livres', 'Écrits', 'Cartes', 'Concepts', 'Extraits', 'Signets', 'Plans', 'Arguments', 'Fiches-texte', 'Espaces'];
 
@@ -83,7 +103,7 @@ function Palette() {
       group: 'Actions',
       label,
       icon,
-      haystack: norm(label + ' ' + (extra.keywords ?? '')),
+      text: (label + ' ' + (extra.keywords ?? '')),
       run,
       ...extra,
     });
@@ -157,7 +177,7 @@ function Palette() {
           label: b.title,
           meta: b.author,
           icon: <BookOpen size={15} />,
-          haystack: norm(b.title + ' ' + b.author),
+          text: (b.title + ' ' + b.author),
           run: () => st().openBook(b.id),
         }),
       );
@@ -170,7 +190,7 @@ function Palette() {
           label: d.title || 'Sans titre',
           meta: d.wordCount ? `${d.wordCount} mots` : undefined,
           icon: <FilePen size={15} />,
-          haystack: norm(d.title),
+          text: (d.title),
           run: () => st().navigate({ name: 'write', draftId: d.id }),
         }),
       );
@@ -185,7 +205,7 @@ function Palette() {
           label: m.title?.trim() || 'Carte sans titre',
           meta: `${m.nodes.length} carte${m.nodes.length > 1 ? 's' : ''}`,
           icon: <Network size={15} />,
-          haystack: norm(['carte', m.title ?? '', ...ideas].join(' ')),
+          text: (['carte', m.title ?? '', ...ideas].join(' ')),
           run: () => st().navigate({ name: 'board', boardId: m.id! }),
         });
       });
@@ -198,7 +218,7 @@ function Palette() {
           label: c.name,
           meta: c.programme === 'notion' ? 'Notion' : c.programme === 'repere' ? 'Repère' : undefined,
           icon: <Lightbulb size={15} />,
-          haystack: norm(c.name + ' ' + c.definition),
+          text: (c.name + ' ' + c.definition),
           run: () => st().navigate({ name: 'concepts', conceptId: c.id }),
         }),
       );
@@ -211,7 +231,7 @@ function Palette() {
           label: h.text.replace(/\s+/g, ' ').trim(),
           meta: bookTitle.get(h.bookId),
           dot: kindColor(h),
-          haystack: norm(h.text + ' ' + h.note + ' ' + h.conceptIds.map((id) => conceptName.get(id) ?? '').join(' ')),
+          text: (h.text + ' ' + h.note + ' ' + h.conceptIds.map((id) => conceptName.get(id) ?? '').join(' ')),
           run: () => st().jumpToHighlight(h.id),
         }),
       );
@@ -226,7 +246,7 @@ function Palette() {
           label: `Signet — ${bm.label}`,
           meta: title,
           icon: <BookmarkIcon size={15} />,
-          haystack: norm(['signet', bm.label, bm.note ?? '', bm.excerpt ?? '', bm.locationLabel ?? '', title].join(' ')),
+          text: (['signet', bm.label, bm.note ?? '', bm.excerpt ?? '', bm.locationLabel ?? '', title].join(' ')),
           run: () => st().jumpToBookmark(bm.id),
         });
       });
@@ -238,7 +258,7 @@ function Palette() {
           group: 'Plans',
           label: p.sujet.trim() || p.title || 'Sans titre',
           icon: <ListTree size={15} />,
-          haystack: norm([p.title, p.sujet, p.problematique].join(' ')),
+          text: ([p.title, p.sujet, p.problematique].join(' ')),
           run: () => st().navigate({ name: 'plans', planId: p.id }),
         }),
       );
@@ -251,7 +271,7 @@ function Palette() {
           label: a.title || 'Sans titre',
           meta: a.bookId ? bookTitle.get(a.bookId) : undefined,
           icon: <Sigma size={15} />,
-          haystack: norm([a.title, a.conclusion.text, ...a.premises.map((x) => x.text)].join(' ')),
+          text: ([a.title, a.conclusion.text, ...a.premises.map((x) => x.text)].join(' ')),
           run: () => st().navigate({ name: 'arguments', argumentId: a.id }),
         }),
       );
@@ -264,7 +284,7 @@ function Palette() {
           label: x.title || 'Fiche-texte',
           meta: bookTitle.get(x.bookId),
           icon: <FileText size={15} />,
-          haystack: norm([x.title, x.probleme, x.these, bookTitle.get(x.bookId) ?? ''].join(' ')),
+          text: ([x.title, x.probleme, x.these, bookTitle.get(x.bookId) ?? ''].join(' ')),
           run: () => {
             st().updateSettings({ rightPanel: 'etude', showExtracts: true });
             st().openBook(x.bookId);
@@ -280,30 +300,39 @@ function Palette() {
           label: w.name,
           icon: <Folder size={15} />,
           dot: undefined,
-          haystack: norm(w.name),
+          text: (w.name),
           run: () => st().navigate({ name: 'workspace', workspaceId: w.id, groupId: null }),
         }),
       );
     return items;
   }, [books, drafts, concepts, highlights, workspaces, plans, args, studies, bookmarks, maps]);
 
+  const byGroup = useMemo(() => {
+    const m = new Map<string, Cmd[]>(GROUPS.map((g) => [g, []]));
+    for (const c of all) m.get(c.group)?.push(c);
+    return m;
+  }, [all]);
+
   const results = useMemo(() => {
-    const terms = norm(q.trim()).split(/\s+/).filter(Boolean);
+    const terms = normRaw(q.trim()).split(/\s+/).filter(Boolean);
     const out: Cmd[] = [];
     for (const g of GROUPS) {
-      let list = all.filter((c) => c.group === g);
-      if (terms.length) list = list.filter((c) => terms.every((t) => c.haystack.includes(t)));
+      let list = byGroup.get(g) ?? [];
+      if (terms.length) list = list.filter((c) => terms.every((t) => hay(c).includes(t)));
       if (terms.length) {
-        // Les correspondances en début de libellé d'abord
+        // Les correspondances en début de libellé d'abord (ordre conservé dans chaque moitié)
         const first = terms[0];
-        list = [...list].sort((a, b) => Number(norm(b.label).startsWith(first)) - Number(norm(a.label).startsWith(first)));
+        const head: Cmd[] = [];
+        const tail: Cmd[] = [];
+        for (const c of list) (labelNorm(c).startsWith(first) ? head : tail).push(c);
+        list = head.concat(tail);
       }
       // Sans requête : toutes les actions (c'est un menu), quelques éléments des autres groupes
       const cap = terms.length ? MAX : g === 'Actions' ? list.length : MAX_EMPTY;
       out.push(...list.slice(0, cap));
     }
     return out;
-  }, [all, q]);
+  }, [byGroup, q]);
 
   useEffect(() => setFocus(0), [q]);
   useEffect(() => inputRef.current?.focus(), []);

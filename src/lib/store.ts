@@ -638,12 +638,23 @@ export const useStore = create<State>()(tracked((set, get) => ({
     if (initPromise) return initPromise;
     initPromise = (async () => {
       let db: Database | null = null;
+      let loadError = false;
       try {
         db = await host.loadDb();
       } catch (e) {
         console.error(e);
+        loadError = true;
       }
+      // Lecture impossible (≠ premier lancement) : on n'écrit rien, sinon une base vide remplacerait la vraie.
+      if (loadError) persistBlocked = true;
+      host.onNotice?.((n) => get().toast(n.message, n.tone, n.tone === 'success' ? undefined : { label: 'OK', run: () => {} }));
+      host.onFlushRequest?.(flushPendingSave);
       set({ ...migrate(db), ready: true });
+      if (loadError)
+        get().toast('Impossible de lire vos données : rien ne sera enregistré pendant cette session. Quittez puis relancez Marginalia.', 'error', {
+          label: 'OK',
+          run: () => {},
+        });
       rawSet({ activity: pruneActivity(get().activity, Date.now()) });
       get()
         .purgeExpiredTrash()
@@ -1206,13 +1217,11 @@ export const useStore = create<State>()(tracked((set, get) => ({
     // Plus aucune annulation ne doit pouvoir faire revenir un élément effacé.
     undoStack = [];
     redoStack = [];
-    try {
-      await host.saveDb(pickDb(get()));
-    } catch (e) {
-      console.error('saveDb', e);
-    }
+    // Base non enregistrée (échec d'écriture) : on garde les fichiers. Un fichier orphelin ne gêne
+    // rien ; un élément de la base sans son fichier serait perdu.
+    const saved = await writeDb(pickDb(get()));
     // 2. Fichiers : jamais ceux d'un élément présent ou encore dans la corbeille.
-    for (const t of list)
+    for (const t of saved ? list : [])
       for (const f of t.files) {
         const st = get();
         const inUse =
@@ -1371,26 +1380,136 @@ function logExport(message: string) {
 // Seuls les changements de données relancent l'attente (pas les toasts ni la navigation),
 // et l'écriture n'attend jamais plus de 2 s : une suite de changements ne peut plus la repousser indéfiniment.
 const PERSISTED: (keyof Database)[] = ['books', 'highlights', 'concepts', 'maps', 'arguments', 'studies', 'plans', 'drafts', 'cards', 'workspaces', 'groups', 'wsItems', 'bookmarks', 'settings', 'trash', 'activity', 'mapVersions'];
+// Une écriture échouée est retentée (5 s) ; l'utilisateur est prévenu au plus une fois par minute.
+// La fermeture de la fenêtre, l'export et la restauration d'une sauvegarde demandent d'abord une
+// écriture immédiate (flushPendingSave), précédée de celles des modules inscrits (registerFlusher).
 const SAVE_DEBOUNCE_MS = 350;
 const SAVE_MAX_WAIT_MS = 2000;
+const SAVE_RETRY_MS = 5000;
 let saveTimer: ReturnType<typeof setTimeout> | null = null;
 let savePendingSince = 0;
 let lastSaved = '';
-useStore.subscribe((s, prev) => {
-  if (!s.ready) return;
-  if (prev.ready && PERSISTED.every((k) => s[k] === prev[k])) return;
+let lastSaveErrorToast = 0;
+/** Base illisible au démarrage : rien n'est écrit pendant la session (pour ne rien écraser). */
+let persistBlocked = false;
+const flushers = new Set<() => unknown>();
+
+/** Inscrit une écriture à faire avant la fermeture (ex. : l'éditeur et son enregistrement différé). */
+export function registerFlusher(fn: () => unknown): () => void {
+  flushers.add(fn);
+  return () => void flushers.delete(fn);
+}
+
+function itemCount(db: Database): number {
+  let n = 0;
+  for (const v of Object.values(db)) if (Array.isArray(v)) n += v.length;
+  return n;
+}
+
+/** Écrit la base ; renvoie false si rien n'a été écrit (échec ou écriture suspendue). */
+async function writeDb(db: Database, json = serializeDb(db)): Promise<boolean> {
+  if (persistBlocked) return false;
+  try {
+    if (host.saveDbJson) await host.saveDbJson(json, { version: db.version, items: itemCount(db) });
+    else await host.saveDb(db);
+    lastSaved = json;
+    return true;
+  } catch (e) {
+    lastSaved = '';
+    console.error('saveDb', e);
+    void host.diag?.('enregistrement-echoue', String((e as Error)?.message ?? e));
+    if (Date.now() - lastSaveErrorToast > 60_000) {
+      lastSaveErrorToast = Date.now();
+      useStore.getState().toast('Enregistrement impossible pour l’instant : vos modifications restent affichées, Marginalia réessaie.', 'error');
+    }
+    return false;
+  }
+}
+
+// Sérialisation incrémentale : les collections du store sont immuables (chaque modification en crée
+// une nouvelle copie), on garde donc le JSON de chacune tant que sa référence ne change pas. Taper une
+// note ne resérialise plus que sa collection au lieu de toute la base (plusieurs Mo avec des milliers
+// d'extraits) ; le résultat est identique, octet pour octet, à JSON.stringify(db).
+const jsonParts = new Map<string, { ref: unknown; json: string | undefined }>();
+// Même principe à l'intérieur des tableaux : le JSON de chaque élément (objet immuable) est gardé ;
+// modifier un extrait parmi des milliers ne resérialise que lui.
+const itemJson = new WeakMap<object, string>();
+function stringifyValue(v: unknown): string | undefined {
+  if (!Array.isArray(v)) return JSON.stringify(v);
+  let out = '[';
+  for (let i = 0; i < v.length; i++) {
+    const e: unknown = v[i];
+    let j: string | undefined;
+    if (e !== null && typeof e === 'object' && !Array.isArray(e)) {
+      j = itemJson.get(e);
+      if (j === undefined) {
+        j = JSON.stringify(e);
+        itemJson.set(e, j);
+      }
+    } else j = JSON.stringify(e);
+    out += (i ? ',' : '') + (j ?? 'null'); // comme JSON.stringify : undefined/fonction → null
+  }
+  return out + ']';
+}
+function serializeDb(db: Database): string {
+  let out = '{';
+  let first = true;
+  for (const k of Object.keys(db)) {
+    const v = (db as unknown as Record<string, unknown>)[k];
+    let part = jsonParts.get(k);
+    if (!part || part.ref !== v) {
+      // 1re écriture (démarrage) : sérialisation d'un bloc, plus rapide ; le détail par élément
+      // ne sert qu'aux écritures suivantes.
+      part = { ref: v, json: part ? stringifyValue(v) : JSON.stringify(v) };
+      jsonParts.set(k, part);
+    }
+    if (part.json === undefined) continue; // comme JSON.stringify : clé omise (undefined, fonction)
+    out += (first ? '' : ',') + JSON.stringify(k) + ':' + part.json;
+    first = false;
+  }
+  return out + '}';
+}
+
+async function saveIfChanged(): Promise<boolean> {
+  const db = pickDb(useStore.getState());
+  const json = serializeDb(db);
+  if (json === lastSaved) return true;
+  return writeDb(db, json);
+}
+
+function scheduleSave() {
   const now = performance.now();
   if (saveTimer) clearTimeout(saveTimer);
   else savePendingSince = now;
   const wait = Math.max(0, Math.min(SAVE_DEBOUNCE_MS, savePendingSince + SAVE_MAX_WAIT_MS - now));
   saveTimer = setTimeout(() => {
     saveTimer = null;
-    const db = pickDb(useStore.getState());
-    const json = JSON.stringify(db);
-    if (json === lastSaved) return;
-    lastSaved = json;
-    host.saveDb(db).catch((e) => console.error('saveDb', e));
+    void saveIfChanged().then((ok) => {
+      if (!ok && !persistBlocked) setTimeout(() => !saveTimer && scheduleSave(), SAVE_RETRY_MS);
+    });
   }, wait);
+}
+
+/** Écrit immédiatement tout ce qui attend (modules inscrits, puis la base). */
+export async function flushPendingSave(): Promise<void> {
+  for (const f of [...flushers]) {
+    try {
+      await f();
+    } catch (e) {
+      console.warn('flush', e);
+    }
+  }
+  if (saveTimer) {
+    clearTimeout(saveTimer);
+    saveTimer = null;
+  }
+  if (useStore.getState().ready) await saveIfChanged();
+}
+
+useStore.subscribe((s, prev) => {
+  if (!s.ready) return;
+  if (prev.ready && PERSISTED.every((k) => s[k] === prev[k])) return;
+  scheduleSave();
 });
 
 // ── Sélecteurs utilitaires ───────────────────────────────────

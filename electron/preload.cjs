@@ -21,6 +21,30 @@ const api = {
 
   loadDb: () => ipcRenderer.invoke('marginalia:loadDb'),
   saveDb: (db) => ipcRenderer.invoke('marginalia:saveDb', db),
+  /** Base déjà sérialisée (évite un second JSON.stringify et le clonage de tout l'objet). */
+  saveDbJson: (json, meta) => ipcRenderer.invoke('marginalia:saveDb', String(json), meta && typeof meta === 'object' ? { version: meta.version, items: meta.items } : undefined),
+
+  /** Avis du processus principal (restauration automatique, sauvegarde exportée…) : affichés en toast. */
+  onNotice: (cb) => {
+    const handler = (_event, n) => cb({ message: String((n && n.message) || ''), tone: n && n.tone === 'error' ? 'error' : n && n.tone === 'success' ? 'success' : 'info' });
+    ipcRenderer.on('marginalia:notice', handler);
+    ipcRenderer.send('marginalia:notices-ready');
+    return () => ipcRenderer.removeListener('marginalia:notice', handler);
+  },
+  /** Fermeture, export ou restauration : écrire tout de suite ce qui attend, puis le confirmer. */
+  onFlushRequest: (cb) => {
+    const handler = async (_event, id) => {
+      try {
+        await cb();
+      } catch {
+        /* l'enregistrement a échoué : le processus principal n'attend pas plus */
+      }
+      ipcRenderer.send('marginalia:flush-done', id);
+    };
+    ipcRenderer.on('marginalia:flush-request', handler);
+    ipcRenderer.send('marginalia:flush-ready');
+    return () => ipcRenderer.removeListener('marginalia:flush-request', handler);
+  },
 
   pickFiles: async () => (await ipcRenderer.invoke('marginalia:pickFiles')).map(toFile),
 

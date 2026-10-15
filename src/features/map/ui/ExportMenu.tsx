@@ -74,8 +74,10 @@ export async function saveMapAs(key: string, kind: MapExportKind, sizes?: SizeMa
     }
     return path;
   } catch (e) {
-    console.error(e);
-    st.toast(kind === 'pdf' && host.kind === 'browser' ? 'L’export PDF n’est disponible que dans l’app de bureau' : `Export ${LABEL[kind]} impossible`, 'error');
+    // PDF dans le navigateur : limite connue (pas de printToPdf), signalée par le message — pas une erreur.
+    const unsupported = kind === 'pdf' && host.kind === 'browser';
+    if (!unsupported) console.error(e);
+    st.toast(unsupported ? 'L’export PDF n’est disponible que dans l’app de bureau' : `Export ${LABEL[kind]} impossible`, 'error');
     return null;
   }
 }

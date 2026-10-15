@@ -1,7 +1,7 @@
 // Éditeur pleine page d'un écrit (route { name: 'write', draftId }).
 import { useCallback, useEffect, useMemo, useRef, useState, type MutableRefObject } from 'react';
 import { AlertTriangle, ChevronLeft, ChevronDown, Download, FileDown, FileText, PanelRight, SearchCheck } from 'lucide-react';
-import { useStore } from '../../lib/store';
+import { registerFlusher, useStore } from '../../lib/store';
 import { host, type ExportFormat } from '../../lib/platform';
 import type { Book, Draft, Highlight } from '../../lib/types';
 import { formatFootnote } from '../../lib/citation';
@@ -288,6 +288,21 @@ function Editor({ draft }: { draft: Draft }) {
       if (!guardRef.current && seq.current !== savedSeq.current) void save(false);
     }, 1500);
   }, [save]);
+
+  // Fermeture de la fenêtre (ou export / restauration d'une sauvegarde) : l'enregistrement différé
+  // de 1,5 s est fait tout de suite, et on attend celui en cours.
+  useEffect(
+    () =>
+      registerFlusher(async () => {
+        if (saveTimer.current) {
+          clearTimeout(saveTimer.current);
+          saveTimer.current = null;
+        }
+        if (!guardRef.current && seq.current !== savedSeq.current) await save(false);
+        else if (saving.current) await saving.current;
+      }),
+    [save],
+  );
 
   const onChange = useCallback(() => {
     seq.current++;

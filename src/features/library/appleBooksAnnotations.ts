@@ -10,10 +10,11 @@
 import { useStore, uid, type State } from '../../lib/store';
 import { host, type AppleBooksAnnotation, type AppleBooksAsset } from '../../lib/platform';
 import type { AppleBooksColor, AppleBooksColorTarget, AppleBooksSyncReport, Book, Bookmark, CategoryId, Highlight, ReaderPosition, Settings } from '../../lib/types';
-import { parseBook, printedPageAt, type ParsedDoc } from '../reader/html/parse';
+// parse.ts (DOMPurify…) et le résolveur de CFI ne sont chargés qu'au moment d'une synchro.
+import type { ParsedDoc } from '../reader/html/parse';
 import { makeAnchor } from '../reader/html/anchoring';
 import { proposeLabel, sentenceAt } from '../reader/bookmarks/bookmarks';
-import { loadCfiContext, resolveCfiPoint, resolveCfiRange, type CfiContext } from './appleBooksCfi';
+import type { CfiContext } from './appleBooksCfi';
 
 export const appleBooksAnnotationsAvailable = () => !!host.appleBooksAnnotations;
 
@@ -210,6 +211,7 @@ async function run(opts: { manual?: boolean }): Promise<AppleBooksSyncReport | n
   const s0 = useStore.getState();
   const tog = annotationToggles(s0.settings);
   if (!tog.highlights && !tog.bookmarks && !tog.position) return null;
+  const [{ parseBook, printedPageAt }, { loadCfiContext, resolveCfiPoint, resolveCfiRange }] = await Promise.all([import('../reader/html/parse'), import('./appleBooksCfi')]);
   const res = await host.appleBooksAnnotations();
   const prev = s0.settings.appleBooksLastSync;
   if (res.status !== 'ok') {

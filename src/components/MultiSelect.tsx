@@ -44,9 +44,10 @@ export function SelectionActionBar({ count, label, children, onClear }: { count:
 
 /** Case à cocher posée sur une carte (mode « Sélectionner », ou dès qu'une sélection existe). */
 export function SelectCheck({ checked, onToggle, label }: { checked: boolean; onToggle(): void; label: string }) {
+  // <span> et non <button> : la case est posée dans des lignes qui sont elles-mêmes des boutons
+  // (liste des concepts) — un bouton dans un bouton est du HTML invalide (avertissement React).
   return (
-    <button
-      type="button"
+    <span
       role="checkbox"
       aria-checked={checked}
       aria-label={label}
@@ -59,7 +60,7 @@ export function SelectCheck({ checked, onToggle, label }: { checked: boolean; on
       }}
     >
       {checked && <Check size={12} strokeWidth={3} />}
-    </button>
+    </span>
   );
 }
 

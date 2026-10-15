@@ -66,6 +66,15 @@ export interface HostApi {
   loadDb(): Promise<Database | null>;
   /** Écriture atomique de la base. */
   saveDb(db: Database): Promise<void>;
+  /**
+   * Même chose avec la base déjà sérialisée (app de bureau) ; `meta` sert aux sauvegardes de secours
+   * (version de format : copie avant migration ; nombre d'éléments : copie avant un vidage complet).
+   */
+  saveDbJson?(json: string, meta: { version: number; items: number }): Promise<void>;
+  /** Avis du processus principal (base restaurée automatiquement, sauvegarde exportée…). */
+  onNotice?(cb: (n: { message: string; tone: 'info' | 'error' | 'success' }) => void): () => void;
+  /** Fermeture de la fenêtre, export ou restauration : écrire immédiatement ce qui attend. */
+  onFlushRequest?(cb: () => Promise<void>): () => void;
   /** Ouvre le sélecteur de fichiers natif (multi-sélection, formats acceptés). */
   pickFiles(): Promise<PickedFile[]>;
   /** Copie le fichier source dans la bibliothèque de l'app. */

@@ -544,6 +544,7 @@ export const HtmlReader = forwardRef<EngineHandle, EngineProps>(function HtmlRea
     const x = colRect.left + Math.min(colRect.width / 2, 120);
     const s = propsRef.current.settings;
     const line = s.fontSize * s.lineHeight;
+    let fallback: BookmarkPoint | null = null;
     for (const dy of [8, 24, 48, 80, 120, 180, 260, 360]) {
       const y = scRect.top + dy;
       if (y > scRect.bottom) break;
@@ -560,10 +561,17 @@ export const HtmlReader = forwardRef<EngineHandle, EngineProps>(function HtmlRea
       else {
         const text = parsed.chapters[chapter].text;
         while (start > 0 && !/\s/.test(text[start - 1])) start--;
+        // Première ligne visible = dernière ligne d'un paragraphe commencé plus haut (« travaillé. ») :
+        // marquer ce reliquat donnerait un extrait à cheval sur deux paragraphes et un retour qui
+        // place une fin de phrase en haut de la fenêtre. On marque plutôt le paragraphe suivant.
+        if (block && block.getBoundingClientRect().bottom <= rect.bottom + line * 0.5) {
+          fallback ??= pointFor(chapter, start);
+          continue;
+        }
       }
       return pointFor(chapter, start);
     }
-    return null;
+    return fallback;
   };
 
   /** Bref surlignage du paragraphe marqué (calque au-dessus du texte : le DOM du texte reste intact). */

@@ -97,3 +97,37 @@ export function useResizeDiagnostics() {
     };
   }, []);
 }
+
+/**
+ * Erreurs JavaScript non rattrapées du rendu (window.onerror, promesses rejetées) : consignées dans
+ * le journal local, au plus 20 par minute et sans répéter la même erreur plus d'une fois par 30 s.
+ */
+export function installErrorReporting() {
+  if (!host.diag || (window as unknown as { __mgErrors?: boolean }).__mgErrors) return;
+  (window as unknown as { __mgErrors?: boolean }).__mgErrors = true;
+  const recent = new Map<string, number>();
+  let windowStart = 0;
+  let count = 0;
+  const report = (kind: string, message: string, stack?: string) => {
+    if (/ResizeObserver loop/.test(message)) return; // bruit bénin de Chromium
+    const now = Date.now();
+    const key = kind + message;
+    if (now - (recent.get(key) ?? -Infinity) < 30_000) return;
+    recent.set(key, now);
+    if (recent.size > 200) recent.clear();
+    if (now - windowStart > 60_000) {
+      windowStart = now;
+      count = 0;
+    }
+    if (++count > 20) return;
+    void host.diag!(kind, message.slice(0, 2000), (stack ?? '').slice(0, 4000), { route: useStore.getState().route.name }).catch(() => undefined);
+  };
+  window.addEventListener('error', (e) => {
+    const err = e.error as Error | undefined;
+    report('erreur-js', String(e.message || err?.message || 'erreur'), err?.stack ?? `${e.filename}:${e.lineno}:${e.colno}`);
+  });
+  window.addEventListener('unhandledrejection', (e) => {
+    const r = e.reason as Error | undefined;
+    report('promesse-rejetee', String(r?.message ?? r), r?.stack);
+  });
+}

@@ -1,5 +1,5 @@
 // Vue « Extraits » : tous les extraits et notes, filtrables, groupés par livre.
-import { useMemo, useState, type CSSProperties } from 'react';
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { BookOpen, Copy, Highlighter, Search, X } from 'lucide-react';
 import { useStore } from '../../lib/store';
 import { CATEGORIES, NOTE_KINDS, NOTE_KIND_BY_ID, kindLabel, kindOf, kindColor } from '../../lib/categories';
@@ -19,6 +19,16 @@ const keyOf = (h: Highlight): CatKey => {
 };
 
 const stagger = (i: number) => ({ '--i': i }) as CSSProperties;
+/** Texte de recherche normalisé, mémorisé par extrait (objets immuables du store). */
+const searchMemo = new WeakMap<Highlight, string>();
+const searchText = (h: Highlight) => {
+  let v = searchMemo.get(h);
+  if (v === undefined) searchMemo.set(h, (v = norm(`${h.text} ${h.note}`)));
+  return v;
+};
+/** Extraits montés d'emblée, puis par tranches au défilement. */
+const RENDER_FIRST = 150;
+const RENDER_STEP = 300;
 
 export function AllExtractsView() {
   const highlights = useStore((s) => s.highlights);
@@ -53,7 +63,7 @@ export function AllExtractsView() {
       if (noteKind && h.noteKind !== noteKind) return false;
       if (bookId && h.bookId !== bookId) return false;
       if (conceptId && !h.conceptIds.includes(conceptId)) return false;
-      if (q && !norm(`${h.text} ${h.note}`).includes(q)) return false;
+      if (q && !searchText(h).includes(q)) return false;
       return true;
     });
     return out;
@@ -61,18 +71,51 @@ export function AllExtractsView() {
 
   const groups = useMemo(() => {
     const m = new Map<string, Highlight[]>();
-    for (const h of filtered) m.set(h.bookId, [...(m.get(h.bookId) ?? []), h]);
+    for (const h of filtered) {
+      const list = m.get(h.bookId);
+      if (list) list.push(h);
+      else m.set(h.bookId, [h]);
+    }
     const arr = [...m.entries()].map(([id, items]) => ({
       id,
       book: bookById.get(id) ?? null,
-      items: [...items].sort(sort === 'recent' ? (a, b) => b.createdAt - a.createdAt : byTextOrder),
+      items: items.sort(sort === 'recent' ? (a, b) => b.createdAt - a.createdAt : byTextOrder),
+      latest: items.reduce((n, h) => Math.max(n, h.createdAt), -Infinity),
+      count: items.length,
     }));
     return arr.sort((a, b) =>
-      sort === 'recent'
-        ? Math.max(...b.items.map((h) => h.createdAt)) - Math.max(...a.items.map((h) => h.createdAt))
-        : (a.book?.title ?? '').localeCompare(b.book?.title ?? '', 'fr', { sensitivity: 'base' }),
+      sort === 'recent' ? b.latest - a.latest : (a.book?.title ?? '').localeCompare(b.book?.title ?? '', 'fr', { sensitivity: 'base' }),
     );
   }, [filtered, bookById, sort]);
+
+  // Rendu progressif : des milliers d'extraits montés d'un coup figeaient la vue plusieurs secondes
+  // (DOM, styles, animations). On monte les premiers, puis la suite à l'approche du bas de la liste.
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const sentinelRef = useRef<HTMLDivElement>(null);
+  const [limit, setLimit] = useState(RENDER_FIRST);
+  useEffect(() => setLimit(RENDER_FIRST), [cats, noteKind, bookId, conceptId, query, sort]);
+  const truncated = filtered.length > limit;
+  useEffect(() => {
+    const el = sentinelRef.current;
+    if (!truncated || !el || typeof IntersectionObserver === 'undefined') return;
+    const io = new IntersectionObserver((entries) => entries.some((e) => e.isIntersecting) && setLimit((n) => n + RENDER_STEP), {
+      root: scrollRef.current,
+      rootMargin: '0px 0px 2000px 0px',
+    });
+    io.observe(el);
+    return () => io.disconnect();
+  }, [truncated, limit]);
+  const shown = useMemo(() => {
+    if (!truncated) return groups;
+    let budget = limit;
+    const out: typeof groups = [];
+    for (const g of groups) {
+      if (budget <= 0) break;
+      out.push(g.items.length <= budget ? g : { ...g, items: g.items.slice(0, budget) });
+      budget -= g.items.length;
+    }
+    return out;
+  }, [groups, limit, truncated]);
 
   const toggleCat = (k: CatKey) =>
     setCats((s) => {
@@ -111,7 +154,7 @@ export function AllExtractsView() {
         <span className="spacer" />
       </header>
 
-      <div className="ax-scroll">
+      <div className="ax-scroll" ref={scrollRef}>
         <div className="ax-page anim-view">
           <h1 className="page-title ax-title">Extraits</h1>
 
@@ -227,14 +270,14 @@ export function AllExtractsView() {
                   </button>
                 </div>
               ) : (
-                groups.map((g) => (
+                shown.map((g) => (
                   <section key={g.id} className="ax-group">
                     <h2 className="ax-book">
                       <BookOpen size={14} />
                       <span className="truncate">{g.book?.title ?? 'Livre supprimé'}</span>
                       {g.book?.author && <span className="muted truncate">{g.book.author}</span>}
                       <span className="spacer" />
-                      <span className="ax-n">{g.items.length}</span>
+                      <span className="ax-n">{g.count}</span>
                     </h2>
                     <ul className="ax-list anim-stagger">
                       {g.items.map((h, i) => {
@@ -287,6 +330,7 @@ export function AllExtractsView() {
                   </section>
                 ))
               )}
+              {truncated && <div ref={sentinelRef} className="ax-more" aria-hidden="true" style={{ height: 1 }} />}
             </>
           )}
         </div>

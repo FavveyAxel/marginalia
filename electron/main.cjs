@@ -2,8 +2,11 @@
 //
 // Données (dossier userData : ~/Library/Application Support/Marginalia sur Mac,
 // %APPDATA%\Marginalia sous Windows) :
-//   db.json (+ db.json.bak)        base complète, écriture atomique (tmp + rename)
+//   db.json (+ db.json.bak)        base complète, écriture atomique (tmp + fsync + rename), une à la fois
 //   library/<id>/<fileName>        fichiers sources des livres et des écrits
+//   backups/                       sauvegardes de la base : une par jour (7 jours), avant migration de
+//                                  format, avant restauration ou vidage complet ; bases illisibles mises de côté
+//   diagnostic.log (+ .1)          journal local (4 Mo au plus par fichier)
 //
 // Fichiers ouverts depuis le Finder / le Dock (événement macOS `open-file`), ou depuis l'Explorateur
 // de Windows (arguments de lancement, puis événement `second-instance` si l'app tourne déjà) : TOUS les formats acceptés, y compris les .docx, sont transmis au rendu via
@@ -18,6 +21,7 @@ const os = require('node:os');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const { pathToFileURL } = require('node:url');
+const zipkit = require('./backup.cjs');
 
 const DEV_URL = process.env.VITE_DEV_SERVER_URL || '';
 const APP_ORIGIN = 'app://marginalia';
@@ -51,6 +55,7 @@ if (!app.requestSingleInstanceLock()) {
 const userData = () => app.getPath('userData');
 const dbPath = () => path.join(userData(), 'db.json');
 const libraryRoot = () => path.join(userData(), 'library');
+const backupsDir = () => path.join(userData(), 'backups');
 
 // Noms interdits par Windows (quel que soit le système : une bibliothèque doit pouvoir être copiée d'un PC à un Mac).
 const WIN_RESERVED = /^(con|prn|aux|nul|com[0-9¹²³]|lpt[0-9¹²³])(\..*)?$/i;
@@ -118,23 +123,66 @@ function trusted(event) {
   return url.startsWith(APP_ORIGIN + '/') || (DEV_URL && url.startsWith(DEV_URL));
 }
 // ── Journal de diagnostic (local, dans le dossier de l'app) ──
+// diagnostic.log, 4 Mo au plus : au-delà, il devient diagnostic.log.1 (l'ancien .1 est remplacé).
+// Chaque ligne est tronquée à 16 Ko ; rien n'est jamais envoyé hors de l'ordinateur.
+const DIAG_MAX = 4 * 1024 * 1024;
+const DIAG_LINE_MAX = 16 * 1024;
 let diagStream = null;
+let diagSize = 0;
+function diagPart(p) {
+  if (typeof p === 'string') return p;
+  if (p instanceof Error) return p.stack || p.message;
+  try {
+    return JSON.stringify(p);
+  } catch {
+    return String(p);
+  }
+}
 function diag(...parts) {
   try {
-    if (!diagStream) {
-      const f = path.join(app.getPath('userData'), 'diagnostic.log');
+    const f = path.join(app.getPath('userData'), 'diagnostic.log');
+    if (diagStream && diagSize > DIAG_MAX) {
+      diagStream.end();
+      diagStream = null;
       try {
-        if (fs.statSync(f).size > 4 * 1024 * 1024) fs.renameSync(f, f + '.1'); // rotation simple
+        fs.renameSync(f, f + '.1');
       } catch {
-        /* pas encore de journal */
+        /* déjà déplacé */
       }
-      diagStream = fs.createWriteStream(f, { flags: 'a' });
     }
-    diagStream.write(`${new Date().toISOString()} ${parts.map((p) => (typeof p === 'string' ? p : JSON.stringify(p))).join(' ')}\n`);
+    if (!diagStream) {
+      try {
+        diagSize = fs.statSync(f).size;
+        if (diagSize > DIAG_MAX) {
+          fs.renameSync(f, f + '.1');
+          diagSize = 0;
+        }
+      } catch {
+        diagSize = 0; // pas encore de journal
+      }
+      fs.mkdirSync(path.dirname(f), { recursive: true });
+      diagStream = fs.createWriteStream(f, { flags: 'a' });
+      diagStream.on('error', () => (diagStream = null));
+    }
+    let line = `${new Date().toISOString()} ${parts.map(diagPart).join(' ')}`;
+    if (line.length > DIAG_LINE_MAX) line = line.slice(0, DIAG_LINE_MAX) + ' …[tronqué]';
+    diagStream.write(line + '\n');
+    diagSize += Buffer.byteLength(line) + 1;
   } catch {
     /* jamais bloquant */
   }
 }
+
+// Exceptions non gérées du processus principal : consignées, sans fermeture brutale de l'app
+// (le comportement par défaut d'Electron affiche une boîte d'erreur et peut laisser l'app à moitié morte).
+process.on('uncaughtException', (err) => {
+  console.error('Exception non gérée :', err);
+  diag('erreur-principale', 'exception', err);
+});
+process.on('unhandledRejection', (reason) => {
+  console.error('Promesse rejetée non gérée :', reason);
+  diag('erreur-principale', 'promesse', reason instanceof Error ? reason : diagPart(reason));
+});
 
 function handle(channel, fn) {
   ipcMain.handle(channel, (event, ...args) => {
@@ -143,33 +191,302 @@ function handle(channel, fn) {
   });
 }
 
-// ── Base de données ──────────────────────────────────────────
-handle('marginalia:loadDb', async () => {
-  for (const file of [dbPath(), dbPath() + '.bak']) {
-    try {
-      return JSON.parse(await fsp.readFile(file, 'utf8'));
-    } catch (e) {
-      if (e && e.code !== 'ENOENT') console.warn('db illisible :', file, e.message);
-    }
-  }
-  return null;
+// ── Avis à l'utilisateur (toasts du rendu) ───────────────────
+// File d'attente : un avis émis avant que l'interface soit prête (restauration au démarrage,
+// après un rechargement) lui est livré dès qu'elle s'abonne (onNotice).
+const pendingNotices = [];
+let noticesReady = false;
+function notify(message, tone = 'info') {
+  diag('avis', tone, message);
+  pendingNotices.push({ message, tone });
+  deliverNotices();
+}
+function deliverNotices() {
+  if (!noticesReady || !mainWindow || mainWindow.isDestroyed()) return;
+  for (const n of pendingNotices.splice(0)) mainWindow.webContents.send('marginalia:notice', n);
+}
+ipcMain.on('marginalia:notices-ready', (event) => {
+  if (!trusted(event)) return;
+  noticesReady = true;
+  deliverNotices();
 });
 
-let saveChain = Promise.resolve();
-handle('marginalia:saveDb', (_e, db) => {
-  // Sérialise les écritures pour que tmp + rename ne se chevauchent jamais.
-  saveChain = saveChain.then(async () => {
-    const json = JSON.stringify(db);
-    const target = dbPath();
-    try {
-      await fsp.copyFile(target, target + '.bak');
-    } catch (e) {
-      if (e.code !== 'ENOENT') console.warn('sauvegarde .bak :', e.message);
+// ── Base de données ──────────────────────────────────────────
+// Sûreté des données :
+//  • écriture atomique (fichier temporaire + fsync + rename) ; une seule écriture à la fois, et les
+//    demandes en attente sont regroupées (seule la plus récente est écrite) ;
+//  • une erreur d'écriture ne bloque jamais les suivantes (la file repart) ;
+//  • sauvegardes dans backups/ (voir l'en-tête) ;
+//  • au démarrage, une base illisible est mise de côté (backups/corrompue-…) et la dernière
+//    sauvegarde valide est restaurée automatiquement ; l'utilisateur est prévenu.
+const DAILY_KEEP = 7;
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const isDbObject = (v) => !!v && typeof v === 'object' && !Array.isArray(v);
+const stamp = (d = new Date()) => d.toISOString().replace(/[:.]/g, '-');
+const localDay = (d = new Date()) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+function frDate(ms) {
+  try {
+    return new Date(ms).toLocaleString('fr-FR', { dateStyle: 'long', timeStyle: 'short' });
+  } catch {
+    return new Date(ms).toISOString();
+  }
+}
+/** Nombre d'éléments d'une base (somme des collections) : sert à repérer un vidage complet. */
+function countItems(db) {
+  let n = 0;
+  for (const v of Object.values(db || {})) if (Array.isArray(v)) n += v.length;
+  return n;
+}
+
+async function readDbFile(file) {
+  let text;
+  try {
+    text = await fsp.readFile(file, 'utf8');
+  } catch (e) {
+    return { ok: false, missing: !!e && e.code === 'ENOENT', error: e };
+  }
+  try {
+    const data = JSON.parse(text);
+    if (!isDbObject(data)) throw new Error('contenu inattendu');
+    return { ok: true, data, text };
+  } catch (e) {
+    return { ok: false, missing: false, error: e };
+  }
+}
+
+/** Garde les `keep` éléments les plus récents de backups/ commençant par `prefix` (noms horodatés). */
+async function rotateBackups(prefix, keep) {
+  const names = (await fsp.readdir(backupsDir()).catch(() => [])).filter((n) => n.startsWith(prefix) && !n.endsWith('.tmp')).sort();
+  for (const n of names.slice(0, Math.max(0, names.length - keep))) {
+    await fsp.rm(path.join(backupsDir(), n), { recursive: true, force: true }).catch(() => {});
+  }
+}
+async function writeBackup(prefix, text, keep) {
+  const file = path.join(backupsDir(), `${prefix}${stamp()}.json`);
+  await writeAtomic(file, text);
+  await rotateBackups(prefix, keep);
+  diag('sauvegarde', path.basename(file));
+  return file;
+}
+/** Sauvegarde quotidienne (une par jour, 7 jours) de la dernière base valide sur le disque. */
+let dailyDone = null;
+async function dailyBackup(text) {
+  const day = localDay();
+  if (dailyDone === day) return;
+  const file = path.join(backupsDir(), `quotidienne-${day}.json`);
+  if (!fs.existsSync(file)) {
+    if (text == null) {
+      const r = await readDbFile(dbPath());
+      if (!r.ok) return;
+      text = r.text;
     }
-    await writeAtomic(target, json);
-  });
-  return saveChain;
+    await writeAtomic(file, text);
+    await rotateBackups('quotidienne-', DAILY_KEEP);
+    diag('sauvegarde', path.basename(file));
+  }
+  dailyDone = day;
+}
+
+// État de la base chargée (version de format, taille) et chemins .docx externes autorisés.
+let loadedVersion = null;
+let migrationBackupDone = false;
+let lastItemCount = 0;
+let savesBlocked = false; // restauration en cours : les écritures de l'ancienne page sont ignorées
+const externalAllowed = new Set();
+function onDbLoaded(r) {
+  loadedVersion = r.data.version ?? null;
+  migrationBackupDone = false;
+  lastItemCount = countItems(r.data);
+  // Écrits liés à un .docx de l'utilisateur (y compris dans la corbeille et l'historique d'annulation).
+  for (const m of r.text.matchAll(/"externalPath":("(?:[^"\\]|\\.)*")/g)) {
+    try {
+      externalAllowed.add(path.resolve(JSON.parse(m[1])));
+    } catch {
+      /* chaîne illisible */
+    }
+  }
+  dailyBackup(r.text).catch((e) => diag('sauvegarde', 'quotidienne impossible', e && e.message));
+}
+
+async function loadDbSafely() {
+  savesBlocked = false; // nouvelle page : elle repart de la base du disque
+  const main = await readDbFile(dbPath());
+  if (main.ok) {
+    onDbLoaded(main);
+    return main.data;
+  }
+  if (main.missing && !fs.existsSync(dbPath() + '.bak')) return null; // premier lancement
+  if (!main.missing) diag('base', 'illisible', (main.error && main.error.message) || main.error);
+  // Candidats : copie .bak, puis sauvegardes du plus récent au plus ancien.
+  const candidates = [dbPath() + '.bak'];
+  const found = [];
+  for (const n of await fsp.readdir(backupsDir()).catch(() => [])) {
+    if (!n.endsWith('.json') || n.startsWith('corrompue-')) continue;
+    const f = path.join(backupsDir(), n);
+    const st = await fsp.stat(f).catch(() => null);
+    if (st && st.isFile()) found.push({ f, m: st.mtimeMs });
+  }
+  candidates.push(...found.sort((a, b) => b.m - a.m).map((x) => x.f));
+  // La base illisible n'est jamais effacée : elle est mise de côté pour examen.
+  let aside = null;
+  if (!main.missing) {
+    try {
+      await fsp.mkdir(backupsDir(), { recursive: true });
+      aside = path.join(backupsDir(), `corrompue-${stamp()}.json`);
+      await fsp.rename(dbPath(), aside);
+      await rotateBackups('corrompue-', 5);
+    } catch (e) {
+      diag('base', 'mise de côté impossible', e && e.message);
+      aside = null;
+    }
+  }
+  for (const f of candidates) {
+    const r = await readDbFile(f);
+    if (!r.ok) continue;
+    const st = await fsp.stat(f).catch(() => null);
+    await writeAtomic(dbPath(), r.text);
+    onDbLoaded(r);
+    diag('base', 'restauree depuis', path.basename(f), st ? new Date(st.mtimeMs).toISOString() : '');
+    if (!main.missing) {
+      notify(
+        `La base de Marginalia était illisible : la sauvegarde du ${st ? frDate(st.mtimeMs) : 'dernier enregistrement'} a été restaurée automatiquement. ` +
+          'Les toutes dernières modifications ont pu être perdues ; la base endommagée est conservée dans le dossier « backups ».',
+        'error',
+      );
+    }
+    return r.data;
+  }
+  if (!main.missing) {
+    notify(
+      'La base de Marginalia était illisible et aucune sauvegarde valide n’a été trouvée. ' +
+        (aside ? 'Elle est conservée dans le dossier « backups » ; ' : '') +
+        'Marginalia démarre avec une bibliothèque vide (vos fichiers de livres sont toujours sur le disque).',
+      'error',
+    );
+  }
+  return null;
+}
+
+handle('marginalia:loadDb', async () => {
+  try {
+    return await loadDbSafely();
+  } catch (e) {
+    diag('base', 'chargement', e);
+    throw e;
+  }
 });
+
+// File d'écriture : une seule écriture à la fois ; seule la demande la plus récente est écrite.
+const TEST_SAVE_DELAY = Number(process.env.MARGINALIA_TEST_SAVE_DELAY_MS) || 0;
+let saveChain = Promise.resolve();
+let saveSeq = 0;
+let savedSeq = 0;
+let latestSave = null;
+let lastSaveError = 0;
+
+async function writeDbNow({ json, meta }) {
+  if (TEST_SAVE_DELAY) await sleep(TEST_SAVE_DELAY);
+  const target = dbPath();
+  const needDaily = dailyDone !== localDay();
+  const migrating = loadedVersion != null && meta.version != null && meta.version !== loadedVersion && !migrationBackupDone;
+  const wiping = meta.items === 0 && lastItemCount > 0;
+  if (needDaily || migrating || wiping) {
+    const cur = await readDbFile(target);
+    if (cur.ok) {
+      if (migrating) await writeBackup(`avant-migration-v${String(loadedVersion).replace(/[^\w.-]/g, '')}-`, cur.text, 5);
+      if (wiping) await writeBackup('avant-vidage-', cur.text, 3);
+      if (needDaily) await dailyBackup(cur.text);
+    }
+    if (migrating) migrationBackupDone = true;
+  }
+  try {
+    await fsp.copyFile(target, target + '.bak');
+  } catch (e) {
+    if (e.code !== 'ENOENT') diag('base', 'copie .bak', e.message);
+  }
+  await writeAtomic(target, json);
+  if (meta.items != null) lastItemCount = meta.items;
+}
+
+function queueSave(json, meta) {
+  const seq = ++saveSeq;
+  latestSave = { json, meta };
+  const run = saveChain
+    .catch(() => {})
+    .then(async () => {
+      if (savedSeq >= seq) return; // déjà couvert par une écriture plus récente
+      const upTo = saveSeq;
+      const job = latestSave;
+      try {
+        await writeDbNow(job);
+      } catch (e) {
+        if (Date.now() - lastSaveError > 10000) diag('base', 'ecriture impossible', e && e.message);
+        lastSaveError = Date.now();
+        throw e;
+      }
+      savedSeq = Math.max(savedSeq, upTo);
+    });
+  saveChain = run;
+  return run;
+}
+/** Attend la fin des écritures en cours (au plus `timeout` ms). */
+const waitSaves = (timeout = 15000) => Promise.race([saveChain.catch(() => {}), sleep(timeout)]);
+
+handle('marginalia:saveDb', (_e, payload, meta) => {
+  if (savesBlocked) {
+    diag('base', 'ecriture ignoree (restauration en cours)');
+    return undefined;
+  }
+  if (typeof payload === 'string') {
+    if (payload.length < 2 || payload[0] !== '{') throw new Error('Base invalide');
+    const m = isDbObject(meta) ? meta : {};
+    return queueSave(payload, {
+      version: typeof m.version === 'number' || typeof m.version === 'string' ? m.version : null,
+      items: Number.isFinite(m.items) ? m.items : null,
+    });
+  }
+  if (!isDbObject(payload)) throw new Error('Base invalide');
+  return queueSave(JSON.stringify(payload), { version: payload.version ?? null, items: countItems(payload) });
+});
+
+// ── Vidage du rendu (fermeture, export, restauration) ────────
+// Le rendu diffère ses écritures (≤ 2 s) : avant de fermer la fenêtre ou de copier la base, on lui
+// demande d'écrire tout de suite ce qui attend, puis on attend la file d'écriture.
+const flushReady = new Set();
+const flushWaiters = new Map();
+let flushSeq = 0;
+ipcMain.on('marginalia:flush-ready', (event) => {
+  if (trusted(event)) flushReady.add(event.sender.id);
+});
+ipcMain.on('marginalia:flush-done', (_event, id) => {
+  const w = flushWaiters.get(id);
+  if (w) {
+    flushWaiters.delete(id);
+    w(true);
+  }
+});
+function flushRenderer(win, timeout = 3000) {
+  if (!win || win.isDestroyed()) return Promise.resolve(false);
+  const wc = win.webContents;
+  if (wc.isDestroyed() || wc.isCrashed() || !flushReady.has(wc.id)) return Promise.resolve(false);
+  const id = ++flushSeq;
+  return new Promise((resolve) => {
+    const t = setTimeout(() => {
+      flushWaiters.delete(id);
+      diag('base', 'le rendu n’a pas confirmé son dernier enregistrement');
+      resolve(false);
+    }, timeout);
+    flushWaiters.set(id, (v) => {
+      clearTimeout(t);
+      resolve(v);
+    });
+    wc.send('marginalia:flush-request', id);
+  });
+}
+async function flushAll() {
+  await Promise.all(BrowserWindow.getAllWindows().map((w) => flushRenderer(w)));
+  await waitSaves();
+}
 
 // ── Bibliothèque de fichiers ─────────────────────────────────
 handle('marginalia:storeFile', async (_e, id, fileName, data) => {
@@ -274,14 +591,20 @@ handle('marginalia:openDocx', async () => {
   if (r.canceled || !r.filePaths[0]) return null;
   const file = r.filePaths[0];
   const picked = await readPicked(file);
+  externalAllowed.add(path.resolve(file));
   return { path: file, name: picked.name, data: picked.data };
 });
 
-/** Réécrit un .docx déjà présent sur le disque (jamais de création) après copie .bak. */
+/**
+ * Réécrit un .docx déjà présent sur le disque (jamais de création) après copie .bak.
+ * Seuls les fichiers choisis par l'utilisateur (« Ouvrir un .docx », cette session ou une précédente :
+ * chemins liés présents dans la base au démarrage) peuvent être réécrits.
+ */
 handle('marginalia:writeExternal', async (_e, target, data) => {
   if (typeof target !== 'string' || !path.isAbsolute(target) || path.extname(target).toLowerCase() !== '.docx') {
     throw new Error('Seuls les fichiers .docx existants peuvent être réécrits');
   }
+  if (!externalAllowed.has(path.resolve(target))) throw new Error('Ce fichier n’a pas été ouvert dans Marginalia');
   const st = await fsp.stat(target); // lève ENOENT si le fichier n'existe pas
   if (!st.isFile()) throw new Error('Ce chemin n’est pas un fichier');
   await fsp.copyFile(target, target + '.bak');
@@ -294,6 +617,8 @@ const SAVE_FILTERS = {
   md: { name: 'Markdown', extensions: ['md'] },
   html: { name: 'Page web', extensions: ['html'] },
   txt: { name: 'Texte', extensions: ['txt'] },
+  png: { name: 'Image PNG', extensions: ['png'] },
+  svg: { name: 'Image SVG', extensions: ['svg'] },
 };
 
 // Polices installées : liste native de macOS (NSFontManager via JavaScript for Automation),
@@ -369,7 +694,19 @@ handle('marginalia:setTheme', async (e, mode, titleBar) => {
   }
 });
 
-handle('marginalia:diag', async (_e, ...parts) => diag('renderer', ...parts));
+// Journal depuis le rendu : 120 lignes par minute au plus (une boucle d'erreurs ne remplit pas le disque).
+let rendererDiagWindow = 0;
+let rendererDiagCount = 0;
+handle('marginalia:diag', async (_e, ...parts) => {
+  const now = Date.now();
+  if (now - rendererDiagWindow > 60000) {
+    if (rendererDiagCount > 120) diag('renderer', `… ${rendererDiagCount - 120} lignes ignorées (limite de débit)`);
+    rendererDiagWindow = now;
+    rendererDiagCount = 0;
+  }
+  if (++rendererDiagCount > 120) return;
+  diag('renderer', ...parts.slice(0, 8));
+});
 
 // ── Import depuis l'app Livres d'Apple (EPUB et PDF sans DRM) ──
 // Les EPUB de Livres sont des « paquets » (dossiers *.epub). On les lit en local, on écarte ceux
@@ -910,18 +1247,106 @@ function createWindow() {
       spellcheck: IS_MAC,
       // Lu par le preload : fonctions propres à macOS (app Livres).
       additionalArguments: APPLE_BOOKS ? ['--mg-apple-books=1'] : [],
+      webviewTag: false,
+      navigateOnDragDrop: false,
+      safeDialogs: true,
     },
   });
   mainWindow = win;
+  const wcId = win.webContents.id;
   watchWindow(win);
   win.once('ready-to-show', () => win.show());
   win.on('closed', () => {
     if (mainWindow === win) mainWindow = null;
     rendererReady = false;
+    noticesReady = false;
+    flushReady.delete(wcId);
   });
   // Un rechargement ou une nouvelle page repasse par onOpenFiles : on réarme.
-  win.webContents.on('did-start-navigation', (_e, _url, _inPlace, isMainFrame) => {
+  win.webContents.on('did-start-navigation', (_e, _url, inPlace, isMainFrame) => {
     if (isMainFrame) rendererReady = false;
+    if (isMainFrame && !inPlace) {
+      noticesReady = false;
+      flushReady.delete(wcId);
+    }
+  });
+
+  // Fermeture : le rendu écrit d'abord ses modifications en attente, puis on attend la file d'écriture.
+  let closeReady = false;
+  win.on('close', (event) => {
+    if (closeReady || quitReady) return; // quitter : déjà vidé dans before-quit
+    event.preventDefault();
+    if (win.__mgClosing) return;
+    win.__mgClosing = true;
+    flushRenderer(win)
+      .then(() => waitSaves())
+      .catch((e) => diag('base', 'fermeture', e && e.message))
+      .finally(() => {
+        closeReady = true;
+        if (!win.isDestroyed()) win.close();
+      });
+  });
+
+  // Plantage du rendu : la base est sur le disque ; on propose de recharger la fenêtre.
+  win.webContents.on('render-process-gone', async (_e, details) => {
+    flushReady.delete(wcId);
+    noticesReady = false;
+    if (win.isDestroyed() || appQuitting || details.reason === 'clean-exit') return;
+    if (win.__mgReloadAfterKill) {
+      win.__mgReloadAfterKill = false;
+      diag('fenetre', 'rechargement apres blocage');
+      win.webContents.reload();
+      return;
+    }
+    diag('fenetre', 'plantage du rendu', details);
+    const r = await dialog.showMessageBox(win, {
+      type: 'warning',
+      title: 'Marginalia',
+      message: 'La fenêtre de Marginalia s’est arrêtée de manière inattendue.',
+      detail:
+        'Vos données enregistrées sont intactes sur le disque. Rechargez la fenêtre pour reprendre ' +
+        '(seules les modifications des toutes dernières secondes ont pu être perdues).',
+      buttons: ['Recharger', 'Fermer la fenêtre'],
+      defaultId: 0,
+      cancelId: 1,
+      noLink: true,
+    });
+    if (win.isDestroyed()) return;
+    diag('fenetre', 'plantage : choix', r.response === 0 ? 'recharger' : 'fermer');
+    if (r.response === 0) {
+      win.webContents.reload();
+      notify('La fenêtre a été rechargée après un incident. Vos données sont intactes.', 'info');
+    } else {
+      closeReady = true;
+      win.destroy();
+    }
+  });
+  // Interface figée : attendre ou recharger (la boîte se ferme seule si l'interface repart).
+  let hang = null;
+  win.webContents.on('unresponsive', async () => {
+    if (hang || appQuitting || win.isDestroyed()) return;
+    hang = new AbortController();
+    const r = await dialog
+      .showMessageBox(win, {
+        type: 'warning',
+        title: 'Marginalia',
+        message: 'Marginalia ne répond plus.',
+        detail: 'Vous pouvez attendre ou recharger la fenêtre. Vos données enregistrées sont sur le disque.',
+        buttons: ['Attendre', 'Recharger la fenêtre'],
+        defaultId: 0,
+        cancelId: 0,
+        noLink: true,
+        signal: hang.signal,
+      })
+      .catch(() => ({ response: 0 }));
+    hang = null;
+    if (r.response !== 1 || win.isDestroyed()) return;
+    diag('fenetre', 'blocage : rechargement demande');
+    win.__mgReloadAfterKill = true;
+    win.webContents.forcefullyCrashRenderer();
+  });
+  win.webContents.on('responsive', () => {
+    if (hang) hang.abort();
   });
 
   // Navigation bloquée ; les liens externes s'ouvrent dans le navigateur.
@@ -972,7 +1397,9 @@ function registerAppProtocol() {
   protocol.handle('app', async (request) => {
     try {
       const url = new URL(request.url);
+      if (url.host !== 'marginalia') return new Response('Introuvable', { status: 404 });
       let rel = decodeURIComponent(url.pathname);
+      if (rel.includes('\0')) return new Response('Interdit', { status: 403 });
       if (rel === '/' || rel === '') rel = '/index.html';
       const file = path.normalize(path.join(DIST_DIR, rel));
       if (!isInside(file, DIST_DIR)) return new Response('Interdit', { status: 403 });
@@ -989,6 +1416,186 @@ function registerAppProtocol() {
     }
   });
 }
+
+// ── Sauvegarde complète (.zip) et restauration ───────────────
+// Contenu : manifest.json, db.json (instantané pris dans la file d'écriture) et library/**.
+// macOS : outils système `zip` et `ditto` (ZIP64, gros volumes) ; ailleurs : écriture et lecture
+// intégrées (electron/backup.cjs). MARGINALIA_SYSTEM_ZIP=1 force les outils système (tests Linux).
+const SYSTEM_ZIP = IS_MAC || process.env.MARGINALIA_SYSTEM_ZIP === '1';
+let backupBusy = false;
+function execTool(cmd, args, cwd) {
+  return new Promise((resolve, reject) =>
+    require('node:child_process').execFile(cmd, args, { cwd, timeout: 30 * 60000, maxBuffer: 16 * 1024 * 1024 }, (err, _out, errOut) =>
+      err ? reject(new Error(String(errOut || err.message).trim())) : resolve(),
+    ),
+  );
+}
+const zipBin = () => (IS_MAC ? '/usr/bin/zip' : 'zip');
+
+async function exportFullBackup() {
+  if (backupBusy) return;
+  const r = await dialog.showSaveDialog(parentWindow(), {
+    title: 'Exporter une sauvegarde complète',
+    defaultPath: path.join(app.getPath('documents'), `Marginalia-sauvegarde-${localDay()}.zip`),
+    filters: [{ name: 'Archive ZIP', extensions: ['zip'] }],
+  });
+  if (r.canceled || !r.filePath) return;
+  let dest = path.resolve(r.filePath);
+  if (path.extname(dest).toLowerCase() !== '.zip') dest += '.zip';
+  if (dest === userData() || isInside(dest, userData())) throw new Error('Choisissez un dossier en dehors des données de Marginalia.');
+  backupBusy = true;
+  const staging = await fsp.mkdtemp(path.join(os.tmpdir(), 'marginalia-export-'));
+  const tmpZip = `${dest}.${crypto.randomBytes(4).toString('hex')}.tmp`;
+  try {
+    await flushAll();
+    // Instantané cohérent de la base : lu dans la file d'écriture (aucune écriture en même temps).
+    let dbText = null;
+    const snap = saveChain.catch(() => {}).then(async () => {
+      const cur = await readDbFile(dbPath());
+      dbText = cur.ok ? cur.text : null;
+    });
+    saveChain = snap;
+    await snap;
+    if (!dbText) throw new Error('La base actuelle est introuvable ou illisible : rien à exporter.');
+    const files = (await zipkit.listFiles(libraryRoot(), 'library')).filter((f) => !f.rel.endsWith('.tmp'));
+    const manifest = JSON.stringify({ app: 'Marginalia', format: 1, version: app.getVersion(), createdAt: new Date().toISOString(), files: files.length }, null, 2);
+    if (SYSTEM_ZIP) {
+      await fsp.writeFile(path.join(staging, 'manifest.json'), manifest);
+      await fsp.writeFile(path.join(staging, 'db.json'), dbText);
+      await execTool(zipBin(), ['-q', '-X', tmpZip, 'manifest.json', 'db.json'], staging);
+      if (files.length) await execTool(zipBin(), ['-r', '-q', '-X', '-y', tmpZip, 'library', '-x', '*.tmp'], userData());
+    } else {
+      await zipkit.writeZip(tmpZip, [
+        { name: 'manifest.json', data: Buffer.from(manifest, 'utf8') },
+        { name: 'db.json', data: Buffer.from(dbText, 'utf8') },
+        ...files.map((f) => ({ name: f.rel, file: f.full })),
+      ]);
+    }
+    await fsp.rename(tmpZip, dest);
+    diag('sauvegarde', 'export complet', { fichiers: files.length, taille: (await fsp.stat(dest)).size });
+    notify(`Sauvegarde complète enregistrée : « ${path.basename(dest)} » (${files.length} fichier${files.length > 1 ? 's' : ''}).`, 'success');
+    shell.showItemInFolder(dest);
+  } finally {
+    backupBusy = false;
+    fsp.rm(staging, { recursive: true, force: true }).catch(() => {});
+    fsp.rm(tmpZip, { force: true }).catch(() => {});
+  }
+}
+
+/** Dossier d'une archive extraite qui contient db.json (racine, ou unique sous-dossier). */
+async function findBackupRoot(dir) {
+  if (fs.existsSync(path.join(dir, 'db.json'))) return dir;
+  const subs = (await fsp.readdir(dir, { withFileTypes: true })).filter((d) => d.isDirectory() && d.name !== '__MACOSX');
+  if (subs.length === 1 && fs.existsSync(path.join(dir, subs[0].name, 'db.json'))) return path.join(dir, subs[0].name);
+  return null;
+}
+
+async function restoreFullBackup() {
+  if (backupBusy) return;
+  const win = parentWindow();
+  const pick = await dialog.showOpenDialog(win, {
+    title: 'Restaurer une sauvegarde',
+    properties: ['openFile'],
+    filters: [{ name: 'Sauvegarde Marginalia', extensions: ['zip', 'json'] }],
+  });
+  if (pick.canceled || !pick.filePaths[0]) return;
+  const src = pick.filePaths[0];
+  const isJson = path.extname(src).toLowerCase() === '.json';
+  const ok = await dialog.showMessageBox(win, {
+    type: 'warning',
+    title: 'Restaurer une sauvegarde',
+    message: `Remplacer vos données actuelles par la sauvegarde « ${path.basename(src)} » ?`,
+    detail:
+      (isJson
+        ? 'Livres, écrits, extraits, cartes et réglages seront remplacés par ceux de la sauvegarde (les fichiers des livres restent en place). '
+        : 'Toute la bibliothèque (livres, écrits, extraits, cartes, réglages et fichiers) sera remplacée par celle de la sauvegarde. ') +
+      'L’état actuel est d’abord mis de côté dans le dossier « backups » de Marginalia.',
+    buttons: ['Restaurer', 'Annuler'],
+    defaultId: 1,
+    cancelId: 1,
+    noLink: true,
+  });
+  if (ok.response !== 0) return;
+  backupBusy = true;
+  const staging = path.join(userData(), `restauration-${crypto.randomBytes(6).toString('hex')}`);
+  const aside = path.join(backupsDir(), `avant-restauration-${stamp()}`);
+  const moved = []; // [de, vers] pour revenir en arrière en cas d'échec
+  try {
+    // 1. Lire et vérifier la sauvegarde AVANT de toucher aux données actuelles.
+    let dbText;
+    let newLibrary = null;
+    if (isJson) {
+      const r = await readDbFile(src);
+      if (!r.ok) throw new Error('Ce fichier n’est pas une base Marginalia valide.');
+      dbText = r.text;
+    } else {
+      await fsp.mkdir(staging, { recursive: true });
+      if (SYSTEM_ZIP) {
+        // Outils système : les noms et les liens sont d'abord vérifiés sur la table de l'archive
+        // (sauf ZIP64, que seul l'outil système lit ; l'arbre extrait est de toute façon revérifié).
+        const entries = await zipkit.readZipEntries(src).catch((e) => (/ZIP64/.test(e.message) ? [] : Promise.reject(e)));
+        for (const en of entries) {
+          if (!zipkit.safeEntryName(en.name) || en.isLink) throw new Error(`Archive refusée : chemin interdit (${en.name})`);
+        }
+      }
+      if (IS_MAC) await execTool('/usr/bin/ditto', ['-x', '-k', src, staging], staging);
+      else if (SYSTEM_ZIP) await execTool('unzip', ['-q', src, '-d', staging, '-x', '__MACOSX/*'], staging);
+      else await zipkit.extractZip(src, staging, (name) => !name.startsWith('__MACOSX/'));
+      await zipkit.assertPlainTree(staging);
+      const root = await findBackupRoot(staging);
+      const r = root && (await readDbFile(path.join(root, 'db.json')));
+      if (!r || !r.ok) throw new Error('Cette archive ne contient pas de sauvegarde Marginalia valide (db.json absent ou illisible).');
+      dbText = r.text;
+      newLibrary = path.join(root, 'library');
+      if (!fs.existsSync(newLibrary)) await fsp.mkdir(newLibrary, { recursive: true });
+    }
+    // 2. Le rendu écrit ce qui attend, puis plus aucune écriture de l'ancienne page n'est acceptée.
+    await flushAll();
+    savesBlocked = true;
+    await waitSaves();
+    // 3. État actuel mis de côté (renommages : instantané, sans copie).
+    await fsp.mkdir(aside, { recursive: true });
+    const move = async (from, to) => {
+      if (!fs.existsSync(from)) return;
+      await fsp.rename(from, to);
+      moved.push([from, to]);
+    };
+    await move(dbPath(), path.join(aside, 'db.json'));
+    await move(dbPath() + '.bak', path.join(aside, 'db.json.bak'));
+    if (newLibrary) await move(libraryRoot(), path.join(aside, 'library'));
+    // 4. Mise en place de la sauvegarde.
+    if (newLibrary) await move(newLibrary, libraryRoot());
+    await writeAtomic(dbPath(), dbText);
+    await rotateBackups('avant-restauration-', 2);
+    diag('sauvegarde', 'restauration', path.basename(src));
+    noticesReady = false; // l'avis est pour la page rechargée, pas pour l'ancienne
+    notify(`Sauvegarde « ${path.basename(src)} » restaurée. L’état précédent est conservé dans le dossier « backups ».`, 'success');
+  } catch (e) {
+    // Retour à l'état d'avant, dans l'ordre inverse.
+    for (const [from, to] of moved.reverse()) await fsp.rename(to, from).catch((err) => diag('sauvegarde', 'retour arriere', err && err.message));
+    if (moved.length) await fsp.rm(aside, { recursive: true, force: true }).catch(() => {});
+    savesBlocked = false;
+    throw e;
+  } finally {
+    backupBusy = false;
+    fsp.rm(staging, { recursive: true, force: true }).catch(() => {});
+  }
+  // 5. L'interface repart de la base restaurée.
+  for (const w of BrowserWindow.getAllWindows()) if (!w.isDestroyed()) w.webContents.reload();
+}
+
+function backupAction(label, fn) {
+  return {
+    label,
+    click: () =>
+      fn().catch((e) => {
+        diag('sauvegarde', label, e && e.message);
+        dialog.showErrorBox(label.replace(/…$/, ''), String((e && e.message) || e));
+      }),
+  };
+}
+const exportBackupItem = backupAction('Exporter une sauvegarde complète…', exportFullBackup);
+const restoreBackupItem = backupAction('Restaurer une sauvegarde…', restoreFullBackup);
 
 // ── Menus (français) ─────────────────────────────────────────
 // Pas d'accélérateurs ⌘O / ⌘K / ⌘F / ⌘S actifs : ils appartiennent à l'application (rendu).
@@ -1046,7 +1653,7 @@ function macMenuTemplate() {
         { role: 'quit', label: 'Quitter Marginalia' },
       ],
     },
-    { label: 'Fichier', submenu: [{ role: 'close', label: 'Fermer la fenêtre' }] },
+    { label: 'Fichier', submenu: [exportBackupItem, restoreBackupItem, { type: 'separator' }, { role: 'close', label: 'Fermer la fenêtre' }] },
     editMenu,
     {
       label: 'Présentation',
@@ -1079,6 +1686,9 @@ function otherMenuTemplate() {
       label: '&Fichier',
       submenu: [
         { label: 'Importer…', accelerator: 'Ctrl+O', registerAccelerator: false, click: () => sendMenuCommand('import') },
+        { type: 'separator' },
+        exportBackupItem,
+        restoreBackupItem,
         { type: 'separator' },
         { role: 'quit', label: 'Quitter', accelerator: 'Alt+F4' },
       ],
@@ -1139,9 +1749,19 @@ app.whenReady().then(() => {
   // (http, https, ws, wss, ftp) est bloquée ; seuls le protocole app://, file:, data: et blob: passent.
   // En développement, le serveur Vite local reste autorisé.
   const devUrl = process.env.VITE_DEV_SERVER_URL || '';
+  let blockedLogged = 0;
   session.defaultSession.webRequest.onBeforeRequest((details, cb) => {
     const u = details.url;
     const local = /^(app|file|data|blob|devtools|chrome-extension):/i.test(u) || (devUrl && (u.startsWith(devUrl.replace(/\/$/, '')) || /^wss?:\/\/localhost/.test(u)));
+    if (!local && blockedLogged++ < 50) {
+      let host = '';
+      try {
+        host = new URL(u).host;
+      } catch {
+        host = u.slice(0, 60);
+      }
+      diag('reseau-bloque', details.resourceType || '', host); // hôte seulement : jamais l'adresse complète
+    }
     cb({ cancel: !local });
   });
   // Seule la lecture des polices installées (pour l'éditeur) est accordée ; caméra, micro, géolocalisation… jamais.
@@ -1152,6 +1772,7 @@ app.whenReady().then(() => {
   }
   session.defaultSession.setPermissionRequestHandler((_wc, perm, cb) => cb(perm === 'local-fonts' || perm === 'localFonts'));
   buildMenu();
+  cleanStaleTemp().catch((e) => diag('nettoyage', e && e.message));
   // Fichiers passés en argument au lancement (Windows, Linux : double-clic dans l'Explorateur ;
   // macOS passe par `open-file`).
   const argvFiles = process.argv.slice(app.isPackaged ? 1 : 2).filter((a) => !a.startsWith('-'));
@@ -1166,3 +1787,51 @@ app.whenReady().then(() => {
 app.on('window-all-closed', () => {
   if (!IS_MAC) app.quit(); // Windows / Linux : fermer la dernière fenêtre quitte l'app
 });
+
+// Toute fenêtre ou vue créée (fenêtre principale, impression PDF) : pas de <webview>, pas de
+// nouvelle fenêtre, pas de navigation hors de la page chargée par le processus principal.
+app.on('web-contents-created', (_e, contents) => {
+  contents.on('will-attach-webview', (event) => event.preventDefault());
+  contents.setWindowOpenHandler(() => ({ action: 'deny' }));
+  contents.on('will-navigate', (event, url) => {
+    if (mainWindow && !mainWindow.isDestroyed() && contents === mainWindow.webContents) return; // géré dans createWindow
+    if (url !== contents.getURL()) event.preventDefault();
+  });
+});
+
+// Quitter : chaque fenêtre écrit d'abord ses modifications en attente, puis on attend la dernière
+// écriture de la base (au plus quelques secondes : une fenêtre figée ne bloque pas la fermeture).
+let appQuitting = false;
+let quitReady = false;
+app.on('before-quit', (event) => {
+  if (quitReady) return;
+  event.preventDefault();
+  if (appQuitting) return;
+  appQuitting = true;
+  flushAll()
+    .catch((e) => diag('base', 'fermeture', e && e.message))
+    .finally(() => {
+      diag('app', 'fermeture');
+      quitReady = true;
+      app.quit();
+    });
+});
+
+/** Fichiers temporaires laissés par une session interrompue (marginalia-* du dossier temporaire, *.tmp, restaurations). */
+async function cleanStaleTemp() {
+  const old = Date.now() - 60 * 60 * 1000; // une heure : jamais ceux d'une opération en cours
+  let n = 0;
+  const sweep = async (dir, match) => {
+    for (const name of await fsp.readdir(dir).catch(() => [])) {
+      if (!match(name)) continue;
+      const f = path.join(dir, name);
+      const st = await fsp.lstat(f).catch(() => null);
+      if (!st || st.isSymbolicLink() || st.mtimeMs > old) continue;
+      await fsp.rm(f, { recursive: true, force: true }).then(() => n++, () => {});
+    }
+  };
+  await sweep(os.tmpdir(), (name) => name.startsWith('marginalia-'));
+  await sweep(userData(), (name) => (name.startsWith('db.json.') && name.endsWith('.tmp')) || name.startsWith('restauration-'));
+  await sweep(backupsDir(), (name) => name.endsWith('.tmp'));
+  if (n) diag('nettoyage', `${n} fichier(s) temporaire(s) supprimé(s)`);
+}

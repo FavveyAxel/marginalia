@@ -654,6 +654,8 @@ export type Route =
   /** Carte libre (clé dans `maps`, kind 'board'). */
   | { name: 'board'; boardId: string }
   | { name: 'write'; draftId: string | null }
+  /** Toutes les cartes (libres, de livres, de mouvements) et où elles sont rangées. */
+  | { name: 'maps' }
   | { name: 'trash' }
   | { name: 'history' }
   | { name: 'help' };

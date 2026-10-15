@@ -1,0 +1,184 @@
+/* Vue « Cartes » (.mv-*) */
+.mv {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+.mv-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+.mv-inner {
+  max-width: var(--page-max);
+  margin: 0 auto;
+  padding: var(--page-top) var(--page-x) 64px;
+}
+.mv-head {
+  margin-bottom: 20px;
+}
+.mv-head p {
+  margin: 10px 0 0;
+  font-size: var(--fs-md);
+}
+.mv-tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 24px;
+}
+.mv-n {
+  margin-left: 4px;
+  font-size: 11px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.mv-search {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  min-width: 200px;
+  padding: 0 10px;
+  height: 30px;
+  border-radius: var(--radius);
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  color: var(--muted);
+}
+.mv-search input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  background: none;
+  outline: none;
+  color: var(--text);
+  font: inherit;
+  font-size: var(--fs-sm);
+}
+.mv-section {
+  margin-bottom: 32px;
+}
+.mv-section-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 12px;
+  font-size: var(--fs-md);
+  font-weight: 600;
+  color: var(--text);
+}
+.mv-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex: none;
+  background: var(--border-strong);
+}
+.mv-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 16px;
+}
+.mv-card {
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.mv-card:hover {
+  border-color: var(--border-strong);
+  box-shadow: var(--shadow-md);
+}
+.mv-open {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  text-align: left;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.mv-thumb {
+  height: 120px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 10px 18px;
+  background: var(--bg-page);
+  border-bottom: 1px solid var(--border);
+}
+.mv-thumb .ws-doc-board {
+  margin: 0;
+  max-height: 100%;
+}
+.mv-body {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 10px 12px 4px;
+  min-width: 0;
+}
+.mv-kind {
+  font-size: 10.5px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.mv-card[data-kind='board'] .mv-kind {
+  color: var(--cat-concept);
+}
+.mv-card[data-kind='movement'] .mv-kind {
+  color: var(--cat-argument);
+}
+.mv-title {
+  font-weight: 600;
+  font-size: var(--fs-md);
+  line-height: 1.3;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+.mv-meta {
+  font-size: var(--fs-sm);
+}
+.mv-places {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 6px 10px 10px;
+}
+.mv-place {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 100%;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--bg-page);
+  color: var(--muted);
+  font: inherit;
+  font-size: 11.5px;
+  cursor: pointer;
+}
+.mv-place:hover {
+  color: var(--text);
+  border-color: var(--border-strong);
+}
+.mv-place-none {
+  cursor: default;
+  border-style: dashed;
+}
+.mv-none {
+  padding: 24px 0;
+}

@@ -26,6 +26,7 @@ const load = {
   trash: () => import('./features/trash/TrashView'),
   history: () => import('./features/history/HistoryView'),
   help: () => import('./features/help/HelpView'),
+  maps: () => import('./features/maps/MapsView'),
 };
 
 export const lazyViews = {
@@ -41,10 +42,11 @@ export const lazyViews = {
   TrashView: lazyNamed(load.trash, 'TrashView'),
   HistoryView: lazyNamed(load.history, 'HistoryView'),
   HelpView: lazyNamed(load.help, 'HelpView'),
+  MapsView: lazyNamed(load.maps, 'MapsView'),
 };
 
 /** Ordre de préchargement : du plus probable au moins probable. */
-const PRELOAD: Loader[] = [load.reader, load.write, load.workspace, load.extracts, load.concepts, load.board, load.plans, load.arguments, load.revision, load.trash, load.history, load.help];
+const PRELOAD: Loader[] = [load.reader, load.write, load.workspace, load.extracts, load.concepts, load.board, load.plans, load.arguments, load.revision, load.trash, load.history, load.help, load.maps];
 
 /**
  * Charge toutes les vues. Sert en développement (serveur Vite, tests de bout en bout), où chaque

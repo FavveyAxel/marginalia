@@ -1,0 +1,21 @@
+/* Miniature d'une carte libre */
+.ws-doc-board {
+  width: 100%;
+  height: auto;
+  display: block;
+  margin-top: 36px;
+}
+.ws-doc-board line {
+  stroke: var(--faint);
+  stroke-width: 1;
+}
+.ws-doc-board rect {
+  fill: color-mix(in srgb, var(--f, var(--cat-these)) 28%, var(--bg-panel));
+  stroke: color-mix(in srgb, var(--f, var(--cat-these)) 70%, transparent);
+  stroke-width: 0.8;
+}
+.ws-doc-board rect.ws-board-empty {
+  fill: none;
+  stroke: var(--border-strong);
+  stroke-dasharray: 3 3;
+}

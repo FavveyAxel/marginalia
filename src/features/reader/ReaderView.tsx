@@ -103,6 +103,7 @@ const RETURN_LABEL: Record<Exclude<Route['name'], 'reader'>, string> = {
   revision: 'Révision',
   plans: 'Plans',
   board: 'Carte',
+  maps: 'Cartes',
   write: 'Écrits',
   trash: 'Corbeille',
   history: 'Historique',

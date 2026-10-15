@@ -1,7 +1,7 @@
 // Styles de toutes les vues, en premier : même ordre de cascade qu'avant le découpage du code.
 import './styles/cascade';
 import { Suspense, useEffect, useState } from 'react';
-import { BookOpen, Brain, CircleHelp, PanelLeftClose, PanelLeftOpen, Coffee, FilePen, Highlighter, History, Home, Laptop, Lightbulb, ListTree, Moon, Plus, Search, Sigma, Sun, Trash2, Upload } from 'lucide-react';
+import { BookOpen, Brain, CircleHelp, PanelLeftClose, PanelLeftOpen, Coffee, FilePen, Highlighter, History, Home, Laptop, Lightbulb, ListTree, Moon, Network, Plus, Search, Sigma, Sun, Trash2, Upload } from 'lucide-react';
 import { useStore } from './lib/store';
 import { host, filesFromDrop } from './lib/platform';
 import type { Route, ThemeId } from './lib/types';
@@ -22,7 +22,7 @@ import { ErrorBoundary } from './components/ErrorBoundary';
 
 // Vues chargées à la demande (découpage du code) : l'accueil et la bibliothèque sont dans le paquet
 // principal, le reste (lecteur, éditeur, carte, révision…) est préchargé en arrière-plan après l'affichage.
-const { ReaderView, ConceptsView, AllExtractsView, ArgumentsView, RevisionView, PlansView, WriteView, WorkspaceView, TrashView, HistoryView, HelpView, BoardView } = lazyViews;
+const { ReaderView, ConceptsView, AllExtractsView, ArgumentsView, RevisionView, PlansView, WriteView, WorkspaceView, TrashView, HistoryView, HelpView, BoardView, MapsView } = lazyViews;
 
 function useTheme(theme: ThemeId) {
   useEffect(() => {
@@ -174,11 +174,11 @@ export async function importViaDialog() {
   if (books.length === 1) useStore.getState().openBook(books[0].id);
 }
 
-function NavItem({ route, icon, label, count, match }: { route: Route; icon: JSX.Element; label: string; count?: number | string; match: Route['name'] }) {
+function NavItem({ route, icon, label, count, match, activeAlso }: { route: Route; icon: JSX.Element; label: string; count?: number | string; match: Route['name']; activeAlso?: Route['name'] }) {
   const current = useStore((s) => s.route.name);
   const navigate = useStore((s) => s.navigate);
   return (
-    <button className={`nav-item ${current === match ? 'active' : ''}`} onClick={() => navigate(route)} title={label} aria-label={label}>
+    <button className={`nav-item ${current === match || (!!activeAlso && current === activeAlso) ? 'active' : ''}`} onClick={() => navigate(route)} title={label} aria-label={label}>
       {icon} <span className="nav-label">{label}</span>
       {!!count && <span className="count">{count}</span>}
     </button>
@@ -190,6 +190,12 @@ function Sidebar() {
   const nHighlights = useStore((s) => s.highlights.length);
   const nConcepts = useStore((s) => s.concepts.length);
   const nDrafts = useStore((s) => s.drafts.length);
+  // Cartes libres + cartes de livre / de mouvement non vides (même compte que la vue « Cartes »).
+  const nMaps = useStore((s) => {
+    let n = 0;
+    for (const m of Object.values(s.maps)) if (m.kind === 'board' || (m.nodes.length && s.books.some((b) => b.id === m.bookId))) n++;
+    return n;
+  });
   const nTrash = useStore((s) => s.trash.length);
   const setCommandOpen = useStore((s) => s.setCommandOpen);
   const due = useDueCount();
@@ -222,6 +228,7 @@ function Sidebar() {
         <NavItem match="home" route={{ name: 'home' }} icon={<Home size={15} />} label="Accueil" />
         <NavItem match="library" route={{ name: 'library' }} icon={<BookOpen size={15} />} label="Bibliothèque" count={nBooks} />
         <NavItem match="write" route={{ name: 'write', draftId: null }} icon={<FilePen size={15} />} label="Écrits" count={nDrafts} />
+        <NavItem match="maps" route={{ name: 'maps' }} icon={<Network size={15} />} label="Cartes" count={nMaps} />
         <div className="sidebar-section">Étudier</div>
         <NavItem match="extracts" route={{ name: 'extracts' }} icon={<Highlighter size={15} />} label="Extraits" count={nHighlights} />
         <NavItem match="concepts" route={{ name: 'concepts', conceptId: null }} icon={<Lightbulb size={15} />} label="Concepts" count={nConcepts} />
@@ -480,6 +487,7 @@ export function App() {
             {route.name === 'history' && <HistoryView />}
             {route.name === 'help' && <HelpView />}
             {route.name === 'board' && <BoardView key={route.boardId} boardId={route.boardId} />}
+            {route.name === 'maps' && <MapsView />}
             </Suspense>
             </ErrorBoundary>
           </main>

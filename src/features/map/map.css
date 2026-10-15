@@ -337,16 +337,18 @@
 }
 .map-idea-text {
   margin: 0;
-  font-family: var(--font-hand);
-  font-size: 21px;
-  font-weight: 500;
-  line-height: 1.18;
+  /* Lisible avant tout : même serif que la lecture (l'ancienne écriture manuscrite fatiguait l'œil). */
+  font-family: var(--font-read);
+  font-size: 15.5px;
+  font-weight: 450;
+  line-height: 1.45;
   color: var(--map-postit-ink);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
 .map-idea.central .map-idea-text {
-  font-size: 24px;
+  font-size: 18px;
+  font-weight: 550;
 }
 .map-idea-text.placeholder {
   color: color-mix(in srgb, var(--map-postit-ink) 45%, transparent);
@@ -361,10 +363,11 @@
   border: 0;
   background: transparent;
   color: var(--map-postit-ink);
-  font-family: var(--font-hand);
-  font-size: 21px;
-  font-weight: 500;
-  line-height: 1.18;
+  /* Lisible avant tout : même serif que la lecture (l'ancienne écriture manuscrite fatiguait l'œil). */
+  font-family: var(--font-read);
+  font-size: 15.5px;
+  font-weight: 450;
+  line-height: 1.45;
   outline: none;
   overflow: hidden;
   caret-color: color-mix(in srgb, var(--c) 60%, var(--map-postit-ink));

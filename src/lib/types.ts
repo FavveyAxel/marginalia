@@ -667,4 +667,6 @@ export type Route =
   | { name: 'maps' }
   | { name: 'trash' }
   | { name: 'history' }
-  | { name: 'help' };
+  | { name: 'help' }
+  /** Réglages (confidentialité et sécurité). */
+  | { name: 'settings' };

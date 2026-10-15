@@ -7,6 +7,8 @@
 //   backups/                       sauvegardes de la base : une par jour (7 jours), avant migration de
 //                                  format, avant restauration ou vidage complet ; bases illisibles mises de côté
 //   diagnostic.log (+ .1)          journal local (4 Mo au plus par fichier)
+//   keystore.json (+ .bak)         seulement si le chiffrement est activé (option) : enveloppes de la clé
+//                                  de données (trousseau, mot de passe, clé de secours), jamais la clé en clair
 //
 // Fichiers ouverts depuis le Finder / le Dock (événement macOS `open-file`), ou depuis l'Explorateur
 // de Windows (arguments de lancement, puis événement `second-instance` si l'app tourne déjà) : TOUS les formats acceptés, y compris les .docx, sont transmis au rendu via
@@ -14,7 +16,7 @@
 // ouvert dans l'éditeur ; pour modifier un .docx en place, utiliser « Ouvrir un .docx » dans Écrire.
 'use strict';
 
-const { app, BrowserWindow, Menu, dialog, ipcMain, nativeTheme, net, protocol, screen, session, shell, systemPreferences } = require('electron');
+const { app, BrowserWindow, Menu, dialog, ipcMain, nativeTheme, net, powerMonitor, protocol, safeStorage, screen, session, shell, systemPreferences } = require('electron');
 const fs = require('node:fs');
 const fsp = require('node:fs/promises');
 const os = require('node:os');
@@ -22,6 +24,7 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 const { pathToFileURL } = require('node:url');
 const zipkit = require('./backup.cjs');
+const vault = require('./vault.cjs');
 
 const DEV_URL = process.env.VITE_DEV_SERVER_URL || '';
 const APP_ORIGIN = 'app://marginalia';
@@ -117,6 +120,58 @@ async function writeAtomic(target, data) {
 
 const toBuffer = (data) => (Buffer.isBuffer(data) ? data : Buffer.from(data instanceof ArrayBuffer ? new Uint8Array(data) : data));
 
+// ── Chiffrement des données (option, désactivée par défaut ; voir electron/vault.cjs) ──
+// Toutes les lectures acceptent les deux formats (en-tête MGLENC1 ou fichier en clair) ; les écritures
+// suivent l'état choisi (sec.ks.enabled). Données verrouillées : la clé n'est pas en mémoire, et toute
+// lecture ou écriture de données est refusée (LockedError).
+const E2E = process.env.MARGINALIA_E2E === '1';
+const sec = {
+  ks: null, // keystore.json (null : chiffrement jamais activé, ou désactivé)
+  dek: null, // clé de données en mémoire (null : verrouillé, ou pas de chiffrement)
+  orphan: false, // données chiffrées trouvées sans fichier de clés
+  keychainFailed: false, // le trousseau n'a pas rendu la clé (mise à jour de l'app, accès refusé…)
+  pending: null, // clé de secours affichée, pas encore confirmée
+  failures: 0,
+  nextTryAt: 0,
+  lastActivity: Date.now(),
+  migration: null, // { to, done, total, running, error }
+  locking: false,
+  lockedBy: null, // raison du dernier verrouillage pendant la session (null : lancement)
+};
+const needsKey = () => !!sec.ks && (!!sec.ks.enabled || !!sec.ks.migration);
+const isLocked = () => sec.orphan || (needsKey() && !sec.dek);
+const writeSealed = () => !!sec.ks && !!sec.ks.enabled;
+function encodeOut(buf) {
+  if (!writeSealed()) return buf;
+  if (!sec.dek) throw new vault.LockedError();
+  return vault.seal(sec.dek, buf);
+}
+function decodeIn(buf) {
+  if (!vault.isSealed(buf)) return buf;
+  if (!sec.dek) throw new vault.LockedError();
+  return vault.open(sec.dek, buf);
+}
+const asBuffer = (d) => (typeof d === 'string' ? Buffer.from(d, 'utf8') : toBuffer(d));
+/** Lit un fichier de données (déchiffré si besoin). */
+async function readData(file) {
+  return decodeIn(await fsp.readFile(file));
+}
+/** Écrit un fichier de données (chiffré si le chiffrement est activé), de façon atomique. */
+async function writeData(file, data) {
+  await writeAtomic(file, encodeOut(asBuffer(data)));
+}
+// Verrous par fichier : une écriture de l'app et la conversion (chiffrement / déchiffrement) d'un même
+// fichier ne se croisent jamais.
+const fileLocks = new Map();
+function withFileLock(key, fn) {
+  const prev = fileLocks.get(key) || Promise.resolve();
+  const run = prev.catch(() => {}).then(fn);
+  const tail = run.catch(() => {});
+  fileLocks.set(key, tail);
+  tail.then(() => fileLocks.get(key) === tail && fileLocks.delete(key));
+  return run;
+}
+
 // ── Confiance des appelants IPC ──────────────────────────────
 function trusted(event) {
   const url = event.senderFrame ? event.senderFrame.url : '';
@@ -138,7 +193,21 @@ function diagPart(p) {
     return String(p);
   }
 }
+let diagPaused = false;
+const diagHeld = [];
 function diag(...parts) {
+  try {
+    let line = `${new Date().toISOString()} ${parts.map(diagPart).join(' ')}`;
+    if (line.length > DIAG_LINE_MAX) line = line.slice(0, DIAG_LINE_MAX) + ' …[tronqué]';
+    // Chiffrement activé : chaque ligne est chiffrée (elle peut citer un titre ou un passage).
+    if (writeSealed() && sec.dek) line = vault.sealLine(sec.dek, line);
+    if (diagPaused) diagHeld.push(line);
+    else diagWrite(line);
+  } catch {
+    /* jamais bloquant */
+  }
+}
+function diagWrite(line) {
   try {
     const f = path.join(app.getPath('userData'), 'diagnostic.log');
     if (diagStream && diagSize > DIAG_MAX) {
@@ -164,13 +233,22 @@ function diag(...parts) {
       diagStream = fs.createWriteStream(f, { flags: 'a' });
       diagStream.on('error', () => (diagStream = null));
     }
-    let line = `${new Date().toISOString()} ${parts.map(diagPart).join(' ')}`;
-    if (line.length > DIAG_LINE_MAX) line = line.slice(0, DIAG_LINE_MAX) + ' …[tronqué]';
     diagStream.write(line + '\n');
     diagSize += Buffer.byteLength(line) + 1;
   } catch {
     /* jamais bloquant */
   }
+}
+/** Suspend l'écriture du journal (conversion du fichier) ; les lignes sont gardées et écrites ensuite. */
+async function pauseDiag() {
+  diagPaused = true;
+  const st = diagStream;
+  diagStream = null;
+  if (st) await new Promise((r) => st.end(r));
+}
+function resumeDiag() {
+  diagPaused = false;
+  for (const l of diagHeld.splice(0)) diagWrite(l);
 }
 
 // Exceptions non gérées du processus principal : consignées, sans fermeture brutale de l'app
@@ -187,6 +265,13 @@ process.on('unhandledRejection', (reason) => {
 function handle(channel, fn) {
   ipcMain.handle(channel, (event, ...args) => {
     if (!trusted(event)) throw new Error('Appelant non autorisé');
+    return fn(event, ...args);
+  });
+}
+/** Canal qui touche aux données de l'utilisateur : refusé tant que Marginalia est verrouillé. */
+function dataHandle(channel, fn) {
+  handle(channel, (event, ...args) => {
+    if (isLocked()) throw new vault.LockedError();
     return fn(event, ...args);
   });
 }
@@ -239,11 +324,18 @@ function countItems(db) {
 }
 
 async function readDbFile(file) {
-  let text;
+  let buf;
   try {
-    text = await fsp.readFile(file, 'utf8');
+    buf = await fsp.readFile(file);
   } catch (e) {
     return { ok: false, missing: !!e && e.code === 'ENOENT', error: e };
+  }
+  let text;
+  try {
+    text = decodeIn(buf).toString('utf8');
+  } catch (e) {
+    // Verrouillé : surtout ne pas prendre la base pour une base endommagée.
+    return { ok: false, missing: false, locked: !!e && e.code === 'MG_LOCKED', error: e };
   }
   try {
     const data = JSON.parse(text);
@@ -263,7 +355,7 @@ async function rotateBackups(prefix, keep) {
 }
 async function writeBackup(prefix, text, keep) {
   const file = path.join(backupsDir(), `${prefix}${stamp()}.json`);
-  await writeAtomic(file, text);
+  await writeData(file, text);
   await rotateBackups(prefix, keep);
   diag('sauvegarde', path.basename(file));
   return file;
@@ -280,7 +372,7 @@ async function dailyBackup(text) {
       if (!r.ok) return;
       text = r.text;
     }
-    await writeAtomic(file, text);
+    await writeData(file, text);
     await rotateBackups('quotidienne-', DAILY_KEEP);
     diag('sauvegarde', path.basename(file));
   }
@@ -311,6 +403,7 @@ function onDbLoaded(r) {
 async function loadDbSafely() {
   savesBlocked = false; // nouvelle page : elle repart de la base du disque
   const main = await readDbFile(dbPath());
+  if (main.locked) throw main.error;
   if (main.ok) {
     onDbLoaded(main);
     return main.data;
@@ -344,7 +437,7 @@ async function loadDbSafely() {
     const r = await readDbFile(f);
     if (!r.ok) continue;
     const st = await fsp.stat(f).catch(() => null);
-    await writeAtomic(dbPath(), r.text);
+    await writeData(dbPath(), r.text);
     onDbLoaded(r);
     diag('base', 'restauree depuis', path.basename(f), st ? new Date(st.mtimeMs).toISOString() : '');
     if (!main.missing) {
@@ -367,7 +460,7 @@ async function loadDbSafely() {
   return null;
 }
 
-handle('marginalia:loadDb', async () => {
+dataHandle('marginalia:loadDb', async () => {
   try {
     return await loadDbSafely();
   } catch (e) {
@@ -404,7 +497,7 @@ async function writeDbNow({ json, meta }) {
   } catch (e) {
     if (e.code !== 'ENOENT') diag('base', 'copie .bak', e.message);
   }
-  await writeAtomic(target, json);
+  await writeData(target, json);
   if (meta.items != null) lastItemCount = meta.items;
 }
 
@@ -432,7 +525,7 @@ function queueSave(json, meta) {
 /** Attend la fin des écritures en cours (au plus `timeout` ms). */
 const waitSaves = (timeout = 15000) => Promise.race([saveChain.catch(() => {}), sleep(timeout)]);
 
-handle('marginalia:saveDb', (_e, payload, meta) => {
+dataHandle('marginalia:saveDb', (_e, payload, meta) => {
   if (savesBlocked) {
     diag('base', 'ecriture ignoree (restauration en cours)');
     return undefined;
@@ -488,19 +581,754 @@ async function flushAll() {
   await waitSaves();
 }
 
-// ── Bibliothèque de fichiers ─────────────────────────────────
-handle('marginalia:storeFile', async (_e, id, fileName, data) => {
-  await writeAtomic(libraryPath(id, fileName), toBuffer(data));
+// ── Confidentialité : chiffrement et verrouillage (options) ──
+// Niveau 1 « chiffrement transparent » : la clé de données (DEK) est protégée par le trousseau du
+// système (safeStorage : Trousseau sur Mac, DPAPI de la session sous Windows) et débloquée au lancement,
+// sans rien demander. Niveau 2 « verrouillage » : la DEK n'est plus rendue par le trousseau seul ; il
+// faut le mot de passe (ou la clé de secours ; ou Touch ID si l'utilisateur l'a activé, qui libère alors
+// la copie du trousseau). Dans les deux cas, une clé de secours est créée et montrée une seule fois.
+const ksPath = () => path.join(userData(), 'keystore.json');
+const FAKE_SAFE = E2E && process.env.MARGINALIA_E2E_FAKE_SAFESTORAGE === '1';
+const FAKE_TOUCH = E2E && process.env.MARGINALIA_E2E_FAKE_TOUCHID === '1';
+const FAKE_KEYCHAIN_FAIL = E2E && process.env.MARGINALIA_E2E_KEYCHAIN_FAIL === '1';
+const TEST_AUTOLOCK_MS = E2E ? Number(process.env.MARGINALIA_E2E_AUTOLOCK_MS) || 0 : 0;
+const TEST_CRASH_AFTER = E2E ? Number(process.env.MARGINALIA_E2E_MIGRATION_CRASH_AFTER) || 0 : 0;
+const AUTOLOCK_CHOICES = [0, 5, 15, 30, 60];
+const PASSWORD_MIN = 8;
+// Tests uniquement (MARGINALIA_E2E=1) : un « trousseau » simulé, la clé de test étant fixe.
+const FAKE_KEY = crypto.createHash('sha256').update('marginalia-e2e-faux-trousseau').digest();
+
+async function readKeystore() {
+  for (const f of [ksPath(), ksPath() + '.bak']) {
+    try {
+      const ks = JSON.parse(await fsp.readFile(f, 'utf8'));
+      if (ks && ks.format === 1 && typeof ks.keyId === 'string' && ks.recovery) {
+        if (f !== ksPath()) diag('securite', 'fichier de clés principal illisible : copie .bak utilisée');
+        return ks;
+      }
+    } catch {
+      /* absent ou illisible : copie suivante */
+    }
+  }
+  return null;
+}
+async function saveKeystore(ks) {
+  ks.updatedAt = new Date().toISOString();
+  const text = JSON.stringify(ks, null, 2);
+  await writeAtomic(ksPath(), text);
+  await writeAtomic(ksPath() + '.bak', text);
+}
+async function deleteKeystore() {
+  await fsp.rm(ksPath(), { force: true });
+  await fsp.rm(ksPath() + '.bak', { force: true });
+}
+
+const systemName = () => (IS_MAC ? 'le trousseau de macOS' : IS_WIN ? 'votre session Windows (DPAPI)' : 'le trousseau du système');
+/** Le trousseau du système peut-il protéger la clé ? (Linux : seulement avec un vrai trousseau.) */
+function systemStore() {
+  if (FAKE_SAFE) return { ok: true, name: systemName() };
+  try {
+    if (!safeStorage.isEncryptionAvailable()) return { ok: false, reason: 'Le trousseau du système n’est pas disponible.' };
+    if (process.platform === 'linux') {
+      const b = safeStorage.getSelectedStorageBackend();
+      if (b === 'basic_text' || b === 'unknown') {
+        return { ok: false, reason: 'Aucun trousseau sécurisé (GNOME Keyring, KWallet) n’est disponible : la clé ne pourrait pas y être rangée en sûreté.' };
+      }
+    }
+    return { ok: true, name: systemName() };
+  } catch (e) {
+    return { ok: false, reason: 'Le trousseau du système n’est pas disponible (' + ((e && e.message) || e) + ').' };
+  }
+}
+function systemWrap(dek) {
+  if (FAKE_SAFE) return 'fake:' + vault.seal(FAKE_KEY, dek).toString('base64');
+  return safeStorage.encryptString(dek.toString('base64')).toString('base64');
+}
+function systemUnwrap(s) {
+  if (FAKE_KEYCHAIN_FAIL) throw new Error('trousseau indisponible (test)');
+  if (FAKE_SAFE) {
+    if (!String(s).startsWith('fake:')) throw new Error('enveloppe inconnue');
+    return vault.open(FAKE_KEY, Buffer.from(String(s).slice(5), 'base64'));
+  }
+  return Buffer.from(safeStorage.decryptString(Buffer.from(String(s), 'base64')), 'base64');
+}
+function touchIdAvailable() {
+  if (FAKE_TOUCH) return true;
+  if (!IS_MAC) return false;
+  try {
+    return systemPreferences.canPromptTouchID();
+  } catch {
+    return false;
+  }
+}
+
+/** Installe la clé de données en mémoire après vérification (empreinte). */
+function setDek(dek) {
+  if (!sec.ks || vault.keyId(dek) !== sec.ks.keyId) {
+    vault.wipe(dek);
+    throw new Error('Clé inattendue');
+  }
+  if (sec.dek && sec.dek !== dek) vault.wipe(sec.dek);
+  sec.dek = dek;
+  sec.failures = 0;
+  sec.nextTryAt = 0;
+  sec.keychainFailed = false;
+  sec.lockedBy = null;
+  sec.lastActivity = Date.now();
+  buildMenu();
+}
+
+async function initSecurity() {
+  sec.ks = await readKeystore();
+  if (!sec.ks) {
+    // Base chiffrée sans fichier de clés : on ne la prend surtout pas pour une base endommagée.
+    try {
+      const fh = await fsp.open(dbPath(), 'r');
+      const head = Buffer.alloc(64);
+      try {
+        await fh.read(head, 0, 64, 0);
+      } finally {
+        await fh.close();
+      }
+      if (vault.isSealed(head)) {
+        sec.orphan = true;
+        diag('securite', 'données chiffrées sans fichier de clés (keystore.json)');
+      }
+    } catch {
+      /* pas de base */
+    }
+    return;
+  }
+  if (!needsKey()) return;
+  if (!sec.ks.lock.enabled && sec.ks.system) {
+    try {
+      setDek(systemUnwrap(sec.ks.system));
+      diag('securite', 'clé débloquée par le trousseau');
+    } catch (e) {
+      sec.keychainFailed = true;
+      diag('securite', 'le trousseau n’a pas rendu la clé', e && e.message);
+    }
+  } else if (!sec.ks.lock.enabled) sec.keychainFailed = true;
+  if (sec.dek && sec.ks.migration) runMigration(sec.ks.migration.to);
+}
+
+function securityStatus() {
+  const ks = sec.ks;
+  const locked = isLocked();
+  const m = sec.migration;
+  return {
+    available: true,
+    platform: process.platform,
+    system: systemStore(),
+    touchIdAvailable: touchIdAvailable(),
+    encrypted: !!ks && !!ks.enabled,
+    lock: !!ks && !!ks.lock.enabled,
+    hasPassword: !!ks && !!ks.password,
+    touchId: !!ks && !!ks.lock.enabled && !!ks.lock.touchId && !!ks.system,
+    autoLockMinutes: ks ? ks.lock.autoLockMinutes : 15,
+    lockOnSleep: ks ? ks.lock.lockOnSleep !== false : true,
+    locked,
+    lockReason: !locked ? null : sec.orphan ? 'orphan' : ks.lock.enabled ? 'lock' : 'keychain',
+    lockedBy: locked ? sec.lockedBy : null,
+    migration: m
+      ? { to: m.to, done: m.done, total: m.total, running: m.running, error: m.error, finished: !!m.finished }
+      : ks && ks.migration
+        ? { to: ks.migration.to, done: 0, total: 0, running: false, error: null, finished: false }
+        : null,
+    recoveryCreatedAt: ks && ks.recovery ? ks.recovery.createdAt || ks.createdAt || null : null,
+    waitMs: Math.max(0, sec.nextTryAt - Date.now()),
+  };
+}
+function broadcastSecurity() {
+  const st = securityStatus();
+  for (const w of BrowserWindow.getAllWindows()) if (!w.isDestroyed()) w.webContents.send('marginalia:security-progress', st);
+}
+
+// ── Conversion des fichiers (chiffrer / déchiffrer), reprise possible ──
+/** Exécute `fn` dans la file d'écriture de la base (aucune écriture de la base en même temps). */
+function inSaveChain(fn) {
+  const run = saveChain.catch(() => {}).then(fn);
+  saveChain = run;
+  return run;
+}
+async function listDataFiles() {
+  const out = [{ full: dbPath(), kind: 'base' }, { full: dbPath() + '.bak', kind: 'base' }];
+  for (const f of await zipkit.listFiles(backupsDir())) if (!f.rel.endsWith('.tmp')) out.push({ full: f.full, kind: 'base' });
+  for (const f of await zipkit.listFiles(libraryRoot())) if (!f.rel.endsWith('.tmp')) out.push({ full: f.full, kind: 'library' });
+  const log = path.join(userData(), 'diagnostic.log');
+  out.push({ full: log, kind: 'log' }, { full: log + '.1', kind: 'log' });
+  return out;
+}
+/**
+ * Un fichier vers le format `to` : écrit à côté (fichier temporaire + fsync), relu et vérifié
+ * (empreinte SHA-256 du contenu en clair), dates conservées, puis renommé à la place de l'original.
+ * Renvoie true si le fichier a été converti.
+ */
+async function transformFile(file, to) {
+  const st = await fsp.stat(file).catch(() => null);
+  if (!st || !st.isFile()) return false;
+  const buf = await fsp.readFile(file);
+  const sealed = vault.isSealed(buf);
+  if ((to === 'encrypted') === sealed) return false;
+  const plain = sealed ? vault.open(sec.dek, buf) : buf;
+  const out = to === 'encrypted' ? vault.seal(sec.dek, plain) : plain;
+  const digest = vault.sha256(plain);
+  const tmp = `${file}.${process.pid}.${crypto.randomBytes(4).toString('hex')}.tmp`;
+  try {
+    const fh = await fsp.open(tmp, 'w');
+    try {
+      await fh.writeFile(out);
+      await fh.sync();
+    } finally {
+      await fh.close();
+    }
+    const back = await fsp.readFile(tmp);
+    const check = to === 'encrypted' ? vault.open(sec.dek, back) : back;
+    if (!vault.sha256(check).equals(digest)) throw new Error('vérification de la copie convertie échouée');
+    await fsp.utimes(tmp, st.atime, st.mtime);
+    await fsp.rename(tmp, file);
+  } catch (e) {
+    await fsp.rm(tmp, { force: true }).catch(() => {});
+    throw new Error(`${path.relative(userData(), file)} : ${(e && e.message) || e}`);
+  }
+  return true;
+}
+/** Journal de diagnostic : converti ligne par ligne (il reste lisible pour l'export). */
+async function transformLog(file, to) {
+  if (!fs.existsSync(file)) return false;
+  await pauseDiag();
+  try {
+    const text = await fsp.readFile(file, 'utf8');
+    let changed = false;
+    const out = text.split('\n').map((l) => {
+      if (!l) return l;
+      const sealed = vault.isSealedLine(l);
+      if (to === 'encrypted' && !sealed) {
+        changed = true;
+        return vault.sealLine(sec.dek, l);
+      }
+      if (to === 'plain' && sealed) {
+        changed = true;
+        try {
+          return vault.openLine(sec.dek, l);
+        } catch {
+          return '[ligne chiffrée illisible]';
+        }
+      }
+      return l;
+    });
+    if (changed) await writeAtomic(file, out.join('\n'));
+    return changed;
+  } finally {
+    resumeDiag();
+  }
+}
+function runMigration(to) {
+  if (sec.migration && sec.migration.running) return sec.migration.promise;
+  const m = { to, done: 0, total: 0, running: true, error: null };
+  sec.migration = m;
+  let lastSent = 0;
+  const progress = (force) => {
+    if (!force && Date.now() - lastSent < 120) return;
+    lastSent = Date.now();
+    broadcastSecurity();
+  };
+  m.promise = (async () => {
+    diag('securite', to === 'encrypted' ? 'chiffrement des fichiers : début' : 'déchiffrement des fichiers : début');
+    let converted = 0;
+    let clean = false;
+    try {
+      // Passes successives : un fichier écrit pendant la conversion dans l'ancien format est repris.
+      for (let pass = 0; pass < 3; pass++) {
+        const files = await listDataFiles();
+        m.total = files.length;
+        m.done = 0;
+        progress(true);
+        let changed = 0;
+        for (const f of files) {
+          if (TEST_CRASH_AFTER && converted >= TEST_CRASH_AFTER) {
+            diag('securite', 'arrêt brutal simulé (test)');
+            process.exit(70);
+          }
+          const job = () => (f.kind === 'log' ? transformLog(f.full, to) : transformFile(f.full, to));
+          const did = f.kind === 'library' ? await withFileLock(f.full, job) : await inSaveChain(job);
+          if (did) {
+            changed++;
+            converted++;
+          }
+          m.done++;
+          progress(false);
+        }
+        // Une passe sans aucune conversion vaut vérification : chaque fichier a été relu dans le bon format.
+        if (!changed) {
+          clean = true;
+          break;
+        }
+      }
+      if (!clean) throw new Error('des fichiers ont encore changé pendant la conversion : réessayez');
+      if (to === 'plain') {
+        await deleteKeystore();
+        vault.wipe(sec.dek);
+        sec.dek = null;
+        sec.ks = null;
+      } else {
+        sec.ks.migration = null;
+        await saveKeystore(sec.ks);
+      }
+      diag('securite', to === 'encrypted' ? 'chiffrement terminé' : 'déchiffrement terminé', { fichiers: converted });
+      m.running = false;
+      m.finished = true;
+      buildMenu();
+      progress(true);
+    } catch (e) {
+      m.running = false;
+      m.error = String((e && e.message) || e);
+      diag('securite', 'conversion interrompue', m.error);
+      progress(true);
+    }
+  })();
+  return m.promise;
+}
+
+// ── Verrouillage ─────────────────────────────────────────────
+async function lockNow(reason) {
+  if (!sec.ks || !sec.ks.lock.enabled || !sec.dek || sec.locking) return false;
+  if (sec.migration && sec.migration.running) return false; // reprise après la conversion
+  sec.locking = true;
+  try {
+    // Les modifications en attente sont écrites (chiffrées) avant d'oublier la clé.
+    await flushAll();
+    await waitSaves();
+    await Promise.all([...fileLocks.values()]);
+    vault.wipe(sec.dek);
+    sec.dek = null;
+    sec.lockedBy = reason;
+    diag('securite', 'verrouillage', reason);
+    buildMenu();
+    // La page repart de zéro : plus aucune donnée dans la mémoire du rendu.
+    for (const w of BrowserWindow.getAllWindows()) if (!w.isDestroyed()) w.webContents.reload();
+    return true;
+  } finally {
+    sec.locking = false;
+  }
+}
+function autoLockMs() {
+  if (!sec.ks || !sec.ks.lock.enabled || !sec.ks.lock.autoLockMinutes) return 0;
+  return TEST_AUTOLOCK_MS || sec.ks.lock.autoLockMinutes * 60000;
+}
+function startAutoLock() {
+  setInterval(
+    () => {
+      const ms = autoLockMs();
+      if (ms && sec.dek && Date.now() - sec.lastActivity >= ms) lockNow('inactivite').catch((e) => diag('securite', 'verrouillage', e && e.message));
+    },
+    TEST_AUTOLOCK_MS ? 250 : 5000,
+  ).unref?.();
+  const onSleep = (why) => {
+    if (sec.ks && sec.ks.lock.enabled && sec.ks.lock.lockOnSleep !== false) lockNow(why).catch((e) => diag('securite', 'verrouillage', e && e.message));
+  };
+  powerMonitor.on('suspend', () => onSleep('veille'));
+  powerMonitor.on('lock-screen', () => onSleep('ecran-verrouille'));
+}
+ipcMain.on('marginalia:security-activity', (event) => {
+  if (trusted(event)) sec.lastActivity = Date.now();
 });
-handle('marginalia:readFile', async (_e, id, fileName) => {
-  const buf = await fsp.readFile(libraryPath(id, fileName));
+function lockMenuItem() {
+  const on = !!sec.ks && sec.ks.lock.enabled && !!sec.dek;
+  return { label: 'Verrouiller maintenant', accelerator: 'CmdOrCtrl+Shift+L', enabled: on, click: () => lockNow('menu').catch((e) => diag('securite', 'verrouillage', e && e.message)) };
+}
+
+// ── Questions posées à l'interface (mot de passe d'une archive chiffrée) ──
+const asks = new Map();
+let askSeq = 0;
+function askRenderer(payload) {
+  const win = mainWindow && !mainWindow.isDestroyed() ? mainWindow : null;
+  if (!win) return Promise.resolve(null);
+  const id = ++askSeq;
+  return new Promise((resolve) => {
+    asks.set(id, resolve);
+    win.webContents.send('marginalia:security-ask', { id, ...payload });
+    win.once('closed', () => asks.has(id) && (asks.delete(id), resolve(null)));
+  });
+}
+
+// ── Opérations (canal « marginalia:security ») ───────────────
+const fail = (error) => ({ ok: false, error });
+function checkNewPassword(pw) {
+  if (typeof pw !== 'string' || [...pw].length < PASSWORD_MIN) throw new Error(`Le mot de passe doit compter au moins ${PASSWORD_MIN} caractères.`);
+  if (pw.length > 1024) throw new Error('Mot de passe trop long.');
+}
+const validDelay = (v, dflt) => (AUTOLOCK_CHOICES.includes(Number(v)) ? Number(v) : dflt);
+function requireUnlocked() {
+  if (isLocked()) throw new vault.LockedError();
+}
+/** Délai croissant après trois échecs (1 s, 2 s, 4 s… 30 s au plus). */
+function attemptWait() {
+  return Math.max(0, sec.nextTryAt - Date.now());
+}
+function noteFailure() {
+  sec.failures++;
+  if (sec.failures >= 3) sec.nextTryAt = Date.now() + Math.min(30000, 1000 * 2 ** (sec.failures - 3));
+  diag('securite', 'déverrouillage refusé', { essais: sec.failures });
+}
+/** Vérifie le mot de passe actuel (sans changer l'état). */
+async function passwordOk(pw) {
+  if (!sec.ks || !sec.ks.password) return false;
+  const wait = attemptWait();
+  if (wait) await sleep(wait);
+  const dek = await vault.unwrapWithPassword(String(pw || ''), sec.ks.password);
+  const good = !!dek && vault.keyId(dek) === sec.ks.keyId;
+  vault.wipe(dek);
+  if (!good) noteFailure();
+  else {
+    sec.failures = 0;
+    sec.nextTryAt = 0;
+  }
+  return good;
+}
+function takePending(token, kind) {
+  const p = sec.pending;
+  if (!p || p.token !== token || p.kind !== kind || p.expires < Date.now()) throw new Error('Cette clé de secours a expiré : recommencez.');
+  sec.pending = null;
+  return p;
+}
+function newPending(kind, dek) {
+  if (sec.pending && sec.pending.dek && sec.pending.dek !== sec.dek) vault.wipe(sec.pending.dek);
+  sec.pending = { kind, token: crypto.randomBytes(16).toString('hex'), recoveryKey: vault.newRecoveryKey(), dek, expires: Date.now() + 60 * 60000 };
+  return { token: sec.pending.token, recoveryKey: sec.pending.recoveryKey };
+}
+const lockOptions = (o, prev) => ({
+  enabled: true,
+  touchId: !!o.touchId && touchIdAvailable() && systemStore().ok,
+  autoLockMinutes: validDelay(o.autoLockMinutes, prev ? prev.autoLockMinutes : 15),
+  lockOnSleep: o.lockOnSleep !== false,
+});
+
+const RECOVERY_HTML = (key) => `<!doctype html><html lang="fr"><head><meta charset="utf-8"><title>Clé de secours Marginalia</title>
+<style>
+  @page { size: A4; margin: 22mm; }
+  body { font-family: -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif; color: #1d1a15; }
+  h1 { font-family: Georgia, 'Times New Roman', serif; font-weight: 400; font-size: 30px; margin: 0 0 6px; }
+  .sub { color: #4a443a; font-size: 13px; margin: 0 0 28px; }
+  .key { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 24px; letter-spacing: 0.06em; padding: 22px 24px; border: 1.5px solid #1d1a15; border-radius: 12px; text-align: center; }
+  ul { font-size: 13px; line-height: 1.6; color: #4a443a; padding-left: 18px; margin-top: 28px; }
+  .date { margin-top: 36px; font-size: 12px; color: #7a7266; }
+</style></head><body>
+<h1>Clé de secours — Marginalia</h1>
+<p class="sub">Elle permet de retrouver vos données si vous oubliez votre mot de passe ou si cet ordinateur ne rend plus la clé.</p>
+<div class="key">${key}</div>
+<ul>
+  <li>Rangez cette feuille en lieu sûr, loin de l’ordinateur (et ne la photographiez pas).</li>
+  <li>Toute personne qui la possède, avec une copie de vos fichiers, peut lire vos données.</li>
+  <li>Sans mot de passe ni clé de secours, vos données sont définitivement illisibles.</li>
+</ul>
+<p class="date">Créée le ${frDate(Date.now())}</p>
+</body></html>`;
+
+async function renderRecoveryPdf(html) {
+  const win = new BrowserWindow({ show: false, width: 794, height: 1123, webPreferences: { offscreen: true, javascript: false, sandbox: true, contextIsolation: true } });
+  try {
+    await win.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(html));
+    return await win.webContents.printToPDF({ pageSize: 'A4', printBackground: true, preferCSSPageSize: true });
+  } finally {
+    if (!win.isDestroyed()) win.destroy();
+  }
+}
+
+const securityOps = {
+  status: async () => securityStatus(),
+
+  async unlockPassword({ password }) {
+    if (!sec.ks || !sec.ks.password || !isLocked()) return fail('Rien à déverrouiller.');
+    const wait = attemptWait();
+    if (wait) await sleep(wait);
+    const dek = await vault.unwrapWithPassword(String(password || ''), sec.ks.password);
+    if (!dek || vault.keyId(dek) !== sec.ks.keyId) {
+      vault.wipe(dek);
+      noteFailure();
+      return fail('Mot de passe incorrect.');
+    }
+    setDek(dek);
+    diag('securite', 'déverrouillé (mot de passe)');
+    if (sec.ks.migration) runMigration(sec.ks.migration.to);
+    return { ok: true };
+  },
+
+  async unlockRecovery({ recoveryKey, newPassword }) {
+    if (!sec.ks || !isLocked()) return fail('Rien à déverrouiller.');
+    const wait = attemptWait();
+    if (wait) await sleep(wait);
+    if (!vault.looksLikeRecoveryKey(recoveryKey)) return fail('Ce n’est pas une clé de secours : 32 caractères, en 8 groupes de 4.');
+    const dek = vault.unwrapWithRecovery(recoveryKey, sec.ks.recovery);
+    if (!dek || vault.keyId(dek) !== sec.ks.keyId) {
+      vault.wipe(dek);
+      noteFailure();
+      return fail('Clé de secours incorrecte.');
+    }
+    if (sec.ks.lock.enabled) {
+      try {
+        checkNewPassword(newPassword);
+      } catch (e) {
+        vault.wipe(dek);
+        return fail(e.message);
+      }
+      sec.ks.password = await vault.wrapWithPassword(newPassword, dek);
+    }
+    // Le trousseau n'avait pas rendu la clé (mise à jour de l'app…) : on l'y range de nouveau.
+    if ((!sec.ks.lock.enabled || sec.ks.lock.touchId) && systemStore().ok) {
+      try {
+        sec.ks.system = systemWrap(dek);
+      } catch (e) {
+        diag('securite', 'trousseau', e && e.message);
+      }
+    }
+    await saveKeystore(sec.ks);
+    setDek(dek);
+    diag('securite', 'déverrouillé (clé de secours)');
+    if (sec.ks.migration) runMigration(sec.ks.migration.to);
+    return { ok: true };
+  },
+
+  async unlockTouchId() {
+    if (!sec.ks || !isLocked() || !sec.ks.lock.touchId || !sec.ks.system) return fail('Touch ID n’est pas activé.');
+    try {
+      if (!FAKE_TOUCH) {
+        if (!touchIdAvailable()) return fail('Touch ID n’est pas disponible.');
+        await systemPreferences.promptTouchID('déverrouiller Marginalia');
+      }
+    } catch {
+      return fail('Touch ID n’a pas reconnu l’empreinte (ou a été annulé).');
+    }
+    try {
+      setDek(systemUnwrap(sec.ks.system));
+    } catch (e) {
+      diag('securite', 'trousseau', e && e.message);
+      return fail('Le trousseau n’a pas rendu la clé : utilisez votre mot de passe.');
+    }
+    diag('securite', 'déverrouillé (Touch ID)');
+    if (sec.ks.migration) runMigration(sec.ks.migration.to);
+    return { ok: true };
+  },
+
+  /** Nouvelle clé de données et clé de secours, montrées avant l'activation (rien n'est encore écrit). */
+  async prepare() {
+    if (sec.ks) throw new Error('Le chiffrement est déjà activé.');
+    return newPending('enable', vault.newDek());
+  },
+
+  /** Active le chiffrement (et le verrouillage si `lock` est fourni), puis chiffre tous les fichiers. */
+  async enable({ token, lock }) {
+    if (sec.ks) throw new Error('Le chiffrement est déjà activé.');
+    if (isLocked()) throw new vault.LockedError();
+    const sys = systemStore();
+    if (!lock && !sys.ok) throw new Error(sys.reason);
+    if (lock) checkNewPassword(lock.password);
+    const p = takePending(token, 'enable');
+    const lk = lock ? lockOptions(lock) : { enabled: false, touchId: false, autoLockMinutes: 15, lockOnSleep: true };
+    const now = new Date().toISOString();
+    const ks = {
+      format: 1,
+      keyId: vault.keyId(p.dek),
+      enabled: true,
+      migration: { to: 'encrypted', startedAt: now },
+      system: !lock || lk.touchId ? systemWrap(p.dek) : null,
+      recovery: { ...vault.wrapWithRecovery(p.recoveryKey, p.dek), createdAt: now },
+      password: lock ? await vault.wrapWithPassword(lock.password, p.dek) : null,
+      lock: lk,
+      createdAt: now,
+    };
+    // Ce qui attend est écrit, puis une copie de la base est mise de côté avant la conversion.
+    await flushAll();
+    await inSaveChain(async () => {
+      const cur = await readDbFile(dbPath());
+      if (cur.ok) await writeBackup('avant-chiffrement-', cur.text, 3);
+    });
+    await saveKeystore(ks);
+    sec.ks = ks;
+    sec.dek = p.dek;
+    sec.lastActivity = Date.now();
+    diag('securite', 'chiffrement activé', { verrouillage: !!lock, touchId: lk.touchId });
+    buildMenu();
+    runMigration('encrypted');
+    return { ok: true };
+  },
+
+  /** Données déjà chiffrées : ajoute le mot de passe (la clé de secours actuelle reste valable). */
+  async enableLock(o) {
+    requireUnlocked();
+    if (!sec.ks || !sec.ks.enabled) throw new Error('Activez d’abord le chiffrement.');
+    if (sec.ks.lock.enabled) throw new Error('Le verrouillage est déjà activé.');
+    checkNewPassword(o.password);
+    sec.ks.password = await vault.wrapWithPassword(o.password, sec.dek);
+    sec.ks.lock = lockOptions(o, sec.ks.lock);
+    // Sans Touch ID, la copie du trousseau disparaît : le mot de passe devient indispensable.
+    sec.ks.system = sec.ks.lock.touchId ? sec.ks.system || systemWrap(sec.dek) : null;
+    await saveKeystore(sec.ks);
+    sec.lastActivity = Date.now();
+    diag('securite', 'verrouillage activé', { touchId: sec.ks.lock.touchId });
+    buildMenu();
+    return { ok: true };
+  },
+
+  async disableLock({ password }) {
+    requireUnlocked();
+    if (!sec.ks || !sec.ks.lock.enabled) return { ok: true };
+    const sys = systemStore();
+    if (!sys.ok) return fail(sys.reason + ' Désactivez plutôt le chiffrement.');
+    if (!(await passwordOk(password))) return fail('Mot de passe incorrect.');
+    sec.ks.system = systemWrap(sec.dek);
+    sec.ks.password = null;
+    sec.ks.lock = { ...sec.ks.lock, enabled: false, touchId: false };
+    await saveKeystore(sec.ks);
+    diag('securite', 'verrouillage désactivé');
+    buildMenu();
+    return { ok: true };
+  },
+
+  /** Déchiffre tout et retire le fichier de clés (quand tout est vérifié en clair). */
+  async disable({ password }) {
+    requireUnlocked();
+    if (!sec.ks) return { ok: true };
+    if (sec.ks.lock.enabled && !(await passwordOk(password))) return fail('Mot de passe incorrect.');
+    await flushAll();
+    await inSaveChain(async () => {
+      const cur = await readDbFile(dbPath());
+      if (cur.ok) await writeBackup('avant-dechiffrement-', cur.text, 3);
+    });
+    // Copie dans le trousseau si possible : une conversion interrompue reprend sans rien demander.
+    if (!sec.ks.system && systemStore().ok) sec.ks.system = systemWrap(sec.dek);
+    sec.ks.enabled = false;
+    sec.ks.lock = { ...sec.ks.lock, enabled: false, touchId: false };
+    sec.ks.migration = { to: 'plain', startedAt: new Date().toISOString() };
+    await saveKeystore(sec.ks);
+    diag('securite', 'chiffrement désactivé : déchiffrement des fichiers');
+    buildMenu();
+    runMigration('plain');
+    return { ok: true };
+  },
+
+  async resume() {
+    requireUnlocked();
+    if (sec.ks && sec.ks.migration) runMigration(sec.ks.migration.to);
+    return { ok: true };
+  },
+
+  async changePassword({ oldPassword, newPassword }) {
+    requireUnlocked();
+    if (!sec.ks || !sec.ks.password) throw new Error('Aucun mot de passe à changer.');
+    checkNewPassword(newPassword);
+    if (!(await passwordOk(oldPassword))) return fail('Mot de passe actuel incorrect.');
+    sec.ks.password = await vault.wrapWithPassword(newPassword, sec.dek);
+    await saveKeystore(sec.ks);
+    diag('securite', 'mot de passe changé');
+    return { ok: true };
+  },
+
+  /** Nouvelle clé de secours (l'ancienne reste valable jusqu'à la confirmation). */
+  async prepareRecovery({ password }) {
+    requireUnlocked();
+    if (!sec.ks) throw new Error('Le chiffrement n’est pas activé.');
+    if (sec.ks.lock.enabled && !(await passwordOk(password))) return fail('Mot de passe incorrect.');
+    return { ok: true, ...newPending('recovery', sec.dek) };
+  },
+  async commitRecovery({ token }) {
+    requireUnlocked();
+    const p = takePending(token, 'recovery');
+    sec.ks.recovery = { ...vault.wrapWithRecovery(p.recoveryKey, sec.dek), createdAt: new Date().toISOString() };
+    await saveKeystore(sec.ks);
+    diag('securite', 'nouvelle clé de secours');
+    return { ok: true };
+  },
+  async cancelPending() {
+    if (sec.pending && sec.pending.dek && sec.pending.dek !== sec.dek) vault.wipe(sec.pending.dek);
+    sec.pending = null;
+    return { ok: true };
+  },
+
+  async setOptions(o) {
+    requireUnlocked();
+    if (!sec.ks || !sec.ks.lock.enabled) throw new Error('Le verrouillage n’est pas activé.');
+    if (o.autoLockMinutes !== undefined) sec.ks.lock.autoLockMinutes = validDelay(o.autoLockMinutes, sec.ks.lock.autoLockMinutes);
+    if (o.lockOnSleep !== undefined) sec.ks.lock.lockOnSleep = !!o.lockOnSleep;
+    if (o.touchId !== undefined) {
+      if (o.touchId) {
+        if (!touchIdAvailable() || !systemStore().ok) return fail('Touch ID n’est pas disponible sur cet ordinateur.');
+        sec.ks.system = systemWrap(sec.dek);
+        sec.ks.lock.touchId = true;
+      } else {
+        sec.ks.system = null;
+        sec.ks.lock.touchId = false;
+      }
+    }
+    await saveKeystore(sec.ks);
+    sec.lastActivity = Date.now();
+    return { ok: true };
+  },
+
+  async lockNow() {
+    return { ok: await lockNow('demande') };
+  },
+
+  /** Clé de secours en attente : impression (dialogue du système) ou PDF à enregistrer. */
+  async printRecovery({ token, mode }) {
+    const p = sec.pending;
+    if (!p || p.token !== token) throw new Error('Cette clé de secours a expiré : recommencez.');
+    const html = RECOVERY_HTML(p.recoveryKey);
+    if (mode === 'print') {
+      const win = new BrowserWindow({ show: false, webPreferences: { javascript: false, sandbox: true, contextIsolation: true } });
+      try {
+        await win.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(html));
+        const ok = await new Promise((resolve) => win.webContents.print({ silent: false, printBackground: true }, (success) => resolve(success)));
+        return { ok };
+      } finally {
+        if (!win.isDestroyed()) win.destroy();
+      }
+    }
+    const pdf = await renderRecoveryPdf(html);
+    const r = await dialog.showSaveDialog(parentWindow(), {
+      title: 'Enregistrer la clé de secours',
+      defaultPath: path.join(app.getPath('documents'), 'Marginalia - clé de secours.pdf'),
+      filters: [{ name: 'PDF', extensions: ['pdf'] }],
+    });
+    if (r.canceled || !r.filePath) return { ok: false };
+    await writeAtomic(r.filePath, pdf);
+    return { ok: true, path: r.filePath };
+  },
+
+  async answer({ id, value }) {
+    const resolve = asks.get(id);
+    if (resolve) {
+      asks.delete(id);
+      resolve(typeof value === 'string' ? value : null);
+    }
+    return { ok: true };
+  },
+};
+handle('marginalia:security', async (_e, op, args) => {
+  const fn = Object.prototype.hasOwnProperty.call(securityOps, op) ? securityOps[op] : null;
+  if (!fn) throw new Error('Opération inconnue');
+  const r = await fn(args && typeof args === 'object' ? args : {});
+  if (op !== 'status' && op !== 'answer') setImmediate(broadcastSecurity);
+  return r;
+});
+
+// ── Bibliothèque de fichiers ─────────────────────────────────
+dataHandle('marginalia:storeFile', async (_e, id, fileName, data) => {
+  const file = libraryPath(id, fileName);
+  await withFileLock(file, () => writeData(file, toBuffer(data)));
+});
+dataHandle('marginalia:readFile', async (_e, id, fileName) => {
+  const buf = await readData(libraryPath(id, fileName));
   return new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength);
 });
-handle('marginalia:deleteFile', async (_e, id, fileName) => {
+dataHandle('marginalia:deleteFile', async (_e, id, fileName) => {
   const file = libraryPath(id, fileName);
-  await fsp.rm(file, { force: true });
+  await withFileLock(file, () => fsp.rm(file, { force: true }));
   if (/^source\./.test(String(fileName))) {
-    for (const d of DERIVED_FILES) await fsp.rm(libraryPath(id, d), { force: true }).catch(() => {});
+    for (const d of DERIVED_FILES) {
+      const f = libraryPath(id, d);
+      await withFileLock(f, () => fsp.rm(f, { force: true })).catch(() => {});
+    }
   }
   // Remonte et retire les dossiers vides jusqu'à library/<id> inclus.
   const stop = path.join(libraryRoot(), id);
@@ -521,7 +1349,7 @@ handle('marginalia:deleteFile', async (_e, id, fileName) => {
 // dans le dossier temporaire de l'utilisateur, supprimés aussitôt.
 // Windows / Linux : le preload n'expose pas cette fonction ; le rendu décode HEIC et TIFF avec un
 // décodeur JS/WASM embarqué dans l'app (src/features/reader/image/convert.worker.ts).
-handle('marginalia:convertImage', async (_e, data, ext) => {
+dataHandle('marginalia:convertImage', async (_e, data, ext) => {
   if (!IS_MAC) throw new Error('Conversion par sips disponible sur macOS uniquement');
   const safeExt = String(ext).toLowerCase();
   if (!IMAGES.includes(safeExt)) throw new Error('Format d’image non pris en charge');
@@ -555,7 +1383,7 @@ async function readPicked(file) {
   return { name: path.basename(file), data: new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength) };
 }
 
-handle('marginalia:pickFiles', async () => {
+dataHandle('marginalia:pickFiles', async () => {
   const r = await dialog.showOpenDialog(parentWindow(), {
     title: 'Importer des documents',
     properties: ['openFile', 'multiSelections'],
@@ -568,7 +1396,7 @@ handle('marginalia:pickFiles', async () => {
   return Promise.all(r.filePaths.map(readPicked));
 });
 
-handle('marginalia:saveText', async (_e, defaultName, content) => {
+dataHandle('marginalia:saveText', async (_e, defaultName, content) => {
   const ext = path.extname(String(defaultName)).slice(1).toLowerCase() || 'md';
   const r = await dialog.showSaveDialog(parentWindow(), {
     defaultPath: path.join(app.getPath('documents'), safeDefaultName(defaultName)),
@@ -582,7 +1410,7 @@ handle('marginalia:saveText', async (_e, defaultName, content) => {
   return true;
 });
 
-handle('marginalia:openDocx', async () => {
+dataHandle('marginalia:openDocx', async () => {
   const r = await dialog.showOpenDialog(parentWindow(), {
     title: 'Ouvrir un document Word',
     properties: ['openFile'],
@@ -600,7 +1428,7 @@ handle('marginalia:openDocx', async () => {
  * Seuls les fichiers choisis par l'utilisateur (« Ouvrir un .docx », cette session ou une précédente :
  * chemins liés présents dans la base au démarrage) peuvent être réécrits.
  */
-handle('marginalia:writeExternal', async (_e, target, data) => {
+dataHandle('marginalia:writeExternal', async (_e, target, data) => {
   if (typeof target !== 'string' || !path.isAbsolute(target) || path.extname(target).toLowerCase() !== '.docx') {
     throw new Error('Seuls les fichiers .docx existants peuvent être réécrits');
   }
@@ -751,7 +1579,7 @@ async function epubPackageInfo(dir) {
   }
   return { drm, title, author };
 }
-handle('marginalia:appleBooksScan', async () => {
+dataHandle('marginalia:appleBooksScan', async () => {
   if (!APPLE_BOOKS) return [];
   const out = [];
   for (const base of BOOKS_DIRS()) {
@@ -797,7 +1625,7 @@ handle('marginalia:appleBooksScan', async () => {
 // et l'app est prévenue (sans réseau de son côté : c'est macOS qui synchronise).
 let booksWatchers = null;
 let booksTimer = null;
-handle('marginalia:appleBooksWatch', async () => {
+dataHandle('marginalia:appleBooksWatch', async () => {
   if (!APPLE_BOOKS) return false;
   if (booksWatchers) return true;
   booksWatchers = [];
@@ -817,7 +1645,7 @@ handle('marginalia:appleBooksWatch', async () => {
   }
   return booksWatchers.length > 0;
 });
-handle('marginalia:appleBooksRead', async (_e, p) => {
+dataHandle('marginalia:appleBooksRead', async (_e, p) => {
   if (!APPLE_BOOKS) throw new Error('App Livres indisponible sur ce système');
   const allowed = typeof p === 'string' && BOOKS_DIRS().some((d) => isInside(path.resolve(p), d));
   if (!allowed) throw new Error('Chemin non autorisé');
@@ -905,7 +1733,7 @@ function selectCols(cols, wanted, table) {
 const appleDate = (v) => (typeof v === 'number' && isFinite(v) && v > 0 ? Math.round((v + APPLE_EPOCH_S) * 1000) : null);
 const str = (v) => (typeof v === 'string' ? v : v == null ? '' : String(v));
 
-handle('marginalia:appleBooksAnnotations', async () => {
+dataHandle('marginalia:appleBooksAnnotations', async () => {
   if (!APPLE_BOOKS) return { status: 'absent', message: 'L’app Livres n’existe que sur Mac.', books: [] };
   let aeFile = null;
   let bkFile = null;
@@ -1088,7 +1916,7 @@ handle('marginalia:listFonts', async () => {
   return families;
 });
 
-handle('marginalia:saveBinary', async (_e, defaultName, data, format) => {
+dataHandle('marginalia:saveBinary', async (_e, defaultName, data, format) => {
   const filter = SAVE_FILTERS[format] || SAVE_FILTERS.txt;
   const r = await dialog.showSaveDialog(parentWindow(), {
     defaultPath: path.join(app.getPath('documents'), safeDefaultName(defaultName)),
@@ -1111,7 +1939,7 @@ function withPrintCsp(html) {
   return m ? s.slice(0, m.index + m[0].length) + PRINT_CSP + s.slice(m.index + m[0].length) : PRINT_CSP + s;
 }
 
-handle('marginalia:printToPdf', async (_e, html) => {
+dataHandle('marginalia:printToPdf', async (_e, html) => {
   const tmpFile = path.join(os.tmpdir(), `marginalia-print-${crypto.randomBytes(8).toString('hex')}.html`);
   await fsp.writeFile(tmpFile, withPrintCsp(html), 'utf8');
   const partition = `print-${crypto.randomBytes(6).toString('hex')}`; // session éphémère (en mémoire)
@@ -1451,9 +2279,45 @@ const zipBin = () => (IS_MAC ? '/usr/bin/zip' : 'zip');
 
 async function exportFullBackup() {
   if (backupBusy) return;
+  if (isLocked()) throw new Error('Déverrouillez Marginalia avant d’exporter une sauvegarde.');
+  // Chiffrement activé : archive chiffrée (par défaut) ou en clair, au choix, avec avertissement.
+  let encrypted = false;
+  if (sec.ks) {
+    if (sec.ks.migration || (sec.migration && sec.migration.running)) {
+      throw new Error('Le chiffrement (ou le déchiffrement) de vos données est en cours : réessayez quand il sera terminé.');
+    }
+    const c = await dialog.showMessageBox(parentWindow(), {
+      type: 'question',
+      title: 'Exporter une sauvegarde complète',
+      message: 'Exporter la sauvegarde chiffrée ou en clair ?',
+      detail:
+        'Chiffrée (recommandé) : l’archive ne peut être restaurée qu’avec votre clé de secours' +
+        (sec.ks.password ? ' ou votre mot de passe actuel' : '') +
+        '. Sans eux, elle est définitivement illisible.\n\n' +
+        'En clair : toute personne qui accède à l’archive peut lire vos livres, extraits, notes et écrits.',
+      buttons: ['Chiffrée (recommandé)', 'En clair…', 'Annuler'],
+      defaultId: 0,
+      cancelId: 2,
+      noLink: true,
+    });
+    if (c.response === 2) return;
+    if (c.response === 1) {
+      const w = await dialog.showMessageBox(parentWindow(), {
+        type: 'warning',
+        title: 'Exporter une sauvegarde en clair',
+        message: 'Exporter vos données sans chiffrement ?',
+        detail: 'L’archive contiendra vos livres, extraits, notes et écrits lisibles par n’importe qui. Rangez-la en lieu sûr (disque chiffré, coffre).',
+        buttons: ['Exporter en clair', 'Annuler'],
+        defaultId: 1,
+        cancelId: 1,
+        noLink: true,
+      });
+      if (w.response !== 0) return;
+    } else encrypted = true;
+  }
   const r = await dialog.showSaveDialog(parentWindow(), {
     title: 'Exporter une sauvegarde complète',
-    defaultPath: path.join(app.getPath('documents'), `Marginalia-sauvegarde-${localDay()}.zip`),
+    defaultPath: path.join(app.getPath('documents'), `Marginalia-sauvegarde-${localDay()}${encrypted ? '-chiffree' : ''}.zip`),
     filters: [{ name: 'Archive ZIP', extensions: ['zip'] }],
   });
   if (r.canceled || !r.filePath) return;
@@ -1475,8 +2339,28 @@ async function exportFullBackup() {
     await snap;
     if (!dbText) throw new Error('La base actuelle est introuvable ou illisible : rien à exporter.');
     const files = (await zipkit.listFiles(libraryRoot(), 'library')).filter((f) => !f.rel.endsWith('.tmp'));
-    const manifest = JSON.stringify({ app: 'Marginalia', format: 1, version: app.getVersion(), createdAt: new Date().toISOString(), files: files.length }, null, 2);
-    if (SYSTEM_ZIP) {
+    const info = { app: 'Marginalia', format: 1, version: app.getVersion(), createdAt: new Date().toISOString(), files: files.length, encrypted };
+    // Archive chiffrée : la clé de données y est rangée sous ses enveloppes « clé de secours » et
+    // « mot de passe » (jamais celle du trousseau, propre à cet ordinateur).
+    if (encrypted) Object.assign(info, { keyId: sec.ks.keyId, keys: { recovery: sec.ks.recovery, password: sec.ks.password || null } });
+    const manifest = JSON.stringify(info, null, 2);
+    if (sec.ks) {
+      // Chiffrement activé : archive écrite ici (fichiers lus un à un, déchiffrés en mémoire pour
+      // une archive en clair ; aucun fichier en clair sur le disque).
+      const dek = sec.dek;
+      await zipkit.writeZip(tmpZip, [
+        { name: 'manifest.json', data: Buffer.from(manifest, 'utf8') },
+        { name: 'db.json', data: encrypted ? vault.seal(dek, Buffer.from(dbText, 'utf8')) : Buffer.from(dbText, 'utf8') },
+        ...files.map((f) => ({
+          name: f.rel,
+          read: async () => {
+            const buf = await fsp.readFile(f.full);
+            if (encrypted) return vault.isSealed(buf) ? buf : vault.seal(dek, buf);
+            return vault.isSealed(buf) ? vault.open(dek, buf) : buf;
+          },
+        })),
+      ]);
+    } else if (SYSTEM_ZIP) {
       await fsp.writeFile(path.join(staging, 'manifest.json'), manifest);
       await fsp.writeFile(path.join(staging, 'db.json'), dbText);
       await execTool(zipBin(), ['-q', '-X', tmpZip, 'manifest.json', 'db.json'], staging);
@@ -1489,14 +2373,47 @@ async function exportFullBackup() {
       ]);
     }
     await fsp.rename(tmpZip, dest);
-    diag('sauvegarde', 'export complet', { fichiers: files.length, taille: (await fsp.stat(dest)).size });
-    notify(`Sauvegarde complète enregistrée : « ${path.basename(dest)} » (${files.length} fichier${files.length > 1 ? 's' : ''}).`, 'success');
+    diag('sauvegarde', 'export complet', { fichiers: files.length, taille: (await fsp.stat(dest)).size, chiffree: encrypted });
+    notify(
+      `Sauvegarde complète${encrypted ? ' chiffrée' : ''} enregistrée : « ${path.basename(dest)} » (${files.length} fichier${files.length > 1 ? 's' : ''}).`,
+      'success',
+    );
     shell.showItemInFolder(dest);
   } finally {
     backupBusy = false;
     fsp.rm(staging, { recursive: true, force: true }).catch(() => {});
     fsp.rm(tmpZip, { force: true }).catch(() => {});
   }
+}
+
+/**
+ * Clé de données d'une archive chiffrée : celle de cette installation si c'est la même, sinon
+ * demandée à l'utilisateur (clé de secours, ou mot de passe en vigueur lors de l'export).
+ */
+async function archiveKeyFor(manifest) {
+  if (sec.dek && sec.ks && manifest.keyId === sec.ks.keyId) return sec.dek;
+  const keys = manifest.keys || {};
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const v = await askRenderer({
+      kind: 'archive-secret',
+      title: 'Sauvegarde chiffrée',
+      message:
+        (attempt ? 'Clé de secours ou mot de passe incorrect. ' : '') +
+        'Cette sauvegarde est chiffrée. Saisissez sa clé de secours' +
+        (keys.password ? ', ou le mot de passe de Marginalia au moment où elle a été créée.' : '.'),
+    });
+    if (v == null || v === '') throw new Error('Restauration annulée : la sauvegarde chiffrée n’a pas pu être ouverte.');
+    let dek = vault.looksLikeRecoveryKey(v) ? vault.unwrapWithRecovery(v, keys.recovery) : null;
+    if (!dek && keys.password) dek = await vault.unwrapWithPassword(v, keys.password);
+    if (dek && vault.keyId(dek) === manifest.keyId) return dek;
+  }
+  throw new Error('Clé de secours ou mot de passe incorrect : restauration abandonnée.');
+}
+/** Contenu en clair d'un fichier d'archive (chiffré avec `key`, ou déjà en clair). */
+function openArchived(buf, key) {
+  if (!vault.isSealed(buf)) return buf;
+  if (!key) throw new Error('Cette archive contient des fichiers chiffrés avec une clé inconnue.');
+  return vault.open(key, buf);
 }
 
 /** Dossier d'une archive extraite qui contient db.json (racine, ou unique sous-dossier). */
@@ -1516,6 +2433,10 @@ async function restoreFullBackup() {
     filters: [{ name: 'Sauvegarde Marginalia', extensions: ['zip', 'json'] }],
   });
   if (pick.canceled || !pick.filePaths[0]) return;
+  if (isLocked()) throw new Error('Déverrouillez Marginalia avant de restaurer une sauvegarde.');
+  if (sec.ks && (sec.ks.migration || (sec.migration && sec.migration.running))) {
+    throw new Error('Le chiffrement (ou le déchiffrement) de vos données est en cours : réessayez quand il sera terminé.');
+  }
   const src = pick.filePaths[0];
   const isJson = path.extname(src).toLowerCase() === '.json';
   const ok = await dialog.showMessageBox(win, {
@@ -1537,12 +2458,14 @@ async function restoreFullBackup() {
   const staging = path.join(userData(), `restauration-${crypto.randomBytes(6).toString('hex')}`);
   const aside = path.join(backupsDir(), `avant-restauration-${stamp()}`);
   const moved = []; // [de, vers] pour revenir en arrière en cas d'échec
+  let archiveKey = null;
   try {
     // 1. Lire et vérifier la sauvegarde AVANT de toucher aux données actuelles.
     let dbText;
     let newLibrary = null;
     if (isJson) {
       const r = await readDbFile(src);
+      if (!r.ok && r.error && r.error.code === 'MG_BADKEY') throw new Error('Ce fichier est chiffré avec une autre clé que celle de cette installation.');
       if (!r.ok) throw new Error('Ce fichier n’est pas une base Marginalia valide.');
       dbText = r.text;
     } else {
@@ -1560,11 +2483,32 @@ async function restoreFullBackup() {
       else await zipkit.extractZip(src, staging, (name) => !name.startsWith('__MACOSX/'));
       await zipkit.assertPlainTree(staging);
       const root = await findBackupRoot(staging);
-      const r = root && (await readDbFile(path.join(root, 'db.json')));
-      if (!r || !r.ok) throw new Error('Cette archive ne contient pas de sauvegarde Marginalia valide (db.json absent ou illisible).');
-      dbText = r.text;
+      if (!root) throw new Error('Cette archive ne contient pas de sauvegarde Marginalia valide (db.json absent ou illisible).');
+      let manifest = null;
+      try {
+        manifest = JSON.parse(await fsp.readFile(path.join(root, 'manifest.json'), 'utf8'));
+      } catch {
+        manifest = null; // anciennes archives, ou archive faite à la main
+      }
+      // Archive chiffrée : sa clé (la même que celle-ci, ou demandée) ; sinon la clé actuelle pour
+      // d'éventuels fichiers chiffrés.
+      archiveKey = manifest && manifest.encrypted ? await archiveKeyFor(manifest) : sec.dek;
+      try {
+        const text = openArchived(await fsp.readFile(path.join(root, 'db.json')), archiveKey).toString('utf8');
+        if (!isDbObject(JSON.parse(text))) throw new Error('contenu inattendu');
+        dbText = text;
+      } catch (e) {
+        throw new Error('Cette archive ne contient pas de sauvegarde Marginalia valide (db.json absent ou illisible).');
+      }
       newLibrary = path.join(root, 'library');
       if (!fs.existsSync(newLibrary)) await fsp.mkdir(newLibrary, { recursive: true });
+      // Fichiers remis au format de cette installation (chiffrés avec sa clé, ou en clair).
+      for (const f of await zipkit.listFiles(newLibrary)) {
+        const buf = await fsp.readFile(f.full);
+        const plain = openArchived(buf, archiveKey);
+        const out = encodeOut(plain);
+        if (out !== buf) await writeAtomic(f.full, out);
+      }
     }
     // 2. Le rendu écrit ce qui attend, puis plus aucune écriture de l'ancienne page n'est acceptée.
     await flushAll();
@@ -1582,7 +2526,7 @@ async function restoreFullBackup() {
     if (newLibrary) await move(libraryRoot(), path.join(aside, 'library'));
     // 4. Mise en place de la sauvegarde.
     if (newLibrary) await move(newLibrary, libraryRoot());
-    await writeAtomic(dbPath(), dbText);
+    await writeData(dbPath(), dbText);
     await rotateBackups('avant-restauration-', 2);
     diag('sauvegarde', 'restauration', path.basename(src));
     noticesReady = false; // l'avis est pour la page rechargée, pas pour l'ancienne
@@ -1595,6 +2539,7 @@ async function restoreFullBackup() {
     throw e;
   } finally {
     backupBusy = false;
+    if (archiveKey && archiveKey !== sec.dek) vault.wipe(archiveKey);
     fsp.rm(staging, { recursive: true, force: true }).catch(() => {});
   }
   // 5. L'interface repart de la base restaurée.
@@ -1605,10 +2550,15 @@ function backupAction(label, fn) {
   return {
     label,
     click: () =>
-      fn().catch((e) => {
-        diag('sauvegarde', label, e && e.message);
-        dialog.showErrorBox(label.replace(/…$/, ''), String((e && e.message) || e));
-      }),
+      Promise.resolve()
+        .then(() => {
+          if (isLocked()) throw new Error('Déverrouillez Marginalia d’abord.');
+          return fn();
+        })
+        .catch((e) => {
+          diag('sauvegarde', label, e && e.message);
+          dialog.showErrorBox(label.replace(/…$/, ''), String((e && e.message) || e));
+        }),
   };
 }
 const exportBackupItem = backupAction('Exporter une sauvegarde complète…', exportFullBackup);
@@ -1629,7 +2579,20 @@ const exportDiagnosticItem = {
       const src = path.join(app.getPath('userData'), 'diagnostic.log');
       const dst = path.join(app.getPath('downloads'), 'Marginalia-diagnostic.log');
       if (diagStream) await new Promise((r) => diagStream.write('', r));
-      await fsp.copyFile(src, dst);
+      // Lignes chiffrées (chiffrement activé) : remises en clair pour l'export, qui est un geste explicite.
+      const text = await fsp.readFile(src, 'utf8');
+      if (text.includes('ENC1:')) {
+        const out = text.split('\n').map((l) => {
+          if (!vault.isSealedLine(l)) return l;
+          if (!sec.dek) return '[ligne chiffrée : déverrouillez Marginalia pour l’exporter]';
+          try {
+            return vault.openLine(sec.dek, l);
+          } catch {
+            return '[ligne chiffrée illisible]';
+          }
+        });
+        await fsp.writeFile(dst, out.join('\n'));
+      } else await fsp.copyFile(src, dst);
       shell.showItemInFolder(dst);
     } catch (e) {
       dialog.showErrorBox('Journal de diagnostic', 'Aucun journal à exporter pour l’instant.');
@@ -1670,7 +2633,7 @@ function macMenuTemplate() {
         { role: 'quit', label: 'Quitter Marginalia' },
       ],
     },
-    { label: 'Fichier', submenu: [exportBackupItem, restoreBackupItem, { type: 'separator' }, { role: 'close', label: 'Fermer la fenêtre' }] },
+    { label: 'Fichier', submenu: [exportBackupItem, restoreBackupItem, { type: 'separator' }, lockMenuItem(), { type: 'separator' }, { role: 'close', label: 'Fermer la fenêtre' }] },
     editMenu,
     {
       label: 'Présentation',
@@ -1706,6 +2669,8 @@ function otherMenuTemplate() {
         { type: 'separator' },
         exportBackupItem,
         restoreBackupItem,
+        { type: 'separator' },
+        lockMenuItem(),
         { type: 'separator' },
         { role: 'quit', label: 'Quitter', accelerator: 'Alt+F4' },
       ],
@@ -1759,7 +2724,9 @@ handle('marginalia:popupMenu', async (e) => {
 });
 
 // ── Cycle de vie ─────────────────────────────────────────────
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
+  // Chiffrement (option) : clé débloquée par le trousseau, ou écran de verrouillage dans la fenêtre.
+  await initSecurity().catch((e) => diag('securite', 'initialisation', e));
   app.setAboutPanelOptions({ applicationName: 'Marginalia', copyright: '© Axel Bierne' });
   registerAppProtocol();
   // Confidentialité : l'app fonctionne entièrement hors ligne. Toute requête réseau sortante
@@ -1790,6 +2757,7 @@ app.whenReady().then(() => {
   session.defaultSession.setPermissionRequestHandler((_wc, perm, cb) => cb(perm === 'local-fonts' || perm === 'localFonts'));
   buildMenu();
   cleanStaleTemp().catch((e) => diag('nettoyage', e && e.message));
+  startAutoLock();
   // Fichiers passés en argument au lancement (Windows, Linux : double-clic dans l'Explorateur ;
   // macOS passe par `open-file`).
   const argvFiles = process.argv.slice(app.isPackaged ? 1 : 2).filter((a) => !a.startsWith('-'));
@@ -1850,5 +2818,11 @@ async function cleanStaleTemp() {
   await sweep(os.tmpdir(), (name) => name.startsWith('marginalia-'));
   await sweep(userData(), (name) => (name.startsWith('db.json.') && name.endsWith('.tmp')) || name.startsWith('restauration-'));
   await sweep(backupsDir(), (name) => name.endsWith('.tmp'));
+  // Copies de travail d'une écriture ou d'une conversion (chiffrement) interrompue, dans la bibliothèque.
+  for (const f of await zipkit.listFiles(libraryRoot()).catch(() => [])) {
+    if (!f.rel.endsWith('.tmp')) continue;
+    const st = await fsp.lstat(f.full).catch(() => null);
+    if (st && st.isFile() && st.mtimeMs <= old) await fsp.rm(f.full, { force: true }).then(() => n++, () => {});
+  }
   if (n) diag('nettoyage', `${n} fichier(s) temporaire(s) supprimé(s)`);
 }

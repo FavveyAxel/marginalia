@@ -52,7 +52,8 @@ function safeEntryName(name) {
 }
 
 /**
- * Écrit une archive. `entries` : [{ name, file }] (fichier sur le disque) ou [{ name, data }] (Buffer).
+ * Écrit une archive. `entries` : [{ name, file }] (fichier sur le disque), [{ name, data }] (Buffer)
+ * ou [{ name, read }] (fonction asynchrone qui rend le contenu).
  * Écriture dans `outFile` directement (l'appelant écrit dans un fichier temporaire puis renomme).
  */
 async function writeZip(outFile, entries) {
@@ -68,7 +69,8 @@ async function writeZip(outFile, entries) {
     for (const e of entries) {
       const name = safeEntryName(e.name);
       if (!name) throw new Error(`Nom de fichier refusé dans l’archive : ${e.name}`);
-      const raw = e.data ? Buffer.from(e.data) : await fsp.readFile(e.file);
+      // `read` : contenu fourni à la demande (fichier déchiffré en mémoire, un à la fois).
+      const raw = e.data ? Buffer.from(e.data) : e.read ? await e.read() : await fsp.readFile(e.file);
       if (raw.length >= LIMIT) throw new Error(`Fichier trop volumineux pour l’archive : ${name}`);
       const crc = crc32(raw);
       let method = 8;

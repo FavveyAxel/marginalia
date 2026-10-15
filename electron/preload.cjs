@@ -86,6 +86,49 @@ const api = {
   },
 };
 
+// Confidentialité (chiffrement et verrouillage, options du processus principal).
+const secOp = (op, args) => ipcRenderer.invoke('marginalia:security', op, args || {});
+api.security = {
+  status: () => secOp('status'),
+  unlockPassword: (password) => secOp('unlockPassword', { password: String(password) }),
+  unlockRecovery: (recoveryKey, newPassword) => secOp('unlockRecovery', { recoveryKey: String(recoveryKey), newPassword: newPassword == null ? undefined : String(newPassword) }),
+  unlockTouchId: () => secOp('unlockTouchId'),
+  prepare: () => secOp('prepare'),
+  enable: (token, lock) => secOp('enable', { token, lock: lock || undefined }),
+  enableLock: (opts) => secOp('enableLock', opts),
+  disableLock: (password) => secOp('disableLock', { password }),
+  disable: (password) => secOp('disable', { password }),
+  resume: () => secOp('resume'),
+  changePassword: (oldPassword, newPassword) => secOp('changePassword', { oldPassword, newPassword }),
+  prepareRecovery: (password) => secOp('prepareRecovery', { password }),
+  commitRecovery: (token) => secOp('commitRecovery', { token }),
+  cancelPending: () => secOp('cancelPending'),
+  setOptions: (opts) => secOp('setOptions', opts),
+  lockNow: () => secOp('lockNow'),
+  printRecovery: (token, mode) => secOp('printRecovery', { token, mode }),
+  /** Activité de l'utilisateur (verrouillage après inactivité). */
+  activity: () => ipcRenderer.send('marginalia:security-activity'),
+  onChange: (cb) => {
+    const handler = (_event, st) => cb(st);
+    ipcRenderer.on('marginalia:security-progress', handler);
+    return () => ipcRenderer.removeListener('marginalia:security-progress', handler);
+  },
+  /** Questions du processus principal (mot de passe d'une sauvegarde chiffrée à restaurer). */
+  onAsk: (cb) => {
+    const handler = async (_event, req) => {
+      let value = null;
+      try {
+        value = await cb(req);
+      } catch {
+        value = null;
+      }
+      secOp('answer', { id: req.id, value: typeof value === 'string' ? value : null });
+    };
+    ipcRenderer.on('marginalia:security-ask', handler);
+    return () => ipcRenderer.removeListener('marginalia:security-ask', handler);
+  },
+};
+
 if (appleBooks) {
   Object.assign(api, {
     appleBooksScan: () => ipcRenderer.invoke('marginalia:appleBooksScan'),

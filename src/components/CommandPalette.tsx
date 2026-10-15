@@ -1,6 +1,8 @@
 // Palette de commandes ⌘K (façon Raycast / Linear).
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
+  Lock,
+  ShieldCheck,
   Bookmark as BookmarkIcon,
   BookOpen,
   Brain,
@@ -21,6 +23,7 @@ import {
 import { useShallow } from 'zustand/react/shallow';
 import { useStore } from '../lib/store';
 import { host } from '../lib/platform';
+import { getSecurity } from '../features/security/state';
 import { kindColor } from '../lib/categories';
 import { Kbd } from './ui';
 import { createBoard, createBoardIn } from '../features/map/model/actions';
@@ -137,6 +140,10 @@ function Palette() {
         { keywords: 'carte mentale idées comparer auteurs schéma' },
       ),
       act('revision', 'Réviser', <Brain size={15} />, nav({ name: 'revision' }), { keywords: 'cartes révision' }),
+      act('settings', 'Réglages : confidentialité et sécurité', <ShieldCheck size={15} />, nav({ name: 'settings' }), { keywords: 'chiffrement mot de passe verrouiller sécurité clé de secours touch id préférences' }),
+      ...(host.security && getSecurity()?.lock
+        ? [act('lock', 'Verrouiller maintenant', <Lock size={15} />, () => void host.security?.lockNow(), { hint: '⇧⌘L', keywords: 'verrouillage sécurité mot de passe' })]
+        : []),
       act('library', 'Bibliothèque', <BookOpen size={15} />, nav({ name: 'library' }), { keywords: 'livres' }),
       act('extracts', 'Extraits', <Highlighter size={15} />, nav({ name: 'extracts' }), { keywords: 'citations surlignages notes' }),
       act('concepts', 'Concepts', <Lightbulb size={15} />, nav({ name: 'concepts', conceptId: null }), { keywords: 'notions' }),

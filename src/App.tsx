@@ -1,7 +1,7 @@
 // Styles de toutes les vues, en premier : même ordre de cascade qu'avant le découpage du code.
 import './styles/cascade';
 import { Suspense, useEffect, useState } from 'react';
-import { BookOpen, Brain, CircleHelp, PanelLeftClose, PanelLeftOpen, Coffee, FilePen, Highlighter, History, Home, Laptop, Lightbulb, ListTree, Moon, Network, Plus, Search, Sigma, Sun, Trash2, Upload } from 'lucide-react';
+import { BookOpen, Brain, CircleHelp, Settings2, PanelLeftClose, PanelLeftOpen, Coffee, FilePen, Highlighter, History, Home, Laptop, Lightbulb, ListTree, Moon, Network, Plus, Search, Sigma, Sun, Trash2, Upload } from 'lucide-react';
 import { useStore } from './lib/store';
 import { host, filesFromDrop } from './lib/platform';
 import type { Route, ThemeId } from './lib/types';
@@ -19,13 +19,36 @@ import { useDocxMigration } from './features/library/docxMigration';
 import { fmtKeys, isMac, isMod, isWindows, matchKeys } from './lib/keys';
 import { useFormatRepair } from './features/library/formatRepair';
 import { ErrorBoundary } from './components/ErrorBoundary';
+import { LockScreen } from './features/security/LockScreen';
+import { SecurityAsk } from './features/security/SecurityAsk';
+import { refreshSecurity, useSecurity } from './features/security/state';
+import type { SecurityStatus } from './lib/platform';
 
 // Vues chargées à la demande (découpage du code) : l'accueil et la bibliothèque sont dans le paquet
 // principal, le reste (lecteur, éditeur, carte, révision…) est préchargé en arrière-plan après l'affichage.
-const { ReaderView, ConceptsView, AllExtractsView, ArgumentsView, RevisionView, PlansView, WriteView, WorkspaceView, TrashView, HistoryView, HelpView, BoardView, MapsView } = lazyViews;
+const { ReaderView, ConceptsView, AllExtractsView, ArgumentsView, RevisionView, PlansView, WriteView, WorkspaceView, TrashView, HistoryView, HelpView, BoardView, MapsView, SettingsView } = lazyViews;
 
-function useTheme(theme: ThemeId) {
+// Thème choisi, gardé aussi hors de la base (préférence d'affichage, sans donnée personnelle) :
+// l'écran de verrouillage s'affiche avant que la base soit lisible.
+const LAST_THEME_KEY = 'marginalia.lastTheme';
+function lastTheme(): ThemeId {
+  try {
+    const v = localStorage.getItem(LAST_THEME_KEY);
+    return v === 'light' || v === 'dark' || v === 'sepia' || v === 'system' ? v : 'system';
+  } catch {
+    return 'system';
+  }
+}
+
+function useTheme(theme: ThemeId, remember: boolean) {
   useEffect(() => {
+    if (remember) {
+      try {
+        localStorage.setItem(LAST_THEME_KEY, theme);
+      } catch {
+        /* stockage indisponible */
+      }
+    }
     const mq = window.matchMedia('(prefers-color-scheme: dark)');
     const apply = () => {
       const resolved = theme === 'system' ? (mq.matches ? 'dark' : 'light') : theme;
@@ -37,7 +60,27 @@ function useTheme(theme: ThemeId) {
     apply();
     mq.addEventListener('change', apply);
     return () => mq.removeEventListener('change', apply);
-  }, [theme]);
+  }, [theme, remember]);
+}
+
+/** Verrouillage après inactivité : les gestes de l'utilisateur sont signalés (au plus toutes les 10 s). */
+function useActivityPing(active: boolean) {
+  useEffect(() => {
+    const api = host.security;
+    if (!active || !api) return;
+    let last = 0;
+    const ping = () => {
+      const now = Date.now();
+      if (now - last < 10_000) return;
+      last = now;
+      api.activity();
+    };
+    const evs = ['pointerdown', 'keydown', 'wheel', 'mousemove', 'touchstart'] as const;
+    for (const e of evs) window.addEventListener(e, ping, { capture: true, passive: true });
+    return () => {
+      for (const e of evs) window.removeEventListener(e, ping, { capture: true });
+    };
+  }, [active]);
 }
 
 /** Couleurs du thème affiché (#rrggbb) pour les boutons de fenêtre de Windows. */
@@ -259,6 +302,7 @@ function Sidebar() {
       <div className="sidebar-foot">
         <NavItem match="history" route={{ name: 'history' }} icon={<History size={15} />} label="Historique" />
         <NavItem match="trash" route={{ name: 'trash' }} icon={<Trash2 size={15} />} label="Corbeille" count={nTrash || undefined} />
+        <NavItem match="settings" route={{ name: 'settings' }} icon={<Settings2 size={15} />} label="Réglages" />
         <NavItem match="help" route={{ name: 'help' }} icon={<CircleHelp size={15} />} label="Aide" />
       </div>
       {!collapsed && <AppearanceSwitch />}
@@ -381,7 +425,12 @@ export function App() {
   const ready = useStore((s) => s.ready);
   const route = useStore((s) => s.route);
   const theme = useStore((s) => s.settings.theme);
-  useTheme(theme);
+  // App de bureau : la base n'est chargée qu'une fois Marginalia déverrouillé (option « Verrouiller »).
+  const [gate, setGate] = useState<'checking' | 'locked' | 'open'>(host.security ? 'checking' : 'open');
+  const [lockStatus, setLockStatus] = useState<SecurityStatus | null>(null);
+  const security = useSecurity();
+  useTheme(ready ? theme : lastTheme(), ready);
+  useActivityPing(ready && !!security?.lock);
   useWindowDrag();
   useNativeMenu();
   useAppleBooksSync();
@@ -390,9 +439,20 @@ export function App() {
   useResizeDiagnostics();
 
   useEffect(() => {
+    if (gate !== 'checking') return;
+    refreshSecurity()
+      .then((st) => {
+        setLockStatus(st);
+        setGate(st && st.locked ? 'locked' : 'open');
+      })
+      .catch(() => setGate('open'));
+  }, [gate]);
+
+  useEffect(() => {
+    if (gate !== 'open') return;
     if (import.meta.env.DEV) void loadAllViews().then(() => useStore.getState().init());
     else useStore.getState().init();
-  }, []);
+  }, [gate]);
 
   // Une fois l'interface affichée : précharger en tâche de fond les vues probables (lecteur d'abord).
   useEffect(() => {
@@ -446,6 +506,17 @@ export function App() {
     return () => window.removeEventListener('keydown', onKey);
   }, []);
 
+  if (gate === 'locked' && lockStatus)
+    return (
+      <LockScreen
+        status={lockStatus}
+        onUnlocked={() => {
+          void refreshSecurity();
+          setGate('open');
+        }}
+      />
+    );
+
   if (!ready)
     return (
       <div className="app" aria-busy="true" aria-label="Chargement de Marginalia">
@@ -488,6 +559,7 @@ export function App() {
             {route.name === 'help' && <HelpView />}
             {route.name === 'board' && <BoardView key={route.boardId} boardId={route.boardId} />}
             {route.name === 'maps' && <MapsView />}
+            {route.name === 'settings' && <SettingsView />}
             </Suspense>
             </ErrorBoundary>
           </main>
@@ -496,6 +568,7 @@ export function App() {
       <CommandPalette />
       <ImportProgress />
       <DropOverlay />
+      <SecurityAsk />
       <Toasts />
     </>
   );

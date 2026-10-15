@@ -61,7 +61,68 @@ export interface AppleBooksAnnotationsResult {
   books: AppleBooksAsset[];
 }
 
+/** État du chiffrement et du verrouillage (app de bureau). */
+export interface SecurityStatus {
+  available: boolean;
+  platform: string;
+  /** Le trousseau du système peut-il protéger la clé (niveau 1) ? */
+  system: { ok: boolean; name?: string; reason?: string };
+  touchIdAvailable: boolean;
+  /** Données chiffrées (ou en cours de chiffrement). */
+  encrypted: boolean;
+  /** Verrouillage par mot de passe activé. */
+  lock: boolean;
+  hasPassword: boolean;
+  touchId: boolean;
+  /** 0 = jamais. */
+  autoLockMinutes: number;
+  lockOnSleep: boolean;
+  locked: boolean;
+  /** 'lock' : mot de passe ; 'keychain' : le trousseau n'a pas rendu la clé ; 'orphan' : fichier de clés introuvable. */
+  lockReason: 'lock' | 'keychain' | 'orphan' | null;
+  /** Verrouillé pendant la session (« menu », « inactivite », « veille »…) ; null au lancement. */
+  lockedBy: string | null;
+  migration: { to: 'encrypted' | 'plain'; done: number; total: number; running: boolean; error: string | null; finished: boolean } | null;
+  recoveryCreatedAt: string | null;
+  /** Attente imposée avant un nouvel essai (après plusieurs échecs). */
+  waitMs: number;
+}
+
+export type SecurityResult = { ok: true } | { ok: false; error: string };
+export interface LockOptions {
+  password: string;
+  touchId: boolean;
+  autoLockMinutes: number;
+  lockOnSleep: boolean;
+}
+
+export interface SecurityApi {
+  status(): Promise<SecurityStatus>;
+  unlockPassword(password: string): Promise<SecurityResult>;
+  unlockRecovery(recoveryKey: string, newPassword?: string): Promise<SecurityResult>;
+  unlockTouchId(): Promise<SecurityResult>;
+  /** Nouvelle clé de secours (montrée une fois) avant l'activation. */
+  prepare(): Promise<{ token: string; recoveryKey: string }>;
+  enable(token: string, lock?: LockOptions): Promise<SecurityResult>;
+  enableLock(opts: LockOptions): Promise<SecurityResult>;
+  disableLock(password: string): Promise<SecurityResult>;
+  disable(password?: string): Promise<SecurityResult>;
+  resume(): Promise<SecurityResult>;
+  changePassword(oldPassword: string, newPassword: string): Promise<SecurityResult>;
+  prepareRecovery(password?: string): Promise<({ ok: true; token: string; recoveryKey: string }) | { ok: false; error: string }>;
+  commitRecovery(token: string): Promise<SecurityResult>;
+  cancelPending(): Promise<SecurityResult>;
+  setOptions(opts: Partial<Omit<LockOptions, 'password'>>): Promise<SecurityResult>;
+  lockNow(): Promise<SecurityResult>;
+  printRecovery(token: string, mode: 'print' | 'pdf'): Promise<{ ok: boolean; path?: string }>;
+  activity(): void;
+  onChange(cb: (s: SecurityStatus) => void): () => void;
+  onAsk(cb: (req: { id: number; kind: string; title: string; message: string }) => Promise<string | null>): () => void;
+}
+
 export interface HostApi {
+  /** Chiffrement et verrouillage des données (app de bureau uniquement ; absent en navigateur). */
+  security?: SecurityApi;
   /** Base complète, ou null au premier lancement. */
   loadDb(): Promise<Database | null>;
   /** Écriture atomique de la base. */

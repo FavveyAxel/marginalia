@@ -62,6 +62,14 @@ Tout fonctionne en local sur l'ordinateur : aucun compte, aucun serveur. Les liv
 la télémétrie de l'éditeur (SuperDoc) est désactivée, et l'app bloque toute requête réseau sortante. Seuls les liens cliqués
 s'ouvrent dans votre navigateur.
 
+En option (Réglages › Confidentialité et sécurité, désactivées par défaut) :
+- **Chiffrement transparent** : base, fichiers de la bibliothèque, sauvegardes et journal chiffrés (AES-256-GCM) ; la clé de
+  données est protégée par le trousseau du système (`safeStorage` : Trousseau sur Mac, DPAPI sous Windows). Rien à taper.
+- **Verrouillage** : mot de passe (scrypt) ou Touch ID à l'ouverture, verrouillage après inactivité ou à la mise en veille.
+- Dans les deux cas, une **clé de secours** (32 caractères) est affichée une seule fois. Sans mot de passe ni clé de secours,
+  les données chiffrées sont définitivement illisibles. Détails : `electron/vault.cjs` et la section « Confidentialité » de
+  `electron/main.cjs` ; test : `scripts/test-electron-encryption.mjs`.
+
 ## Développement
 
 ```bash

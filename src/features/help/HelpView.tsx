@@ -426,10 +426,35 @@ const SECTIONS: Section[] = [
       { title: 'En cas de problème', text: `Menu Aide${isMac ? '' : ' (touche Alt)'} › « Exporter le journal de diagnostic » : un fichier est copié dans vos Téléchargements pour comprendre un bug.` },
     ],
   },
+  {
+    id: 'securite',
+    title: 'Chiffrement et verrouillage',
+    icon: <Shield size={16} />,
+    intro: 'Deux options facultatives, désactivées au départ, dans Réglages › Confidentialité et sécurité (app de bureau).',
+    guide: {
+      why: 'Protéger vos lectures, notes et écrits si quelqu’un met la main sur une copie de vos fichiers (disque retiré, dossier copié, sauvegarde égarée), ou sur votre session ouverte.',
+      how: [
+        `« Chiffrer mes données sur ce ${isMac ? 'Mac' : 'PC'} » : la clé est rangée dans ${isMac ? 'le trousseau de macOS' : 'votre session Windows'}. Rien à taper ; Marginalia s’ouvre normalement, mais les fichiers copiés hors de votre session sont illisibles.`,
+        '« Verrouiller Marginalia » : un mot de passe (ou Touch ID sur un Mac qui en dispose) est demandé à l’ouverture, et Marginalia se verrouille seul après le délai d’inactivité choisi (et, si vous le voulez, à la mise en veille).',
+        'À l’activation, une clé de secours de 32 caractères s’affiche une seule fois : copiez-la, imprimez-la ou enregistrez-la en PDF, puis retapez deux de ses groupes pour confirmer.',
+        'Mot de passe oublié : sur l’écran de verrouillage, « Utiliser la clé de secours », puis choisissez un nouveau mot de passe.',
+      ],
+      example: 'Votre Mac part en réparation : avec le chiffrement, le technicien qui copierait le dossier de Marginalia n’obtiendrait que des fichiers illisibles.',
+      tip: `Sans mot de passe ni clé de secours, vos données sont définitivement illisibles. Pour protéger tout l’ordinateur, activez aussi ${isMac ? 'FileVault' : 'BitLocker'}.`,
+    },
+    items: [
+      { title: 'Verrouiller maintenant', text: 'Menu Fichier › « Verrouiller maintenant » : vos modifications sont enregistrées, puis Marginalia oublie la clé jusqu’au prochain déverrouillage.', keys: ['⇧⌘L'] },
+      { title: 'Ce qui est chiffré', text: 'La base (livres, extraits, notes, cartes, écrits, réglages), les fichiers de la bibliothèque, les sauvegardes automatiques et le journal de diagnostic. Le chiffrement et le déchiffrement se font en arrière-plan et reprennent s’ils sont interrompus.' },
+      { title: 'Ce qui reste en clair', text: 'Les exports (Word, PDF, Markdown, page web, images) : ce sont des copies faites pour être partagées. Une sauvegarde complète peut être chiffrée (restaurée avec la clé de secours) ou en clair, au choix.' },
+      { title: 'Après une mise à jour', text: isMac ? 'macOS peut demander si Marginalia peut utiliser « Marginalia Safe Storage » : répondez « Toujours autoriser ». Si le trousseau refuse, Marginalia demande la clé de secours, puis la range de nouveau.' : 'Si Windows ne rend plus la clé (session changée, réinstallation), Marginalia demande la clé de secours, puis la range de nouveau.' },
+    ],
+    go: { label: 'Ouvrir les réglages', route: { name: 'settings' } },
+  },
 ];
 
 const SHORTCUTS_ALL: [string, string][] = [
   ['⌘K', 'Rechercher partout'],
+  ['⇧⌘L', 'Verrouiller Marginalia (si le verrouillage est activé)'],
   ['⌘O', 'Importer'],
   ['⌘Z / ⌘⇧Z', 'Annuler / rétablir'],
   ['H / 0', 'Surligner la sélection, sans catégorie'],

@@ -31,6 +31,9 @@ const app = await electron.launch({ executablePath: exe, args: ['--no-sandbox', 
 try {
   const page = await app.firstWindow();
   await page.waitForFunction(() => window.__store && window.__store.getState().ready, null, { timeout: 60000 });
+  // Le livre passé en argument est importé puis ouvert de façon asynchrone : on attend qu'il le soit,
+  // sinon son ouverture tardive interfère avec la suite (navigation vers l'accueil).
+  await page.waitForFunction(() => window.__store.getState().route.name === 'reader', null, { timeout: 60000 });
 
   // Fenêtre et menus
   const menu = await app.evaluate(({ Menu }) => Menu.getApplicationMenu().items.map((i) => ({ label: i.label, sub: i.submenu ? i.submenu.items.map((s) => s.label) : [] })));

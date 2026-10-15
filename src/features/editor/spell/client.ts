@@ -9,6 +9,7 @@ import type { SpellRequest, SpellResponse } from './protocol';
 
 // ── Préférences (localStorage, tolérant aux erreurs) ──
 const ENABLED_KEY = 'marginalia.ed.spellcheck';
+const PROPER_KEY = 'marginalia.ed.spell.proper';
 const PERSONAL_KEY = 'marginalia.ed.spell.personal';
 
 export function readSpellEnabled(): boolean {
@@ -21,6 +22,21 @@ export function readSpellEnabled(): boolean {
 export function writeSpellEnabled(on: boolean): void {
   try {
     localStorage.setItem(ENABLED_KEY, on ? '1' : '0');
+  } catch {
+    /* indisponible */
+  }
+}
+/** « Ignorer les noms propres » : activé par défaut. */
+export function readIgnoreProper(): boolean {
+  try {
+    return localStorage.getItem(PROPER_KEY) !== '0';
+  } catch {
+    return true;
+  }
+}
+export function writeIgnoreProper(on: boolean): void {
+  try {
+    localStorage.setItem(PROPER_KEY, on ? '1' : '0');
   } catch {
     /* indisponible */
   }
@@ -67,6 +83,16 @@ class SpellClient {
   readonly ignored = new Set<string>();
   /** Résultats par texte de paragraphe (vidé quand le dictionnaire personnel change). */
   readonly cache = new Map<string, Miss[]>();
+  /** Option courante « Ignorer les noms propres » (envoyée au worker à chaque vérification). */
+  ignoreProper = readIgnoreProper();
+  /** Version des noms propres appris par le worker ; le cache est vidé quand elle change. */
+  private epoch = 0;
+
+  setIgnoreProper(on: boolean): void {
+    if (this.ignoreProper === on) return;
+    this.ignoreProper = on;
+    this.cache.clear();
+  }
 
   ready(): Promise<void> {
     if (this.readyP) return this.readyP;
@@ -135,7 +161,7 @@ class SpellClient {
     this.worker?.postMessage(m);
   }
 
-  private call(m: { type: 'check'; segments: { id: string; text: string }[] } | { type: 'suggest'; word: string; max: number }): Promise<SpellResponse> {
+  private call(m: { type: 'check'; segments: { id: string; text: string }[]; ignoreProper: boolean } | { type: 'suggest'; word: string; max: number }): Promise<SpellResponse> {
     const id = ++this.seq;
     return new Promise((resolve, reject) => {
       this.pending.set(id, { resolve, reject });
@@ -145,10 +171,15 @@ class SpellClient {
 
   async check(segments: { id: string; text: string }[]) {
     await this.ready();
-    const r = await this.call({ type: 'check', segments });
+    const r = await this.call({ type: 'check', segments, ignoreProper: this.ignoreProper });
     if (r.type !== 'checked') return [];
     this.timings.lastCheckMs = Math.round(r.ms * 10) / 10;
     this.timings.lastCheckSegments = segments.length;
+    // de nouveaux noms propres ont été appris : les paragraphes déjà en cache seront revérifiés
+    if (r.epoch !== this.epoch) {
+      this.epoch = r.epoch;
+      this.cache.clear();
+    }
     return r.results;
   }
 

@@ -48,8 +48,9 @@ self.onmessage = async (ev: MessageEvent<SpellRequest>) => {
   }
   if (msg.type === 'check') {
     const t0 = performance.now();
-    const results = msg.segments.map((s) => ({ id: s.id, misses: checker!.checkText(s.text) }));
-    post({ type: 'checked', id: msg.id, results, ms: performance.now() - t0 });
+    const all = checker.checkMany(msg.segments.map((s) => s.text), { ignoreProper: msg.ignoreProper });
+    const results = msg.segments.map((s, i) => ({ id: s.id, misses: all[i] }));
+    post({ type: 'checked', id: msg.id, results, ms: performance.now() - t0, epoch: checker.epoch });
   } else if (msg.type === 'suggest') {
     const t0 = performance.now();
     const suggestions = checker.suggest(msg.word, msg.max);

@@ -3,10 +3,10 @@
 // la vérification est incrémentale (paragraphes modifiés, délai de 400 ms) côté SuperDoc,
 // le travail (dictionnaire, vérification, suggestions) se fait dans un Web Worker.
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react';
-import { BookPlus, EyeOff, SpellCheck } from 'lucide-react';
+import { BookPlus, ChevronDown, EyeOff, SpellCheck } from 'lucide-react';
 import type { DocEngine } from '../engine';
-import { Popover, type usePop } from '../Popover';
-import { readSpellEnabled, spellClient, spellProofingConfig, writeSpellEnabled } from './client';
+import { Popover, usePop } from '../Popover';
+import { readIgnoreProper, readSpellEnabled, spellClient, spellProofingConfig, writeIgnoreProper, writeSpellEnabled } from './client';
 import './spell.css';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -23,6 +23,10 @@ interface MenuState {
 export interface Spellcheck {
   enabled: boolean;
   toggle: () => void;
+  /** Ne pas signaler les noms propres (mots capitalisés hors début de phrase). */
+  ignoreProper: boolean;
+  setIgnoreProper: (on: boolean) => void;
+  setEnabled: (on: boolean) => void;
   /** 'checking' pendant le chargement du dictionnaire et les vérifications. */
   status: string;
   menu: MenuState | null;
@@ -34,6 +38,7 @@ export interface Spellcheck {
 
 export function useSpellcheck(engine: () => DocEngine | null, ready: boolean, editable: boolean): Spellcheck {
   const [enabled, setEnabled] = useState(readSpellEnabled);
+  const [ignoreProper, setIgnoreProperState] = useState(readIgnoreProper);
   const [status, setStatus] = useState('idle');
   const [menu, setMenu] = useState<MenuState | null>(null);
   const menuRef = useRef(menu);
@@ -48,6 +53,7 @@ export function useSpellcheck(engine: () => DocEngine | null, ready: boolean, ed
     if (!ready) return;
     const e = engineFn.current();
     if (!e) return;
+    spellClient().setIgnoreProper(ignoreProper);
     e.setProofing(enabled ? spellProofingConfig(setStatus) : null);
     if (!enabled) {
       setStatus('disabled');
@@ -56,7 +62,18 @@ export function useSpellcheck(engine: () => DocEngine | null, ready: boolean, ed
     const c = spellClient();
     c.retain();
     return () => c.release();
-  }, [ready, enabled]);
+  }, [ready, enabled, ignoreProper]);
+
+  const setEnabledPref = useCallback((on: boolean) => {
+    writeSpellEnabled(on);
+    setEnabled(on);
+    setMenu(null);
+  }, []);
+
+  const setIgnoreProper = useCallback((on: boolean) => {
+    writeIgnoreProper(on);
+    setIgnoreProperState(on);
+  }, []);
 
   const toggle = useCallback(() => {
     setEnabled((v) => {
@@ -162,24 +179,49 @@ export function useSpellcheck(engine: () => DocEngine | null, ready: boolean, ed
     w.__spell = { client: spellClient(), enabled, status };
   }, [enabled, status]);
 
-  return { enabled, toggle, status, menu, closeMenu, apply, ignore, addToDictionary };
+  return { enabled, toggle, ignoreProper, setIgnoreProper, setEnabled: setEnabledPref, status, menu, closeMenu, apply, ignore, addToDictionary };
 }
 
-/** Interrupteur « Vérifier l'orthographe » (barre du haut de l'éditeur). */
+/** Interrupteur « Vérifier l'orthographe » (barre du haut de l'éditeur) ; clic droit ou chevron : options. */
 export function SpellToggle({ spell, disabled }: { spell: Spellcheck; disabled?: boolean }) {
   const loading = spell.enabled && spell.status === 'checking';
+  const pop = usePop();
+  const wrapRef = useRef<HTMLSpanElement>(null);
+  const openOptions = () => {
+    if (wrapRef.current) pop.toggle(wrapRef.current);
+  };
   return (
-    <button
-      className={`icon-btn ed-spell-toggle ${spell.enabled ? 'active' : ''} ${loading ? 'busy' : ''}`}
-      onClick={spell.toggle}
-      disabled={disabled}
-      title={spell.enabled ? 'Vérifier l’orthographe : activé' : 'Vérifier l’orthographe : désactivé'}
-      aria-label="Vérifier l’orthographe"
-      aria-pressed={spell.enabled}
-      data-spell-toggle
-    >
-      <SpellCheck size={16} />
-    </button>
+    <span ref={wrapRef} className="ed-spell-group">
+      <button
+        className={`icon-btn ed-spell-toggle ${spell.enabled ? 'active' : ''} ${loading ? 'busy' : ''}`}
+        onClick={spell.toggle}
+        onContextMenu={(e) => {
+          e.preventDefault();
+          openOptions();
+        }}
+        disabled={disabled}
+        title={spell.enabled ? 'Vérifier l’orthographe : activé (clic droit : options)' : 'Vérifier l’orthographe : désactivé (clic droit : options)'}
+        aria-label="Vérifier l’orthographe"
+        aria-pressed={spell.enabled}
+        data-spell-toggle
+      >
+        <SpellCheck size={16} />
+      </button>
+      <button className="icon-btn ed-spell-caret" onClick={openOptions} disabled={disabled} title="Options du correcteur" aria-label="Options du correcteur" aria-haspopup="dialog" data-spell-options>
+        <ChevronDown size={12} />
+      </button>
+      <Popover pop={pop} label="Options du correcteur" className="ed-spell-options">
+        <div className="ed-pop-title">Correcteur</div>
+        <label className="ed-spell-check">
+          <input type="checkbox" checked={spell.enabled} onChange={(e) => spell.setEnabled(e.target.checked)} data-spell-opt="enabled" />
+          Vérifier l’orthographe
+        </label>
+        <label className="ed-spell-check">
+          <input type="checkbox" checked={spell.ignoreProper} onChange={(e) => spell.setIgnoreProper(e.target.checked)} disabled={!spell.enabled} data-spell-opt="proper" />
+          Ignorer les noms propres
+        </label>
+      </Popover>
+    </span>
   );
 }
 

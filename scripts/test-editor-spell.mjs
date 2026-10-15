@@ -204,6 +204,55 @@ try {
     .catch(() => false);
   check('Interrupteur réactivé : soulignement revenu', backOn);
 
+  // ── 5 bis. Noms propres ──
+  const PROPRES = ['Marvel', 'Captain', 'America', 'Call', 'Duty', 'Postman'];
+  await page.evaluate(() => window.__ed.engine().appendParagraph('Chez Marvel, Captain America s’illustre ; on joue à Call of Duty avec Postman. Postman l’avait pressenti, mais l’ortografe reste fautive.'));
+  await caretToEnd(page);
+  await page
+    .waitForFunction(() => {
+      const p = window.__ed.engine().presentation();
+      return (p.proofingManager?.getPaintSlices() ?? []).some((s) => p.editor.state.doc.textBetween(s.pmFrom, s.pmTo) === 'ortografe');
+    }, null, { timeout: 8000 })
+    .catch(() => null);
+  u = await underlined(page);
+  check('Noms propres (Marvel, Captain America, Call of Duty, Postman) non soulignés, « ortografe » souligné', u.words.includes('ortografe') && !u.words.some((w) => PROPRES.includes(w) || w === 'of'), u.words.join(', '));
+  await shot(page, 'shots/editor-spell/4-noms-propres.png');
+
+  // Option « Ignorer les noms propres » : popover par clic droit sur l'icône
+  await page.click('[data-spell-toggle]', { button: 'right' });
+  await page.waitForSelector('[data-spell-opt="proper"]', { timeout: 5000 });
+  const defaults = await page.evaluate(() => ({ en: document.querySelector('[data-spell-opt="enabled"]').checked, pr: document.querySelector('[data-spell-opt="proper"]').checked }));
+  check('Popover du correcteur : deux cases cochées par défaut', defaults.en && defaults.pr, JSON.stringify(defaults));
+  await page.click('[data-spell-opt="proper"]');
+  await page.keyboard.press('Escape');
+  await caretToEnd(page);
+  const offOk = await page
+    .waitForFunction((names) => {
+      const p = window.__ed.engine().presentation();
+      const w = (p.proofingManager?.getPaintSlices() ?? []).map((s) => p.editor.state.doc.textBetween(s.pmFrom, s.pmTo));
+      return names.every((n) => w.includes(n));
+    }, ['Marvel', 'Captain', 'Postman'], { timeout: 10000 })
+    .then(() => true)
+    .catch(() => false);
+  u = await underlined(page);
+  const pref = await page.evaluate(() => localStorage.getItem('marginalia.ed.spell.proper'));
+  check('Option désactivée : les noms propres sont soulignés (comportement antérieur), préférence persistée', offOk && pref === '0', u.words.join(', ') + ' / pref=' + pref);
+  await shot(page, 'shots/editor-spell/5-noms-propres-options-off.png');
+  await page.click('[data-spell-toggle]', { button: 'right' });
+  await page.waitForSelector('[data-spell-opt="proper"]', { timeout: 5000 });
+  await page.click('[data-spell-opt="proper"]');
+  await page.keyboard.press('Escape');
+  await caretToEnd(page);
+  const onOk = await page
+    .waitForFunction(() => {
+      const p = window.__ed.engine().presentation();
+      const w = (p.proofingManager?.getPaintSlices() ?? []).map((s) => p.editor.state.doc.textBetween(s.pmFrom, s.pmTo));
+      return !w.includes('Marvel') && w.includes('ortografe');
+    }, null, { timeout: 10000 })
+    .then(() => true)
+    .catch(() => false);
+  check('Option réactivée : noms propres de nouveau ignorés', onOk && (await page.evaluate(() => localStorage.getItem('marginalia.ed.spell.proper'))) === '1');
+
   // ── 6. Débit du worker (document long) ──
   const perf = await page.evaluate(async () => {
     const c = window.__spell.client;

@@ -5,3 +5,6 @@ shots/
 *.log
 .DS_Store
 scripts/.probe-*.mjs
+
+# Copies de travail temporaires des agents
+.claude/worktrees/

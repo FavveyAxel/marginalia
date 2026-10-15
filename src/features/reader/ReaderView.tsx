@@ -25,6 +25,8 @@ import { PageSkeleton, useFloating } from '../../components/ui';
 import './reader.css';
 import { RESUME_EVENT, type PendingResume } from '../library/appleBooksAnnotations';
 import { fmtKeys, isMac, isMod, matchKeys } from '../../lib/keys';
+import { PAGE_JUMP_KEY, PageJumpField, type PageRequest, type ReturnPoint } from './PageJump';
+import { GOTO_PAGE_EVENT, type PageStatus } from './pages';
 
 // ── Rendus : le lecteur reste fluide pendant la lecture et la sélection ──
 // Chaque sauvegarde de position (toutes les ~800 ms en défilant) et chaque progression remontée
@@ -167,6 +169,7 @@ export const ReaderPane = memo(function ReaderPane({
   split,
   onCite,
   onBookmarkPopover,
+  pageRequest,
 }: {
   paneKey: PaneKey;
   bookId: string;
@@ -181,6 +184,8 @@ export const ReaderPane = memo(function ReaderPane({
   onCite?: (input: NewHighlightInput) => void;
   /** Popover d'un signet (nouveau, ou clic sur son repère). Absent : pas de signets dans ce volet. */
   onBookmarkPopover?: (p: BmPopoverState | null) => void;
+  /** « Aller à la page » demandé pour ce volet (⌘⌥G, ⌘K). */
+  pageRequest?: PageRequest | null;
 }) {
   const book = useStore(selectBook(bookId));
   const highlights = useStore(useShallow((s) => s.highlights.filter((h) => h.bookId === bookId)));
@@ -195,6 +200,7 @@ export const ReaderPane = memo(function ReaderPane({
   const [data, setData] = useState<ArrayBuffer | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [ready, setReady] = useState(false);
+  const [pageStatus, setPageStatus] = useState<PageStatus | null>(null);
   const initialPosition = useMemo(() => book?.position ?? null, [bookId]);
   const engineBook = useEngineBook(book);
   const onStateRef = useRef(onState);
@@ -306,6 +312,7 @@ export const ReaderPane = memo(function ReaderPane({
         onStateRef.current({ ready: true });
       },
       onError: (m: string) => setError(m),
+      onPage: (st: PageStatus | null) => setPageStatus(st),
       onCite: hasCite ? (input: NewHighlightInput) => onCiteRef.current?.(input) : undefined,
       onBookmarkClick: hasBookmarks ? (id: string, rect: DOMRect) => onBmPopRef.current?.({ id, rect, isNew: false }) : undefined,
       onAddBookmark: hasBookmarks
@@ -323,10 +330,13 @@ export const ReaderPane = memo(function ReaderPane({
     [bookId, hasCite, hasBookmarks],
   );
 
+  // PDF : le champ « Aller à la page » vit dans la barre de zoom du moteur.
+  const pdfRequest = book?.format === 'pdf' ? (pageRequest ?? undefined) : undefined;
   const engineProps: EngineProps | null = useMemo(
     () =>
       engineBook
         ? {
+            pageRequest: pdfRequest,
             book: engineBook,
             data: data as ArrayBuffer,
             highlights,
@@ -340,8 +350,32 @@ export const ReaderPane = memo(function ReaderPane({
             ...callbacks,
           }
         : null,
-    [engineBook, data, highlights, movements, bookmarks, activeHighlightId, settings, initialPosition, onPosition, onCreateHighlight, callbacks],
+    [engineBook, data, highlights, movements, bookmarks, activeHighlightId, settings, initialPosition, onPosition, onCreateHighlight, callbacks, pdfRequest],
   );
+
+  // Demande sans pages repérées (image, document vide) : le dire plutôt que ne rien faire.
+  const lastReq = useRef(pageRequest?.nonce ?? 0);
+  useEffect(() => {
+    if (!pageRequest || pageRequest.nonce === lastReq.current) return;
+    lastReq.current = pageRequest.nonce;
+    if (ready && !pageStatus && book?.format !== 'pdf') useStore.getState().toast('Ce document n’a pas de numéros de page', 'info');
+  }, [pageRequest?.nonce]);
+
+  const goPage = useCallback((q: string): string | null => {
+    const go = engineRef.current?.goToPage;
+    return go ? go(q) : 'Ce document n’a pas de numéros de page';
+  }, []);
+  const capturePage = useCallback((): ReturnPoint | null => {
+    const eng = engineRef.current;
+    const pt = eng?.bookmarkPoint?.();
+    if (!eng || !pt) return null;
+    const label = eng.pageStatus?.()?.label ?? '';
+    return {
+      label,
+      back: () =>
+        engineRef.current?.goToBookmark?.({ id: 'page-return', bookId, position: pt.position, anchor: pt.anchor, excerpt: pt.excerpt, progress: pt.progress, label: pt.label, createdAt: 0 }),
+    };
+  }, [bookId]);
 
   if (!book || !engineProps) return null;
 
@@ -372,6 +406,11 @@ export const ReaderPane = memo(function ReaderPane({
           <MemoImageReader ref={engineRef} {...engineProps} />
         ) : (
           <MemoHtmlReader ref={engineRef} {...engineProps} />
+        )}
+        {ready && !error && book.format !== 'pdf' && pageStatus && (
+          <div className="reader-pagejump-host">
+            <PageJumpField status={pageStatus} onGo={goPage} capture={capturePage} request={pageRequest} variant="pill" />
+          </div>
         )}
         {!ready && data && !error && (
           <div className="reader-loading overlay">
@@ -451,6 +490,7 @@ export function ReaderView({ bookId, tab, splitBookId }: Props) {
   const [splitAnchor, setSplitAnchor] = useState<DOMRect | null>(null);
   const [searchOpen, setSearchOpen] = useState(false);
   const [bmPop, setBmPop] = useState<BmPopoverState | null>(null);
+  const [pageReq, setPageReq] = useState<(PageRequest & { pane: PaneKey }) | null>(null);
   const bmBtnRef = useRef<HTMLButtonElement>(null);
 
   const split = !!splitBookId && tab === 'lecture';
@@ -573,6 +613,9 @@ export function ReaderView({ bookId, tab, splitBookId }: Props) {
       } else if ((meta && e.key === '[') || (!isMac && matchKeys(e, '⌘['))) {
         e.preventDefault();
         goBack(navigate);
+      } else if (matchKeys(e, PAGE_JUMP_KEY) && tab === 'lecture') {
+        e.preventDefault();
+        setPageReq((r) => ({ pane: activeKey, nonce: (r?.nonce ?? 0) + 1 }));
       } else if (bookmarkKey(e) && tab === 'lecture' && !isTextEditingTarget(e.target)) {
         e.preventDefault();
         const k = bookmarkKey(e);
@@ -585,7 +628,18 @@ export function ReaderView({ bookId, tab, splitBookId }: Props) {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [bookId, splitBookId, popover, tab]);
+  }, [bookId, splitBookId, popover, tab, activeKey]);
+
+  // « Aller à la page 45 » depuis la palette ⌘K : volet actif, onglet Lecture.
+  useEffect(() => {
+    const onGoto = (e: Event) => {
+      const q = (e as CustomEvent<{ query?: string }>).detail?.query;
+      if (tab !== 'lecture') navigate({ name: 'reader', bookId, tab: 'lecture', splitBookId });
+      setPageReq((r) => ({ pane: activeKey, nonce: (r?.nonce ?? 0) + 1, query: q }));
+    };
+    window.addEventListener(GOTO_PAGE_EVENT, onGoto);
+    return () => window.removeEventListener(GOTO_PAGE_EVENT, onGoto);
+  }, [bookId, splitBookId, tab, activeKey]);
 
   if (!book) {
     return (
@@ -704,6 +758,7 @@ export function ReaderView({ bookId, tab, splitBookId }: Props) {
               onPopover={setPopover}
               split={split}
               onBookmarkPopover={setBmPop}
+              pageRequest={pageReq?.pane === 'a' ? pageReq : null}
             />
             {split && splitBookId && (
               <ReaderPane
@@ -718,6 +773,7 @@ export function ReaderView({ bookId, tab, splitBookId }: Props) {
                 split
                 onClose={closeSplit}
                 onBookmarkPopover={setBmPop}
+                pageRequest={pageReq?.pane === 'b' ? pageReq : null}
               />
             )}
           </div>

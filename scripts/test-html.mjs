@@ -183,6 +183,11 @@ async function cleanShot(page, file) {
 
 /** Sélection RÉELLE à la souris (glisser du premier au dernier caractère de `needle`). */
 async function dragSelect(page, pane, needle) {
+  // Toasts (« Extrait placé dans la corbeille »…) empilés par-dessus le texte : le glissé finirait dessus.
+  await page.evaluate(() => {
+    const s = window.__store.getState();
+    (s.toasts ?? []).forEach((t) => s.dismissToast?.(t.id));
+  });
   const pts = await page.evaluate(
     ({ pane, needle }) => {
       const root = [...document.querySelectorAll(`.reader-page[data-pane="${pane}"] .html-chapter-text`)].find((r) => r.textContent.includes(needle));

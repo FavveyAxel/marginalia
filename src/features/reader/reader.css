@@ -184,3 +184,141 @@
   display: flex;
   flex-direction: column;
 }
+
+/* ── Indicateur de page « p. 12 / 240 » et « Aller à la page » ── */
+
+/* Pied du volet de lecture (EPUB, texte) : une ligne discrète, à droite, sous le texte —
+   jamais par-dessus (côte à côte, la colonne occupe toute la largeur). */
+.reader-pagejump-host {
+  flex: none;
+  position: relative;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  height: 30px;
+  padding: 0 14px 2px;
+  background: var(--bg-page);
+}
+.pagejump {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font: 500 var(--fs-xs) / 1 var(--font-ui);
+  font-variant-numeric: tabular-nums lining-nums;
+  white-space: nowrap;
+}
+.pagejump-btn {
+  height: 24px;
+  padding: 0 9px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  transition:
+    color var(--dur) var(--ease),
+    background var(--dur) var(--ease),
+    border-color var(--dur) var(--ease);
+}
+.pagejump-pill .pagejump-btn {
+  color: color-mix(in srgb, var(--ink) 45%, transparent);
+}
+.pagejump-pill .pagejump-btn:hover,
+.pagejump-pill .pagejump-btn:focus-visible {
+  color: var(--ink-2);
+  border-color: var(--border);
+  background: var(--bg-page);
+}
+.pagejump-inline .pagejump-btn {
+  height: 22px;
+  padding: 0 6px;
+  font-size: var(--fs-sm);
+  color: var(--ink-2);
+}
+.pagejump-inline .pagejump-btn:hover,
+.pagejump-btn:focus-visible {
+  background: var(--bg-hover);
+  outline: none;
+}
+.pagejump-form {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 26px;
+  padding: 0 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border-strong);
+  background: var(--bg-panel);
+  box-shadow: var(--shadow-sm);
+  color: var(--ink-2);
+}
+.pagejump-inline .pagejump-form {
+  box-shadow: none;
+  height: 24px;
+}
+.pagejump-p,
+.pagejump-total {
+  color: var(--muted);
+}
+.pagejump-input {
+  width: 4.5ch;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-weight: 600;
+  text-align: center;
+}
+.pagejump-input::placeholder {
+  color: var(--faint);
+  font-weight: 500;
+}
+.pagejump-input[aria-invalid='true'] {
+  color: var(--danger, #b3412e);
+}
+.pagejump-error {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 8px);
+  max-width: 300px;
+  padding: 7px 10px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-panel);
+  box-shadow: var(--shadow-md);
+  color: var(--ink);
+  font: 400 var(--fs-sm) / 1.35 var(--font-ui);
+  white-space: normal;
+  width: max-content;
+  animation: fade-in var(--dur-med) var(--ease-out) backwards;
+}
+.pagejump-inline .pagejump-error {
+  right: auto;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: calc(100% + 14px);
+}
+.pagejump-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 22px;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg-panel);
+  color: var(--ink-2);
+  font: inherit;
+  cursor: pointer;
+  animation: rise-in var(--dur-med) var(--ease-out) backwards;
+}
+.pagejump-back:hover {
+  color: var(--ink);
+  border-color: var(--border-strong);
+}

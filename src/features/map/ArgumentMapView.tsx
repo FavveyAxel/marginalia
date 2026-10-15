@@ -156,7 +156,18 @@ function Inner({ source, tools }: { source: MapSource; tools?: MapToolbarItem[] 
   }, []);
   const multi = source.kind === 'board';
   // Extraits concernés : ceux du livre ; pour une carte libre, ceux des livres de la carte et ceux qu'elle cite.
-  const bookIdsKey = multi ? [...new Set([...(map.bookIds ?? []), ...(map.bookId ? [map.bookId] : [])])].sort().join('|') : bookId;
+  // Carte libre rangée dans un espace de travail : les livres de cet espace (tous groupes) fournissent
+  // aussi leurs extraits au tiroir « À placer ».
+  const mapKey = source.kind === 'board' ? source.mapId : '';
+  const wsBooksKey = useStore((s) => {
+    if (!multi || !mapKey) return '';
+    const wsIds = new Set(s.wsItems.filter((i) => i.kind === 'map' && i.refId === mapKey).map((i) => i.workspaceId));
+    if (!wsIds.size) return '';
+    return [...new Set(s.wsItems.filter((i) => wsIds.has(i.workspaceId) && i.kind === 'book').map((i) => i.refId))].sort().join('|');
+  });
+  const bookIdsKey = multi
+    ? [...new Set([...(map.bookIds ?? []), ...(map.bookId ? [map.bookId] : []), ...wsBooksKey.split('|').filter(Boolean)])].sort().join('|')
+    : bookId;
   const citedKey = multi ? map.nodes.map((n) => n.highlightId).filter(Boolean).sort().join('|') : '';
   const highlights = useStore(
     useShallow((s) => {

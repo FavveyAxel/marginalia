@@ -48,7 +48,9 @@ export function BoardView({ boardId }: { boardId: string }) {
   useStore((s) => s.workspaces);
   const navigate = useStore((s) => s.navigate);
   const [editTitle, setEditTitle] = useState(false);
-  const [adding, setAdding] = useState(() => !!map && map.nodes.length === 0);
+  // Le panneau « Ajouter » ne s'ouvre qu'à la demande : à la création, le tiroir « À placer »
+  // propose déjà les extraits des livres de l'espace de travail.
+  const [adding, setAdding] = useState(false);
   const m = useMenu();
   const back = backTarget(boardId);
   const [convert, setConvert] = useState<ConvertKind | null>(null);

@@ -72,7 +72,11 @@ await withApp(
     const key = s.route.name === 'board' ? s.route.boardId : null;
     ok('carte libre créée et ouverte', !!key && s.maps[key]?.kind === 'board' && s.maps[key].title === 'Nouvelle carte', JSON.stringify(s.route));
     ok('rangée dans l’espace (racine)', s.wsItems.some((i) => i.workspaceId === 'wP' && i.kind === 'map' && i.refId === key && i.groupId === null));
-    ok('page : titre, retour vers l’espace, panneau Ajouter ouvert (carte vide)', (await page.getByTestId('board-title').innerText()).includes('Nouvelle carte') && (await page.getByTestId('board-back').innerText()).includes('liberté') && (await page.getByTestId('board-add').count()) === 1);
+    ok('page : titre, retour vers l’espace, panneau Ajouter fermé à la création', (await page.getByTestId('board-title').innerText()).includes('Nouvelle carte') && (await page.getByTestId('board-back').innerText()).includes('liberté') && (await page.getByTestId('board-add').count()) === 0 && (await page.getByTestId('board-add-toggle').getAttribute('aria-pressed')) === 'false');
+    const drawerIds = (await page.locator('[data-testid="map-drawer"] [data-hl]').evaluateAll((els) => els.map((e) => e.dataset.hl))).sort().join();
+    ok('« À placer » ouvert avec les extraits des livres de l’espace', drawerIds === 'hK1,hK2,hK3', drawerIds);
+    await page.getByTestId('board-add-toggle').click();
+    await tick(page, 300);
     ok('composant de carte générique affiché', (await page.locator('.board-canvas .react-flow').count()) === 1);
     await shot(page, 'shots/boards/02-carte-vide.png');
 

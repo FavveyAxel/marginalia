@@ -16,7 +16,7 @@ import {
 } from 'lucide-react';
 import { useStore, uid } from '../../lib/store';
 import { host } from '../../lib/platform';
-import { CATEGORY_BY_ID, NOTE_KIND_BY_ID } from '../../lib/categories';
+import { CATEGORY_BY_ID, NOTE_KIND_BY_ID, isPlain, kindLabel } from '../../lib/categories';
 import { conceptToMarkdown, conceptsToMarkdown } from '../../lib/exportMarkdown';
 import type { Book, Concept, ConceptLink, ConceptSense, Highlight, ReviewCard } from '../../lib/types';
 import { CategoryDot } from '../../components/ui';
@@ -1069,8 +1069,8 @@ function ExtractItem({ h, action, book }: { h: Highlight; action?: ReactNode; bo
     <li className="cpt-ex lift" data-highlight-id={h.id}>
       <button className="cpt-ex-main" onClick={() => jump(h.id)} title="Aller à l’extrait dans le livre">
         <span className="cpt-ex-cat">
-          {cat ? <CategoryDot id={cat.id} size={8} /> : <span className="cpt-ex-notedot" />}
-          <span>{cat ? cat.label : 'Note de marge'}</span>
+          {cat ? <CategoryDot id={cat.id} size={8} /> : <span className="cpt-ex-notedot" style={isPlain(h) ? { background: 'var(--cat-plain)', borderColor: 'var(--cat-plain)' } : undefined} />}
+          <span>{kindLabel(h)}</span>
           {book && <span className="muted"> · {book.title}</span>}
           {locationOf(h) && <span className="muted"> · {locationOf(h)}</span>}
         </span>

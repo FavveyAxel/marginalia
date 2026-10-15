@@ -5,7 +5,7 @@ import { BookOpen, Brain, FilePen, Lightbulb, ListTree, Plus, Search, Upload, Fo
 import { useStore, uid } from '../../lib/store';
 import { host } from '../../lib/platform';
 import type { EssayPlan } from '../../lib/types';
-import { CATEGORY_BY_ID } from '../../lib/categories';
+import { kindColor, kindLabel, kindOf } from '../../lib/categories';
 import { Kbd, relativeTime } from '../../components/ui';
 import { BookCover } from '../library/BookCover';
 import { createDraft } from '../editor/api';
@@ -284,15 +284,15 @@ function Recent() {
       <ul className="home-recent anim-stagger">
         {last.map((h, i) => {
           const b = books.find((x) => x.id === h.bookId);
-          const cat = h.category ? CATEGORY_BY_ID[h.category] : null;
+          const isNote = kindOf(h) === 'note';
           return (
             <li key={h.id} style={{ ['--i' as string]: i }}>
               <button className="home-recent-row" onClick={() => jump(h.id)}>
-                <span className={`home-recent-mark ${cat ? '' : 'note'}`} style={cat ? { background: `var(${cat.cssVar})` } : undefined} title={cat?.label ?? 'Note de marge'} />
+                <span className={`home-recent-mark ${isNote ? 'note' : ''}`} style={isNote ? undefined : { background: kindColor(h) }} title={kindLabel(h)} />
                 <span className="home-recent-body">
                   <span className="home-recent-text">{h.text}</span>
                   <span className="home-recent-meta muted truncate">
-                    {cat ? `${cat.label}. ` : 'Note de marge. '}
+                    {`${kindLabel(h)}. `}
                     {b?.title}
                     {h.locationLabel && `, ${h.locationLabel}`}
                   </span>

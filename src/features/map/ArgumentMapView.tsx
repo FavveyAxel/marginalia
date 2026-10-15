@@ -27,7 +27,7 @@ import { useShallow } from 'zustand/react/shallow';
 import { BookOpen, Check, Copy, GripVertical, LayoutGrid, Lightbulb, Link2, Maximize2, PanelLeft, Pencil, Plus, Trash2, Unlink, X } from 'lucide-react';
 import { ContextMenu, type MenuEntry } from '../workspaces/wsUi';
 import { uid, useStore } from '../../lib/store';
-import { CATEGORIES, CATEGORY_BY_ID, NOTE_KIND_BY_ID, RELATIONS, RELATION_BY_ID, catColor } from '../../lib/categories';
+import { CATEGORIES, NOTE_KIND_BY_ID, RELATIONS, RELATION_BY_ID, catColor, kindColor, kindLabel, kindOf } from '../../lib/categories';
 import { locatorOf } from '../../lib/citation';
 import { useFloating } from '../../components/ui';
 import type { ArgumentMap, CategoryId, Highlight, MapEdge, MapNode, RelationId } from '../../lib/types';
@@ -133,12 +133,12 @@ function ExtractNode({ data, selected }: NodeProps) {
       </div>
     );
   }
-  const color = h.category ? catColor(h.category) : 'var(--muted)';
+  const color = kindColor(h);
   const text = h.text.replace(/\s+/g, ' ').trim();
   return (
     <div className={`map-node map-extract ${selected ? 'sel' : ''}`} style={{ '--c': color } as CSSProperties} onDoubleClick={() => ctx.jump(h.id)} title="Double-clic : retrouver dans le texte">
       <div className="map-node-head">
-        <span className="map-node-cat">{h.category ? CATEGORY_BY_ID[h.category].label : 'Note de marge'}</span>
+        <span className="map-node-cat">{kindLabel(h)}</span>
         <span className="map-node-loc">{locatorOf(h)}</span>
       </div>
       <p className="map-node-text">{text}</p>
@@ -451,7 +451,7 @@ function Inner({ bookId }: { bookId: string }) {
   const [menu, setMenu] = useState<MenuState | null>(null);
   const [nodeMenu, setNodeMenu] = useState<{ x: number; y: number; entries: MenuEntry[]; label: string } | null>(null);
   const [drawer, setDrawer] = useState(() => highlights.some((h) => !map.nodes.some((n) => n.highlightId === h.id)));
-  const [filter, setFilter] = useState<CategoryId | 'note' | null>(null);
+  const [filter, setFilter] = useState<CategoryId | 'plain' | 'note' | null>(null);
   const [animating, setAnimating] = useState(false);
   const [dropping, setDropping] = useState(false);
   const wrap = useRef<HTMLDivElement | null>(null);
@@ -505,7 +505,7 @@ function Inner({ bookId }: { bookId: string }) {
       const h = n.highlightId ? hlById.get(n.highlightId) : null;
       const base = h ? h.text : n.text;
       const words = base.replace(/\s+/g, ' ').trim().split(' ').slice(0, 6).join(' ');
-      const cat = h ? (h.category ? CATEGORY_BY_ID[h.category].label : 'Note de marge') : 'Idée';
+      const cat = h ? kindLabel(h) : 'Idée';
       return `${cat} : ${words || '…'}${base.trim().split(/\s+/).length > 6 ? '…' : ''}`;
     },
     [map.nodes, hlById],
@@ -664,7 +664,7 @@ function Inner({ bookId }: { bookId: string }) {
     const placed = new Set(map.nodes.map((n) => n.highlightId).filter(Boolean));
     return highlights.filter((h) => !placed.has(h.id));
   }, [highlights, map.nodes]);
-  const shown = unplaced.filter((h) => (filter === null ? true : filter === 'note' ? h.category === null : h.category === filter));
+  const shown = unplaced.filter((h) => (filter === null ? true : kindOf(h) === filter));
 
   const menuEdge = menu ? map.edges.find((e) => e.id === menu.edgeId) : null;
   const empty = map.nodes.length === 0;
@@ -849,6 +849,10 @@ function Inner({ bookId }: { bookId: string }) {
                   {c.label}
                 </button>
               ))}
+              <button className={`chip ${filter === 'plain' ? 'active' : ''}`} onClick={() => setFilter(filter === 'plain' ? null : 'plain')}>
+                <span className="cat-dot" style={{ background: 'var(--cat-plain)' }} />
+                Surlignages
+              </button>
               <button className={`chip ${filter === 'note' ? 'active' : ''}`} onClick={() => setFilter(filter === 'note' ? null : 'note')}>
                 Notes
               </button>
@@ -859,7 +863,7 @@ function Inner({ bookId }: { bookId: string }) {
                   key={h.id}
                   className="map-drawer-item lift"
                   data-hl={h.id}
-                  style={{ '--c': h.category ? catColor(h.category) : 'var(--muted)', '--i': i } as CSSProperties}
+                  style={{ '--c': kindColor(h), '--i': i } as CSSProperties}
                   draggable
                   onDragStart={(e) => {
                     e.dataTransfer.setData('text/marginalia-hl', h.id);
@@ -868,7 +872,7 @@ function Inner({ bookId }: { bookId: string }) {
                 >
                   <GripVertical size={13} className="grip" />
                   <div className="body">
-                    <span className="cat">{h.category ? CATEGORY_BY_ID[h.category].label : 'Note de marge'}</span>
+                    <span className="cat">{kindLabel(h)}</span>
                     <p>{h.text.replace(/\s+/g, ' ').trim()}</p>
                     <span className="loc">{locatorOf(h)}</span>
                   </div>

@@ -543,3 +543,61 @@
 .ann-pop-del {
   margin-left: auto;
 }
+
+/* ── Surlignage simple : classer d'un clic / ajouter une note ── */
+.ann-dot-plain {
+  background: var(--cat-plain);
+}
+.ann-plain-quick {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-top: 7px;
+  min-height: 22px;
+}
+.ann-plain-lbl {
+  margin-right: 4px;
+  font-size: var(--fs-xs);
+  color: var(--faint);
+}
+.ann-plain-cat {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  cursor: default;
+}
+.ann-plain-cat:hover {
+  background: var(--bg-hover);
+}
+.ann-plain-cat .cat-dot {
+  width: 9px;
+  height: 9px;
+}
+.ann-plain-add {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 22px;
+  margin-left: auto;
+  padding: 0 7px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  font-size: var(--fs-xs);
+  color: var(--muted);
+  cursor: default;
+}
+.ann-plain-add:hover {
+  background: var(--bg-hover);
+  color: var(--ink);
+}
+.ann-plain-note {
+  width: 100%;
+  font-size: var(--fs-sm);
+}
+.ann-cat-btn:disabled { opacity: 0.45; }

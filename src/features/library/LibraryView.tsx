@@ -1154,6 +1154,7 @@ function AppleBooksAnnotationsPanel({ bookSync }: { bookSync: boolean }) {
                   {cat.label}
                 </option>
               ))}
+              <option value="plain">Surlignage simple (sans catégorie)</option>
               <option value="note">Note de marge (sans catégorie)</option>
               <option value="skip">Ne pas importer</option>
             </select>

@@ -11,7 +11,7 @@
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useRef, useState, type CSSProperties, type MouseEvent as ReactMouseEvent } from 'react';
 import { BookmarkPlus, Copy } from 'lucide-react';
 import type { Anchor, Bookmark, Highlight, HtmlAnchor, TocItem } from '../../../lib/types';
-import { CONNECTORS } from '../../../lib/categories';
+import { CONNECTORS, hlClass, kindOf } from '../../../lib/categories';
 import { SelectionToolbar } from '../../../components/SelectionToolbar';
 import { ContextMenu } from '../../workspaces/wsUi';
 import type { BookmarkPoint, EngineHandle, EngineProps, SearchHit } from '../engine';
@@ -44,7 +44,7 @@ const SMOOTH_MS = 380; // glissé vers un extrait, un titre, un résultat
 
 const sigOf = (h: Highlight) => {
   const a = h.anchor as HtmlAnchor;
-  return `${h.category ?? 'note'}|${a.chapter}|${a.start}|${a.end}|${a.prefix}|${a.suffix}|${h.text}`;
+  return `${kindOf(h)}|${a.chapter}|${a.start}|${a.end}|${a.prefix}|${a.suffix}|${h.text}`;
 };
 
 const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -344,7 +344,7 @@ export const HtmlReader = forwardRef<EngineHandle, EngineProps>(function HtmlRea
         if (span) {
           els = wrapOffsets(rootsRef.current[span.chapter], span.start, span.end, () => {
             const el = document.createElement('span');
-            el.className = `hl ${h.category ? `hl-${h.category}` : 'hl-note'}`;
+            el.className = `hl ${hlClass(h)}`;
             el.setAttribute('data-hl-id', h.id);
             return el;
           });
@@ -931,11 +931,11 @@ export const HtmlReader = forwardRef<EngineHandle, EngineProps>(function HtmlRea
     return { info, anchor, quote, label: ch.label };
   };
 
-  const onPick = (category: Highlight['category'], withNote: boolean) => {
+  const onPick = (category: Highlight['category'], withNote: boolean, plain?: boolean) => {
     const t = takeSelection();
     if (!t) return;
     const printedPage = printedPageAt(parsedRef.current!.pages, t.info.chapter, t.info.start);
-    propsRef.current.onCreateHighlight({ anchor: t.anchor, text: t.quote, locationLabel: t.label, category, printedPage }, withNote);
+    propsRef.current.onCreateHighlight({ anchor: t.anchor, text: t.quote, locationLabel: t.label, category, plain: plain || undefined, printedPage }, withNote);
   };
 
   const onCite = () => {

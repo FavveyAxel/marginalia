@@ -3,7 +3,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { ArrowUpRight, Copy, Layers, Plus, Trash2, Waypoints, X } from 'lucide-react';
 import { useStore, uid } from '../../lib/store';
-import { CATEGORIES, CATEGORY_BY_ID, NOTE_KINDS } from '../../lib/categories';
+import { CATEGORIES, NOTE_KINDS, PLAIN_DEF, isPlain, kindColor } from '../../lib/categories';
 import { formatCitation, referenceParts, locatorOf } from '../../lib/citation';
 import { useFloating } from '../../components/ui';
 import type { Highlight, NoteKind, ReviewCard } from '../../lib/types';
@@ -71,7 +71,8 @@ function PopBody({ h, onClose, concepts, ready }: { h: Highlight; onClose(): voi
   const book = useStore((s) => s.books.find((b) => b.id === h.bookId))!;
   const st = useStore.getState;
 
-  const cat = h.category ? CATEGORY_BY_ID[h.category] : null;
+  const plain = isPlain(h);
+  const hasNote = !!(h.note.trim() || h.noteKind);
 
   // ── Note (sauvegarde auto) ──
   const [note, setNote] = useState(h.note);
@@ -216,10 +217,23 @@ function PopBody({ h, onClose, concepts, ready }: { h: Highlight; onClose(): voi
         ))}
         <button
           role="radio"
-          aria-checked={h.category === null}
-          className={`ann-cat-btn ${h.category === null ? 'active' : ''}`}
+          aria-checked={plain}
+          className={`ann-cat-btn ${plain ? 'active' : ''}`}
+          style={{ ['--c' as string]: 'var(--cat-plain)' }}
+          onClick={() => st().updateHighlight(h.id, { category: null, plain: true })}
+          disabled={hasNote}
+          title={hasNote ? 'Ce passage a une note : c’est une note de marge' : `${PLAIN_DEF.label} — ${PLAIN_DEF.description} (${PLAIN_DEF.key.toUpperCase()})`}
+          data-cat="plain"
+        >
+          <span className="cat-dot ann-dot-plain" />
+          <span>{PLAIN_DEF.label}</span>
+        </button>
+        <button
+          role="radio"
+          aria-checked={h.category === null && !plain}
+          className={`ann-cat-btn ${h.category === null && !plain ? 'active' : ''}`}
           style={{ ['--c' as string]: 'var(--muted)' }}
-          onClick={() => st().setCategoryOf(h.id, null)}
+          onClick={() => st().updateHighlight(h.id, { category: null, plain: undefined })}
           title="Note de marge, sans catégorie"
           data-cat="none"
         >
@@ -228,7 +242,7 @@ function PopBody({ h, onClose, concepts, ready }: { h: Highlight; onClose(): voi
         </button>
       </div>
 
-      <div className="ann-pop-quote" style={{ ['--c' as string]: cat ? `var(${cat.cssVar})` : 'var(--muted)' }}>
+      <div className="ann-pop-quote" style={{ ['--c' as string]: kindColor(h) }}>
         {h.text}
       </div>
 

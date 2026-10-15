@@ -43,3 +43,4 @@
 .ax-copy { opacity: 0; transition: opacity var(--dur) var(--ease-out); }
 .ax-item:hover .ax-copy, .ax-item:focus-within .ax-copy { opacity: 1; }
 @media (max-width: 760px) { .ax-page { padding: 24px 20px 64px; } }
+.ax-plaindot { width: 8px; height: 8px; border-radius: 50%; background: var(--cat-plain); display: inline-block; flex: none; }

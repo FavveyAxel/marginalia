@@ -83,6 +83,7 @@ function isEnriched(h: Highlight, s: State): boolean {
   if (h.conceptIds.length || h.noteKind) return true;
   if (h.source && (h.note ?? '') !== (h.source.note ?? '')) return true;
   if (h.source && h.source.category !== undefined && h.category !== h.source.category) return true;
+  if (h.source && !!h.source.plain !== !!h.plain) return true;
   if (s.cards.some((c) => c.highlightId === h.id)) return true;
   if (s.maps[h.bookId]?.nodes.some((n) => n.highlightId === h.id)) return true;
   if (s.arguments.some((a) => [...a.premises, a.conclusion].some((p) => p.highlightId === h.id))) return true;
@@ -320,7 +321,9 @@ async function run(opts: { manual?: boolean }): Promise<AppleBooksSyncReport | n
       }
       const text = parsed.chapters[span.chapter].text;
       const target = colorMap[colorOf(a)];
-      const category: CategoryId | null = target === 'note' || target === 'skip' ? null : target;
+      const category: CategoryId | null = target === 'note' || target === 'plain' || target === 'skip' ? null : target;
+      // « Surlignage simple » : sans catégorie, et sans note si Livres n'en a pas.
+      const plainTarget = target === 'plain';
       const quote = text.slice(span.start, span.end);
       const anchor = makeAnchor(text, span.chapter, span.start, span.end);
       const now = Date.now();
@@ -331,6 +334,7 @@ async function run(opts: { manual?: boolean }): Promise<AppleBooksSyncReport | n
             id: uid(),
             bookId: book.id,
             category,
+            ...(plainTarget && !a.note.trim() ? { plain: true } : {}),
             text: quote,
             note: a.note,
             noteKind: null,
@@ -340,7 +344,7 @@ async function run(opts: { manual?: boolean }): Promise<AppleBooksSyncReport | n
             printedPage: printedPageAt(parsed.pages, span.chapter, span.start),
             createdAt: a.created ?? now,
             updatedAt: a.modified ?? now,
-            source: { app: 'livres', uuid: a.uuid, modified: a.modified ?? 0, category, note: a.note, text: a.text },
+            source: { app: 'livres', uuid: a.uuid, modified: a.modified ?? 0, category, ...(plainTarget && !a.note.trim() ? { plain: true } : {}), note: a.note, text: a.text },
           },
         });
         remember.add(a.uuid);
@@ -354,6 +358,12 @@ async function run(opts: { manual?: boolean }): Promise<AppleBooksSyncReport | n
       const userNote = (cur.note ?? '') !== (src.note ?? '');
       if (!userCat && target !== 'skip' && cur.category !== category) patch.category = category;
       if (!userNote && cur.note !== a.note) patch.note = a.note;
+      // Surlignage simple <-> note de marge, tant que l'utilisateur n'a rien changé de son côté.
+      const userKind = !!cur.plain !== !!src.plain;
+      if (!userCat && !userNote && !userKind && target !== 'skip' && category === null) {
+        const wantPlain = plainTarget && !(patch.note ?? cur.note).trim();
+        if (!!cur.plain !== wantPlain) patch.plain = wantPlain || undefined;
+      }
       if (cur.text !== quote || cur.anchor.kind !== 'html' || cur.anchor.chapter !== span.chapter || cur.anchor.start !== span.start || cur.anchor.end !== span.end) {
         patch.text = quote;
         patch.anchor = anchor;
@@ -368,6 +378,7 @@ async function run(opts: { manual?: boolean }): Promise<AppleBooksSyncReport | n
         text: a.text,
         category: userCat ? src.category : patch.category !== undefined ? patch.category : cur.category,
         note: userNote ? src.note : a.note,
+        plain: userKind ? src.plain : patch.plain !== undefined || 'plain' in patch ? patch.plain : cur.plain,
       };
       if (changed) {
         patch.updatedAt = Math.max(cur.updatedAt, a.modified ?? 0);

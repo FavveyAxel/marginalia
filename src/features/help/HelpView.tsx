@@ -98,8 +98,9 @@ const SECTIONS: Section[] = [
     id: 'annoter',
     title: 'Surligner et annoter',
     icon: <Highlighter size={16} />,
-    intro: 'Sélectionnez un passage : une barre apparaît pour le classer selon son rôle dans l’argumentation. Chaque passage classé devient un extrait.',
+    intro: 'Sélectionnez un passage : une barre apparaît pour le surligner simplement ou le classer selon son rôle dans l’argumentation. Chaque passage surligné devient un extrait.',
     items: [
+      { title: 'Surligner sans classer', text: <>Pour simplement marquer un passage, appuyez sur <K>H</K> (ou « Surligner », le premier bouton de la barre) : le passage reçoit un surlignage sable, sans catégorie ni note. Plus tard, dans le panneau Extraits, classez-le d’un clic (les pastilles de couleur sous l’extrait) ou ajoutez-lui une note : sans catégorie, il devient alors une note de marge. Le filtre « Surlignages » les retrouve. Dans la synchro avec Livres, une couleur peut aussi être importée comme « Surlignage simple ».</> },
       { title: 'Les catégories', text: <>Problème <K>1</K>, Thèse <K>2</K>, Argument <K>3</K>, Thèse adverse <K>4</K>, Concept <K>5</K>, Exemple <K>6</K>. <K>N</K> ajoute une note de marge (« ma voix »), <K>M</K> marque le début d’un mouvement du texte.</> },
       { title: 'Le panneau Extraits', text: 'À droite du lecteur, les extraits du livre dans l’ordre du texte ou par date. Cliquer un extrait ramène au passage ; on peut y ajouter une note, des concepts, ou le copier comme citation avec auteur, édition et page.' },
       { title: 'Fiche-texte (explication de texte)', text: 'L’onglet Fiche-texte guide l’étude d’un passage : problème, thèse, enjeu, et découpage en mouvements.' },
@@ -220,6 +221,7 @@ const SHORTCUTS_ALL: [string, string][] = [
   ['⌘K', 'Rechercher partout'],
   ['⌘O', 'Importer'],
   ['⌘Z / ⌘⇧Z', 'Annuler / rétablir'],
+  ['H', 'Surligner la sélection, sans catégorie'],
   ['1 – 6', 'Classer la sélection (Problème… Exemple)'],
   ['N / M', 'Note de marge / début de mouvement'],
   ['⌘D', 'Ajouter un signet'],

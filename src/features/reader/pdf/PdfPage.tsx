@@ -4,11 +4,13 @@ import { memo, useEffect, useRef, type CSSProperties } from 'react';
 import type { RenderTask } from 'pdfjs-dist';
 import { Milestone } from 'lucide-react';
 import type { CategoryId, NormRect } from '../../../lib/types';
+import { hlClass } from '../../../lib/categories';
 import { pdfjsLib, type PDFDocumentProxy } from './pdfjs';
 
 export interface PageHl {
   id: string;
   category: CategoryId | null;
+  plain?: boolean;
   rects: NormRect[];
 }
 
@@ -193,7 +195,7 @@ export const PdfPage = memo(function PdfPage({ n, doc, w, h, scale, near, hls, m
             hl.rects.map((r, i) => (
               <div
                 key={`${hl.id}:${i}`}
-                className={`hl ${hl.category ? `hl-${hl.category}` : 'hl-note'}${activeId === hl.id ? ' active' : ''}${pulse?.id === hl.id ? ' pulse' : ''}`}
+                className={`hl ${hlClass(hl)}${activeId === hl.id ? ' active' : ''}${pulse?.id === hl.id ? ' pulse' : ''}`}
                 data-hl-id={hl.id}
                 style={{ left: pct(r.x), top: pct(r.y), width: pct(r.w), height: pct(r.h) }}
               />

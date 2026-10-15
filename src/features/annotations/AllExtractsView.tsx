@@ -2,7 +2,7 @@
 import { useMemo, useState, type CSSProperties } from 'react';
 import { BookOpen, Copy, Highlighter, Search, X } from 'lucide-react';
 import { useStore } from '../../lib/store';
-import { CATEGORIES, NOTE_KINDS, NOTE_KIND_BY_ID, CATEGORY_BY_ID } from '../../lib/categories';
+import { CATEGORIES, NOTE_KINDS, NOTE_KIND_BY_ID, kindLabel, kindOf, kindColor } from '../../lib/categories';
 import { formatCitation } from '../../lib/citation';
 import type { Book, CategoryId, Highlight, NoteKind } from '../../lib/types';
 import { CategoryDot } from '../../components/ui';
@@ -11,7 +11,12 @@ import './all-extracts.css';
 
 type Sort = 'recent' | 'texte';
 const NOTES = 'notes' as const;
-type CatKey = CategoryId | typeof NOTES;
+const PLAIN = 'plain' as const;
+type CatKey = CategoryId | typeof NOTES | typeof PLAIN;
+const keyOf = (h: Highlight): CatKey => {
+  const k = kindOf(h);
+  return k === 'note' ? NOTES : k;
+};
 
 const stagger = (i: number) => ({ '--i': i }) as CSSProperties;
 
@@ -35,7 +40,7 @@ export function AllExtractsView() {
   const counts = useMemo(() => {
     const m = new Map<CatKey, number>();
     for (const h of highlights) {
-      const k: CatKey = h.category ?? NOTES;
+      const k = keyOf(h);
       m.set(k, (m.get(k) ?? 0) + 1);
     }
     return m;
@@ -44,7 +49,7 @@ export function AllExtractsView() {
   const filtered = useMemo(() => {
     const q = norm(query.trim());
     const out = highlights.filter((h) => {
-      if (cats.size && !cats.has(h.category ?? NOTES)) return false;
+      if (cats.size && !cats.has(keyOf(h))) return false;
       if (noteKind && h.noteKind !== noteKind) return false;
       if (bookId && h.bookId !== bookId) return false;
       if (conceptId && !h.conceptIds.includes(conceptId)) return false;
@@ -136,6 +141,16 @@ export function AllExtractsView() {
                     </button>
                   ))}
                   <button
+                    className={`chip ${cats.has(PLAIN) ? 'active' : ''}`}
+                    aria-pressed={cats.has(PLAIN)}
+                    onClick={() => toggleCat(PLAIN)}
+                    data-cat="plain"
+                    title="Passages simplement surlignés, sans catégorie"
+                  >
+                    <span className="ax-plaindot" /> Surlignages
+                    <span className="ax-n">{counts.get(PLAIN) ?? 0}</span>
+                  </button>
+                  <button
                     className={`chip ${cats.has(NOTES) ? 'active' : ''}`}
                     aria-pressed={cats.has(NOTES)}
                     onClick={() => toggleCat(NOTES)}
@@ -223,18 +238,19 @@ export function AllExtractsView() {
                     </h2>
                     <ul className="ax-list anim-stagger">
                       {g.items.map((h, i) => {
-                        const cat = h.category ? CATEGORY_BY_ID[h.category] : null;
+                        const cat = h.category ? CATEGORIES.find((c) => c.id === h.category) ?? null : null;
+                        const plain = kindOf(h) === 'plain';
                         const loc = locationOf(h);
                         return (
                           <li key={h.id} className="ax-item lift" style={stagger(i)} data-highlight-id={h.id}>
                             <button className="ax-main" onClick={() => jump(h.id)} title="Aller à l’extrait dans le livre">
                               <span className="ax-meta">
-                                {cat ? <CategoryDot id={cat.id} size={8} /> : <span className="ax-notedot" />}
-                                <span>{cat ? cat.label : 'Note de marge'}</span>
+                                {cat ? <CategoryDot id={cat.id} size={8} /> : <span className={plain ? 'ax-plaindot' : 'ax-notedot'} />}
+                                <span>{kindLabel(h)}</span>
                                 {loc && <span className="muted">{loc}</span>}
                               </span>
                               {h.text.trim() && (
-                                <span className="ax-text" style={cat ? ({ '--ax-c': `var(--cat-${cat.id})` } as CSSProperties) : undefined}>
+                                <span className="ax-text" style={cat || plain ? ({ '--ax-c': kindColor(h) } as CSSProperties) : undefined}>
                                   {h.text}
                                 </span>
                               )}

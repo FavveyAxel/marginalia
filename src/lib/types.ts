@@ -95,6 +95,8 @@ export interface ExternalSource {
   modified: number;
   /** Catégorie posée par la dernière synchro. */
   category?: CategoryId | null;
+  /** Surlignage simple posé par la dernière synchro. */
+  plain?: boolean;
   /** Note de Livres à la dernière synchro. */
   note?: string;
   /** Texte sélectionné dans Livres à la dernière synchro. */
@@ -106,7 +108,7 @@ export interface ExternalSource {
 /** Couleurs de surlignage de Livres. */
 export type AppleBooksColor = 'jaune' | 'vert' | 'bleu' | 'rose' | 'violet' | 'souligne';
 /** Destination d'une couleur de Livres : une catégorie, une note de marge, ou rien (non importé). */
-export type AppleBooksColorTarget = CategoryId | 'note' | 'skip';
+export type AppleBooksColorTarget = CategoryId | 'note' | 'plain' | 'skip';
 
 /** Dernier résultat de synchro des annotations de Livres. */
 export interface AppleBooksSyncReport {
@@ -156,12 +158,18 @@ export interface Bookmark {
 /**
  * Annotation ancrée dans un texte.
  * - category non nulle : surlignage d'un passage selon sa fonction dans le texte ;
- * - category nulle : note de marge pure (« ma voix ») ancrée sur un passage.
+ * - category nulle et plain vrai : surlignage simple (aucune catégorie, aucune note) ;
+ * - category nulle sinon : note de marge pure (« ma voix ») ancrée sur un passage.
  */
 export interface Highlight {
   id: string;
   bookId: string;
   category: CategoryId | null;
+  /**
+   * Surlignage simple : sans catégorie ni note. Absent = note de marge (extraits existants).
+   * Le store retire ce drapeau dès qu'une catégorie, une note ou un type de note est posé.
+   */
+  plain?: boolean;
   text: string;
   /** Note personnelle. */
   note: string;

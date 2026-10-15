@@ -19,6 +19,8 @@ export interface NewHighlightInput {
   locationLabel: string;
   /** null = note de marge pure (« ma voix »). */
   category: CategoryId | null;
+  /** Surlignage simple (sans catégorie ni note) : category vaut null. */
+  plain?: boolean;
   /**
    * Page imprimée proposée : PDF → String(page + book.edition.pageOffset) ;
    * EPUB avec page-list → numéro de la page en cours ; sinon ''.

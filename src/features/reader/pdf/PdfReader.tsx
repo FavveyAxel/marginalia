@@ -442,13 +442,13 @@ export const PdfReader = forwardRef<EngineHandle, EngineProps>(function PdfReade
     for (const h of props.highlights) {
       if (h.anchor.kind !== 'pdf') continue;
       const list = m.get(h.anchor.page) ?? [];
-      list.push({ id: h.id, category: h.category, rects: h.anchor.rects });
+      list.push({ id: h.id, category: h.category, plain: h.plain, rects: h.anchor.rects });
       m.set(h.anchor.page, list);
     }
     const prev = prevHlByPage.current;
     m.forEach((list, page) => {
       const old = prev.get(page);
-      if (old && old.length === list.length && old.every((o, i) => o.id === list[i].id && o.category === list[i].category && o.rects === list[i].rects)) m.set(page, old);
+      if (old && old.length === list.length && old.every((o, i) => o.id === list[i].id && o.category === list[i].category && o.plain === list[i].plain && o.rects === list[i].rects)) m.set(page, old);
     });
     prevHlByPage.current = m;
     return m;
@@ -594,7 +594,7 @@ export const PdfReader = forwardRef<EngineHandle, EngineProps>(function PdfReade
     setSelRect(null);
   };
 
-  const onPick = (category: CategoryId | null, withNote: boolean) => {
+  const onPick = (category: CategoryId | null, withNote: boolean, plain?: boolean) => {
     const s = (rootRef.current && readSelection(rootRef.current)) || selRef.current;
     if (!s) return;
     const p = P.current;
@@ -605,6 +605,7 @@ export const PdfReader = forwardRef<EngineHandle, EngineProps>(function PdfReade
         text: s.text,
         locationLabel: `p. ${s.page}`,
         category,
+        plain: plain || undefined,
         printedPage: String(s.page + p.book.edition.pageOffset),
       },
       withNote,

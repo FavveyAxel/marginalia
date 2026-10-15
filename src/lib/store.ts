@@ -772,7 +772,13 @@ export const useStore = create<State>()(tracked((set, get) => ({
   },
   updateHighlight(id, patch) {
     set((s) => ({
-      highlights: s.highlights.map((h) => (h.id === id ? { ...h, ...patch, updatedAt: Date.now() } : h)),
+      highlights: s.highlights.map((h) => {
+        if (h.id !== id) return h;
+        const next = { ...h, ...patch, updatedAt: Date.now() };
+        // Un surlignage simple devient note de marge (ou catégorisé) dès qu'on lui ajoute quelque chose.
+        if (next.plain && (next.category !== null || next.note.trim() || next.noteKind)) delete next.plain;
+        return next;
+      }),
     }));
   },
   removeHighlight(id) {

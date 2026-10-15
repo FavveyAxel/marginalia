@@ -107,6 +107,7 @@
   outline: 2px solid var(--focus);
   outline-offset: 1px;
 }
+.img-hl-layer .hl-plain.is-zone { --zone: var(--cat-plain); }
 .img-hl-layer .hl-probleme.is-zone { --zone: var(--cat-probleme); }
 .img-hl-layer .hl-these.is-zone { --zone: var(--cat-these); }
 .img-hl-layer .hl-argument.is-zone { --zone: var(--cat-argument); }

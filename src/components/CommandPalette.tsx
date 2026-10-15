@@ -20,7 +20,7 @@ import {
 import { useShallow } from 'zustand/react/shallow';
 import { useStore } from '../lib/store';
 import { host } from '../lib/platform';
-import { CATEGORY_BY_ID } from '../lib/categories';
+import { kindColor } from '../lib/categories';
 import { Kbd } from './ui';
 import './command.css';
 
@@ -177,7 +177,7 @@ function Palette() {
           group: 'Extraits',
           label: h.text.replace(/\s+/g, ' ').trim(),
           meta: bookTitle.get(h.bookId),
-          dot: h.category ? `var(${CATEGORY_BY_ID[h.category].cssVar})` : 'var(--muted)',
+          dot: kindColor(h),
           haystack: norm(h.text + ' ' + h.note + ' ' + h.conceptIds.map((id) => conceptName.get(id) ?? '').join(' ')),
           run: () => st().jumpToHighlight(h.id),
         }),

@@ -1,15 +1,15 @@
 // Barre flottante au-dessus d'une sélection de texte (FIGÉ).
 import { useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import { BookmarkPlus, Copy, MessageSquarePlus, Milestone, Quote } from 'lucide-react';
-import { CATEGORIES } from '../lib/categories';
+import { BookmarkPlus, Copy, Highlighter, MessageSquarePlus, Milestone, Quote } from 'lucide-react';
+import { CATEGORIES, PLAIN_DEF } from '../lib/categories';
 import type { CategoryId } from '../lib/types';
 import { CategoryDot, Kbd, useFloating } from './ui';
 
 interface Props {
   rect: DOMRect;
-  /** category null = note de marge pure. */
-  onPick(category: CategoryId | null, withNote: boolean): void;
+  /** category null = note de marge pure ; `plain` : surlignage simple (sans catégorie ni note). */
+  onPick(category: CategoryId | null, withNote: boolean, plain?: boolean): void;
   /** Marquer le début d'un mouvement (explication de texte). */
   onMovement(): void;
   onCopy(): void;
@@ -32,6 +32,9 @@ export function SelectionToolbar({ rect, onPick, onMovement, onCopy, onDismiss, 
       if (cat) {
         e.preventDefault();
         onPick(cat.id, e.shiftKey);
+      } else if (e.key.toLowerCase() === 'h' || e.key === '0') {
+        e.preventDefault();
+        onPick(null, false, true);
       } else if (e.key.toLowerCase() === 'n') {
         e.preventDefault();
         onPick(null, true);
@@ -61,6 +64,17 @@ export function SelectionToolbar({ rect, onPick, onMovement, onCopy, onDismiss, 
       role="toolbar"
       aria-label="Annoter la sélection"
     >
+      <button
+        className="cat-btn sel-plain"
+        title={`${PLAIN_DEF.label} (H) — sans catégorie`}
+        aria-label="Surligner, sans catégorie"
+        onClick={() => onPick(null, false, true)}
+      >
+        <Highlighter size={13} style={{ color: 'var(--cat-plain)' }} />
+        <span className="sel-plain-lbl">Surligner</span>
+        <Kbd>H</Kbd>
+      </button>
+      <span className="sep" />
       {onCite && (
         <>
           <button className="cat-btn sel-cite" title="Citer dans l’écrit : crée l’extrait et l’insère au curseur (C)" onClick={onCite}>

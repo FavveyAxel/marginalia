@@ -3,7 +3,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, typ
 import { useShallow } from 'zustand/react/shallow';
 import { ArrowDown, ArrowUp, Check, Copy, Quote, Plus, Search, Sigma, Trash2, X, ExternalLink } from 'lucide-react';
 import { uid, useStore } from '../../lib/store';
-import { CATEGORY_BY_ID, catColor } from '../../lib/categories';
+import { kindColor, kindLabel } from '../../lib/categories';
 import { formatFootnote, locatorOf } from '../../lib/citation';
 import type { ArgumentReconstruction, ArgumentStep, Book, Highlight } from '../../lib/types';
 import './arguments.css';
@@ -76,8 +76,8 @@ function ExtractPicker({ highlights, onPick, onClose }: { highlights: Highlight[
       </div>
       <div className="arg-picker-list">
         {list.map((h) => (
-          <button key={h.id} className="arg-picker-item" data-hl={h.id} style={{ '--c': h.category ? catColor(h.category) : 'var(--muted)' } as CSSProperties} onClick={() => onPick(h)}>
-            <span className="cat">{h.category ? CATEGORY_BY_ID[h.category].label : 'Note'}</span>
+          <button key={h.id} className="arg-picker-item" data-hl={h.id} style={{ '--c': kindColor(h) } as CSSProperties} onClick={() => onPick(h)}>
+            <span className="cat">{kindLabel(h)}</span>
             <span className="txt">{h.text.replace(/\s+/g, ' ').trim()}</span>
             <span className="loc">{locatorOf(h)}</span>
           </button>
@@ -151,10 +151,10 @@ function StepRow({
             </label>
           )}
           {hl ? (
-            <span className="arg-src" style={{ '--c': hl.category ? catColor(hl.category) : 'var(--muted)' } as CSSProperties}>
+            <span className="arg-src" style={{ '--c': kindColor(hl) } as CSSProperties}>
               <i />
               <button className="arg-src-main" title="Ouvrir l’extrait dans le livre" onClick={() => jump(hl.id)}>
-                {hl.category ? CATEGORY_BY_ID[hl.category].label : 'Note'}, {locatorOf(hl)}
+                {kindLabel(hl)}, {locatorOf(hl)}
                 <ExternalLink size={11} />
               </button>
               <button className="arg-src-x" title="Détacher l’extrait" aria-label="Détacher l’extrait" onClick={() => onChange({ highlightId: null })}>

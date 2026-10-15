@@ -77,6 +77,9 @@
   --cat-concept: #3d7be0;
   --cat-exemple: #8c63d9;
   /* Catégories — fond de surlignage */
+  /* Surlignage simple (sans catégorie) : sable ocre doux, désaturé */
+  --cat-plain: #a8935c;
+  --hl-plain: rgba(190, 168, 108, 0.36);
   --hl-these: rgba(240, 190, 40, 0.34);
   --hl-argument: rgba(70, 175, 110, 0.26);
   --hl-objection: rgba(230, 95, 120, 0.24);
@@ -133,6 +136,8 @@
   --cat-objection: #ec7389;
   --cat-concept: #6b9cf5;
   --cat-exemple: #a98af0;
+  --cat-plain: #b8a574;
+  --hl-plain: rgba(196, 176, 120, 0.28);
   --hl-these: rgba(232, 185, 58, 0.3);
   --hl-argument: rgba(92, 194, 131, 0.24);
   --hl-objection: rgba(236, 115, 137, 0.24);

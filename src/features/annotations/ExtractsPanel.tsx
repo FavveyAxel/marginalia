@@ -3,13 +3,14 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { Copy, Search, Trash2, Waypoints, X } from 'lucide-react';
 import { useStore } from '../../lib/store';
-import { CATEGORIES, CATEGORY_BY_ID, NOTE_KIND_BY_ID } from '../../lib/categories';
+import { CATEGORIES, NOTE_KIND_BY_ID, PLAIN_DEF, kindColor, kindLabel, kindOf, isPlain } from '../../lib/categories';
+import { PlainQuick } from './PlainQuick';
 import { formatCitation } from '../../lib/citation';
 import type { CategoryId, Highlight } from '../../lib/types';
 import { copyText, norm } from './util';
 import './annotations.css';
 
-type FilterKey = CategoryId | 'note';
+type FilterKey = CategoryId | 'plain' | 'note';
 type SortKey = 'texte' | 'recents';
 
 /** Clé d'ordre dans le texte : HTML (chapitre, début) ; PDF (page, premier y). */
@@ -43,9 +44,9 @@ export function ExtractsPanel({ bookId, onJump }: { bookId: string; onJump(id: s
   const conceptName = useMemo(() => new Map(concepts.map((c) => [c.id, c.name])), [concepts]);
 
   const counts = useMemo(() => {
-    const m: Record<string, number> = { note: 0 };
+    const m: Record<string, number> = { note: 0, plain: 0 };
     for (const h of highlights) {
-      const k = h.category ?? 'note';
+      const k = kindOf(h);
       m[k] = (m[k] ?? 0) + 1;
     }
     return m;
@@ -54,7 +55,7 @@ export function ExtractsPanel({ bookId, onJump }: { bookId: string; onJump(id: s
   const visible = useMemo(() => {
     const q = norm(query.trim());
     const list = highlights.filter((h) => {
-      if (filters.size && !filters.has((h.category ?? 'note') as FilterKey)) return false;
+      if (filters.size && !filters.has(kindOf(h) as FilterKey)) return false;
       if (!q) return true;
       const hay = norm(
         [h.text, h.note, h.locationLabel, h.printedPage, ...h.conceptIds.map((id) => conceptName.get(id) ?? '')].join(' '),
@@ -139,6 +140,18 @@ export function ExtractsPanel({ bookId, onJump }: { bookId: string; onJump(id: s
               </button>
             ))}
             <button
+              className={`chip ann-chip ${filters.has('plain') ? 'active' : ''}`}
+              onClick={() => toggle('plain')}
+              disabled={!counts.plain && !filters.has('plain')}
+              aria-pressed={filters.has('plain')}
+              data-filter="plain"
+              title="Passages simplement surlignés, sans catégorie"
+            >
+              <span className="cat-dot" style={{ background: 'var(--cat-plain)' }} />
+              Surlignages
+              <span className="ann-chip-n">{counts.plain ?? 0}</span>
+            </button>
+            <button
               className={`chip ann-chip ${filters.has('note') ? 'active' : ''}`}
               onClick={() => toggle('note')}
               disabled={!counts.note && !filters.has('note')}
@@ -213,9 +226,10 @@ type CardProps = {
 };
 
 const ExtractCard = memo(function ExtractCard({ h, active, conceptName, onJump, onCopy, onDelete }: CardProps) {
-  const cat = h.category ? CATEGORY_BY_ID[h.category] : null;
+  const cat = h.category ? CATEGORIES.find((c) => c.id === h.category) ?? null : null;
+  const plain = isPlain(h);
   const kind = h.noteKind ? NOTE_KIND_BY_ID[h.noteKind] : null;
-  const label = cat ? cat.label : kind ? `Note · ${kind.label}` : 'Note';
+  const label = cat ? cat.label : plain ? kindLabel(h) : kind ? `Note · ${kind.label}` : 'Note';
   const loc = locationOf(h);
   const open = () => {
     useStore.getState().setActiveHighlight(h.id);
@@ -224,8 +238,8 @@ const ExtractCard = memo(function ExtractCard({ h, active, conceptName, onJump, 
   return (
     <div
       data-hid={h.id}
-      className={`ann-card ${active ? 'active' : ''} ${cat ? '' : 'is-note'}`}
-      style={{ ['--c' as string]: cat ? `var(${cat.cssVar})` : 'var(--muted)' }}
+      className={`ann-card ${active ? 'active' : ''} ${cat || plain ? '' : 'is-note'}`}
+      style={{ ['--c' as string]: kindColor(h) }}
       role="button"
       tabIndex={0}
       onClick={open}
@@ -263,6 +277,7 @@ const ExtractCard = memo(function ExtractCard({ h, active, conceptName, onJump, 
           )}
         </div>
       )}
+      {plain && <PlainQuick h={h} />}
       <div className="ann-card-actions" onClick={(e) => e.stopPropagation()}>
         <button className="icon-btn sm" title="Ajouter à la carte d’argument" onClick={() => useStore.getState().addHighlightToMap(h.id)}>
           <Waypoints size={13} />
@@ -292,6 +307,12 @@ function Legend() {
             <span className="kbd">{c.key}</span>
           </li>
         ))}
+        <li>
+          <span className="cat-dot ann-dot-plain" />
+          <span className="ann-legend-label">{PLAIN_DEF.label}</span>
+          <span className="ann-legend-desc">Juste surligner, sans catégorie</span>
+          <span className="kbd">H</span>
+        </li>
         <li>
           <span className="cat-dot ann-dot-note" />
           <span className="ann-legend-label">Note de marge</span>

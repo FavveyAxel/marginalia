@@ -23,6 +23,28 @@ export const CATEGORY_BY_ID: Record<CategoryId, CategoryDef> = Object.fromEntrie
   CATEGORIES.map((c) => [c.id, c]),
 ) as Record<CategoryId, CategoryDef>;
 
+/** Surlignage simple : ni catégorie ni note (Highlight.plain). */
+export const PLAIN_DEF = {
+  id: 'plain' as const,
+  label: 'Surlignage',
+  key: 'h',
+  cssVar: '--cat-plain',
+  description: 'Juste surligner, sans catégorie',
+};
+
+type CatLike = { category: CategoryId | null; plain?: boolean };
+/** Un extrait sans catégorie est soit un surlignage simple, soit une note de marge. */
+export const isPlain = (h: CatLike): boolean => h.category === null && h.plain === true;
+/** Clé de classement : catégorie, 'plain' (surlignage) ou 'note' (note de marge). */
+export type ExtractKind = CategoryId | 'plain' | 'note';
+export const kindOf = (h: CatLike): ExtractKind => h.category ?? (h.plain ? 'plain' : 'note');
+/** Libellé court : catégorie, « Surlignage » ou « Note de marge ». */
+export const kindLabel = (h: CatLike): string => (h.category ? CATEGORY_BY_ID[h.category].label : h.plain ? PLAIN_DEF.label : 'Note de marge');
+/** Variable CSS de couleur (pastille, filet) : catégorie, surlignage ou gris des notes. */
+export const kindColor = (h: CatLike): string => (h.category ? `var(--cat-${h.category})` : h.plain ? 'var(--cat-plain)' : 'var(--muted)');
+/** Classe CSS du surlignage dans le texte. */
+export const hlClass = (h: CatLike): string => (h.category ? `hl-${h.category}` : h.plain ? 'hl-plain' : 'hl-note');
+
 export const hlBg = (id: CategoryId) => `var(--hl-${id})`;
 export const catColor = (id: CategoryId) => `var(--cat-${id})`;
 

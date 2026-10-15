@@ -2,7 +2,7 @@
 import { useMemo, useState, type CSSProperties } from 'react';
 import { Check, Layers } from 'lucide-react';
 import { uid, useStore } from '../../lib/store';
-import { CATEGORY_BY_ID } from '../../lib/categories';
+import { kindLabel } from '../../lib/categories';
 import { CategoryDot } from '../../components/ui';
 import type { Book, Concept, ConceptSense, Highlight, ReviewCard } from '../../lib/types';
 import { newFsrs } from './fsrs';
@@ -297,7 +297,7 @@ export function Creator() {
                       {src.kind === 'extract' ? (
                         <>
                           {src.h.category && <CategoryDot id={src.h.category} size={7} />}
-                          {src.h.category ? CATEGORY_BY_ID[src.h.category].label : 'Note de marge'}
+                          {kindLabel(src.h)}
                           {src.h.locationLabel ? ` · ${src.h.locationLabel}` : ''}
                         </>
                       ) : (

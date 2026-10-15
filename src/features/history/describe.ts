@@ -2,7 +2,7 @@
 // Libellés lisibles du journal : titres d'objets, résumés de changements,
 // regroupement des entrées. Pur (reçoit les données en argument).
 // ─────────────────────────────────────────────────────────────
-import { CATEGORY_BY_ID, NOTE_KIND_BY_ID } from '../../lib/categories';
+import { CATEGORY_BY_ID, NOTE_KIND_BY_ID, kindLabel } from '../../lib/categories';
 import type {
   ActivityAction,
   ActivityEntry,
@@ -214,7 +214,10 @@ export function describeUpdate(col: TrackedCollection, before: any, after: any, 
   for (const k of f) {
     const a = before[k];
     const b = after[k];
-    if (col === 'highlights' && k === 'category') parts.push(`Catégorie : ${arrow(catLabel(a), catLabel(b))}`);
+    if (col === 'highlights' && k === 'category') parts.push(`Catégorie : ${arrow(kindLabel(before), kindLabel(after))}`);
+    else if (col === 'highlights' && k === 'plain') {
+      if (!f.includes('category')) parts.push(`Type : ${arrow(kindLabel(before), kindLabel(after))}`);
+    }
     else if (col === 'highlights' && k === 'noteKind') parts.push(`Type de note : ${arrow(noteKindLabel(a), noteKindLabel(b))}`);
     else if (col === 'highlights' && k === 'printedPage') parts.push(`Page imprimée : ${arrow(a, b)}`);
     else if (k === 'conceptIds') {
@@ -245,7 +248,7 @@ export function describeUpdate(col: TrackedCollection, before: any, after: any, 
 
 function describeCreate(col: TrackedCollection, item: any, d: Partial<Data>): string {
   const kind = COL_KIND[col];
-  if (col === 'highlights') return item.category ? `Extrait ajouté (${catLabel(item.category)})` : 'Note de marge ajoutée';
+  if (col === 'highlights') return item.category ? `Extrait ajouté (${catLabel(item.category)})` : item.plain ? 'Surlignage ajouté' : 'Note de marge ajoutée';
   if (col === 'wsItems') {
     const ws = d.workspaces?.find((w) => w.id === item.workspaceId);
     return ws ? `Ajouté à l’espace « ${ws.name} »` : 'Ajouté à un espace';

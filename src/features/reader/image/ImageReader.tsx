@@ -7,6 +7,7 @@ import { SelectionToolbar } from '../../../components/SelectionToolbar';
 import { Skeleton } from '../../../components/ui';
 import { host } from '../../../lib/platform';
 import type { CategoryId, NormRect, PdfAnchor, ReaderPosition } from '../../../lib/types';
+import { hlClass } from '../../../lib/categories';
 import type { EngineHandle, EngineProps, SearchHit } from '../engine';
 import { findAll, makeSnippet, normalizeQuery, spanOf } from '../pdf/textindex';
 import { displayableBlob, ImageDecodeError, ORIENT } from './decode';
@@ -414,12 +415,12 @@ export const ImageReader = forwardRef<EngineHandle, EngineProps>(function ImageR
     return s ? { anchor: { kind: 'pdf', page: 1, rects: s.rects }, text: s.text, label: LABEL_TEXT } : null;
   };
 
-  const onPick = (category: CategoryId | null, withNote: boolean) => {
+  const onPick = (category: CategoryId | null, withNote: boolean, plain?: boolean) => {
     const t = takePending();
     if (!t) return;
     clearSelection();
     setZoneMode(false);
-    P.current.onCreateHighlight({ anchor: t.anchor, text: t.text, locationLabel: t.label, category, printedPage: printedPage() }, withNote);
+    P.current.onCreateHighlight({ anchor: t.anchor, text: t.text, locationLabel: t.label, category, plain: plain || undefined, printedPage: printedPage() }, withNote);
   };
   const onCite = () => {
     const t = takePending();
@@ -482,7 +483,7 @@ export const ImageReader = forwardRef<EngineHandle, EngineProps>(function ImageR
     () =>
       props.highlights
         .filter((h) => h.anchor.kind === 'pdf' && h.anchor.page === 1)
-        .map((h) => ({ id: h.id, category: h.category, rects: (h.anchor as PdfAnchor).rects, zone: h.locationLabel === LABEL_ZONE })),
+        .map((h) => ({ id: h.id, category: h.category, plain: h.plain, rects: (h.anchor as PdfAnchor).rects, zone: h.locationLabel === LABEL_ZONE })),
     [props.highlights],
   );
   const hlRef = useRef(hlList);
@@ -692,7 +693,7 @@ export const ImageReader = forwardRef<EngineHandle, EngineProps>(function ImageR
                       hl.rects.map((r, i) => (
                         <div
                           key={`${hl.id}:${i}`}
-                          className={`hl ${hl.category ? `hl-${hl.category}` : 'hl-note'}${hl.zone ? ' is-zone' : ''}${props.activeHighlightId === hl.id ? ' active' : ''}${pulse?.id === hl.id ? ' pulse' : ''}`}
+                          className={`hl ${hlClass(hl)}${hl.zone ? ' is-zone' : ''}${props.activeHighlightId === hl.id ? ' active' : ''}${pulse?.id === hl.id ? ' pulse' : ''}`}
                           data-hl-id={hl.id}
                           style={{ left: pct(r.x), top: pct(r.y), width: pct(r.w), height: pct(r.h) }}
                         />

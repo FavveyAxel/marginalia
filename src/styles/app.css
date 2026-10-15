@@ -528,6 +528,9 @@ textarea {
   min-width: 16px;
   font-size: 10px;
 }
+.sel-toolbar .cat-btn.sel-plain svg { stroke-width: 2.2; }
+/* Barre compacte (lecteur du panneau de l'éditeur) : « Surligner » en icône seule. */
+.sel-toolbar:has(.sel-cite) .sel-plain-lbl { display: none; }
 .sel-toolbar .sep {
   width: 1px;
   height: 18px;
@@ -548,6 +551,7 @@ textarea {
 /* Note de marge pure (« ma voix ») : soulignement pointillé */
 .hl-note { background: transparent; border-bottom: 2px dotted var(--muted); border-radius: 0; }
 .connector { font-weight: 600; text-decoration: underline; text-decoration-color: var(--focus); text-underline-offset: 3px; }
+.hl-plain { background: var(--hl-plain); }
 .hl-these { background: var(--hl-these); box-shadow: inset 0 -2px 0 var(--cat-these); }
 .hl-argument { background: var(--hl-argument); box-shadow: inset 0 -2px 0 var(--cat-argument); }
 .hl-objection { background: var(--hl-objection); box-shadow: inset 0 -2px 0 var(--cat-objection); }

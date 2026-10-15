@@ -1,6 +1,6 @@
 // Export Markdown compatible Obsidian : front matter YAML, callouts, [[wikilinks]].
 import type { Book, Concept, Database, Highlight, MapEdge, MapNode, TextStudy } from './types';
-import { CATEGORIES, CATEGORY_BY_ID, NOTE_KIND_BY_ID, RELATION_BY_ID } from './categories';
+import { CATEGORIES, NOTE_KIND_BY_ID, RELATION_BY_ID, kindLabel as extractLabel, kindOf } from './categories';
 
 // ── Utilitaires ──────────────────────────────────────────────
 const today = () => new Date().toISOString().slice(0, 10);
@@ -70,8 +70,8 @@ function conceptNames(h: Highlight, db: Database): string[] {
 }
 
 function calloutFor(h: Highlight, db: Database): string {
-  const margin = h.category === null;
-  const label = margin ? 'Note de marge' : CATEGORY_BY_ID[h.category!].label;
+  const margin = kindOf(h) === 'note';
+  const label = extractLabel(h);
   const kind = margin ? 'note' : 'quote';
   const lines: string[] = [`> [!${kind}] ${headerParts(h, label)}`];
   const text = h.text.trim();
@@ -199,7 +199,9 @@ export function bookToMarkdown(bookId: string, db: Database): string {
     const n = hs.filter((h) => h.category === c.id).length;
     out.push(`- ${c.label} : ${n}`);
   }
-  const margins = hs.filter((h) => h.category === null).length;
+  const plains = hs.filter((h) => kindOf(h) === 'plain').length;
+  if (plains) out.push(`- Surlignages : ${plains}`);
+  const margins = hs.filter((h) => kindOf(h) === 'note').length;
   out.push(`- Notes de marge : ${margins}`);
   out.push(`- Total : ${hs.length}`, '');
 
@@ -254,7 +256,7 @@ function conceptBody(c: Concept, db: Database, level: 1 | 2): string {
     for (const h of sorted) {
       const book = bookOf(h.bookId);
       const loc = h.printedPage.trim() ? `p. ${h.printedPage.trim()}` : h.locationLabel;
-      const cat = h.category ? CATEGORY_BY_ID[h.category].label : 'Note de marge';
+      const cat = extractLabel(h);
       const title = [book ? wikilink(book.title) : '', loc, cat].filter(Boolean).join(' · ');
       const lines = [`> [!quote] ${title}`];
       if (h.text.trim()) lines.push(quoteBlock(h.text));

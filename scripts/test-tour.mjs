@@ -363,7 +363,7 @@ async function tour(page, { platform = '' } = {}) {
   await tap(page, 'button:has-text("Versions")', { wait: 700 });
   await esc(page, 2);
   begin('écrits : export');
-  if (await tap(page, '.ed-topbar button[aria-haspopup="menu"]:has-text("Exporter")')) {
+  if (await tap(page, '.ed-topbar [data-tb="export"]:has-text("Exporter")')) {
     const dl = page.waitForEvent('download', { timeout: 8000 }).catch(() => null);
     await tap(page, '.ed-export-menu [data-fmt="docx"], .ed-export-menu [data-fmt] >> nth=0', { wait: 300 });
     await dl;

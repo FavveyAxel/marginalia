@@ -271,6 +271,20 @@
 }
 .ed-topbar {
   gap: 6px;
+  container: ed-topbar / inline-size;
+}
+/* Fenêtre étroite : la barre du haut se resserre au lieu de déborder (raccourci de « Enregistrer »,
+   puis libellés « Exporter » et état d'enregistrement : le point coloré et l'infobulle restent). */
+@container ed-topbar (max-width: 900px) {
+  .ed-topbar .btn-primary .kbd {
+    display: none;
+  }
+}
+@container ed-topbar (max-width: 820px) {
+  .ed-topbar .ed-export-label,
+  .ed-topbar .ed-status-text {
+    display: none;
+  }
 }
 .ed-back {
   padding-left: 8px;
@@ -773,11 +787,12 @@
 }
 .ed-toolbar {
   display: inline-flex;
-  flex-wrap: wrap;
+  /* une seule ligne : ce qui ne tient pas passe sous « … » (Toolbar.tsx) */
+  flex-wrap: nowrap;
   align-items: center;
   justify-content: center;
-  row-gap: 2px;
   max-width: 100%;
+  min-width: 0;
   padding: 3px 4px;
   border-radius: 10px;
   background: var(--bg-panel);
@@ -786,9 +801,10 @@
 .ed-tb-group {
   position: relative;
   display: inline-flex;
+  flex: none;
   align-items: center;
   gap: 1px;
-  padding: 0 5px;
+  padding: 0 4px;
 }
 .ed-tb-group + .ed-tb-group::before {
   content: '';
@@ -800,6 +816,7 @@
   background: var(--border);
 }
 .ed-toolbar .icon-btn.sm,
+.ed-tb-overflow .icon-btn.sm,
 .ed-selbar .icon-btn.sm {
   width: 28px;
   height: 28px;
@@ -854,6 +871,25 @@
   font-variant-numeric: tabular-nums;
   min-width: 38px;
   text-align: right;
+}
+/* « … » : groupes rangés quand la fenêtre est étroite, sur une ligne comme dans la barre. */
+.ed-tb-overflow-pop {
+  padding: 3px 4px;
+}
+.ed-tb-overflow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  max-width: min(560px, calc(100vw - 32px));
+}
+/* Barre du haut : mise en page et zoom, à la hauteur des autres boutons. */
+.ed-topbar .ed-top-zoom {
+  height: 30px;
+  padding: 0 4px 0 6px;
+  gap: 2px;
+}
+.ed-topbar .ed-top-zoom .ed-tb-menu-text {
+  min-width: 36px;
 }
 .ed-tb-text {
   gap: 5px;

@@ -214,7 +214,7 @@ async function sel(page, needle, caret = null, nth = 0) {
 }
 const state = (page) => page.evaluate(() => window.__ed.engine().state());
 async function menu(page, tb, item) {
-  await page.click(`.ed-toolbar [data-tb="${tb}"]`);
+  await page.click(tb === 'zoom' || tb === 'page' ? `.ed-topbar [data-tb="${tb}"]` : `.ed-toolbar [data-tb="${tb}"]`);
   await page.waitForTimeout(150);
   await page.click(item);
   await page.waitForTimeout(250);
@@ -361,6 +361,33 @@ await withApp(async (page) => {
 
     // tableau 3 colonnes × 2 lignes, + ligne, fusion
     await sel(page, 'avant le tableau.', 'end');
+    // Barre de mise en forme sur une seule ligne (1440 px) ; mise en page et zoom dans la barre du haut,
+    // après la concentration ; bouton Tableau seulement le curseur dans un tableau (insertion par « + »).
+    const bar = await page.evaluate(() => {
+      const tb = document.querySelector('.ed-toolbar');
+      const tops = new Set([...tb.querySelectorAll(':scope > .ed-tb-group')].map((g) => Math.round(g.getBoundingClientRect().top)));
+      const top = [...document.querySelectorAll('.ed-topbar > *')];
+      const i = (sel) => top.findIndex((el) => el.matches(sel) || !!el.querySelector(sel));
+      return { rows: tops.size, more: !!tb.querySelector('[data-tb="more"]'), inTb: !!tb.querySelector('[data-tb="page"], [data-tb="zoom"]'), order: [i('[data-focus-toggle]'), i('[data-tb="page"]'), i('[data-tb="zoom"]'), top.findIndex((el) => /Exporter/.test(el.textContent || ''))] };
+    });
+    check('barre de mise en forme : une ligne, rien sous « … » (1440 px)', bar.rows === 1 && !bar.more, JSON.stringify(bar));
+    check('mise en page et zoom : barre du haut, entre concentration et Exporter', !bar.inTb && bar.order.every((n, k) => n >= 0 && (k === 0 || n > bar.order[k - 1])), JSON.stringify(bar.order));
+    check('tableau : pas de bouton Tableau hors d’un tableau', (await page.locator('.ed-toolbar [data-tb="table"]').count()) === 0);
+    // Fenêtre étroite (1000 px, minimum de la fenêtre) : groupes rangés sous « … », toujours une ligne
+    await page.setViewportSize({ width: 1000, height: 900 });
+    await page.waitForTimeout(500);
+    const narrow = await page.evaluate(() => {
+      const tb = document.querySelector('.ed-toolbar');
+      const top = document.querySelector('.ed-topbar');
+      return { rows: new Set([...tb.querySelectorAll(':scope > .ed-tb-group')].map((g) => Math.round(g.getBoundingClientRect().top))).size, collapsed: tb.dataset.collapsed ?? '', topOverflow: top.scrollWidth - top.clientWidth };
+    });
+    await page.click('.ed-toolbar [data-tb="more"]');
+    const inMore = await page.locator('.ed-tb-overflow [data-tb="undo"], .ed-tb-overflow [data-tb="insert"]').count();
+    await page.keyboard.press('Escape');
+    check('fenêtre étroite : une ligne, groupes sous « … », barre du haut sans débordement', narrow.rows === 1 && narrow.collapsed.includes('history') && inMore === 2 && narrow.topOverflow <= 0, JSON.stringify({ ...narrow, inMore }));
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.waitForTimeout(500);
+    await sel(page, 'avant le tableau.', 'end');
     await page.click('.ed-toolbar [data-tb="insert"]');
     await page.hover('.ed-insert-menu [data-grid="2x3"]');
     await page.click('.ed-insert-menu [data-grid="2x3"]');
@@ -399,7 +426,7 @@ await withApp(async (page) => {
     await page.keyboard.press('Escape');
 
     // Mise en page : marges étroites, paysage, numéros « Page X / Y », page de garde
-    await page.click('.ed-toolbar [data-tb="page"]');
+    await page.click('.ed-topbar [data-tb="page"]');
     await page.waitForSelector('.ed-page-setup');
     await page.click('.ed-page-setup [data-margins="narrow"]');
     await idle(page);
@@ -416,7 +443,7 @@ await withApp(async (page) => {
     await page.keyboard.press('Escape');
 
     // ⌘Z annule une opération de mise en page (instantané)
-    await page.click('.ed-toolbar [data-tb="page"]');
+    await page.click('.ed-topbar [data-tb="page"]');
     await page.click('.ed-page-setup [data-margins="wide"]');
     await idle(page);
     await page.keyboard.press('Escape');
@@ -462,7 +489,7 @@ await withApp(async (page) => {
     await menu(page, 'zoom', '.ed-zoom-menu [data-zoom="150"]');
     await page.waitForTimeout(400);
     const z150 = await page.evaluate(() => window.__ed.engine().zoom());
-    const z150label = await page.textContent('.ed-toolbar [data-tb="zoom"]');
+    const z150label = await page.textContent('.ed-topbar [data-tb="zoom"]');
     await menu(page, 'zoom', '.ed-zoom-menu [data-zoom="fit"]');
     await page.waitForTimeout(400);
     check('zoom : 150 % puis ajusté à la fenêtre', z150 === 150 && /150/.test(z150label) && (await page.evaluate(() => window.__ed.engine().zoom())) !== 150, `${z150} ; « ${z150label} »`);
@@ -578,7 +605,7 @@ await withApp(async (page) => {
     fs.writeFileSync(p0, await readLib(page, d.id));
     await openDraft(page, d.id);
     const words0 = await page.evaluate(() => window.__ed.engine().wordCount());
-    await page.click('.ed-toolbar [data-tb="page"]');
+    await page.click('.ed-topbar [data-tb="page"]');
     await page.click('.ed-page-setup [data-action="academic"]');
     await idle(page);
     await page.waitForTimeout(1500);
@@ -592,7 +619,7 @@ await withApp(async (page) => {
     await page.waitForTimeout(1200);
     const spUndo = await page.evaluate(() => window.__ed.engine().styleProps('body'));
     check('fixture : ⌘Z rétablit la présentation d’origine', spUndo.fontFamily !== 'Times New Roman' || spUndo.lineSpacing !== 1.5, JSON.stringify(spUndo));
-    await page.click('.ed-toolbar [data-tb="page"]');
+    await page.click('.ed-topbar [data-tb="page"]');
     await page.click('.ed-page-setup [data-action="academic"]');
     await idle(page);
     await page.waitForTimeout(1200);
@@ -636,7 +663,7 @@ await withApp(async (page) => {
       await shot(page, `${SHOTS}/barre${suf}.png`);
       const open = async (tb, name, after) => {
         await sel(page, 'bon sens est la chose');
-        await page.click(`.ed-toolbar [data-tb="${tb}"]`);
+        await page.click(tb === 'page' ? '.ed-topbar [data-tb="page"]' : `.ed-toolbar [data-tb="${tb}"]`);
         await page.waitForTimeout(450);
         if (after) await after();
         await shot(page, `${SHOTS}/${name}${suf}.png`);

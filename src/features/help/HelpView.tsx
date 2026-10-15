@@ -175,7 +175,7 @@ const GUIDES: Record<string, Guide> = {
   },
   apparence: {
     why: 'Travailler longtemps sans fatigue visuelle, en sachant que vos textes restent chez vous.',
-    how: ['Choisissez le thème en bas de la barre latérale (automatique, clair, sombre, sépia).', 'Dans Écrire, le menu Affichage règle la teinte de la page et le zoom.'],
+    how: ['Choisissez le thème en bas de la barre latérale (automatique, clair, sombre, sépia).', 'Dans Écrire, le menu Affichage (le pourcentage, en haut à droite) règle la teinte de la page et le zoom.'],
     example: 'Le soir : thème Sombre et page « Sombre » dans Écrire ; vos exports PDF restent pourtant noir sur blanc.',
   },
 };
@@ -380,8 +380,8 @@ const SECTIONS: Section[] = [
     icon: <FilePen size={16} />,
     intro: 'Un traitement de texte complet, qui ouvre et enregistre des fichiers Word (.docx), pensé pour la dissertation et l’explication de texte.',
     items: [
-      { title: 'Mise en forme', text: `Styles (Titre 1-3, Corps, Citation…), toutes les polices installées sur ${OS_TEXT.yourComputer}, couleurs, alignement, listes, tableaux, mise en page (marges, format), zoom. Modèles : dissertation, explication de texte, fiche, présentation universitaire.` },
-      { title: 'Page et zoom', text: 'La page prend la teinte du thème (crème, sépia, anthracite) ou celle choisie dans le menu Affichage (le pourcentage dans la barre), qui règle aussi le zoom (« Ajuster à la largeur » par défaut) — affichage seulement : le fichier Word, les exports et l’impression gardent les vraies couleurs. Les nouveaux écrits partent en Literata 12, interligne 1,5 (police réglable dans le menu Nouveau).', keys: ['⌘+', '⌘-', '⌘0'] },
+      { title: 'Mise en forme', text: `Styles (Titre 1-3, Corps, Citation…), toutes les polices installées sur ${OS_TEXT.yourComputer}, couleurs, alignement, listes, tableaux (insérés depuis « + » ; le bouton Tableau apparaît dans la barre quand le curseur est dans un tableau), mise en page (marges, format : bouton page de la barre du haut), zoom. Fenêtre étroite : les outils qui ne tiennent pas sont sous « … ». Modèles : dissertation, explication de texte, fiche, présentation universitaire.` },
+      { title: 'Page et zoom', text: 'La page prend la teinte du thème (crème, sépia, anthracite) ou celle choisie dans le menu Affichage (le pourcentage dans la barre du haut, à côté de la mise en page), qui règle aussi le zoom (« Ajuster à la largeur » par défaut) — affichage seulement : le fichier Word, les exports et l’impression gardent les vraies couleurs. Les nouveaux écrits partent en Literata 12, interligne 1,5 (police réglable dans le menu Nouveau).', keys: ['⌘+', '⌘-', '⌘0'] },
       { title: 'Notes', text: 'Notes de bas de page, et notes privées (fond teinté) : visibles pour vous, jamais exportées.', keys: ['⌘⌥F', '⌘⌥N'] },
       { title: 'Commentaires en marge', text: 'Sélectionnez un passage puis « Commenter » : une bulle s’ouvre dans la marge, à hauteur de la ligne (Entrée publie). Répondez, modifiez, marquez « résolu » ou supprimez (annulable) ; le bouton bulle de la barre du haut les affiche ou les masque. Ce sont de vrais commentaires Word : ils restent dans le .docx, mais pas dans les exports PDF, Markdown, web ou texte. Exemple : sélectionnez « une thèse discutable » et notez « À nuancer avec Kant ».', keys: ['⌘⌥M'] },
       { title: 'Citer en écrivant', text: 'Le panneau de droite affiche au choix un Livre (le vrai lecteur : sélectionnez un passage puis « Citer » ou C), vos Extraits, vos Concepts ou un Plan. Une citation garde son lien : ⌘-clic dessus ramène au passage du livre. Le panneau se redimensionne et se met en 50/50.' },

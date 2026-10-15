@@ -101,7 +101,7 @@ async function exportVia(fmt, file) {
   const [dl] = await Promise.all([
     page.waitForEvent('download', { timeout: 30000 }),
     (async () => {
-      await page.click('.ed-topbar button[aria-haspopup="menu"]:has-text("Exporter")');
+      await page.click('.ed-topbar [data-tb="export"]:has-text("Exporter")');
       await page.click(`.ed-export-menu [data-fmt="${fmt}"]`);
     })(),
   ]);

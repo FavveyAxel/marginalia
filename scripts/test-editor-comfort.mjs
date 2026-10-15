@@ -248,7 +248,7 @@ try {
   const exDark = await exportVia(page, 'export-sombre.docx');
 
   // ── Option « Blanc » (thème sombre conservé) ──
-  await page.click('.ed-toolbar [data-tb="zoom"]');
+  await page.click('.ed-topbar [data-tb="zoom"]');
   await page.waitForSelector('.ed-view-menu [data-tint="white"]');
   await page.screenshot({ path: path.join(OUT, 'menu-affichage.png') });
   await page.click('.ed-view-menu [data-tint="white"]');
@@ -283,7 +283,7 @@ try {
   check('impression : aucune couleur de teinte', !/2a2926|e2dccf|fbf7ee|f4ead5/i.test(print));
 
   // Retour à « Suivre le thème », sombre : sélection et barre d'insertion
-  await page.click('.ed-toolbar [data-tb="zoom"]');
+  await page.click('.ed-topbar [data-tb="zoom"]');
   await page.click('.ed-view-menu [data-tint="theme"]');
   await page.waitForTimeout(400);
   check('Suivre le thème : sombre', (await painted(page)).tint === 'dark');
@@ -371,7 +371,7 @@ try {
   const docBefore = await page.evaluate(() => window.__ed.engine().state().fontSize);
 
   // Valeur fixe, mémorisée
-  await page.click('.ed-toolbar [data-tb="zoom"]');
+  await page.click('.ed-topbar [data-tb="zoom"]');
   await page.click('.ed-view-menu [data-zoom="125"]');
   await page.waitForTimeout(500);
   check('zoom 125 % mémorisé', (await page.evaluate(() => [window.__ed.engine().zoom(), localStorage.getItem('marginalia.ed.zoom')])).join() === '125,125');

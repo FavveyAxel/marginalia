@@ -101,7 +101,7 @@ async function exportVia(page, fmt, file) {
   return download(
     page,
     async () => {
-      await page.click('.ed-topbar button[aria-haspopup="menu"]');
+      await page.click('.ed-topbar [data-tb="export"]');
       await page.click(`.ed-export-menu [data-fmt="${fmt}"]`);
     },
     file,
@@ -315,7 +315,7 @@ await withApp(PORT, async (page, errors) => {
     const txt = fs.readFileSync((await exportVia(page, 'txt', 'fixture.txt')).path, 'utf8');
     check('Texte brut : contenu et notes', txt.includes('MARQUEUR-EDIT') && txt.includes('PREMIÈRE PARTIE') && /\nNotes\n/.test(txt) && !/[<>]/.test(txt.slice(0, 500)));
     // PDF en navigateur : erreur attendue → message propre, pas de plantage
-    await page.click('.ed-topbar button[aria-haspopup="menu"]');
+    await page.click('.ed-topbar [data-tb="export"]');
     await page.click('.ed-export-menu [data-fmt="pdf"]');
     await page.waitForTimeout(1500);
     const toastTxt = await page.evaluate(() => window.__store.getState().toasts?.map((t) => t.message).join(' | ') ?? document.body.innerText);
@@ -516,7 +516,7 @@ await withApp(PORT, async (page, errors) => {
       await page.fill('.ed-extracts input[aria-label="Rechercher dans les extraits"]', '');
       await page.waitForTimeout(200);
       await shot(page, `shots/editor/editeur${suf}.png`);
-      await page.click('.ed-topbar button[aria-haspopup="menu"]');
+      await page.click('.ed-topbar [data-tb="export"]');
       await page.waitForTimeout(250);
       await shot(page, `shots/editor/export${suf}.png`);
       await page.keyboard.press('Escape');

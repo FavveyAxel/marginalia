@@ -28,6 +28,7 @@ import { quoteText } from './ExtractsPane';
 import { SidePanel } from './SidePanel';
 import { Popover, usePop } from './Popover';
 import { Toolbar } from './Toolbar';
+import { PageSetupButton, ZoomMenu } from './ViewControls';
 import { SelectionBar } from './SelectionBar';
 import { LinkEditor } from './LinkEditor';
 import { usePrivateNotes } from './privateNotesUi';
@@ -736,7 +737,7 @@ function Editor({ draft }: { draft: Draft }) {
       else if (ev.shiftKey && lk === 'k') {
         ev.preventDefault();
         ev.stopPropagation();
-        const b = document.querySelector<HTMLElement>('.ed-selbar [data-sb="link"]') ?? document.querySelector<HTMLElement>('.ed-toolbar [data-tb="insert"]');
+        const b = document.querySelector<HTMLElement>('.ed-selbar [data-sb="link"]') ?? document.querySelector<HTMLElement>('.ed-toolbar :is([data-tb="insert"], [data-tb="more"])');
         if (b) openLink(b);
       } else if (k === '\\' || code === 'Backslash') act(() => eng.clearInlineFormatting());
       else if (!ev.shiftKey && lk === 'l') act(() => eng.setAlign('left'));
@@ -967,9 +968,9 @@ function Editor({ draft }: { draft: Draft }) {
           spellCheck={false}
         />
         {statusLabel && (
-          <span className={`ed-status ${statusTone}`} title={statusHint} data-status={status}>
+          <span className={`ed-status ${statusTone}`} title={statusHint || statusLabel} data-status={status}>
             <span className="ed-status-dot" />
-            {statusLabel}
+            <span className="ed-status-text">{statusLabel}</span>
           </span>
         )}
         <div className="spacer" />
@@ -1003,8 +1004,10 @@ function Editor({ draft }: { draft: Draft }) {
           <PanelRight size={16} />
         </button>
         <FocusButton focusMode={focusMode} setFocusMode={setFocusMode} prefs={focusPrefs} />
-        <button className="btn" disabled={phase !== 'ready' || busyExport} onClick={(e) => exportPop.toggle(e.currentTarget)} aria-haspopup="menu">
-          <Download size={14} /> Exporter <ChevronDown size={13} style={{ marginRight: -4, opacity: 0.7 }} />
+        <PageSetupButton engine={() => engineRef.current} editable={editable && !layoutBusy} structural={structural} />
+        <ZoomMenu zoom={zoom} setZoom={setZoom} zoomFit={zoomFit} tint={pageTint} setTint={setPageTint} />
+        <button className="btn" disabled={phase !== 'ready' || busyExport} onClick={(e) => exportPop.toggle(e.currentTarget)} aria-haspopup="menu" title="Exporter une copie" data-tb="export">
+          <Download size={14} /> <span className="ed-export-label">Exporter</span> <ChevronDown size={13} style={{ marginRight: -4, opacity: 0.7 }} />
         </button>
         <button className="btn btn-primary" disabled={!editable || status === 'saving'} onClick={() => void save(true)} title={draft.externalPath ? `Écrire dans ${draft.externalPath}` : 'Enregistrer dans Marginalia'}>
           Enregistrer <Kbd>⌘S</Kbd>
@@ -1074,11 +1077,6 @@ function Editor({ draft }: { draft: Draft }) {
           structural={structural}
           openLink={openLink}
           insertFootnote={insertFootnote}
-          zoom={zoom}
-          setZoom={setZoom}
-          zoomFit={zoomFit}
-          tint={pageTint}
-          setTint={setPageTint}
           undo={undo}
           redo={redo}
           marks={showMarks}

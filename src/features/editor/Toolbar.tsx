@@ -1,6 +1,6 @@
 // Barre d'outils de l'éditeur : groupes compacts, menus déroulants, états actifs,
 // infobulles avec raccourcis. Toutes les actions passent par le DocEngine.
-import { useRef, useState, type ReactNode } from 'react';
+import { Fragment, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import {
   AlignCenter,
   AlignJustify,
@@ -10,7 +10,6 @@ import {
   Baseline,
   Bold,
   ChevronDown,
-  FileText,
   Highlighter,
   ImagePlus,
   IndentDecrease,
@@ -20,6 +19,7 @@ import {
   List,
   ListOrdered,
   ListTree,
+  MoreHorizontal,
   Omega,
   Pilcrow,
   Plus,
@@ -42,11 +42,8 @@ import { Popover, usePop } from './Popover';
 import { FontPicker } from './FontPicker';
 import { ColorButton, KEYS, MenuRow, NumField, SizeControl, TbButton, keepFocus, tip } from './controls';
 import { STYLE_LABEL, STYLE_ORDER, StyleEditor } from './StyleEditor';
-import { PageSetupPanel } from './PageSetup';
 import { PrivateNoteTools } from './privateNotesUi';
 import { useTypography } from './FindReplace';
-import { PAGE_TINTS, type PageTint } from './view';
-import { fmtKeys } from '../../lib/keys';
 
 export type StructuralOp = (label: string, run: () => Promise<ArrayBuffer>) => Promise<void>;
 
@@ -60,13 +57,6 @@ export interface ToolbarProps {
   structural: StructuralOp;
   openLink: (anchor: HTMLElement) => void;
   insertFootnote: () => void;
-  zoom: number;
-  setZoom: (z: number | 'fit') => void;
-  /** Mode « Ajuster à la largeur » actif. */
-  zoomFit?: boolean;
-  /** Teinte de la page (affichage seulement). */
-  tint?: PageTint;
-  setTint?: (t: PageTint) => void;
   undo: () => void;
   redo: () => void;
   /** Marques de mise en forme (¶) affichées (marks.tsx). */
@@ -79,7 +69,6 @@ const ALIGN_ICON: Record<Align, typeof AlignLeft> = { left: AlignLeft, center: A
 const ALIGN_LABEL: Record<Align, string> = { left: 'Aligner à gauche', center: 'Centrer', right: 'Aligner à droite', justify: 'Justifier' };
 const ALIGN_KEY: Record<Align, string> = { left: KEYS.left, center: KEYS.center, right: KEYS.right, justify: KEYS.justify };
 const LINES = [1, 1.15, 1.5, 2];
-const ZOOMS = [75, 100, 125, 150, 200];
 const CM = 567;
 const fr = (n: number) => String(Math.round(n * 100) / 100).replace('.', ',');
 
@@ -103,15 +92,25 @@ export const SPECIAL_CHARS: { ch: string; label: string; show?: string }[] = [
   { ch: '×', label: 'Multiplication' },
 ];
 
-function Group({ children, label }: { children: ReactNode; label: string }) {
+/** Groupes de la barre, dans l'ordre d'affichage. */
+type GroupId = 'history' | 'style' | 'font' | 'chars' | 'paragraph' | 'insert';
+const GROUP_IDS: GroupId[] = ['history', 'style', 'font', 'chars', 'paragraph', 'insert'];
+const GROUP_LABEL: Record<GroupId, string> = { history: 'Historique', style: 'Style', font: 'Police', chars: 'Caractères', paragraph: 'Paragraphe', insert: 'Insertion' };
+/** Fenêtre étroite : groupes rangés sous « … » plutôt que de passer la barre sur deux lignes, le moins
+ *  utilisé d'abord (Annuler / Rétablir ont ⌘Z / ⌘⇧Z). Style et police restent toujours visibles. */
+const COLLAPSE_ORDER: GroupId[] = ['history', 'insert', 'paragraph', 'chars'];
+/** Largeur du groupe « … » (bouton 28 px + marges du groupe), avant sa première mesure. */
+const MORE_W = 39;
+
+function Group({ children, label, id }: { children: ReactNode; label: string; id: string }) {
   return (
-    <div className="ed-tb-group" role="group" aria-label={label}>
+    <div className="ed-tb-group" role="group" aria-label={label} data-group={id}>
       {children}
     </div>
   );
 }
 
-function MenuButton({
+export function MenuButton({
   label,
   shortcut,
   icon,
@@ -168,9 +167,46 @@ export function Toolbar(p: ToolbarProps) {
   const { fmt, editable } = p;
   const [styleEdit, setStyleEdit] = useState<ParaStyle | null>(null);
   const styleEditPop = usePop();
-  const pagePop = usePop();
   const [grid, setGrid] = useState<[number, number]>([0, 0]);
   const fileRef = useRef<HTMLInputElement>(null);
+  const morePop = usePop();
+  const barRef = useRef<HTMLDivElement>(null);
+  /** Largeurs mesurées des groupes (gardées quand un groupe est rangé sous « … »). */
+  const widths = useRef<Partial<Record<GroupId | 'more', number>>>({});
+  const [collapsed, setCollapsed] = useState<GroupId[]>([]);
+  const [, setFitTick] = useState(0);
+
+  // Une seule ligne : mesure les groupes affichés puis range sous « … » ce qui ne tient pas.
+  useLayoutEffect(() => {
+    const bar = barRef.current;
+    const row = bar?.parentElement;
+    if (!bar || !row) return;
+    for (const g of bar.querySelectorAll<HTMLElement>(':scope > [data-group]')) widths.current[g.dataset.group as GroupId] = g.getBoundingClientRect().width;
+    const cs = getComputedStyle(row);
+    const avail = row.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+    if (avail <= 0) return;
+    const bcs = getComputedStyle(bar);
+    let total = parseFloat(bcs.paddingLeft) + parseFloat(bcs.paddingRight) + GROUP_IDS.reduce((n, id) => n + (widths.current[id] ?? 0), 0);
+    const next: GroupId[] = [];
+    for (const id of COLLAPSE_ORDER) {
+      if (total <= avail + 0.5) break;
+      if (!next.length) total += widths.current.more ?? MORE_W;
+      total -= widths.current[id] ?? 0;
+      next.push(id);
+    }
+    if (next.join() !== collapsed.join()) setCollapsed(next);
+  });
+  useEffect(() => {
+    const row = barRef.current?.parentElement;
+    if (!row) return;
+    const ro = new ResizeObserver(() => setFitTick((t) => t + 1));
+    ro.observe(row);
+    return () => ro.disconnect();
+  }, []);
+  useEffect(() => {
+    if (!collapsed.length) morePop.close();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [collapsed.length]);
 
   const run = (fn: (e: DocEngine) => void) => {
     const e = p.engine();
@@ -211,9 +247,9 @@ export function Toolbar(p: ToolbarProps) {
       if (!e.tableOp(op)) p.notify(op === 'merge' ? 'Sélectionnez d’abord plusieurs cellules voisines à fusionner.' : `${label} : action impossible ici.`, 'info');
     });
 
-  return (
-    <div className="ed-toolbar" role="toolbar" aria-label="Mise en forme" data-editable={editable ? '1' : '0'}>
-      <Group label="Historique">
+  const groups: Record<GroupId, ReactNode> = {
+    history: (
+      <Group id="history" label="Historique">
         <TbButton label="Annuler" shortcut={KEYS.undo} disabled={!editable} onClick={p.undo} data-tb="undo">
           <Undo2 size={15} />
         </TbButton>
@@ -221,8 +257,10 @@ export function Toolbar(p: ToolbarProps) {
           <Redo2 size={15} />
         </TbButton>
       </Group>
+    ),
 
-      <Group label="Style">
+    style: (
+      <Group id="style" label="Style">
         <MenuButton label="Style de paragraphe" tb="style" text={STYLE_LABEL[fmt.style]} disabled={!editable} className="ed-tb-style" menuClass="ed-style-menu" width={104}>
           {(close) => (
             <>
@@ -256,13 +294,17 @@ export function Toolbar(p: ToolbarProps) {
           )}
         </MenuButton>
       </Group>
+    ),
 
-      <Group label="Police">
+    font: (
+      <Group id="font" label="Police">
         <FontPicker value={fmt.fontFamily} disabled={!editable} onPick={(f) => run((e) => e.setFontFamily(f))} />
         <SizeControl value={fmt.fontSize} disabled={!editable} onPick={(pt) => run((e) => e.setFontSize(pt))} />
       </Group>
+    ),
 
-      <Group label="Caractères">
+    chars: (
+      <Group id="chars" label="Caractères">
         <TbButton label="Gras" shortcut={KEYS.bold} active={fmt.bold} disabled={!editable} onClick={() => run((e) => e.toggleMark('bold'))} data-tb="bold">
           <Bold size={15} />
         </TbButton>
@@ -288,8 +330,10 @@ export function Toolbar(p: ToolbarProps) {
         <ColorButton kind="text" value={fmt.color} disabled={!editable} icon={<Baseline size={15} />} onPick={(hex) => run((e) => e.setColor(hex))} />
         <ColorButton kind="highlight" value={fmt.highlight} disabled={!editable} icon={<Highlighter size={15} />} onPick={(hex) => run((e) => e.setHighlight(hex))} />
       </Group>
+    ),
 
-      <Group label="Paragraphe">
+    paragraph: (
+      <Group id="paragraph" label="Paragraphe">
         <MenuButton label="Alignement" tb="align" icon={<AlignIcon size={15} />} disabled={!editable} menuClass="ed-align-menu">
           {(close) =>
             (['left', 'center', 'right', 'justify'] as Align[]).map((a) => {
@@ -357,8 +401,10 @@ export function Toolbar(p: ToolbarProps) {
           </TbButton>
         )}
       </Group>
+    ),
 
-      <Group label="Insertion">
+    insert: (
+      <Group id="insert" label="Insertion">
         <button className="ed-tb-text" disabled={!editable} onMouseDown={keepFocus} onClick={p.insertFootnote} title={tip('Note de bas de page', KEYS.footnote)} aria-label="Note de bas de page" data-tb="footnote">
           <span className="ed-note-glyph" aria-hidden>
             1
@@ -434,9 +480,9 @@ export function Toolbar(p: ToolbarProps) {
             </>
           )}
         </MenuButton>
-        {/* toujours présent (largeur de la barre stable), actif seulement dans un tableau */}
-        {(
-          <MenuButton label={fmt.inTable ? 'Tableau' : 'Tableau (placez le curseur dans un tableau)'} tb="table" icon={<Table size={15} />} active={fmt.inTable} disabled={!editable || !fmt.inTable} menuClass="ed-table-menu">
+        {/* Le tableau s'insère depuis « + » ; ses commandes n'apparaissent que le curseur dans un tableau. */}
+        {fmt.inTable && (
+          <MenuButton label="Tableau" tb="table" icon={<Table size={15} />} active disabled={!editable} menuClass="ed-table-menu">
             {(close) => (
               <>
                 <MenuRow label="Insérer une ligne au-dessus" onClick={() => (close(), tableOp('rowBefore', 'Ligne'))} data-table="rowBefore" />
@@ -455,7 +501,42 @@ export function Toolbar(p: ToolbarProps) {
             )}
           </MenuButton>
         )}
-        <input
+      </Group>
+    ),
+  };
+
+  const shown = GROUP_IDS.filter((id) => !collapsed.includes(id));
+  const hidden = GROUP_IDS.filter((id) => collapsed.includes(id));
+
+  return (
+    <div ref={barRef} className="ed-toolbar" role="toolbar" aria-label="Mise en forme" data-editable={editable ? '1' : '0'} data-collapsed={hidden.join(' ') || undefined}>
+      {shown.map((id) => (
+        <Fragment key={id}>{groups[id]}</Fragment>
+      ))}
+      {hidden.length > 0 && (
+        <div className="ed-tb-group" role="group" aria-label="Autres outils" data-group="more">
+          <button
+            className={`icon-btn sm ed-tb-btn ${morePop.isOpen ? 'active' : ''}`}
+            onMouseDown={keepFocus}
+            onClick={(e) => morePop.toggle(e.currentTarget)}
+            title={`Autres outils : ${hidden.map((id) => GROUP_LABEL[id].toLowerCase()).join(', ')}`}
+            aria-label="Autres outils"
+            aria-haspopup="dialog"
+            aria-expanded={morePop.isOpen}
+            data-tb="more"
+          >
+            <MoreHorizontal size={16} />
+          </button>
+        </div>
+      )}
+      <Popover pop={morePop} label="Autres outils" className="ed-menu ed-tb-overflow-pop">
+        <div className="ed-tb-overflow" role="toolbar" aria-label="Autres outils de mise en forme">
+          {hidden.map((id) => (
+            <Fragment key={id}>{groups[id]}</Fragment>
+          ))}
+        </div>
+      </Popover>
+      <input
           ref={fileRef}
           type="file"
           accept="image/png,image/jpeg,image/gif,image/webp"
@@ -467,65 +548,6 @@ export function Toolbar(p: ToolbarProps) {
           }}
           data-input="image"
         />
-      </Group>
-
-      <Group label="Page">
-        <button
-          className={`ed-tb-menu ${pagePop.isOpen ? 'active' : ''}`}
-          disabled={!editable}
-          onMouseDown={keepFocus}
-          onClick={(e) => pagePop.toggle(e.currentTarget)}
-          title="Mise en page : format, marges, numéros de page"
-          aria-label="Mise en page"
-          aria-haspopup="dialog"
-          data-tb="page"
-        >
-          <FileText size={15} />
-          <ChevronDown size={11} className="ed-tb-chev" />
-        </button>
-        <MenuButton label="Affichage : zoom et teinte de la page" tb="zoom" text={`${p.zoom} %`} menuClass="ed-zoom-menu ed-view-menu" className="ed-tb-zoom">
-          {(close) => (
-            <>
-              <div className="ed-menu-head">Zoom</div>
-              <MenuRow label="Ajuster à la largeur" shortcut={fmtKeys('⌘0')} checked={!!p.zoomFit} onClick={() => (close(), p.setZoom('fit'))} data-zoom="fit" />
-              {ZOOMS.map((z) => (
-                <MenuRow key={z} label={`${z} %`} checked={!p.zoomFit && p.zoom === z} onClick={() => (close(), p.setZoom(z))} data-zoom={String(z)} />
-              ))}
-              {p.setTint && (
-                <>
-                  <div className="divider" />
-                  <div className="ed-menu-head">Page</div>
-                  {PAGE_TINTS.map((t) => (
-                    <MenuRow
-                      key={t.id}
-                      icon={<span className={`ed-tint-swatch ${t.id}`} style={t.swatch ? { background: t.swatch } : undefined} />}
-                      label={t.label}
-                      checked={p.tint === t.id}
-                      onClick={() => (close(), p.setTint!(t.id))}
-                      data-tint={t.id}
-                    />
-                  ))}
-                  <p className="ed-pop-note">Affichage seulement : le fichier Word, les exports et l’impression gardent les couleurs du document.</p>
-                </>
-              )}
-            </>
-          )}
-        </MenuButton>
-      </Group>
-
-      <Popover pop={pagePop} label="Mise en page" className="ed-menu ed-page-menu">
-        {p.engine() && (
-          <PageSetupPanel
-            engine={p.engine()!}
-            op={p.structural}
-            onAcademic={() => {
-              pagePop.close();
-              const e = p.engine();
-              if (e) void p.structural('Présentation universitaire appliquée', () => e.applyAcademicLayout());
-            }}
-          />
-        )}
-      </Popover>
       <Popover pop={styleEditPop} label="Modifier un style" className="ed-menu ed-style-dialog">
         {p.engine() && styleEdit && (
           <StyleEditor

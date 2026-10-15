@@ -45,6 +45,7 @@ import { ActiveClock, addVersion, addVersionFromLibrary, registerSnapshotter, re
 import { fmtKeys, isMac, isMod, matchKeys } from '../../lib/keys';
 import { readZoomPref, stepZoom, usePageTint, writeZoomPref } from './view';
 import { FocusButton, useChromeAutoHide, useFocusPrefs, useParagraphDim, useTypewriter } from './focus';
+import { CommentsButton, CommentsLayer, useComments } from './comments';
 
 type Phase = 'loading' | 'ready' | 'error';
 type Status = 'saved' | 'dirty' | 'saving' | 'blocked' | 'error';
@@ -200,9 +201,12 @@ function Editor({ draft }: { draft: Draft }) {
     setExtDirtyState(v);
   }, []);
 
+  // Commentaires en marge (comments.tsx) : relus après chaque modification et réouverture.
+  const [commentsTick, setCommentsTick] = useState(0);
   const refreshUi = useCallback(() => {
     const e = engineRef.current;
     if (!e) return;
+    setCommentsTick((t) => t + 1);
     setOutline(e.outline());
     setStats(e.stats());
     setFmt(e.state());
@@ -316,6 +320,7 @@ function Editor({ draft }: { draft: Draft }) {
     setTimeout(() => {
       const x = engineRef.current;
       if (!x) return;
+      setCommentsTick((t) => t + 1);
       setOutline(x.outline());
       setStats(x.stats());
       setFmt(x.state());
@@ -892,11 +897,13 @@ function Editor({ draft }: { draft: Draft }) {
   const dimOn = focusMode && focusPrefs.dim && phase === 'ready';
   useParagraphDim(hostRef, getEngine, dimOn, fmt);
   useTypewriter(hostRef, getEngine, focusPrefs.typewriter && phase === 'ready');
+  const comments = useComments({ engineRef, hostRef, ready: phase === 'ready', editable: editable && !layoutBusy, tick: commentsTick, caret: fmt.pos, notify: toast });
 
   return (
     <div
       ref={rootRef}
-      className={`ed-root ed-root-in ${focusMode ? 'ed-focus' : ''} ${chrome.hidden ? 'ed-chrome-off' : ''} ${dimOn ? 'ed-dim' : ''} ${focusPrefs.typewriter ? 'ed-typewriter' : ''} ${extractsOpen ? 'ed-has-extracts' : ''}`}
+      className={`ed-root ed-root-in ${focusMode ? 'ed-focus' : ''} ${chrome.hidden ? 'ed-chrome-off' : ''} ${dimOn ? 'ed-dim' : ''} ${focusPrefs.typewriter ? 'ed-typewriter' : ''} ${extractsOpen ? 'ed-has-extracts' : ''} ${comments.columnOn ? 'ed-cm-on' : ''} ${comments.shown ? '' : 'ed-cm-hidden'}`}
+      style={{ '--cm-col': `${comments.colW}px` } as React.CSSProperties}
     >
       <header className="topbar ed-topbar">
         <button className="btn btn-ghost btn-sm ed-back" onClick={() => navigate({ name: 'write', draftId: null })}>
@@ -925,6 +932,7 @@ function Editor({ draft }: { draft: Draft }) {
         )}
         <div className="spacer" />
         <SpellToggle spell={spell} disabled={phase !== 'ready'} />
+        <CommentsButton ctl={comments} />
         <button className={`icon-btn ${styleOpen ? 'active' : ''}`} onClick={() => setStyleOpen((v) => !v)} title="Revue de style" aria-label="Revue de style" aria-pressed={styleOpen} disabled={phase !== 'ready'}>
           <SearchCheck size={16} />
         </button>
@@ -1045,6 +1053,9 @@ function Editor({ draft }: { draft: Draft }) {
             if (e) setFmt(e.state());
           }}
           openLink={openLink}
+          onComment={() => {
+            if (comments.start()) setSelRect(null);
+          }}
         />
       )}
       <Popover pop={linkPop} label="Lien" className="ed-menu ed-link-pop">
@@ -1102,6 +1113,7 @@ function Editor({ draft }: { draft: Draft }) {
           <FindReplace engine={() => engineRef.current} ready={phase === 'ready' && !loadGuard} />
           <div className="ed-scroll">
             <div ref={hostRef} className={`ed-engine selectable ${phase === 'ready' ? 'ed-engine-in' : ''}`} />
+            <CommentsLayer ctl={comments} />
             {phase === 'loading' && (
               <div className="ed-loading anim-fade" aria-busy="true" aria-label="Ouverture de l’écrit">
                 <div className="ed-loading-page">

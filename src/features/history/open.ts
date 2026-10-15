@@ -45,6 +45,11 @@ export function openTarget(kind: ActivityKind, refId: string | null, bookId: str
       return true;
     case 'map': {
       const id = refId ?? bookId;
+      // Carte libre : sa propre page.
+      if (id && s.maps[id]?.kind === 'board') {
+        s.navigate({ name: 'board', boardId: id });
+        return true;
+      }
       if (!has('books', id)) return false;
       s.navigate({ name: 'reader', bookId: id!, tab: 'carte', splitBookId: null });
       return true;
@@ -91,7 +96,7 @@ export function targetExists(kind: ActivityKind, refId: string | null, bookId: s
     wsItem: 'wsItems',
     bookmark: 'bookmarks',
   };
-  if (kind === 'map') return s.books.some((b) => b.id === (refId ?? bookId));
+  if (kind === 'map') return (!!refId && s.maps[refId]?.kind === 'board') || s.books.some((b) => b.id === (refId ?? bookId));
   const c = col[kind];
   return !!c && !!refId && (s[c] as unknown as { id: string }[]).some((x) => x.id === refId);
 }

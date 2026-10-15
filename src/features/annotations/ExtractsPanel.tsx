@@ -8,6 +8,7 @@ import { PlainQuick } from './PlainQuick';
 import { formatCitation } from '../../lib/citation';
 import type { CategoryId, Highlight } from '../../lib/types';
 import { copyText, norm } from './util';
+import { useVirtualList } from './useVirtualList';
 import './annotations.css';
 
 type FilterKey = CategoryId | 'plain' | 'note';
@@ -27,6 +28,23 @@ function locationOf(h: Highlight): string {
   if (!page || h.locationLabel === page) return h.locationLabel;
   return `${h.locationLabel} · ${page}`;
 }
+
+/**
+ * Hauteur estimée d'une carte avant sa première mesure (largeur du panneau en px) : en-tête,
+ * citation (4 lignes au plus), note, concepts, actions rapides d'un surlignage simple.
+ */
+function estimateCard(h: Highlight, width: number): number {
+  const cpl = Math.max(16, (width - 46) / 6.6); // ~13,5 px de Literata
+  const lines = Math.min(4, Math.max(1, Math.ceil(h.text.length / cpl)));
+  let px = 19 + 22 + lines * 20.25;
+  const note = h.note.trim();
+  if (note) px += 6 + Math.min(6, Math.ceil(note.length / (cpl * 1.08))) * 18;
+  if (h.conceptIds.length) px += 26;
+  if (isPlain(h)) px += 29;
+  return Math.round(px);
+}
+const cardKey = (h: Highlight) => h.id;
+const CARD_GAP = 8;
 
 export function ExtractsPanel({ bookId, onJump }: { bookId: string; onJump(id: string): void }) {
   const highlights = useStore(useShallow((s) => s.highlights.filter((h) => h.bookId === bookId)));
@@ -70,11 +88,28 @@ export function ExtractsPanel({ bookId, onJump }: { bookId: string; onJump(id: s
     });
   }, [highlights, filters, query, sort, conceptName]);
 
-  // Carte active : visible dans la liste
+  // Seules les cartes proches de la zone visible sont montées (centaines d'extraits venus de Livres).
+  const win = useVirtualList(listRef, visible, { keyOf: cardKey, estimate: estimateCard, gap: CARD_GAP, keyAttr: 'data-hid' });
+  const spanRef = useRef(win.span);
+  spanRef.current = win.span;
+
+  // Carte active : visible dans la liste (position calculée : la carte n'est peut-être pas montée).
   useEffect(() => {
     if (!activeId) return;
-    const el = listRef.current?.querySelector<HTMLElement>(`[data-hid="${activeId}"]`);
-    el?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    const list = listRef.current;
+    const i = visible.findIndex((h) => h.id === activeId);
+    const sp = spanRef.current(i);
+    if (!list || !sp) return;
+    const inner = list.firstElementChild as HTMLElement | null;
+    const base = inner ? inner.getBoundingClientRect().top - list.getBoundingClientRect().top + list.scrollTop : 0;
+    const top = base + sp.top - 6;
+    const bottom = base + sp.bottom + 6;
+    const exact = () => list.querySelector<HTMLElement>(`[data-hid="${CSS.escape(activeId)}"]`)?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    if (top >= list.scrollTop && bottom <= list.scrollTop + list.clientHeight) return void exact();
+    // Bond vers la position estimée, puis recalage sur la carte montée (hauteurs mesurées).
+    list.scrollTop = top < list.scrollTop ? top : bottom - list.clientHeight;
+    const t = setTimeout(exact, 60);
+    return () => clearTimeout(t);
   }, [activeId, visible]);
 
   const toggle = (k: FilterKey) =>
@@ -199,17 +234,20 @@ export function ExtractsPanel({ bookId, onJump }: { bookId: string; onJump(id: s
             </button>
           </div>
         ) : (
-          visible.map((h) => (
-            <ExtractCard
-              key={h.id}
-              h={h}
-              active={activeId === h.id}
-              conceptName={conceptName}
-              onJump={jump}
-              onCopy={copy}
-              onDelete={del}
-            />
-          ))
+          <div className="ann-vlist" style={win.style}>
+            {visible.slice(win.start, win.end).map((h) => (
+              <ExtractCard
+                key={h.id}
+                h={h}
+                active={activeId === h.id}
+                conceptName={conceptName}
+                onJump={jump}
+                onCopy={copy}
+                onDelete={del}
+                measure={win.measure}
+              />
+            ))}
+          </div>
         )}
       </div>
     </div>
@@ -223,9 +261,10 @@ type CardProps = {
   onJump(id: string): void;
   onCopy(h: Highlight): void;
   onDelete(h: Highlight): void;
+  measure(el: HTMLElement | null): void;
 };
 
-const ExtractCard = memo(function ExtractCard({ h, active, conceptName, onJump, onCopy, onDelete }: CardProps) {
+const ExtractCard = memo(function ExtractCard({ h, active, conceptName, onJump, onCopy, onDelete, measure }: CardProps) {
   const cat = h.category ? CATEGORIES.find((c) => c.id === h.category) ?? null : null;
   const plain = isPlain(h);
   const kind = h.noteKind ? NOTE_KIND_BY_ID[h.noteKind] : null;
@@ -237,6 +276,7 @@ const ExtractCard = memo(function ExtractCard({ h, active, conceptName, onJump, 
   };
   return (
     <div
+      ref={measure}
       data-hid={h.id}
       className={`ann-card ${active ? 'active' : ''} ${cat || plain ? '' : 'is-note'}`}
       style={{ ['--c' as string]: kindColor(h) }}

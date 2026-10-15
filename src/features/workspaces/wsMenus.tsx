@@ -1,5 +1,5 @@
 // Contenu des menus contextuels (identique dans l'arbre et dans la vue).
-import { ArrowRightLeft, ExternalLink, FolderPlus, FolderX, Palette, PackagePlus, Pencil, Trash2, Ungroup, Upload, FilePen } from 'lucide-react';
+import { ArrowRightLeft, ExternalLink, FolderPlus, FolderX, Palette, PackagePlus, Pencil, Trash2, Ungroup, Upload, FilePen, Network } from 'lucide-react';
 import { useStore } from '../../lib/store';
 import type { WorkspaceGroup, WorkspaceItem } from '../../lib/types';
 import { TINTS, TINT_LABEL, openItem, ungroup, type DragPayload } from './wsModel';
@@ -14,6 +14,7 @@ export interface MenuCtx {
   openMove(p: DragPayload): void;
   importHere?(workspaceId: string, groupId: string | null): void;
   newDraftHere?(workspaceId: string, groupId: string | null): void;
+  newBoardHere?(workspaceId: string, groupId: string | null): void;
 }
 
 export function workspaceMenu(ctx: MenuCtx, workspaceId: string, tint: string): MenuEntry[] {
@@ -21,6 +22,8 @@ export function workspaceMenu(ctx: MenuCtx, workspaceId: string, tint: string): 
   return [
     { label: 'Nouveau groupe', icon: <FolderPlus size={14} />, onClick: () => ctx.newGroup(workspaceId, null) },
     { label: 'Ajouter un élément…', icon: <PackagePlus size={14} />, onClick: () => ctx.openAdd(workspaceId, null) },
+    ...(ctx.newDraftHere ? [{ label: 'Nouvel écrit ici', icon: <FilePen size={14} />, onClick: () => ctx.newDraftHere!(workspaceId, null) }] : []),
+    ...(ctx.newBoardHere ? [{ label: 'Nouvelle carte ici', icon: <Network size={14} />, onClick: () => ctx.newBoardHere!(workspaceId, null) }] : []),
     { sep: true },
     { label: 'Renommer', icon: <Pencil size={14} />, onClick: () => ctx.rename('ws', workspaceId) },
     {
@@ -40,6 +43,7 @@ export function groupMenu(ctx: MenuCtx, g: WorkspaceGroup): MenuEntry[] {
   ];
   if (ctx.importHere) out.push({ label: 'Importer ici…', icon: <Upload size={14} />, onClick: () => ctx.importHere!(g.workspaceId, g.id) });
   if (ctx.newDraftHere) out.push({ label: 'Nouvel écrit ici', icon: <FilePen size={14} />, onClick: () => ctx.newDraftHere!(g.workspaceId, g.id) });
+  if (ctx.newBoardHere) out.push({ label: 'Nouvelle carte ici', icon: <Network size={14} />, onClick: () => ctx.newBoardHere!(g.workspaceId, g.id) });
   out.push(
     { sep: true },
     { label: 'Renommer', icon: <Pencil size={14} />, onClick: () => ctx.rename('group', g.id) },

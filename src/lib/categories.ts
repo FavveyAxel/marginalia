@@ -76,6 +76,8 @@ export interface RelationDef {
 export const RELATIONS: RelationDef[] = [
   { id: 'soutient', label: 'soutient', dashed: false, cssVar: '--rel-soutient' },
   { id: 'objecte', label: 'objecte à', dashed: true, cssVar: '--rel-objecte' },
+  // Opposition de thèses (cartes libres « comparer deux auteurs ») : symétrique, sans réfutation.
+  { id: 'oppose', label: 's’oppose à', dashed: true, cssVar: '--rel-oppose' },
   { id: 'repond', label: 'répond à', dashed: false, cssVar: '--rel-repond' },
   { id: 'precise', label: 'précise', dashed: false, cssVar: '--rel-precise' },
   { id: 'illustre', label: 'illustre', dashed: true, cssVar: '--rel-illustre' },

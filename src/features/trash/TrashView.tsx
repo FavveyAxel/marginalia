@@ -25,6 +25,7 @@ const KIND_ORDER: TrashKind[] = [
   "card",
   "workspace",
   "group",
+  "map",
 ];
 const fold = (s: string) =>
   s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();

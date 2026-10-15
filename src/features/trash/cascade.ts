@@ -105,9 +105,11 @@ export function cascade(d: Data, kind: TrashKind, id: string, opts: CascadeOpts 
       const hl = new Set(d.highlights.filter((h) => h.bookId === id).map((h) => h.id));
       const studyIds = new Set(d.studies.filter((x) => x.bookId === id).map((x) => x.id));
       let maps = d.maps;
-      if (id in maps) {
+      // Carte du livre (clé = bookId) et cartes de ses mouvements (kind 'movement').
+      const mapKeys = Object.keys(maps).filter((k) => k === id || (maps[k].kind === 'movement' && maps[k].bookId === id));
+      if (mapKeys.length) {
         maps = { ...maps };
-        delete maps[id];
+        for (const k of mapKeys) delete maps[k];
       }
       let n: Data = {
         ...d,
@@ -121,7 +123,7 @@ export function cascade(d: Data, kind: TrashKind, id: string, opts: CascadeOpts 
         ...n,
         cards: filterKeep(n.cards, (c) => c.bookId !== id),
         bookmarks: filterKeep(n.bookmarks, (b) => b.bookId !== id),
-        wsItems: filterKeep(n.wsItems, (i) => !(((i.kind === 'book' || i.kind === 'map') && i.refId === id) || (i.kind === 'study' && studyIds.has(i.refId)))),
+        wsItems: filterKeep(n.wsItems, (i) => !(((i.kind === 'book' || i.kind === 'map') && (i.refId === id || mapKeys.includes(i.refId))) || (i.kind === 'study' && studyIds.has(i.refId)))),
       };
     }
     case 'highlight':
@@ -139,8 +141,29 @@ export function cascade(d: Data, kind: TrashKind, id: string, opts: CascadeOpts 
       };
     case 'argument':
       return { ...d, arguments: filterKeep(d.arguments, (a) => a.id !== id), plans: stripPlans(d, 'argument', one), wsItems: dropWsRefs(d, 'argument', one) };
-    case 'study':
-      return { ...d, studies: filterKeep(d.studies, (x) => x.id !== id), wsItems: dropWsRefs(d, 'study', one) };
+    case 'study': {
+      // Les cartes des mouvements de la fiche partent avec elle.
+      const mk = Object.keys(d.maps).filter((k) => d.maps[k].kind === 'movement' && d.maps[k].studyId === id);
+      let maps = d.maps;
+      if (mk.length) {
+        maps = { ...maps };
+        for (const k of mk) delete maps[k];
+      }
+      const keys = new Set(mk);
+      return {
+        ...d,
+        maps,
+        studies: filterKeep(d.studies, (x) => x.id !== id),
+        wsItems: filterKeep(d.wsItems, (i) => !((i.kind === 'study' && i.refId === id) || (i.kind === 'map' && keys.has(i.refId)))),
+      };
+    }
+    case 'map': {
+      // Carte libre ou de mouvement (clé de `maps`).
+      if (!(id in d.maps)) return { ...d, wsItems: dropWsRefs(d, 'map', one) };
+      const maps = { ...d.maps };
+      delete maps[id];
+      return { ...d, maps, wsItems: dropWsRefs(d, 'map', one) };
+    }
     case 'plan':
       return { ...d, plans: filterKeep(d.plans, (p) => p.id !== id), wsItems: dropWsRefs(d, 'plan', one) };
     case 'draft':

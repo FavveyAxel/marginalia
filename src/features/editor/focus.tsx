@@ -80,7 +80,7 @@ export function useFocusPrefs(): FocusPrefs {
 
 // ── Interface qui s'efface pendant la frappe ─────────────────
 /** Éléments d'interface effacés pendant la frappe (CSS : .ed-chrome-off). */
-const CHROME = '.ed-topbar, .ed-toolbar-row, .ed-outline, .ed-side, .ed-style, .ed-versions, .ver-compare, .ed-count, .wg-group';
+const CHROME = '.ed-topbar, .ed-toolbar-row, .ed-outline, .ed-side, .ed-style, .ed-versions, .ver-compare, .ed-count, .wg-group, .cm-col';
 /** Zone du haut de la fenêtre qui rappelle l'interface. */
 const TOP_ZONE = 90;
 /** Bords gauche / droit / bas de la fenêtre. */

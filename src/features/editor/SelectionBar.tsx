@@ -3,6 +3,7 @@ import { useLayoutEffect, useRef, useState } from 'react';
 import { Baseline, Bold, Highlighter, Italic, Link2, Underline } from 'lucide-react';
 import type { DocEngine, EngineState } from './engine';
 import { ColorButton, KEYS, TbButton } from './controls';
+import { CommentSelButton } from './comments';
 
 export function SelectionBar({
   engine,
@@ -10,12 +11,15 @@ export function SelectionBar({
   rect,
   refresh,
   openLink,
+  onComment,
 }: {
   engine: () => DocEngine | null;
   fmt: EngineState;
   rect: DOMRect;
   refresh: () => void;
   openLink: (anchor: HTMLElement) => void;
+  /** Commenter le passage (comments.tsx). */
+  onComment?: () => void;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState<{ left: number; top: number } | null>(null);
@@ -60,6 +64,12 @@ export function SelectionBar({
       </TbButton>
       <ColorButton kind="text" value={fmt.color} icon={<Baseline size={15} />} onPick={(hex) => run((e) => e.setColor(hex))} />
       <ColorButton kind="highlight" value={fmt.highlight} icon={<Highlighter size={15} />} onPick={(hex) => run((e) => e.setHighlight(hex))} />
+      {onComment && (
+        <>
+          <span className="ed-sep" />
+          <CommentSelButton onClick={onComment} />
+        </>
+      )}
     </div>
   );
 }

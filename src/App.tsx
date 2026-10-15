@@ -24,6 +24,7 @@ import { useAppleBooksSync } from './features/library/appleBooks';
 import { useResizeDiagnostics } from './lib/diagnostics';
 import { useDocxMigration } from './features/library/docxMigration';
 import { HelpView } from './features/help/HelpView';
+import { BoardView } from './features/map/BoardView';
 import { fmtKeys, isMac, isMod, isWindows, matchKeys } from './lib/keys';
 
 function useTheme(theme: ThemeId) {
@@ -442,7 +443,7 @@ export function App() {
       ) : (
         <div className="app">
           <Sidebar />
-          <main className="main" key={route.name === 'workspace' ? route.workspaceId : route.name}>
+          <main className="main" key={route.name === 'workspace' ? route.workspaceId : route.name === 'board' ? 'board:' + route.boardId : route.name}>
             {route.name === 'home' && <HomeView />}
             {route.name === 'library' && <LibraryView />}
             {route.name === 'workspace' && <WorkspaceView key={route.workspaceId} workspaceId={route.workspaceId} groupId={route.groupId} />}
@@ -455,6 +456,7 @@ export function App() {
             {route.name === 'trash' && <TrashView />}
             {route.name === 'history' && <HistoryView />}
             {route.name === 'help' && <HelpView />}
+            {route.name === 'board' && <BoardView key={route.boardId} boardId={route.boardId} />}
           </main>
         </div>
       )}

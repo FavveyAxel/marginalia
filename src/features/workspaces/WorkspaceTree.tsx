@@ -19,7 +19,7 @@ import {
 import { ContextMenu, InlineName, ItemIcon, dragSource, dropProps, useMenu, type DropArgs, type DropMark, type MenuEntry } from './wsUi';
 import { groupMenu, itemMenu, workspaceMenu } from './wsMenus';
 import { useWsDialogs } from './wsDialogs';
-import { importHere, newDraftHere } from './wsActions';
+import { importHere, newBoardHere, newDraftHere } from './wsActions';
 import { SelectionBar, useSelOwner, useSelectionActions } from './wsSelection';
 import './workspaces.css';
 
@@ -142,6 +142,7 @@ export function WorkspaceTree() {
     rename: (kind, id) => setEditing({ t: 'rename', kind, id }),
     importHere: (w, g) => void importHere(w, g),
     newDraftHere: (w, g) => void newDraftHere(w, g),
+    newBoardHere: (w, g) => void newBoardHere(w, g),
   });
 
   const actions = useSelectionActions({
@@ -543,6 +544,7 @@ function ItemRow({ r, depth }: { r: ResolvedItem; depth: number }) {
   const active =
     (item.kind === 'book' && route.name === 'reader' && route.bookId === item.refId && route.tab === 'lecture') ||
     (item.kind === 'map' && route.name === 'reader' && route.bookId === item.refId && route.tab === 'carte') ||
+    (item.kind === 'map' && route.name === 'board' && route.boardId === item.refId) ||
     (item.kind === 'draft' && route.name === 'write' && route.draftId === item.refId) ||
     (item.kind === 'plan' && route.name === 'plans' && route.planId === item.refId) ||
     (item.kind === 'argument' && route.name === 'arguments' && route.argumentId === item.refId);

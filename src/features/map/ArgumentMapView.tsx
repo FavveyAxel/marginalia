@@ -1,479 +1,246 @@
-// Carte d'argument (B1) : @xyflow/react 12, nœuds « extrait » et « idée », arêtes à relation, co-prémisses.
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type CSSProperties, type DragEvent } from 'react';
+// Carte d'argument (B1) : @xyflow/react 12. Cette vue orchestre l'état et les gestes ;
+// le rendu est découpé dans ui/ (cartes, liens, barre d'outils, barre de sélection, guides, tiroir)
+// et la géométrie pure dans ui/geom.ts (aimantation, collisions, voisinage) et ui/layouts.ts (rangements).
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type DragEvent } from 'react';
 import {
-  BaseEdge,
   Background,
   BackgroundVariant,
   ConnectionMode,
   Controls,
-  EdgeLabelRenderer,
-  Handle,
-  Position,
+  MiniMap,
   ReactFlow,
   ReactFlowProvider,
+  SelectionMode,
   useNodesInitialized,
   useNodesState,
   useReactFlow,
-  useStore as useRfStore,
   type Connection,
   type Edge,
-  type EdgeProps,
-  type Node,
-  type NodeProps,
   type FinalConnectionState,
+  type Node,
+  type NodeChange,
+  type NodePositionChange,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
+import '@fontsource/caveat/400.css';
+import '@fontsource/caveat/600.css';
 import { useShallow } from 'zustand/react/shallow';
-import { BookOpen, Check, Copy, GripVertical, LayoutGrid, Lightbulb, Link2, Maximize2, PanelLeft, Pencil, Plus, Trash2, Unlink, X } from 'lucide-react';
+import { BookOpen, ChevronsDownUp, ChevronsUpDown, Copy, CornerDownRight, Lightbulb, Map as MapIcon, Maximize2, Palette, PanelLeft, Pencil, ScanSearch, Star, Trash2, Wand2, X, AlignStartVertical, MousePointer2 } from 'lucide-react';
 import { ContextMenu, type MenuEntry } from '../workspaces/wsUi';
-import { uid, useStore } from '../../lib/store';
-import { CATEGORIES, NOTE_KIND_BY_ID, RELATIONS, RELATION_BY_ID, catColor, kindColor, kindLabel, kindOf } from '../../lib/categories';
-import { locatorOf } from '../../lib/citation';
-import { useFloating } from '../../components/ui';
-import type { ArgumentMap, CategoryId, Highlight, MapEdge, MapNode, RelationId } from '../../lib/types';
+import { separateUndoStep, uid, useStore } from '../../lib/store';
+import { RELATIONS, kindLabel, type ExtractKind } from '../../lib/categories';
+import { fmtKeys, isMac, matchKeys } from '../../lib/keys';
+import { isTextEditingTarget } from '../history/keys';
+import type { ArgumentMap, EdgeStrength, Highlight, MapEdge, RelationId } from '../../lib/types';
+import { CENTRAL_W, IDEA_COLORS, MapCtx, NODE_H, NODE_W, reducedMotion, type ExtractData, type IdeaData, type MapUiCtx, type RelEdgeData } from './ui/ctx';
+import { nodeTypes } from './ui/nodes';
+import { ArrowDefs, edgeTypes } from './ui/edges';
+import { EdgeMenu, type EdgeMenuState } from './ui/EdgeMenu';
+import { MapToolbar } from './ui/MapToolbar';
+import { ALIGN_ACTIONS, SelectionBar } from './ui/SelectionBar';
+import { Guides } from './ui/Guides';
+import { PlaceDrawer } from './ui/PlaceDrawer';
+import { alignBoxes, bounds, freeSpot, nearestFree, neighborIn, resolveCollisions, snapBox, type AlignKind, type Box, type Guide, type Pt } from './ui/geom';
+import { LAYOUTS, layoutMap, type LayoutKind, type LNode } from './ui/layouts';
 import './map.css';
 
-const NODE_W = 280;
-const NODE_H = 190;
-
-// ── Contexte partagé entre nœuds, arêtes et menus ───────────
-interface Ctx {
-  editingId: string | null;
-  setEditingId(id: string | null): void;
-  setIdeaText(id: string, text: string): void;
-  openEdge(id: string, x: number, y: number): void;
-  conceptName(id: string): string;
-  jump(highlightId: string): void;
-}
-const MapCtx = createContext<Ctx | null>(null);
-const useCtx = () => useContext(MapCtx) as Ctx;
-
-interface ExtractData extends Record<string, unknown> {
-  highlight: Highlight | null;
-}
-interface IdeaData extends Record<string, unknown> {
-  text: string;
-}
-interface RelEdgeData extends Record<string, unknown> {
-  relation: RelationId;
-  /** Sources des arêtes du même faisceau (vide si arête isolée). */
-  groupSources: string[];
-  lead: boolean;
-}
-
 const EMPTY_MAP: ArgumentMap = { bookId: '', nodes: [], edges: [], viewport: null };
+/** Distance d'aimantation, en pixels d'écran. */
+const SNAP_PX = 7;
+/** Durée des glissements (rangement, collisions, alignement) : voir .map-glide dans map.css. */
+const GLIDE_MS = 520;
 
-// ── Géométrie ────────────────────────────────────────────────
-interface Rect {
-  x: number;
-  y: number;
-  w: number;
-  h: number;
-}
-interface Pt {
-  x: number;
-  y: number;
-}
-const center = (r: Rect): Pt => ({ x: r.x + r.w / 2, y: r.y + r.h / 2 });
-function boundary(r: Rect, toward: Pt, gap = 3): Pt {
-  const c = center(r);
-  const dx = toward.x - c.x;
-  const dy = toward.y - c.y;
-  if (!dx && !dy) return c;
-  const s = Math.min(r.w / 2 / Math.abs(dx || 1e-6), r.h / 2 / Math.abs(dy || 1e-6));
-  const len = Math.hypot(dx, dy);
-  return { x: c.x + dx * s + (dx / len) * gap, y: c.y + dy * s + (dy / len) * gap };
-}
-
-function useRects(ids: string[]): Rect[] {
-  const key = useRfStore((s) =>
-    ids
-      .map((id) => {
-        const n = s.nodeLookup.get(id);
-        if (!n) return '0,0,0,0';
-        const p = n.internals.positionAbsolute;
-        return [p.x, p.y, n.measured.width ?? NODE_W, n.measured.height ?? NODE_H].map((v) => Math.round(v)).join(',');
-      })
-      .join('|'),
-  );
-  return useMemo(
-    () =>
-      key.split('|').map((k) => {
-        const [x, y, w, h] = k.split(',').map(Number);
-        return { x, y, w, h };
-      }),
-    [key],
-  );
-}
-
-// ── Nœuds ────────────────────────────────────────────────────
-const sides: [Position, string][] = [
-  [Position.Top, 't'],
-  [Position.Right, 'r'],
-  [Position.Bottom, 'b'],
-  [Position.Left, 'l'],
-];
-const Handles = () => (
-  <>
-    {sides.map(([p, id]) => (
-      <Handle key={id} id={id} type="source" position={p} className={`map-h map-h-${id}`} />
-    ))}
-  </>
-);
-
-function ExtractNode({ data, selected }: NodeProps) {
-  const ctx = useCtx();
-  const h = (data as ExtractData).highlight;
-  const conceptNames = useStore(useShallow((s) => (h ? h.conceptIds.map((id) => s.concepts.find((c) => c.id === id)?.name).filter(Boolean) as string[] : [])));
-  if (!h) {
-    return (
-      <div className="map-node map-extract missing" style={{ '--c': 'var(--faint)' } as CSSProperties}>
-        <p className="map-node-text muted">Extrait introuvable</p>
-        <Handles />
-      </div>
-    );
-  }
-  const color = kindColor(h);
-  const text = h.text.replace(/\s+/g, ' ').trim();
-  return (
-    <div className={`map-node map-extract ${selected ? 'sel' : ''}`} style={{ '--c': color } as CSSProperties} onDoubleClick={() => ctx.jump(h.id)} title="Double-clic : retrouver dans le texte">
-      <div className="map-node-head">
-        <span className="map-node-cat">{kindLabel(h)}</span>
-        <span className="map-node-loc">{locatorOf(h)}</span>
-      </div>
-      <p className="map-node-text">{text}</p>
-      {h.note.trim() && (
-        <p className="map-node-note">
-          {h.noteKind && <b>{NOTE_KIND_BY_ID[h.noteKind].label}</b>} {h.note}
-        </p>
-      )}
-      {conceptNames.length > 0 && (
-        <div className="map-node-concepts">
-          {conceptNames.map((n) => (
-            <span key={n}>{n}</span>
-          ))}
-        </div>
-      )}
-      <Handles />
-    </div>
-  );
-}
-
-function IdeaNode({ id, data, selected }: NodeProps) {
-  const ctx = useCtx();
-  const text = (data as IdeaData).text;
-  const editing = ctx.editingId === id;
-  const [draft, setDraft] = useState(text);
-  useEffect(() => {
-    if (editing) setDraft(text);
-  }, [editing, text]);
-  const done = (commit: boolean) => {
-    ctx.setEditingId(null);
-    // Une carte vide reste sur la carte (on peut la déplacer, la relier, l'écrire plus tard) ;
-    // elle ne disparaît que par une suppression explicite.
-    if (commit) ctx.setIdeaText(id, draft.trim());
-  };
-  return (
-    <div className={`map-node map-idea ${selected ? 'sel' : ''}`} style={{ '--c': 'var(--ink-2)' } as CSSProperties} onDoubleClick={() => ctx.setEditingId(id)}>
-      <div className="map-node-head">
-        <span className="map-node-cat">Idée</span>
-        <span className="map-node-loc">ma voix</span>
-      </div>
-      {editing ? (
-        <textarea
-          className="map-idea-input nodrag nowheel"
-          autoFocus
-          value={draft}
-          placeholder="Écrire une idée, une objection, un lien…"
-          onChange={(e) => setDraft(e.target.value)}
-          onBlur={() => done(true)}
-          onKeyDown={(e) => {
-            if (e.key === 'Escape') {
-              e.preventDefault();
-              done(false);
-            } else if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
-              e.preventDefault();
-              done(true);
-            }
-          }}
-        />
-      ) : (
-        <p className={`map-node-text idea ${text ? '' : 'placeholder'}`}>{text || 'Double-clic pour écrire'}</p>
-      )}
-      <Handles />
-    </div>
-  );
-}
-
-// ── Arête personnalisée ──────────────────────────────────────
-const linePath = (a: Pt, b: Pt) => `M ${a.x} ${a.y} L ${b.x} ${b.y}`;
-
-function RelEdge({ id, source, target, data, selected }: EdgeProps) {
-  const ctx = useCtx();
-  const d = data as RelEdgeData;
-  const rel = RELATION_BY_ID[d.relation];
-  const grouped = d.groupSources.length > 1;
-  const rects = useRects([source, target, ...d.groupSources]);
-  const [src, tgt, ...sibs] = rects;
-  const tc = center(tgt);
-  const color = `var(${rel.cssVar})`;
-  const dash = rel.dashed ? '7 5' : undefined;
-  const width = selected ? 3 : 2;
-
-  let path: string;
-  let pill: Pt;
-  let trunk: { b: Pt; j: Pt } | null = null;
-  if (grouped) {
-    const sibCenters = sibs.map(center);
-    const avg = { x: sibCenters.reduce((a, p) => a + p.x, 0) / sibCenters.length, y: sibCenters.reduce((a, p) => a + p.y, 0) / sibCenters.length };
-    const b = boundary(tgt, avg, 2);
-    const len = Math.hypot(avg.x - b.x, avg.y - b.y) || 1;
-    const reach = Math.min(64, len / 2);
-    const j = { x: b.x + ((avg.x - b.x) / len) * reach, y: b.y + ((avg.y - b.y) / len) * reach };
-    const p1 = boundary(src, j, 3);
-    path = linePath(p1, j);
-    pill = { x: p1.x + (j.x - p1.x) * 0.42, y: p1.y + (j.y - p1.y) * 0.42 };
-    trunk = { b, j };
-  } else {
-    const p1 = boundary(src, tc, 3);
-    const p2 = boundary(tgt, center(src), 5);
-    path = linePath(p1, p2);
-    pill = { x: (p1.x + p2.x) / 2, y: (p1.y + p2.y) / 2 };
-  }
-  const open = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    ctx.openEdge(id, e.clientX, e.clientY);
-  };
-
-  return (
-    <>
-      <g className={`map-edge ${selected ? 'sel' : ''}`} style={{ color }}>
-        <BaseEdge
-          id={id}
-          path={path}
-          interactionWidth={22}
-          markerEnd={grouped ? undefined : `url(#map-arrow-${d.relation})`}
-          style={{ stroke: color, strokeWidth: width, strokeDasharray: dash, strokeLinecap: 'round' }}
-        />
-        {trunk && d.lead && (
-          <>
-            <path d={linePath(trunk.j, trunk.b)} className="map-trunk" style={{ stroke: color, strokeWidth: 2.6 }} markerEnd={`url(#map-arrow-${d.relation})`} />
-            <circle cx={trunk.j.x} cy={trunk.j.y} r={5} className="map-junction" style={{ fill: color }} />
-          </>
-        )}
-      </g>
-      <EdgeLabelRenderer>
-        <button
-          type="button"
-          className={`map-pill nodrag nopan ${selected ? 'sel' : ''}`}
-          style={{ transform: `translate(-50%, -50%) translate(${pill.x}px, ${pill.y}px)`, '--c': color } as CSSProperties}
-          onClick={open}
-        >
-          <i />
-          {rel.label}
-        </button>
-        {trunk && d.lead && (
-          <span
-            className="map-together nodrag nopan"
-            style={{ transform: `translate(-50%, -50%) translate(${(trunk.j.x + trunk.b.x) / 2 + 26}px, ${(trunk.j.y + trunk.b.y) / 2 - 8}px)`, '--c': color } as CSSProperties}
-          >
-            ensemble
-          </span>
-        )}
-      </EdgeLabelRenderer>
-    </>
-  );
-}
-
-const nodeTypes = { extract: ExtractNode, idea: IdeaNode };
-const edgeTypes = { rel: RelEdge };
-
-// ── Menu d'une arête ─────────────────────────────────────────
-interface MenuState {
-  edgeId: string;
-  x: number;
-  y: number;
-  fresh: boolean;
-}
-
-function EdgeMenu({
-  menu,
-  edges,
-  titleOf,
-  onClose,
-  onRelation,
-  onDelete,
-  onGroupWith,
-  onUngroup,
-}: {
-  menu: MenuState;
-  edges: MapEdge[];
-  titleOf(nodeId: string): string;
-  onClose(): void;
-  onRelation(r: RelationId): void;
-  onDelete(): void;
-  onGroupWith(otherId: string): void;
-  onUngroup(): void;
-}) {
-  const edge = edges.find((e) => e.id === menu.edgeId);
-  const [view, setView] = useState<'main' | 'group'>('main');
-  const anchor = useMemo(() => new DOMRect(menu.x, menu.y, 0, 0), [menu.x, menu.y]);
-  const [setRef, style] = useFloating(anchor, 'below');
-  const ref = useRef<HTMLDivElement | null>(null);
-  useEffect(() => {
-    const down = (e: PointerEvent) => {
-      if (ref.current && !ref.current.contains(e.target as globalThis.Node)) onClose();
-    };
-    const key = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
-    window.addEventListener('pointerdown', down, true);
-    window.addEventListener('keydown', key);
-    return () => {
-      window.removeEventListener('pointerdown', down, true);
-      window.removeEventListener('keydown', key);
-    };
-  }, [onClose]);
-  if (!edge) return null;
-  const mates = edges.filter((e) => e.id !== edge.id && e.target === edge.target && !(edge.groupId && e.groupId === edge.groupId));
-  const inGroup = !!edge.groupId && edges.filter((e) => e.target === edge.target && e.groupId === edge.groupId).length > 1;
-  return (
-    <div
-      className="floating map-menu anim-scale"
-      data-testid="map-edge-menu"
-      ref={(el) => {
-        ref.current = el;
-        setRef(el);
-      }}
-      style={style}
-    >
-      {view === 'main' ? (
-        <>
-          <div className="map-menu-title">{menu.fresh ? 'Quelle relation ?' : 'Relation'}</div>
-          <div className="map-menu-sub truncate">
-            {titleOf(edge.source)} <b>→</b> {titleOf(edge.target)}
-          </div>
-          {RELATIONS.map((r) => (
-            <button key={r.id} className="menu-item map-menu-rel" data-rel={r.id} onClick={() => onRelation(r.id)}>
-              <span className="map-menu-swatch" style={{ '--c': `var(${r.cssVar})` } as CSSProperties} data-dashed={r.dashed} />
-              {r.label}
-              {edge.relation === r.id && <Check size={13} style={{ marginLeft: 'auto' }} />}
-            </button>
-          ))}
-          <div className="divider" />
-          {inGroup ? (
-            <button className="menu-item" data-act="ungroup" onClick={onUngroup}>
-              <Unlink size={14} /> Délier des co-prémisses
-            </button>
-          ) : null}
-          <button className="menu-item" data-act="group" onClick={() => setView('group')}>
-            <Link2 size={14} /> Lier comme co-prémisse avec…
-          </button>
-          <button className="menu-item map-danger" data-act="delete" onClick={onDelete}>
-            <Trash2 size={14} /> Supprimer le lien
-          </button>
-        </>
-      ) : (
-        <>
-          <div className="map-menu-title">Co-prémisse avec…</div>
-          <div className="map-menu-sub">Prémisses qui ne valent qu’ensemble, vers la même conclusion.</div>
-          {mates.length === 0 && <div className="map-menu-none">Aucun autre lien n’arrive sur « {titleOf(edge.target)} ». Reliez d’abord un second extrait à la même cible.</div>}
-          {mates.map((m) => (
-            <button key={m.id} className="menu-item map-menu-mate" onClick={() => onGroupWith(m.id)}>
-              <span className="truncate">{titleOf(m.source)}</span>
-            </button>
-          ))}
-          <div className="divider" />
-          <button className="menu-item" onClick={() => setView('main')}>
-            Retour
-          </button>
-        </>
-      )}
-    </div>
-  );
-}
-
-// ── Disposition simple par catégorie ─────────────────────────
-function layout(nodes: MapNode[], hlById: Map<string, Highlight>): Map<string, Pt> {
-  const catOf = (n: MapNode): CategoryId | 'autre' => {
-    const h = n.highlightId ? hlById.get(n.highlightId) : null;
-    return h?.category ?? 'autre';
-  };
-  const byPos = (a: MapNode, b: MapNode) => a.x - b.x || a.y - b.y;
-  const pick = (cats: (CategoryId | 'autre')[]) => nodes.filter((n) => cats.includes(catOf(n))).sort(byPos);
-  const top = pick(['probleme', 'these']);
-  const mid = pick(['argument']);
-  const bottom = pick(['exemple', 'concept', 'autre']);
-  const right = pick(['objection']);
-  const colW = NODE_W + 56;
-  const rowH = 300;
-  const per = 4;
-  const out = new Map<string, Pt>();
-  const cols = Math.max(1, Math.min(per, Math.max(top.length, mid.length, bottom.length)));
-  let y = 0;
-  const row = (list: MapNode[], centered: boolean): number => {
-    let rows = 0;
-    for (let i = 0; i < list.length; i += per) {
-      const slice = list.slice(i, i + per);
-      const x0 = centered ? ((cols - slice.length) * colW) / 2 : 0;
-      slice.forEach((n, k) => out.set(n.id, { x: x0 + k * colW, y: y + rows * rowH }));
-      rows++;
+/** Préférences d'affichage propres à l'appareil (mini-carte ouverte…). */
+const pref = {
+  get(k: string, d: boolean): boolean {
+    try {
+      const v = localStorage.getItem(`marginalia.map.${k}`);
+      return v == null ? d : v === '1';
+    } catch {
+      return d;
     }
-    return rows;
-  };
-  const rightY = top.length ? Math.ceil(top.length / per) * rowH : 0;
-  y += row(top, true) * rowH;
-  y += row(mid, true) * rowH;
-  row(bottom, true);
-  right.forEach((n, i) => out.set(n.id, { x: cols * colW + colW * 0.25, y: rightY + i * rowH }));
-  return out;
+  },
+  set(k: string, v: boolean) {
+    try {
+      localStorage.setItem(`marginalia.map.${k}`, v ? '1' : '0');
+    } catch {
+      /* stockage indisponible */
+    }
+  },
+};
+
+/** Clé d'ordre dans le texte d'un extrait (chapitre/page puis position). */
+function textKey(h: Highlight): number {
+  const a = h.anchor as Highlight['anchor'] | undefined;
+  if (!a) return h.createdAt;
+  if (a.kind === 'html') return a.chapter * 1e9 + a.start;
+  const top = a.rects?.[0]?.y ?? 0;
+  return a.page * 1e9 + Math.round(top * 1e6);
+}
+
+const sizeOf = (n: Node | undefined) => ({
+  w: n?.measured?.width ?? ((n?.data as { central?: boolean } | undefined)?.central ? CENTRAL_W : NODE_W),
+  h: n?.measured?.height ?? NODE_H,
+});
+const boxOf = (n: Node): Box => ({ id: n.id, x: n.position.x, y: n.position.y, ...sizeOf(n) });
+
+/** Retire les groupes devenus singletons. */
+const normalize = (list: MapEdge[]): MapEdge[] => {
+  const cnt = new Map<string, number>();
+  for (const e of list) if (e.groupId) cnt.set(`${e.target}::${e.groupId}`, (cnt.get(`${e.target}::${e.groupId}`) ?? 0) + 1);
+  return list.map((e) => (e.groupId && (cnt.get(`${e.target}::${e.groupId}`) ?? 0) < 2 ? { ...e, groupId: null } : e));
+};
+
+/**
+ * Source de la carte affichée : la carte d'un livre (rangée sous son bookId), ou une
+ * carte libre (« board ») fournie avec ses fonctions de lecture / écriture. Une carte
+ * libre peut citer des extraits de plusieurs livres.
+ */
+export type MapSource =
+  | { kind: 'book'; bookId: string }
+  | { kind: 'board'; mapId: string; get(): ArgumentMap; set(m: ArgumentMap): void };
+
+const sourceKey = (s: MapSource) => (s.kind === 'book' ? s.bookId : s.mapId);
+
+/** Nom court d'un livre pour l'étiquette d'une carte multi-livres : nom de l'auteur, sinon début du titre. */
+export function bookShortName(b: { title: string; author: string } | undefined): string {
+  if (!b) return '';
+  const a = (b.author || '').split(/[,;&]| et /)[0].trim();
+  if (a) {
+    const parts = a.split(/\s+/).filter((w) => !/^(de|d’|d'|la|le|von|van|du)$/i.test(w));
+    return parts[parts.length - 1] ?? a;
+  }
+  const t = b.title.replace(/\s+/g, ' ').trim();
+  return t.length > 22 ? `${t.slice(0, 20).trim()}…` : t;
 }
 
 // ── Vue ──────────────────────────────────────────────────────
-function Inner({ bookId }: { bookId: string }) {
+function Inner({ source }: { source: MapSource }) {
   const rf = useReactFlow();
-  const mapRaw = useStore((s) => s.maps[bookId]);
-  const map = mapRaw ?? { ...EMPTY_MAP, bookId };
-  const highlights = useStore(useShallow((s) => s.highlights.filter((h) => h.bookId === bookId)));
-  const concepts = useStore((s) => s.concepts);
+  const key = sourceKey(source);
+  const bookId = source.kind === 'book' ? source.bookId : '';
+  // Une carte libre n'est pas forcément dans le store : on relit `get()` après chaque écriture.
+  const [tick, setTick] = useState(0);
+  const storeMap = useStore((s) => s.maps[key]);
+  const srcRef = useRef(source);
+  srcRef.current = source;
+  const map = useMemo<ArgumentMap>(() => {
+    if (source.kind === 'board') return source.get();
+    return storeMap ?? { ...EMPTY_MAP, bookId };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [storeMap, tick, bookId, source.kind]);
+  /** Lecture fraîche de la carte (hors rendu). */
+  const readMap = useCallback((): ArgumentMap => {
+    const s = srcRef.current;
+    return s.kind === 'board' ? s.get() : useStore.getState().getMap(s.bookId);
+  }, []);
+  const multi = source.kind === 'board';
+  // Extraits concernés : ceux du livre ; pour une carte libre, ceux des livres de la carte et ceux qu'elle cite.
+  const bookIdsKey = multi ? [...new Set([...(map.bookIds ?? []), ...(map.bookId ? [map.bookId] : [])])].sort().join('|') : bookId;
+  const citedKey = multi ? map.nodes.map((n) => n.highlightId).filter(Boolean).sort().join('|') : '';
+  const highlights = useStore(
+    useShallow((s) => {
+      if (!multi) return s.highlights.filter((h) => h.bookId === bookId);
+      const books = new Set(bookIdsKey.split('|').filter(Boolean));
+      const cited = new Set(citedKey.split('|').filter(Boolean));
+      return s.highlights.filter((h) => books.has(h.bookId) || cited.has(h.id));
+    }),
+  );
+  const books = useStore((s) => s.books);
   const jumpToHighlight = useStore((s) => s.jumpToHighlight);
   const hlById = useMemo(() => new Map(highlights.map((h) => [h.id, h])), [highlights]);
+  /** Livres réellement cités (ordre : bookIds de la carte, puis ordre d'apparition). */
+  const bookOrder = useMemo(() => {
+    const ids: string[] = [...(map.bookIds ?? [])];
+    for (const n of map.nodes) {
+      const h = n.highlightId ? hlById.get(n.highlightId) : null;
+      if (h && !ids.includes(h.bookId)) ids.push(h.bookId);
+    }
+    return ids;
+  }, [map.bookIds, map.nodes, hlById]);
+  /** Étiquette de livre sur les cartes : seulement quand la carte mêle plusieurs livres (ou est libre). */
+  const bookTags = useMemo(() => {
+    const out = new Map<string, string>();
+    if (!multi) return out;
+    for (const id of bookOrder) out.set(id, bookShortName(books.find((b) => b.id === id)));
+    return out;
+  }, [multi, bookOrder, books]);
 
   const mutate = useCallback(
     (fn: (m: ArgumentMap) => ArgumentMap) => {
+      const s = srcRef.current;
+      if (s.kind === 'board') {
+        s.set(fn(s.get()));
+        setTick((t) => t + 1);
+        return;
+      }
       const st = useStore.getState();
-      st.setMap(bookId, fn(st.getMap(bookId)));
+      st.setMap(s.bookId, fn(st.getMap(s.bookId)));
     },
-    [bookId],
+    [],
   );
 
   const [nodes, setNodes, onNodesChange] = useNodesState<Node>([]);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [selEdge, setSelEdge] = useState<string | null>(null);
-  const [menu, setMenu] = useState<MenuState | null>(null);
+  const [menu, setMenu] = useState<EdgeMenuState | null>(null);
   const [nodeMenu, setNodeMenu] = useState<{ x: number; y: number; entries: MenuEntry[]; label: string } | null>(null);
   const [drawer, setDrawer] = useState(() => highlights.some((h) => !map.nodes.some((n) => n.highlightId === h.id)));
-  const [filter, setFilter] = useState<CategoryId | 'plain' | 'note' | null>(null);
-  const [animating, setAnimating] = useState(false);
+  const [filter, setFilter] = useState<ExtractKind | null>(null);
+  const [glide, setGlide] = useState<ReadonlySet<string>>(() => new Set());
   const [dropping, setDropping] = useState(false);
+  const [guides, setGuides] = useState<Guide[]>([]);
+  const [hoverEdge, setHoverEdge] = useState<string | null>(null);
+  const [fresh, setFresh] = useState<ReadonlySet<string>>(() => new Set());
+  const [selectTool, setSelectTool] = useState(false);
+  const [miniOpen, setMiniOpen] = useState(() => pref.get('minimap', true));
+  const [dragging, setDragging] = useState(false);
   const wrap = useRef<HTMLDivElement | null>(null);
   const pointer = useRef<Pt>({ x: 0, y: 0 });
+  /** Carte à sélectionner dès qu'elle apparaît (création au clavier). */
+  const pendingSelect = useRef<string | null>(null);
+  /** ⌘ (Ctrl) enfoncé : pas d'aimantation pendant le glisser. */
+  const modDown = useRef(false);
+  /** La carte a le « focus clavier » (dernier clic dedans). */
+  const active = useRef(false);
+  const snap = useRef({ dx: 0, dy: 0 });
+  const finalPos = useRef(new Map<string, Pt>());
+  const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
+  const later = (fn: () => void, ms: number) => timers.current.push(setTimeout(fn, ms));
+  useEffect(() => () => timers.current.forEach(clearTimeout), []);
+
+  // Thèse centrale : marquée explicitement, sinon la première thèse posée.
+  const centralId = useMemo(() => {
+    if (map.centralId && map.nodes.some((n) => n.id === map.centralId)) return map.centralId;
+    return map.nodes.find((n) => n.highlightId && hlById.get(n.highlightId)?.category === 'these')?.id ?? null;
+  }, [map.centralId, map.nodes, hlById]);
 
   // Nœuds React Flow dérivés du store (positions = store ; état de sélection/mesure conservé)
   useEffect(() => {
+    // Consommé hors de la fonction de mise à jour (rejouée deux fois en mode strict).
+    const want = pendingSelect.current;
+    const hasWant = !!want && map.nodes.some((n) => n.id === want);
+    if (hasWant) pendingSelect.current = null;
     setNodes((prev) => {
       const old = new Map(prev.map((n) => [n.id, n]));
       return map.nodes.map((n) => {
         const o = old.get(n.id);
         const h = n.highlightId ? (hlById.get(n.highlightId) ?? null) : null;
+        const central = n.id === centralId;
         return {
           ...(o ?? {}),
           id: n.id,
           type: n.highlightId ? 'extract' : 'idea',
           position: { x: n.x, y: n.y },
-          data: n.highlightId ? ({ highlight: h } as ExtractData) : ({ text: n.text } as IdeaData),
+          className: glide.has(n.id) ? 'map-glide' : undefined,
+          selected: hasWant ? n.id === want : (o?.selected ?? false),
+          data: n.highlightId
+            ? ({ highlight: h, central, collapsed: n.collapsed, book: h ? bookTags.get(h.bookId) : undefined } as ExtractData)
+            : ({ text: n.text, central, color: n.color } as IdeaData),
         } as Node;
       });
     });
-  }, [map.nodes, hlById, setNodes]);
+  }, [map.nodes, hlById, centralId, glide, setNodes, bookTags]);
 
   const edges = useMemo<Edge[]>(() => {
     const counts = new Map<string, MapEdge[]>();
@@ -486,17 +253,21 @@ function Inner({ bookId }: { bookId: string }) {
       const grp = e.groupId ? (counts.get(`${e.target}::${e.groupId}`) ?? []) : [];
       const bundle = grp.length > 1;
       const lead = bundle ? [...grp].sort((a, b) => a.id.localeCompare(b.id))[0].id === e.id : false;
-      return {
-        id: e.id,
-        source: e.source,
-        target: e.target,
-        type: 'rel',
-        selected: e.id === selEdge,
-        zIndex: e.id === selEdge ? 10 : 0,
-        data: { relation: e.relation, groupSources: bundle ? grp.map((g) => g.source) : [], lead } as RelEdgeData,
+      const data: RelEdgeData = {
+        relation: e.relation,
+        strength: e.strength ?? 2,
+        groupSources: bundle ? grp.map((g) => g.source) : [],
+        lead,
+        hover: e.id === hoverEdge,
+        fresh: fresh.has(e.id),
       };
+      return { id: e.id, source: e.source, target: e.target, type: 'rel', selected: e.id === selEdge, zIndex: e.id === selEdge ? 10 : 0, data };
     });
-  }, [map.edges, selEdge]);
+  }, [map.edges, selEdge, hoverEdge, fresh]);
+
+  const selIds = useMemo(() => nodes.filter((n) => n.selected).map((n) => n.id), [nodes]);
+  const selKey = selIds.join('|');
+  const selIdeaCount = useMemo(() => nodes.filter((n) => n.selected && n.type === 'idea').length, [nodes]);
 
   const titleOf = useCallback(
     (nodeId: string) => {
@@ -511,19 +282,80 @@ function Inner({ bookId }: { bookId: string }) {
     [map.nodes, hlById],
   );
 
-  // Retire les groupes devenus singletons
-  const normalize = (list: MapEdge[]): MapEdge[] => {
-    const cnt = new Map<string, number>();
-    for (const e of list) if (e.groupId) cnt.set(`${e.target}::${e.groupId}`, (cnt.get(`${e.target}::${e.groupId}`) ?? 0) + 1);
-    return list.map((e) => (e.groupId && (cnt.get(`${e.target}::${e.groupId}`) ?? 0) < 2 ? { ...e, groupId: null } : e));
-  };
+  // ── Animations ponctuelles ──
+  const markFresh = useCallback((id: string) => {
+    if (reducedMotion()) return;
+    setFresh((s) => new Set(s).add(id));
+    later(() => setFresh((s) => {
+      const n = new Set(s);
+      n.delete(id);
+      return n;
+    }), 760);
+  }, []);
 
+  /** Écrit des positions ; `animate` : les cartes glissent vers leur place. */
+  const commitPositions = useCallback(
+    (pos: Map<string, Pt>, animate: boolean) => {
+      if (!pos.size) return;
+      if (animate && !reducedMotion()) {
+        setGlide(new Set(pos.keys()));
+        later(() => setGlide(new Set()), GLIDE_MS + 80);
+      }
+      mutate((m) => ({ ...m, nodes: m.nodes.map((n) => (pos.has(n.id) ? { ...n, x: Math.round(pos.get(n.id)!.x), y: Math.round(pos.get(n.id)!.y) } : n)) }));
+    },
+    [mutate],
+  );
+
+  // ── Cadrage ──
+  /** Ajuste la vue sur un rectangle en tenant compte du tiroir et de la barre flottante. */
+  const fitBox = useCallback(
+    (bb: { x: number; y: number; width: number; height: number }, duration: number, maxZoom = 1) => {
+      const el = wrap.current;
+      if (!el) return;
+      const left = drawer ? 316 : 48;
+      const aw = Math.max(200, el.clientWidth - left - 48);
+      const ah = Math.max(200, el.clientHeight - 56 - 88);
+      const zoom = Math.max(0.25, Math.min(maxZoom, aw / Math.max(bb.width, 1), ah / Math.max(bb.height, 1)));
+      rf.setViewport({ x: left + (aw - bb.width * zoom) / 2 - bb.x * zoom, y: 56 + (ah - bb.height * zoom) / 2 - bb.y * zoom, zoom }, { duration: reducedMotion() ? 0 : duration });
+    },
+    [rf, drawer],
+  );
+  const fitAll = useCallback(
+    (duration = 400) => {
+      const list = rf.getNodes().filter((n) => !n.hidden);
+      if (list.length) fitBox(rf.getNodesBounds(list), duration);
+    },
+    [rf, fitBox],
+  );
+  const zoomSelection = useCallback(() => {
+    const sel = rf.getNodes().filter((n) => n.selected);
+    if (sel.length) fitBox(rf.getNodesBounds(sel), 450, 1.25);
+  }, [rf, fitBox]);
+  /** Fait entrer une carte dans la vue si elle en sort. */
+  const reveal = useCallback(
+    (id: string) => {
+      const n = rf.getNode(id);
+      const el = wrap.current;
+      if (!n || !el) return;
+      const b = boxOf(n);
+      const vp = rf.getViewport();
+      const sx = b.x * vp.zoom + vp.x;
+      const sy = b.y * vp.zoom + vp.y;
+      const inside = sx > 20 && sy > 20 && sx + b.w * vp.zoom < el.clientWidth - 20 && sy + b.h * vp.zoom < el.clientHeight - 90;
+      if (!inside) rf.setCenter(b.x + b.w / 2, b.y + b.h / 2, { zoom: vp.zoom, duration: reducedMotion() ? 0 : 320 });
+    },
+    [rf],
+  );
+
+  // ── Création ──
   const freePosition = useCallback((): Pt => {
     const r = wrap.current?.getBoundingClientRect();
     const c = r ? rf.screenToFlowPosition({ x: r.left + r.width / 2 + (drawer ? 140 : 0), y: r.top + r.height / 2 }) : { x: 0, y: 0 };
-    const k = useStore.getState().getMap(bookId).nodes.length % 6;
-    return { x: Math.round(c.x - NODE_W / 2 + k * 26), y: Math.round(c.y - NODE_H / 2 + k * 26) };
-  }, [rf, bookId, drawer]);
+    // Au centre de la vue, sans recouvrir une carte existante.
+    const boxes = rf.getNodes().filter((n) => !n.hidden).map(boxOf);
+    const p = nearestFree({ x: Math.round(c.x - NODE_W / 2), y: Math.round(c.y - 60) }, NODE_W, 120, boxes);
+    return { x: Math.round(p.x), y: Math.round(p.y) };
+  }, [rf, drawer]);
 
   const addHighlightNode = useCallback(
     (hid: string, at?: Pt) => {
@@ -533,40 +365,104 @@ function Inner({ bookId }: { bookId: string }) {
     [mutate, freePosition],
   );
 
-  const addIdea = () => {
-    const pos = freePosition();
-    const id = uid();
-    mutate((m) => ({ ...m, nodes: [...m.nodes, { id, highlightId: null, text: '', x: pos.x, y: pos.y }] }));
-    setTimeout(() => setEditingId(id), 60);
-  };
+  /** Nouvelle idée (sélectionnée, en édition), éventuellement reliée. */
+  const newIdea = useCallback(
+    (at: Pt, link?: { to: string; relation: RelationId; reverse?: boolean }) => {
+      const id = uid();
+      const edgeId = uid();
+      pendingSelect.current = id;
+      mutate((m) => ({
+        ...m,
+        nodes: [...m.nodes, { id, highlightId: null, text: '', x: Math.round(at.x), y: Math.round(at.y) }],
+        edges: link
+          ? [...m.edges, { id: edgeId, source: link.reverse ? link.to : id, target: link.reverse ? id : link.to, relation: link.relation, groupId: null }]
+          : m.edges,
+      }));
+      if (link) markFresh(edgeId);
+      setSelEdge(null);
+      setMenu(null);
+      later(() => setEditingId(id), 60);
+      later(() => reveal(id), 90);
+      return id;
+    },
+    [mutate, markFresh, reveal],
+  );
 
-  const ctx = useMemo<Ctx>(
+  const addIdea = () => newIdea(freePosition());
+
+  /** Tab : carte « enfant » placée dessous, qui soutient la carte choisie. */
+  const addChild = useCallback(
+    (parentId: string) => {
+      const p = rf.getNode(parentId);
+      if (!p) return;
+      const b = boxOf(p);
+      const boxes = rf.getNodes().map(boxOf);
+      const at = freeSpot({ x: b.x + b.w / 2 - NODE_W / 2, y: b.y + b.h + 76 }, NODE_W, 96, boxes, { x: NODE_W + 32, y: 0 });
+      newIdea(at, { to: parentId, relation: 'soutient' });
+    },
+    [rf, newIdea],
+  );
+
+  /** Entrée : carte « sœur » à droite, reliée au même parent par la même relation. */
+  const addSibling = useCallback(
+    (sibId: string) => {
+      const s = rf.getNode(sibId);
+      if (!s) return;
+      const b = boxOf(s);
+      const boxes = rf.getNodes().map(boxOf);
+      const at = freeSpot({ x: b.x + b.w + 40, y: b.y }, NODE_W, 96, boxes, { x: NODE_W + 32, y: 0 });
+      const up = readMap().edges.find((e) => e.source === sibId);
+      newIdea(at, up ? { to: up.target, relation: up.relation } : undefined);
+    },
+    [rf, bookId, newIdea],
+  );
+
+  const select = useCallback(
+    (ids: string[]) => {
+      const set = new Set(ids);
+      setNodes((ns) => ns.map((n) => (n.selected === set.has(n.id) ? n : { ...n, selected: set.has(n.id) })));
+      setSelEdge(null);
+    },
+    [setNodes],
+  );
+
+  const ctx = useMemo<MapUiCtx>(
     () => ({
       editingId,
       setEditingId,
-      setIdeaText: (id, text) =>
-        mutate((m) => ({ ...m, nodes: m.nodes.map((n) => (n.id === id ? { ...n, text } : n)) })),
+      setIdeaText: (id, text) => mutate((m) => ({ ...m, nodes: m.nodes.map((n) => (n.id === id ? { ...n, text } : n)) })),
+      editTab: (id, text) => {
+        setEditingId(null);
+        const cur = readMap().nodes.find((n) => n.id === id);
+        if (cur && cur.text !== text) mutate((m) => ({ ...m, nodes: m.nodes.map((n) => (n.id === id ? { ...n, text } : n)) }));
+        addChild(id);
+      },
+      setCollapsed: (id, collapsed) => mutate((m) => ({ ...m, nodes: m.nodes.map((n) => (n.id === id ? { ...n, collapsed } : n)) })),
       openEdge: (id, x, y) => {
         setSelEdge(id);
         setMenu({ edgeId: id, x, y, fresh: false });
       },
-      conceptName: (id) => concepts.find((c) => c.id === id)?.name ?? '',
+      hoverEdge: setHoverEdge,
       jump: (hid) => jumpToHighlight(hid),
     }),
-    [editingId, mutate, concepts, jumpToHighlight],
+    [editingId, mutate, jumpToHighlight, bookId, addChild],
   );
 
+  // ── Liens ──
   const onConnect = useCallback(
     (c: Connection) => {
       if (!c.source || !c.target || c.source === c.target) return;
-      const m = useStore.getState().getMap(bookId);
+      const m = readMap();
       const dup = m.edges.find((e) => e.source === c.source && e.target === c.target);
       const id = dup?.id ?? uid();
-      if (!dup) mutate((mm) => ({ ...mm, edges: [...mm.edges, { id, source: c.source!, target: c.target!, relation: 'soutient', groupId: null }] }));
+      if (!dup) {
+        mutate((mm) => ({ ...mm, edges: [...mm.edges, { id, source: c.source!, target: c.target!, relation: 'soutient', groupId: null }] }));
+        markFresh(id);
+      }
       setSelEdge(id);
       setMenu({ edgeId: id, x: pointer.current.x, y: pointer.current.y, fresh: true });
     },
-    [bookId, mutate],
+    [bookId, mutate, markFresh],
   );
 
   /** Lien lâché dans le vide : crée une nouvelle carte « idée » à cet endroit, reliée à la carte de départ. */
@@ -575,38 +471,179 @@ function Inner({ bookId }: { bookId: string }) {
       if (state.isValid || !state.fromNode) return;
       const pt = 'changedTouches' in event ? event.changedTouches[0] : event;
       if (!pt) return;
-      const p = rf.screenToFlowPosition({ x: pt.clientX, y: pt.clientY });
-      const id = uid();
-      const edgeId = uid();
-      const from = state.fromNode.id;
       // Si l'on a tiré depuis une poignée d'entrée, la nouvelle carte pointe vers la carte de départ.
       const reverse = state.fromHandle?.type === 'target';
-      mutate((m) => ({
-        ...m,
-        nodes: [...m.nodes, { id, highlightId: null, text: '', x: Math.round(p.x - 140), y: Math.round(p.y - 28) }],
-        edges: [...m.edges, { id: edgeId, source: reverse ? id : from, target: reverse ? from : id, relation: 'soutient', groupId: null }],
-      }));
-      setSelEdge(null);
-      setMenu(null);
-      setTimeout(() => setEditingId(id), 60);
+      // Lâché sur le corps d'une autre carte (loin de ses poignées) : on relie quand même.
+      const over = (document.elementFromPoint(pt.clientX, pt.clientY) as HTMLElement | null)?.closest<HTMLElement>('.react-flow__node');
+      const overId = over?.dataset.id;
+      if (overId && overId !== state.fromNode.id) {
+        onConnect(reverse ? { source: overId, target: state.fromNode.id, sourceHandle: null, targetHandle: null } : { source: state.fromNode.id, target: overId, sourceHandle: null, targetHandle: null });
+        return;
+      }
+      if (overId) return;
+      const p = rf.screenToFlowPosition({ x: pt.clientX, y: pt.clientY });
+      newIdea({ x: p.x - NODE_W / 2, y: p.y - 28 }, { to: state.fromNode.id, relation: 'soutient', reverse: !reverse });
     },
-    [rf, mutate],
+    [rf, newIdea, onConnect],
   );
 
   const onDelete = useCallback(
-    ({ nodes: dn, edges: de }: { nodes: Node[]; edges: Edge[] }) => {
+    ({ nodes: dn, edges: de }: { nodes: { id: string }[]; edges: { id: string }[] }) => {
       const nIds = new Set(dn.map((n) => n.id));
       const eIds = new Set(de.map((e) => e.id));
       mutate((m) => ({
         ...m,
         nodes: m.nodes.filter((n) => !nIds.has(n.id)),
         edges: normalize(m.edges.filter((e) => !eIds.has(e.id) && !nIds.has(e.source) && !nIds.has(e.target))),
+        ...(m.centralId && nIds.has(m.centralId) ? { centralId: undefined } : {}),
       }));
       setSelEdge(null);
       setMenu(null);
     },
     [mutate],
   );
+
+  // ── Glisser : aimantation, guides, collisions ──
+  const handleNodesChange = useCallback(
+    (changes: NodeChange<Node>[]) => {
+      const pos = changes.filter((c): c is NodePositionChange => c.type === 'position' && !!c.position);
+      if (pos.length) {
+        const live = pos.some((c) => c.dragging);
+        if (live) {
+          if (modDown.current) {
+            snap.current = { dx: 0, dy: 0 };
+            setGuides((g) => (g.length ? [] : g));
+          } else {
+            const ids = new Set(pos.map((c) => c.id));
+            const moving = pos.map((c) => ({ id: c.id, x: c.position!.x, y: c.position!.y, ...sizeOf(rf.getNode(c.id)) }));
+            const bb = bounds(moving)!;
+            const others = rf
+              .getNodes()
+              .filter((n) => !ids.has(n.id) && !n.hidden)
+              .map(boxOf);
+            const r = snapBox({ id: '', ...bb }, others, SNAP_PX / rf.getZoom());
+            snap.current = { dx: r.dx, dy: r.dy };
+            setGuides(r.guides);
+          }
+        }
+        const { dx, dy } = snap.current;
+        changes = changes.map((c) => {
+          if (c.type !== 'position' || !c.position) return c;
+          const p = { x: c.position.x + dx, y: c.position.y + dy };
+          finalPos.current.set(c.id, p);
+          return { ...c, position: p };
+        });
+        if (!live) snap.current = { dx: 0, dy: 0 };
+      }
+      onNodesChange(changes);
+    },
+    [rf, onNodesChange],
+  );
+
+  const onNodeDragStart = useCallback(() => {
+    finalPos.current = new Map();
+    snap.current = { dx: 0, dy: 0 };
+    setDragging(true);
+    setMenu(null);
+    setNodeMenu(null);
+  }, []);
+
+  const onNodeDragStop = useCallback(() => {
+    setDragging(false);
+    setGuides([]);
+    const moved = finalPos.current;
+    finalPos.current = new Map();
+    if (!moved.size) return;
+    // Les voisines chevauchées s'écartent doucement.
+    const boxes = rf.getNodes().map((n) => {
+      const b = boxOf(n);
+      const p = moved.get(n.id);
+      return p ? { ...b, x: p.x, y: p.y } : b;
+    });
+    const pushed = resolveCollisions(boxes, new Set(moved.keys()), 22);
+    separateUndoStep();
+    const all = new Map(moved);
+    for (const [id, p] of pushed) all.set(id, p);
+    if (pushed.size && !reducedMotion()) {
+      setGlide(new Set(pushed.keys()));
+      later(() => setGlide(new Set()), GLIDE_MS + 80);
+    }
+    mutate((m) => ({ ...m, nodes: m.nodes.map((n) => (all.has(n.id) ? { ...n, x: Math.round(all.get(n.id)!.x), y: Math.round(all.get(n.id)!.y) } : n)) }));
+  }, [rf, mutate]);
+
+  // ── Rangement automatique ──
+  const applyLayout = useCallback(
+    (kind: LayoutKind) => {
+      const list = rf.getNodes().filter((n) => !n.hidden);
+      if (!list.length) return;
+      const m = readMap();
+      const byId = new Map(m.nodes.map((n) => [n.id, n]));
+      const ranks = list
+        .map((n) => byId.get(n.id))
+        .filter((n) => n?.highlightId && hlById.get(n.highlightId))
+        .map((n) => {
+          const h = hlById.get(n!.highlightId!)!;
+          // Carte multi-livres : par livre (ordre de la carte), puis ordre du texte.
+          const bi = bookOrder.indexOf(h.bookId);
+          return { id: n!.id, b: bi < 0 ? 999 : bi, k: textKey(h) };
+        })
+        .sort((a, b) => a.b - b.b || a.k - b.k);
+      const rank = new Map(ranks.map((r, i) => [r.id, i]));
+      const lnodes: LNode[] = list.map((n) => {
+        const mn = byId.get(n.id);
+        const h = mn?.highlightId ? hlById.get(mn.highlightId) : null;
+        const bi = h && multi ? bookOrder.indexOf(h.bookId) : -1;
+        return { id: n.id, ...sizeOf(n), category: h?.category ?? null, idea: !mn?.highlightId, textRank: rank.get(n.id) ?? null, book: bi < 0 ? null : bi };
+      });
+      const bb = bounds(list.map(boxOf))!;
+      const pos = layoutMap(kind, lnodes, m.edges, centralId, { x: bb.x, y: bb.y });
+      separateUndoStep();
+      commitPositions(pos, true);
+      separateUndoStep();
+      later(() => {
+        const ids = new Set(pos.keys());
+        const nb = list.map((n) => ({ ...boxOf(n), ...(pos.get(n.id) ?? {}) })).filter((b) => ids.has(b.id));
+        const r = bounds(nb);
+        if (r) fitBox({ x: r.x, y: r.y, width: r.w, height: r.h }, GLIDE_MS);
+      }, 40);
+      const label = LAYOUTS.find((l) => l.id === kind)?.label ?? '';
+      useStore.getState().toast(`Carte rangée : ${label}. ${fmtKeys('⌘Z')} pour revenir.`, 'success');
+    },
+    [rf, readMap, hlById, bookOrder, multi, centralId, commitPositions, fitBox],
+  );
+
+  // ── Sélection groupée ──
+  const selectedBoxes = () => rf.getNodes().filter((n) => n.selected).map(boxOf);
+  const align = useCallback(
+    (k: AlignKind) => {
+      const pos = alignBoxes(rf.getNodes().filter((n) => n.selected).map(boxOf), k);
+      // Les autres cartes recouvertes s'écartent, comme après un glisser.
+      const boxes = rf.getNodes().filter((n) => !n.hidden).map((n) => {
+        const b = boxOf(n);
+        const p = pos.get(n.id);
+        return p ? { ...b, ...p } : b;
+      });
+      for (const [id, p] of resolveCollisions(boxes, new Set(pos.keys()), 22)) pos.set(id, p);
+      separateUndoStep();
+      commitPositions(pos, true);
+    },
+    [rf, commitPositions],
+  );
+  const colorIdeas = useCallback(
+    (ids: string[], color: string | undefined) => {
+      const set = new Set(ids);
+      mutate((m) => ({
+        ...m,
+        nodes: m.nodes.map((n) => {
+          if (!set.has(n.id) || n.highlightId) return n;
+          const { color: _old, ...rest } = n;
+          return color ? { ...rest, color } : rest;
+        }),
+      }));
+    },
+    [mutate],
+  );
+  const setCentral = useCallback((id: string | undefined) => mutate((m) => ({ ...m, centralId: id })), [mutate]);
 
   // Viewport (écriture différée)
   const vpTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -619,19 +656,6 @@ function Inner({ bookId }: { bookId: string }) {
   );
   useEffect(() => () => void (vpTimer.current && clearTimeout(vpTimer.current)), []);
 
-  /** Ajuste la vue en tenant compte du tiroir et de la barre flottante. */
-  const fit = (duration: number) => {
-    const el = wrap.current;
-    const list = rf.getNodes();
-    if (!el || !list.length) return;
-    const bb = rf.getNodesBounds(list);
-    const left = drawer ? 316 : 48;
-    const aw = Math.max(200, el.clientWidth - left - 48);
-    const ah = Math.max(200, el.clientHeight - 56 - 88);
-    const zoom = Math.max(0.25, Math.min(1, aw / Math.max(bb.width, 1), ah / Math.max(bb.height, 1)));
-    rf.setViewport({ x: left + (aw - bb.width * zoom) / 2 - bb.x * zoom, y: 56 + (ah - bb.height * zoom) / 2 - bb.y * zoom, zoom }, { duration });
-  };
-
   // Premier cadrage : celui de React Flow ignore le tiroir « À placer » et la barre
   // flottante (des nœuds restaient cachés dessous). On cadre nous-mêmes, une fois les
   // nœuds mesurés, et on masque la vue jusque-là pour éviter un saut.
@@ -639,17 +663,9 @@ function Inner({ bookId }: { bookId: string }) {
   const [prefit, setPrefit] = useState(() => !map.viewport && map.nodes.length > 0);
   useEffect(() => {
     if (!prefit || !nodesReady) return;
-    fit(0);
+    fitAll(0);
     requestAnimationFrame(() => setPrefit(false));
-  }, [prefit, nodesReady]);
-
-  const organise = () => {
-    const pos = layout(map.nodes, hlById);
-    setAnimating(true);
-    mutate((m) => ({ ...m, nodes: m.nodes.map((n) => ({ ...n, x: Math.round(pos.get(n.id)?.x ?? n.x), y: Math.round(pos.get(n.id)?.y ?? n.y) })) }));
-    setTimeout(() => fit(500), 60);
-    setTimeout(() => setAnimating(false), 700);
-  };
+  }, [prefit, nodesReady, fitAll]);
 
   const onDrop = (e: DragEvent) => {
     e.preventDefault();
@@ -664,18 +680,191 @@ function Inner({ bookId }: { bookId: string }) {
     const placed = new Set(map.nodes.map((n) => n.highlightId).filter(Boolean));
     return highlights.filter((h) => !placed.has(h.id));
   }, [highlights, map.nodes]);
-  const shown = unplaced.filter((h) => (filter === null ? true : kindOf(h) === filter));
+
+  // ── Clavier ──
+  const keyRef = useRef<(e: KeyboardEvent) => void>(() => {});
+  keyRef.current = (e: KeyboardEvent) => {
+    if (!active.current || !wrap.current?.isConnected) return;
+    if (isTextEditingTarget(e.target) || editingId) return;
+    if (menu || nodeMenu || document.querySelector('[role="menu"], .modal, [role="dialog"]')) return;
+    const all = rf.getNodes().filter((n) => !n.hidden);
+    const sel = all.filter((n) => n.selected);
+    const one = sel.length === 1 ? sel[0] : null;
+    const plain = !e.metaKey && !e.ctrlKey && !e.altKey;
+    const stop = () => {
+      e.preventDefault();
+      e.stopPropagation();
+    };
+    if (matchKeys(e, '⇧1')) {
+      stop();
+      fitAll(450);
+    } else if (matchKeys(e, '⇧2')) {
+      stop();
+      zoomSelection();
+    } else if (matchKeys(e, '⌘A')) {
+      stop();
+      select(all.map((n) => n.id));
+    } else if (e.key === 'Tab' && plain && !e.shiftKey && one) {
+      stop();
+      addChild(one.id);
+    } else if (e.key === 'Enter' && plain && one) {
+      stop();
+      if (one.type === 'idea' && !e.shiftKey) setEditingId(one.id);
+      else addSibling(one.id);
+    } else if (e.key.startsWith('Arrow') && plain) {
+      stop();
+      const dir = ({ ArrowUp: 'up', ArrowDown: 'down', ArrowLeft: 'left', ArrowRight: 'right' } as const)[e.key as 'ArrowUp'];
+      if (!dir) return;
+      if (e.shiftKey && sel.length) {
+        // ⇧ + flèche : déplace la sélection.
+        const d = { up: [0, -10], down: [0, 10], left: [-10, 0], right: [10, 0] }[dir];
+        commitPositions(new Map(sel.map((n) => [n.id, { x: n.position.x + d[0], y: n.position.y + d[1] }])), false);
+        return;
+      }
+      const from = one ?? all.find((n) => n.id === centralId) ?? all[0];
+      if (!from) return;
+      const next = one ? neighborIn(boxOf(one), all.map(boxOf), dir) : from.id;
+      if (next) {
+        select([next]);
+        reveal(next);
+      }
+    } else if (e.key === 'Escape') {
+      if (selectTool) setSelectTool(false);
+      if (sel.length || selEdge) {
+        stop();
+        select([]);
+      }
+    }
+  };
+
+  useEffect(() => {
+    const down = (e: PointerEvent) => {
+      active.current = !!wrap.current?.contains(e.target as globalThis.Node);
+    };
+    const key = (e: KeyboardEvent) => {
+      if (e.key === 'Meta' || e.key === 'Control') modDown.current = isMac ? e.metaKey : e.ctrlKey;
+      keyRef.current(e);
+    };
+    const up = (e: KeyboardEvent) => {
+      if (e.key === 'Meta' || e.key === 'Control') modDown.current = isMac ? e.metaKey : e.ctrlKey;
+    };
+    const blur = () => (modDown.current = false);
+    window.addEventListener('pointerdown', down, true);
+    window.addEventListener('keydown', key);
+    window.addEventListener('keyup', up);
+    window.addEventListener('blur', blur);
+    return () => {
+      window.removeEventListener('pointerdown', down, true);
+      window.removeEventListener('keydown', key);
+      window.removeEventListener('keyup', up);
+      window.removeEventListener('blur', blur);
+    };
+  }, []);
+
+  // ── Menus contextuels ──
+  const alignEntries = (): MenuEntry[] => ALIGN_ACTIONS.map((a) => ({ label: a.label, icon: a.icon, onClick: () => align(a.id), disabled: a.id.endsWith('spread') && selectedBoxes().length < 3 }));
+  const colorEntries = (ids: string[], current?: string): MenuEntry[] =>
+    IDEA_COLORS.map((c) => ({ label: c.label, swatch: c.id ? `var(${c.id})` : 'var(--cat-these)', checked: current === c.id, onClick: () => colorIdeas(ids, c.id) }));
+  const layoutEntries = (): MenuEntry[] => LAYOUTS.map((l) => ({ label: l.label, hint: l.hint, onClick: () => applyLayout(l.id) }));
+
+  const onNodeContextMenu = (e: React.MouseEvent, node: Node) => {
+    e.preventDefault();
+    setMenu(null);
+    const sel = rf.getNodes().filter((n) => n.selected);
+    const group = node.selected && sel.length > 1 ? sel : [node];
+    if (!node.selected) select([node.id]);
+    const m = readMap();
+    const mapNode = m.nodes.find((n) => n.id === node.id);
+    const entries: MenuEntry[] = [];
+    if (group.length === 1 && mapNode) {
+      if (mapNode.highlightId) {
+        const hid = mapNode.highlightId;
+        entries.push({ label: 'Ouvrir dans le livre', icon: <BookOpen size={14} />, onClick: () => jumpToHighlight(hid) });
+        const long = !!document.querySelector(`.react-flow__node[data-id="${CSS.escape(node.id)}"] .map-node.long`);
+        if (long) {
+          const collapsed = !!document.querySelector(`.react-flow__node[data-id="${CSS.escape(node.id)}"] .map-node.collapsed`);
+          entries.push({
+            label: collapsed ? 'Déplier l’extrait' : 'Replier l’extrait',
+            icon: collapsed ? <ChevronsUpDown size={14} /> : <ChevronsDownUp size={14} />,
+            onClick: () => ctx.setCollapsed(node.id, !collapsed),
+          });
+        }
+      } else {
+        entries.push({ label: 'Modifier', icon: <Pencil size={14} />, hint: fmtKeys('↩'), onClick: () => setEditingId(node.id) });
+        entries.push({ label: 'Couleur', icon: <Palette size={14} />, children: colorEntries([node.id], mapNode.color) });
+        entries.push({
+          label: 'Dupliquer',
+          icon: <Copy size={14} />,
+          onClick: () => {
+            const id = uid();
+            mutate((mm) => ({ ...mm, nodes: [...mm.nodes, { ...mapNode, id, x: mapNode.x + 30, y: mapNode.y + 30 }] }));
+          },
+        });
+      }
+      entries.push({ label: 'Nouvelle idée reliée dessous', icon: <CornerDownRight size={14} />, hint: 'Tab', onClick: () => addChild(node.id) });
+      if (m.centralId === node.id) entries.push({ label: 'Ne plus marquer comme thèse centrale', icon: <Star size={14} />, onClick: () => setCentral(undefined) });
+      else if (centralId !== node.id) entries.push({ label: 'Marquer comme thèse centrale', icon: <Star size={14} />, onClick: () => setCentral(node.id) });
+      entries.push({ sep: true });
+    } else {
+      const ideaIds = group.filter((n) => n.type === 'idea').map((n) => n.id);
+      entries.push({ label: 'Aligner', icon: <AlignStartVertical size={14} />, children: alignEntries() });
+      if (ideaIds.length) entries.push({ label: ideaIds.length > 1 ? `Couleur des ${ideaIds.length} idées` : 'Couleur de l’idée', icon: <Palette size={14} />, children: colorEntries(ideaIds) });
+      entries.push({ label: 'Zoom sur la sélection', icon: <ScanSearch size={14} />, hint: fmtKeys('⇧2'), onClick: zoomSelection });
+      entries.push({ sep: true });
+    }
+    entries.push({
+      label: group.length > 1 ? `Supprimer les ${group.length} cartes` : 'Supprimer la carte',
+      hint: group.some((n) => n.type === 'extract') ? 'extrait conservé' : undefined,
+      icon: <Trash2 size={14} />,
+      danger: true,
+      onClick: () => onDelete({ nodes: group, edges: [] }),
+    });
+    setNodeMenu({ x: e.clientX, y: e.clientY, entries, label: 'Menu de la carte' });
+  };
+
+  const onPaneContextMenu = (e: React.MouseEvent | MouseEvent) => {
+    e.preventDefault();
+    setMenu(null);
+    const at = rf.screenToFlowPosition({ x: e.clientX, y: e.clientY });
+    const has = map.nodes.length > 0;
+    const entries: MenuEntry[] = [{ label: 'Nouvelle idée ici', icon: <Lightbulb size={14} />, hint: 'double-clic', onClick: () => newIdea({ x: at.x - NODE_W / 2, y: at.y - 40 }) }];
+    if (has) {
+      entries.push({ label: 'Ranger', icon: <Wand2 size={14} />, children: layoutEntries() });
+      entries.push({ label: 'Tout sélectionner', icon: <MousePointer2 size={14} />, hint: fmtKeys('⌘A'), onClick: () => select(rf.getNodes().map((n) => n.id)) });
+      entries.push({ label: 'Tout voir', icon: <Maximize2 size={14} />, hint: fmtKeys('⇧1'), onClick: () => fitAll(450) });
+    }
+    setNodeMenu({ x: e.clientX, y: e.clientY, label: 'Menu du schéma', entries });
+  };
 
   const menuEdge = menu ? map.edges.find((e) => e.id === menu.edgeId) : null;
   const empty = map.nodes.length === 0;
+  const toggleMini = () => {
+    pref.set('minimap', !miniOpen);
+    setMiniOpen(!miniOpen);
+  };
+  const miniClass = (n: Node) => {
+    if (n.type === 'idea') return 'mm-idea';
+    const h = (n.data as ExtractData).highlight;
+    const c = h ? (h.category ?? (h.plain ? 'plain' : 'note')) : 'note';
+    return `mm-${c}${(n.data as ExtractData).central ? ' mm-central' : ''}`;
+  };
 
   return (
     <MapCtx.Provider value={ctx}>
       <div
         ref={wrap}
-        className={`map-root ${animating ? 'map-animating' : ''} ${dropping ? 'map-dropping' : ''} ${prefit ? 'map-prefit' : ''}`}
+        className={`map-root ${dropping ? 'map-dropping' : ''} ${prefit ? 'map-prefit' : ''} ${dragging ? 'map-dragging' : ''} ${selectTool ? 'map-selecttool' : ''}`}
         data-testid="map-root"
-        onPointerMove={(e) => (pointer.current = { x: e.clientX, y: e.clientY })}
+        onPointerMove={(e) => {
+          pointer.current = { x: e.clientX, y: e.clientY };
+          modDown.current = isMac ? e.metaKey : e.ctrlKey;
+        }}
+        onDoubleClick={(e) => {
+          const t = e.target as HTMLElement;
+          if (!t.closest('.react-flow__pane') || t.closest('.react-flow__node, .react-flow__edge, .react-flow__panel')) return;
+          const at = rf.screenToFlowPosition({ x: e.clientX, y: e.clientY });
+          newIdea({ x: at.x - NODE_W / 2, y: at.y - 36 });
+        }}
         onDragOver={(e) => {
           if (e.dataTransfer.types.includes('text/marginalia-hl')) {
             e.preventDefault();
@@ -687,15 +876,7 @@ function Inner({ bookId }: { bookId: string }) {
         }}
         onDrop={onDrop}
       >
-        <svg width="0" height="0" style={{ position: 'absolute' }} aria-hidden>
-          <defs>
-            {RELATIONS.map((r) => (
-              <marker key={r.id} id={`map-arrow-${r.id}`} viewBox="0 0 12 12" refX="10" refY="6" markerWidth="12" markerHeight="12" markerUnits="userSpaceOnUse" orient="auto-start-reverse">
-                <path d="M 1.5 1.5 L 10.5 6 L 1.5 10.5 Z" style={{ fill: `var(${r.cssVar})`, stroke: `var(${r.cssVar})`, strokeWidth: 1, strokeLinejoin: 'round' }} />
-              </marker>
-            ))}
-          </defs>
-        </svg>
+        <ArrowDefs />
 
         <ReactFlow
           className="map-flow"
@@ -703,24 +884,28 @@ function Inner({ bookId }: { bookId: string }) {
           edges={edges}
           nodeTypes={nodeTypes}
           edgeTypes={edgeTypes}
-          onNodesChange={onNodesChange}
+          onNodesChange={handleNodesChange}
           onConnect={onConnect}
           onConnectEnd={onConnectEnd}
           onDelete={onDelete}
           connectionMode={ConnectionMode.Loose}
           connectionRadius={36}
           deleteKeyCode={['Backspace', 'Delete']}
+          multiSelectionKeyCode={isMac ? 'Meta' : 'Control'}
+          selectionKeyCode="Shift"
+          selectionOnDrag={selectTool}
+          panOnDrag={selectTool ? [1, 2] : true}
+          selectionMode={SelectionMode.Partial}
+          disableKeyboardA11y
           zoomOnDoubleClick={false}
           minZoom={0.25}
           maxZoom={1.8}
           defaultViewport={map.viewport ?? undefined}
           proOptions={{ hideAttribution: true }}
-          onNodeDragStop={(_, __, dragged) =>
-            mutate((m) => {
-              const pos = new Map(dragged.map((d) => [d.id, d.position]));
-              return { ...m, nodes: m.nodes.map((n) => (pos.has(n.id) ? { ...n, x: Math.round(pos.get(n.id)!.x), y: Math.round(pos.get(n.id)!.y) } : n)) };
-            })
-          }
+          onNodeDragStart={onNodeDragStart}
+          onNodeDragStop={onNodeDragStop}
+          onSelectionDragStart={onNodeDragStart}
+          onSelectionDragStop={onNodeDragStop}
           onNodeClick={() => {
             setSelEdge(null);
             setMenu(null);
@@ -731,65 +916,54 @@ function Inner({ bookId }: { bookId: string }) {
             setEditingId(null);
           }}
           onEdgeClick={(e, edge) => ctx.openEdge(edge.id, e.clientX, e.clientY)}
-          onNodeContextMenu={(e, node) => {
-            e.preventDefault();
-            setMenu(null);
-            const sel = rf.getNodes().filter((n) => n.selected);
-            const group = node.selected && sel.length > 1 ? sel : [node];
-            const mapNode = useStore.getState().getMap(bookId).nodes.find((n) => n.id === node.id);
-            const entries: MenuEntry[] = [];
-            if (group.length === 1 && mapNode) {
-              if (mapNode.highlightId) {
-                const hid = mapNode.highlightId;
-                entries.push({ label: 'Ouvrir dans le livre', icon: <BookOpen size={14} />, onClick: () => jumpToHighlight(hid) });
-              } else {
-                entries.push({ label: 'Modifier', icon: <Pencil size={14} />, onClick: () => setEditingId(node.id) });
-                entries.push({
-                  label: 'Dupliquer',
-                  icon: <Copy size={14} />,
-                  onClick: () => {
-                    const id = uid();
-                    mutate((m) => ({ ...m, nodes: [...m.nodes, { ...mapNode, id, x: mapNode.x + 30, y: mapNode.y + 30 }] }));
-                  },
-                });
-              }
-              entries.push({ sep: true });
-            }
-            entries.push({
-              label: group.length > 1 ? `Supprimer les ${group.length} cartes` : 'Supprimer la carte',
-              hint: group.some((n) => n.type === 'extract') ? 'extrait conservé' : undefined,
-              icon: <Trash2 size={14} />,
-              danger: true,
-              onClick: () => onDelete({ nodes: group, edges: [] }),
-            });
-            setNodeMenu({ x: e.clientX, y: e.clientY, entries, label: 'Menu de la carte' });
+          onEdgeMouseEnter={(_, edge) => setHoverEdge(edge.id)}
+          onEdgeMouseLeave={() => setHoverEdge(null)}
+          onNodeContextMenu={onNodeContextMenu}
+          onSelectionContextMenu={(e) => {
+            const first = rf.getNodes().find((n) => n.selected);
+            if (first) onNodeContextMenu(e, first);
           }}
-          onPaneContextMenu={(e) => {
-            e.preventDefault();
-            setMenu(null);
-            const at = rf.screenToFlowPosition({ x: e.clientX, y: e.clientY });
-            setNodeMenu({
-              x: e.clientX,
-              y: e.clientY,
-              label: 'Menu du schéma',
-              entries: [
-                {
-                  label: 'Nouvelle idée ici',
-                  icon: <Lightbulb size={14} />,
-                  onClick: () => {
-                    const id = uid();
-                    mutate((m) => ({ ...m, nodes: [...m.nodes, { id, highlightId: null, text: '', x: Math.round(at.x - NODE_W / 2), y: Math.round(at.y - NODE_H / 2) }] }));
-                    setTimeout(() => setEditingId(id), 60);
-                  },
-                },
-              ],
-            });
-          }}
+          onPaneContextMenu={onPaneContextMenu}
           onMoveEnd={onMoveEnd}
         >
-          <Background variant={BackgroundVariant.Dots} gap={22} size={1.6} color="var(--border-strong)" />
+          <Background variant={BackgroundVariant.Dots} gap={24} size={1.15} color="var(--map-dot)" />
           <Controls position="bottom-left" showInteractive={false} showFitView={false} />
+          {!empty && miniOpen && (
+            <MiniMap
+              className="map-minimap anim-fade"
+              position="bottom-right"
+              pannable
+              zoomable
+              ariaLabel="Mini-carte"
+              nodeClassName={miniClass}
+              nodeBorderRadius={10}
+              nodeStrokeWidth={0}
+              maskColor="var(--map-mini-mask)"
+              style={{ width: 184, height: 124 }}
+            />
+          )}
+          <Guides guides={guides} />
+          <SelectionBar
+            ids={selIds}
+            ideaCount={selIdeaCount}
+            visible={selIds.length > 1 && !dragging && !menu && !nodeMenu}
+            onAlign={align}
+            onColor={(c) => colorIdeas(selKey.split('|'), c)}
+            onDelete={() => onDelete({ nodes: selIds.map((id) => ({ id })), edges: [] })}
+          />
         </ReactFlow>
+
+        {!empty && (
+          <button
+            className={`map-mini-toggle ${miniOpen ? 'open' : ''}`}
+            data-act="minimap"
+            onClick={toggleMini}
+            title={miniOpen ? 'Masquer la mini-carte' : 'Afficher la mini-carte'}
+            aria-pressed={miniOpen}
+          >
+            {miniOpen ? <X size={12} /> : <MapIcon size={15} />}
+          </button>
+        )}
 
         {nodeMenu && <ContextMenu x={nodeMenu.x} y={nodeMenu.y} entries={nodeMenu.entries} label={nodeMenu.label} onClose={() => setNodeMenu(null)} />}
         {!empty && (
@@ -797,7 +971,7 @@ function Inner({ bookId }: { bookId: string }) {
             {RELATIONS.map((r) => (
               <span key={r.id} style={{ '--c': `var(${r.cssVar})` } as CSSProperties}>
                 <svg width="22" height="8">
-                  <line x1="1" y1="4" x2="21" y2="4" stroke="var(--c)" strokeWidth="2" strokeDasharray={r.dashed ? '4 3' : undefined} strokeLinecap="round" />
+                  <line x1="1" y1="4" x2="21" y2="4" stroke="var(--c)" strokeWidth="1.75" strokeDasharray={r.dashed ? '5 3' : undefined} strokeLinecap="round" />
                 </svg>
                 {r.label}
               </span>
@@ -814,7 +988,7 @@ function Inner({ bookId }: { bookId: string }) {
                   ? 'Posez ici les extraits qui comptent, puis reliez-les : un argument soutient une thèse, une objection s’y attaque, une réponse la parre.'
                   : 'Surlignez d’abord quelques passages dans la lecture : ils apparaîtront ici, prêts à être placés et reliés.'}
               </p>
-              <p className="map-empty-hint">Tirez depuis un point d’un nœud vers un autre pour créer un lien.</p>
+              <p className="map-empty-hint">Double-cliquez dans le vide pour noter une idée ; tirez depuis le bord d’une carte pour créer un lien.</p>
               <div style={{ display: 'flex', gap: 8 }}>
                 {highlights.length > 0 && !drawer && (
                   <button className="btn btn-primary" onClick={() => setDrawer(true)}>
@@ -829,87 +1003,28 @@ function Inner({ bookId }: { bookId: string }) {
           </div>
         )}
 
-        {drawer ? (
-          <aside className="map-drawer anim-slide" data-testid="map-drawer">
-            <header>
-              <b>À placer</b>
-              <span className="muted">{unplaced.length}</span>
-              <span style={{ flex: 1 }} />
-              <button className="icon-btn sm" title="Fermer" onClick={() => setDrawer(false)}>
-                <X size={14} />
-              </button>
-            </header>
-            <div className="map-drawer-filters">
-              <button className={`chip ${filter === null ? 'active' : ''}`} onClick={() => setFilter(null)}>
-                Tous
-              </button>
-              {CATEGORIES.map((c) => (
-                <button key={c.id} className={`chip ${filter === c.id ? 'active' : ''}`} onClick={() => setFilter(filter === c.id ? null : c.id)}>
-                  <span className="cat-dot" style={{ background: catColor(c.id) }} />
-                  {c.label}
-                </button>
-              ))}
-              <button className={`chip ${filter === 'plain' ? 'active' : ''}`} onClick={() => setFilter(filter === 'plain' ? null : 'plain')}>
-                <span className="cat-dot" style={{ background: 'var(--cat-plain)' }} />
-                Surlignages
-              </button>
-              <button className={`chip ${filter === 'note' ? 'active' : ''}`} onClick={() => setFilter(filter === 'note' ? null : 'note')}>
-                Notes
-              </button>
-            </div>
-            <div className="map-drawer-list anim-stagger">
-              {shown.map((h, i) => (
-                <div
-                  key={h.id}
-                  className="map-drawer-item lift"
-                  data-hl={h.id}
-                  style={{ '--c': kindColor(h), '--i': i } as CSSProperties}
-                  draggable
-                  onDragStart={(e) => {
-                    e.dataTransfer.setData('text/marginalia-hl', h.id);
-                    e.dataTransfer.effectAllowed = 'copy';
-                  }}
-                >
-                  <GripVertical size={13} className="grip" />
-                  <div className="body">
-                    <span className="cat">{kindLabel(h)}</span>
-                    <p>{h.text.replace(/\s+/g, ' ').trim()}</p>
-                    <span className="loc">{locatorOf(h)}</span>
-                  </div>
-                  <button className="icon-btn sm add" title="Ajouter à la carte" onClick={() => addHighlightNode(h.id)}>
-                    <Plus size={14} />
-                  </button>
-                </div>
-              ))}
-              {shown.length === 0 && (
-                <p className="map-drawer-none muted">
-                  {highlights.length === 0
-                    ? 'Aucun extrait pour ce livre. Surlignez des passages dans la lecture.'
-                    : unplaced.length === 0
-                      ? 'Tous les extraits sont sur la carte.'
-                      : 'Aucun extrait dans cette catégorie.'}
-                </p>
-              )}
-            </div>
-          </aside>
-        ) : (
-          <button className="map-drawer-open anim-fade" onClick={() => setDrawer(true)} data-testid="map-drawer-open">
-            <PanelLeft size={14} /> À placer
-            {unplaced.length > 0 && <span>{unplaced.length}</span>}
-          </button>
-        )}
+        <PlaceDrawer
+          open={drawer}
+          highlights={highlights}
+          unplaced={unplaced}
+          filter={filter}
+          setFilter={setFilter}
+          onOpen={() => setDrawer(true)}
+          onClose={() => setDrawer(false)}
+          onAdd={(hid) => addHighlightNode(hid)}
+          bookOf={multi ? (h) => bookTags.get(h.bookId) || bookShortName(books.find((b) => b.id === h.bookId)) : undefined}
+        />
 
-        <div className="map-bar anim-in" role="toolbar">
-          <button className="btn btn-ghost btn-sm" data-act="idea" onClick={addIdea}>
-            <Lightbulb size={14} /> Idée
-          </button>
-          <button className="btn btn-ghost btn-sm" data-act="organise" onClick={organise} disabled={empty}>
-            <LayoutGrid size={14} /> Organiser
-          </button>
-          <button className="btn btn-ghost btn-sm" data-act="fit" onClick={() => fit(400)} disabled={empty}>
-            <Maximize2 size={14} /> Ajuster
-          </button>
-        </div>
+        <MapToolbar
+          empty={empty}
+          hasSelection={selIds.length > 0}
+          selectTool={selectTool}
+          onIdea={addIdea}
+          onLayout={applyLayout}
+          onToggleSelect={() => setSelectTool((v) => !v)}
+          onZoomSelection={zoomSelection}
+          onFitAll={() => fitAll(450)}
+        />
 
         {menu && menuEdge && (
           <EdgeMenu
@@ -921,6 +1036,16 @@ function Inner({ bookId }: { bookId: string }) {
               mutate((m) => ({ ...m, edges: m.edges.map((e) => (e.id === menu.edgeId ? { ...e, relation: r } : e)) }));
               setMenu(null);
             }}
+            onStrength={(s: EdgeStrength) =>
+              mutate((m) => ({
+                ...m,
+                edges: m.edges.map((e) => {
+                  if (e.id !== menu.edgeId) return e;
+                  const { strength: _old, ...rest } = e;
+                  return s === 2 ? rest : { ...rest, strength: s };
+                }),
+              }))
+            }
             onDelete={() => {
               mutate((m) => ({ ...m, edges: normalize(m.edges.filter((e) => e.id !== menu.edgeId)) }));
               setMenu(null);
@@ -947,10 +1072,15 @@ function Inner({ bookId }: { bookId: string }) {
   );
 }
 
-export function ArgumentMapView({ bookId }: { bookId: string }) {
+/**
+ * Carte d'argument. `bookId` : la carte du livre (usage historique) ; `source` : carte de
+ * livre ou carte libre (voir MapSource).
+ */
+export function ArgumentMapView(props: { bookId: string } | { source: MapSource }) {
+  const source: MapSource = 'source' in props ? props.source : { kind: 'book', bookId: props.bookId };
   return (
     <ReactFlowProvider>
-      <Inner key={bookId} bookId={bookId} />
+      <Inner key={`${source.kind}:${sourceKey(source)}`} source={source} />
     </ReactFlowProvider>
   );
 }

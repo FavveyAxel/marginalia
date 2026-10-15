@@ -190,6 +190,7 @@ const GLOSSARY: [string, string][] = [
   ['Concept', 'Une notion (liberté, conscience…) avec ses différents sens selon les auteurs et les extraits qui l’illustrent.'],
   ['Argument', 'Un raisonnement reconstruit : prémisses (dont les implicites) et conclusion.'],
   ['Carte d’argument', 'Le schéma d’un livre : des cases (extraits, idées) reliées par des flèches (soutient, objecte…).'],
+  ['Carte libre', 'Une carte d’argument rangée dans un espace, sans livre attitré : on y réunit idées, concepts et extraits de plusieurs livres.'],
   ['Carte de révision', 'Une fiche question/réponse pour mémoriser, présentée au bon moment.'],
   ['Plan', 'Sujet, problématique et parties d’une dissertation, garnies d’extraits, concepts et arguments.'],
   ['Écrit', 'Un document que vous rédigez (fichier Word), dans Écrits.'],
@@ -291,7 +292,13 @@ const SECTIONS: Section[] = [
     items: [
       { title: 'Placer des cartes', text: 'Glissez les extraits du tiroir « À placer » sur la carte, ou ajoutez une idée à vous. Les cartes se déplacent librement.' },
       { title: 'Relier', text: 'Tirez un lien depuis le bord d’une carte vers une autre : soutient, objecte à, répond à, précise, illustre. Lâcher un lien dans le vide crée une nouvelle carte reliée. Cliquer un lien change sa relation ou le regroupe avec d’autres.' },
-      { title: 'Clic droit', text: 'Sur une carte : Modifier, Dupliquer, Ouvrir dans le livre, Supprimer la carte (l’extrait reste dans le livre). Dans le vide : Nouvelle idée ici. Sélectionnez plusieurs cartes pour les supprimer ensemble.', keys: ['⌫'] },
+      { title: 'Clic droit', text: 'Sur une carte : Modifier, Dupliquer, Ouvrir dans le livre, Marquer comme thèse centrale, Supprimer la carte (l’extrait reste dans le livre). Dans le vide : Nouvelle idée ici, Ranger, Tout voir. Sur une sélection : aligner, colorer, supprimer.', keys: ['⌫'] },
+      { title: 'Lire la carte', text: 'Chaque carte porte une bande de couleur et son rôle (Thèse, Argument, Problème, Thèse adverse, Concept, Exemple…). La thèse centrale (la première thèse, sauf choix contraire) est plus grande. Vos idées sont des post-it manuscrits ; les extraits gardent la typographie de citation. Un extrait long est replié sur 3 lignes : « Lire la suite » le déplie. Survoler un lien affiche sa relation ; son menu règle sa force (faible, moyen, fort), qui se voit à l’épaisseur du trait.' },
+      { title: 'Déplacer et aligner', text: 'Une carte déplacée s’aimante aux bords et aux centres de ses voisines (lignes guides, espacements égaux) ; maintenez ⌘ pour la poser librement. Les cartes recouvertes s’écartent d’elles-mêmes. ⇧ + glisser dans le vide (ou l’outil sélection) encadre plusieurs cartes : une barre au-dessus permet d’aligner, de répartir, de colorer ou de supprimer.' },
+      { title: 'Ranger en un clic', text: '« Ranger » propose Arbre (la thèse en haut), Débat (la thèse à gauche, objections et réponses à droite) et Chronologique (ordre du texte ; sur une carte libre, livre par livre). ⌘Z rétablit la disposition précédente.', keys: ['⌘Z'] },
+      { title: 'Au clavier', text: 'Tab : nouvelle idée qui soutient la carte choisie, placée dessous. Entrée : modifier une idée (sur un extrait : carte sœur) ; ⇧ Entrée : carte sœur. Échap : terminer. Flèches : passer à la carte voisine. Double-clic dans le vide : nouvelle idée. ⇧1 : tout voir ; ⇧2 : zoom sur la sélection. La mini-carte, en bas à droite, se replie.', keys: ['Tab', '↩', '⇧1', '⇧2'] },
+
+      { title: 'Cartes libres', text: 'Dans un espace, « Nouvelle carte ici » crée une carte qui n’appartient à aucun livre : idées, extraits de plusieurs livres, concepts, et cartes copiées depuis d’autres cartes (avec leurs liens), par le bouton « Ajouter ». Exemple : comparer Kant et Constant sur le mensonge dans l’espace « liberté ». Elle se retrouve avec ⌘K, se transforme en plan ou en écrit, et se supprime vers la corbeille.' },
     ],
   },
   {
@@ -349,6 +356,7 @@ const SECTIONS: Section[] = [
       { title: 'Mise en forme', text: `Styles (Titre 1-3, Corps, Citation…), toutes les polices installées sur ${OS_TEXT.yourComputer}, couleurs, alignement, listes, tableaux, mise en page (marges, format), zoom. Modèles : dissertation, explication de texte, fiche, présentation universitaire.` },
       { title: 'Page et zoom', text: 'La page prend la teinte du thème (crème, sépia, anthracite) ou celle choisie dans le menu Affichage (le pourcentage dans la barre), qui règle aussi le zoom (« Ajuster à la largeur » par défaut) — affichage seulement : le fichier Word, les exports et l’impression gardent les vraies couleurs. Les nouveaux écrits partent en Literata 12, interligne 1,5 (police réglable dans le menu Nouveau).', keys: ['⌘+', '⌘-', '⌘0'] },
       { title: 'Notes', text: 'Notes de bas de page, et notes privées (fond teinté) : visibles pour vous, jamais exportées.', keys: ['⌘⌥F', '⌘⌥N'] },
+      { title: 'Commentaires en marge', text: 'Sélectionnez un passage puis « Commenter » : une bulle s’ouvre dans la marge, à hauteur de la ligne (Entrée publie). Répondez, modifiez, marquez « résolu » ou supprimez (annulable) ; le bouton bulle de la barre du haut les affiche ou les masque. Ce sont de vrais commentaires Word : ils restent dans le .docx, mais pas dans les exports PDF, Markdown, web ou texte. Exemple : sélectionnez « une thèse discutable » et notez « À nuancer avec Kant ».', keys: ['⌘⌥M'] },
       { title: 'Citer en écrivant', text: 'Le panneau de droite affiche au choix un Livre (le vrai lecteur : sélectionnez un passage puis « Citer » ou C), vos Extraits, vos Concepts ou un Plan. Une citation garde son lien : ⌘-clic dessus ramène au passage du livre. Le panneau se redimensionne et se met en 50/50.' },
       { title: 'Outils d’écriture', text: `Typographie française automatique (espaces insécables, « guillemets », apostrophes), correcteur orthographique ${isMac ? 'sur le Mac' : 'intégré'} (clic droit sur un mot souligné), rechercher et remplacer, revue de style (phrases longues, répétitions, tics de copie), objectif de mots.`, keys: ['⌘F', '⌘⇧H'] },
       { title: 'Mode concentration', text: 'Bouton ↗ : pendant que vous écrivez, barres, plan et panneaux s’effacent ; ils reviennent quand la souris monte en haut de la fenêtre, ou avec Échap. Son menu propose d’estomper les autres paragraphes et la « machine à écrire », qui garde la ligne en cours au milieu de l’écran.', keys: ['⌘⇧F'] },
@@ -406,6 +414,7 @@ const SHORTCUTS_ALL: [string, string][] = [
   ['⌘+ / ⌘- / ⌘0', 'Zoom de la page / ajuster à la largeur (Écrire)'],
   ['⌘⌥F', 'Note de bas de page'],
   ['⌘⌥N', 'Note privée'],
+  ['⌘⌥M', 'Commenter la sélection (Écrire)'],
   ['⌘⌥S', 'Créer une version'],
   ['⌘⇧F', 'Mode concentration (Écrire)'],
   ['⌥⇧↑ / ⌥⇧↓', 'Déplacer une section du plan'],

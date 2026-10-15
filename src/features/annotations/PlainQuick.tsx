@@ -1,5 +1,5 @@
 // Actions rapides d'un surlignage simple (carte d'extrait) : le classer d'un clic, ou lui ajouter une note.
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { MessageSquarePlus } from 'lucide-react';
 import { useStore } from '../../lib/store';
 import { CATEGORIES } from '../../lib/categories';
@@ -9,11 +9,22 @@ import './annotations.css';
 export function PlainQuick({ h }: { h: Highlight }) {
   const [noting, setNoting] = useState(false);
   const [text, setText] = useState('');
+  const pending = useRef('');
+  pending.current = noting ? text : '';
   const save = () => {
+    pending.current = '';
     const v = text.trim();
     if (v) useStore.getState().updateHighlight(h.id, { note: v });
     setNoting(false);
   };
+  // Carte démontée en cours de saisie (liste virtualisée défilée) : la note n'est pas perdue.
+  useEffect(
+    () => () => {
+      const v = pending.current.trim();
+      if (v && useStore.getState().highlights.some((x) => x.id === h.id)) useStore.getState().updateHighlight(h.id, { note: v });
+    },
+    [h.id],
+  );
   return (
     <div className="ann-plain-quick" onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>
       {noting ? (

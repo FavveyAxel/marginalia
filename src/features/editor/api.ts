@@ -6,7 +6,9 @@ export interface CreateDraftOptions {
   template?: Draft['template'];
   /**
    * Contenu initial en HTML simple (h1-h3, p, blockquote, ul/ol, em/strong) ;
-   * les éléments <span data-footnote="texte de la note"></span> deviennent des notes de bas de page.
+   * les éléments <span data-footnote="texte de la note"></span> deviennent des notes de bas de page ;
+   * <span data-cite-hl="<highlightId>">« citation »</span> entoure le texte cité du signet `_mglHl_<id>`
+   * (lien citation → extrait, voir citeLink.ts).
    */
   html?: string;
   /** Ou un .docx existant. */

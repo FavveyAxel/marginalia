@@ -12,6 +12,7 @@ import {
   Highlighter,
   Lightbulb,
   ListTree,
+  Network,
   Search,
   Sigma,
   SunMoon,
@@ -22,6 +23,7 @@ import { useStore } from '../lib/store';
 import { host } from '../lib/platform';
 import { kindColor } from '../lib/categories';
 import { Kbd } from './ui';
+import { createBoard, createBoardIn } from '../features/map/model/actions';
 import './command.css';
 
 const norm = (x: string) => x.normalize('NFD').replace(/\p{Diacritic}/gu, '').toLowerCase();
@@ -42,7 +44,7 @@ interface Cmd {
   run(): void;
 }
 
-const GROUPS = ['Actions', 'Livres', 'Écrits', 'Concepts', 'Extraits', 'Signets', 'Plans', 'Arguments', 'Fiches-texte', 'Espaces'];
+const GROUPS = ['Actions', 'Livres', 'Écrits', 'Cartes', 'Concepts', 'Extraits', 'Signets', 'Plans', 'Arguments', 'Fiches-texte', 'Espaces'];
 
 export function CommandPalette() {
   const open = useStore((s) => s.commandOpen);
@@ -51,7 +53,7 @@ export function CommandPalette() {
 }
 
 function Palette() {
-  const { books, drafts, concepts, highlights, workspaces, plans, args, studies, bookmarks } = useStore(
+  const { books, drafts, concepts, highlights, workspaces, plans, args, studies, bookmarks, maps } = useStore(
     useShallow((s) => ({
       books: s.books,
       drafts: s.drafts,
@@ -62,6 +64,7 @@ function Palette() {
       args: s.arguments,
       studies: s.studies,
       bookmarks: s.bookmarks,
+      maps: s.maps,
     })),
   );
   const [q, setQ] = useState('');
@@ -98,6 +101,21 @@ function Palette() {
         { hint: '⌘O', keywords: 'ajouter epub pdf docx livre' },
       ),
       act('write', 'Nouvel écrit', <FilePen size={15} />, nav({ name: 'write', draftId: null }), { keywords: 'rédiger dissertation document' }),
+      act(
+        'board',
+        'Nouvelle carte libre',
+        <Network size={15} />,
+        () => {
+          // Dans l'espace affiché (ou l'espace actif) quand il y en a un.
+          const s0 = st();
+          const r = s0.route;
+          const wsId = r.name === 'workspace' ? r.workspaceId : s0.settings.activeWorkspaceId;
+          const ok = !!wsId && s0.workspaces.some((w) => w.id === wsId);
+          const key = ok ? createBoardIn(wsId!, r.name === 'workspace' ? r.groupId : null) : createBoard('Nouvelle carte');
+          st().navigate({ name: 'board', boardId: key });
+        },
+        { keywords: 'carte mentale idées comparer auteurs schéma' },
+      ),
       act('revision', 'Réviser', <Brain size={15} />, nav({ name: 'revision' }), { keywords: 'cartes révision' }),
       act('library', 'Bibliothèque', <BookOpen size={15} />, nav({ name: 'library' }), { keywords: 'livres' }),
       act('extracts', 'Extraits', <Highlighter size={15} />, nav({ name: 'extracts' }), { keywords: 'citations surlignages notes' }),
@@ -156,6 +174,21 @@ function Palette() {
           run: () => st().navigate({ name: 'write', draftId: d.id }),
         }),
       );
+    Object.values(maps)
+      .filter((m) => m.kind === 'board' && m.id)
+      .sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0))
+      .forEach((m) => {
+        const ideas = m.nodes.filter((n) => !n.highlightId).map((n) => n.text);
+        items.push({
+          id: 'm-' + m.id,
+          group: 'Cartes',
+          label: m.title?.trim() || 'Carte sans titre',
+          meta: `${m.nodes.length} carte${m.nodes.length > 1 ? 's' : ''}`,
+          icon: <Network size={15} />,
+          haystack: norm(['carte', m.title ?? '', ...ideas].join(' ')),
+          run: () => st().navigate({ name: 'board', boardId: m.id! }),
+        });
+      });
     [...concepts]
       .sort((a, b) => a.name.localeCompare(b.name, 'fr'))
       .forEach((c) =>
@@ -252,7 +285,7 @@ function Palette() {
         }),
       );
     return items;
-  }, [books, drafts, concepts, highlights, workspaces, plans, args, studies, bookmarks]);
+  }, [books, drafts, concepts, highlights, workspaces, plans, args, studies, bookmarks, maps]);
 
   const results = useMemo(() => {
     const terms = norm(q.trim()).split(/\s+/).filter(Boolean);

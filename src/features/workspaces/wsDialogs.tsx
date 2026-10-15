@@ -11,7 +11,7 @@ type Dlg =
   | { t: 'add'; workspaceId: string; groupId: string | null }
   | { t: 'move'; p: DragPayload };
 
-export function useWsDialogs(base: Pick<MenuCtx, 'newGroup' | 'rename'> & Partial<Pick<MenuCtx, 'importHere' | 'newDraftHere'>>): { ctx: MenuCtx; dialogs: ReactNode } {
+export function useWsDialogs(base: Pick<MenuCtx, 'newGroup' | 'rename'> & Partial<Pick<MenuCtx, 'importHere' | 'newDraftHere' | 'newBoardHere'>>): { ctx: MenuCtx; dialogs: ReactNode } {
   const [dlg, setDlg] = useState<Dlg | null>(null);
   const ctx: MenuCtx = {
     ...base,

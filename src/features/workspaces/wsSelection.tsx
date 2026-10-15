@@ -22,7 +22,7 @@ const KIND_PLURAL: Record<WorkspaceItemKind, [string, string]> = {
   plan: ['plan', 'plans'],
   argument: ['argument', 'arguments'],
   study: ['fiche-texte', 'fiches-texte'],
-  map: ['carte d’argument', 'cartes d’argument'],
+  map: ['carte', 'cartes'],
 };
 const FEM = new Set<WorkspaceItemKind>(['study', 'map']);
 
@@ -55,7 +55,9 @@ export function useSelectionActions(o: SelectionActionsOpts) {
   const groups = useStore((s) => s.groups);
   const workspaces = useWorkspaces();
   const items = o.ids.map((id) => wsItems.find((x) => x.id === id)).filter((x): x is WorkspaceItem => !!x);
-  const deletable = items.filter((i) => i.kind !== 'map');
+  const maps = useStore((s) => s.maps);
+  // Les cartes libres vont à la corbeille ; la carte d'un livre part seulement avec son livre.
+  const deletable = items.filter((i) => i.kind !== 'map' || maps[i.refId]?.kind === 'board');
 
   const toast = (m: string) => useStore.getState().toast(m, 'success');
 
@@ -131,7 +133,7 @@ export function useSelectionActions(o: SelectionActionsOpts) {
         body={
           <>
             {`${n > 1 ? 'Ils' : 'Il'} ${n > 1 ? 'sont placés' : 'est placé'} dans la corbeille${onlyBooks ? ', avec leurs extraits, fiches et cartes de révision,' : ''} et ${n > 1 ? 'disparaissent' : 'disparaît'} de tous les espaces. Vous pouvez ${n > 1 ? 'les' : 'le'} restaurer pendant 30 jours.`}
-            {skipped > 0 && ` ${skipped} carte${skipped > 1 ? 's' : ''} d’argument ne se suppriment pas d’ici : elle${skipped > 1 ? 's restent' : ' reste'} dans l’espace.`}
+            {skipped > 0 && ` ${skipped} carte${skipped > 1 ? 's' : ''} de livre ne se suppriment pas d’ici : elle${skipped > 1 ? 's restent' : ' reste'} dans l’espace.`}
             {' Pour seulement les sortir de l’espace, choisissez plutôt «\u00a0Retirer de l’espace\u00a0».'}
           </>
         }

@@ -2,7 +2,7 @@
 import { useMemo } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { useStore, type State } from '../../lib/store';
-import type { Workspace, WorkspaceGroup, WorkspaceItem, WorkspaceItemKind } from '../../lib/types';
+import type { ArgumentMap, Workspace, WorkspaceGroup, WorkspaceItem, WorkspaceItemKind } from '../../lib/types';
 
 export const KIND_LABEL: Record<WorkspaceItemKind, string> = {
   book: 'Livre',
@@ -33,6 +33,8 @@ export interface ResolvedItem {
   /** Texte d'aperçu sobre pour les cartes non-livre. */
   preview: string;
   bookId: string | null;
+  /** Carte libre (élément 'map' dont refId est la clé d'une carte libre dans `maps`). */
+  board?: ArgumentMap;
 }
 
 export interface WsData {
@@ -119,6 +121,19 @@ function resolve(
       return { item, title: x.title || 'Fiche sans titre', meta: b?.title ?? '', preview: x.these || x.probleme, bookId: x.bookId };
     }
     case 'map': {
+      const fm = d.maps[item.refId];
+      if (fm && fm.kind === 'board') {
+        const n = fm.nodes.length;
+        const e = fm.edges.length;
+        return {
+          item,
+          title: fm.title?.trim() || 'Carte sans titre',
+          meta: n ? `${n} carte${n > 1 ? 's' : ''}${e ? ` · ${e} lien${e > 1 ? 's' : ''}` : ''}` : 'Carte vide',
+          preview: '',
+          bookId: null,
+          board: fm,
+        };
+      }
       const b = d.books.find((y) => y.id === item.refId);
       if (!b) return null;
       const n = d.maps[b.id]?.nodes.length ?? 0;
@@ -398,10 +413,20 @@ export function openItem(item: WorkspaceItem) {
       break;
     }
     case 'map':
+      if (isFreeMapKey(item.refId)) {
+        s.navigate({ name: 'board', boardId: item.refId });
+        break;
+      }
       s.updateBook(item.refId, { lastOpenedAt: Date.now() });
       s.navigate({ name: 'reader', bookId: item.refId, tab: 'carte', splitBookId: null });
       break;
   }
+}
+
+/** L'élément 'map' désigne-t-il une carte libre (et non la carte d'un livre) ? */
+export function isFreeMapKey(refId: string): boolean {
+  const m = useStore.getState().maps[refId];
+  return !!m && m.kind === 'board';
 }
 
 export function goToWorkspace(workspaceId: string, groupId: string | null) {

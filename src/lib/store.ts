@@ -81,6 +81,7 @@ const emptyDb = (): Database => ({
   settings: { ...DEFAULT_SETTINGS },
   trash: [],
   activity: [],
+  mapVersions: [],
 });
 
 /** Complète une base ancienne ou partielle avec les valeurs par défaut. */
@@ -111,6 +112,10 @@ function migrate(db: Partial<Database> | null): Database {
   // Signets (bases antérieures : absents).
   out.bookmarks = Array.isArray(db.bookmarks)
     ? db.bookmarks.filter((b) => b && typeof b.id === 'string' && typeof b.bookId === 'string' && b.position && typeof b.position === 'object').map((b) => ({ ...b, label: typeof b.label === 'string' ? b.label : 'Signet' }))
+    : [];
+  // Instantanés de cartes (bases antérieures : absents).
+  out.mapVersions = Array.isArray(db.mapVersions)
+    ? db.mapVersions.filter((v) => v && typeof v.id === 'string' && typeof v.mapKey === 'string' && v.map && Array.isArray(v.map.nodes))
     : [];
   return out;
 }
@@ -280,6 +285,7 @@ const pickDb = (s: State): Database => ({
   settings: s.settings,
   trash: s.trash,
   activity: s.activity,
+  mapVersions: s.mapVersions,
 });
 
 const pickData = (s: State): UndoData => ({
@@ -389,6 +395,16 @@ function flushNow() {
   if (pending) flush();
 }
 
+/**
+ * La prochaine écriture forme une étape d'annulation distincte (pas de fusion avec la
+ * précédente, même rapprochée) : rangement automatique de la carte, début d'un glisser…
+ */
+export function separateUndoStep() {
+  flushNow();
+  const last = undoStack[undoStack.length - 1];
+  if (last) last.at = 0;
+}
+
 /** Middleware : enveloppe setState (actions ET useStore.setState externes). */
 /** Les « Annuler » des toasts précédents ne correspondent plus à l'état : on les retire. */
 function dropActionToasts() {
@@ -478,7 +494,8 @@ function fitChild(col: TrackedCollection, item: any, d: UndoData): any | null {
     case 'wsItems': {
       if (!has('workspaces', item.workspaceId)) return null;
       const refCol: Record<string, TrackedCollection> = { book: 'books', map: 'books', draft: 'drafts', plan: 'plans', argument: 'arguments', study: 'studies' };
-      if (!has(refCol[item.kind] ?? 'books', item.refId)) return null;
+      const isFreeMap = item.kind === 'map' && !!d.maps[item.refId];
+      if (!isFreeMap && !has(refCol[item.kind] ?? 'books', item.refId)) return null;
       return has('groups', item.groupId) ? item : { ...item, groupId: null };
     }
     default:
@@ -579,6 +596,7 @@ function pluralKind(kind: TrashKind, n: number): string {
     highlight: ['extrait', 'extraits'],
     workspace: ['espace', 'espaces'],
     group: ['groupe', 'groupes'],
+    map: ['carte', 'cartes'],
   };
   const [one, many] = L[kind] ?? ['élément', 'éléments'];
   return n > 1 ? many : one;
@@ -598,6 +616,7 @@ function trashToastText(e: TrashEntry): string {
   if (e.kind === 'highlight') return 'Extrait placé dans la corbeille';
   if (e.kind === 'card') return 'Carte placée dans la corbeille';
   if (e.kind === 'study') return 'Fiche-texte placée dans la corbeille';
+  if (e.kind === 'map') return `Carte « ${e.title} » placée dans la corbeille`;
   return `« ${e.title} » placé dans la corbeille`;
 }
 
@@ -1012,7 +1031,8 @@ export const useStore = create<State>()(tracked((set, get) => ({
     const s = get();
     const data = pickData(s);
     const col = colOfKind(kind);
-    const root = (data as any)[col].find((x: { id: string }) => x.id === id);
+    // `maps` est un objet indexé (cartes libres / de mouvement), les autres collections des tableaux.
+    const root = col === 'maps' ? data.maps[id] : (data as any)[col].find((x: { id: string }) => x.id === id);
     if (!root) return null;
     const mode = kind === 'group' ? (opts.mode ?? 'lift') : undefined;
     const next = cascade(data, kind, id, { mode });
@@ -1099,7 +1119,10 @@ export const useStore = create<State>()(tracked((set, get) => ({
       if (ch.after == null && ch.before != null) {
         let item = ch.before;
         if (c === 'maps') {
-          if (!data.books.some((b) => b.id === ch.id)) {
+          // Carte de livre : clé = bookId ; carte de mouvement : son livre ; carte libre : aucun parent.
+          const m = ch.before as ArgumentMap;
+          const need = !m.kind || m.kind === 'book' ? ch.id : m.kind === 'movement' ? m.bookId : null;
+          if (need && !data.books.some((b) => b.id === need)) {
             skipped++;
             continue;
           }
@@ -1344,7 +1367,7 @@ function logExport(message: string) {
 // ── Persistance (écriture différée) ──────────────────────────
 // Seuls les changements de données relancent l'attente (pas les toasts ni la navigation),
 // et l'écriture n'attend jamais plus de 2 s : une suite de changements ne peut plus la repousser indéfiniment.
-const PERSISTED: (keyof Database)[] = ['books', 'highlights', 'concepts', 'maps', 'arguments', 'studies', 'plans', 'drafts', 'cards', 'workspaces', 'groups', 'wsItems', 'bookmarks', 'settings', 'trash', 'activity'];
+const PERSISTED: (keyof Database)[] = ['books', 'highlights', 'concepts', 'maps', 'arguments', 'studies', 'plans', 'drafts', 'cards', 'workspaces', 'groups', 'wsItems', 'bookmarks', 'settings', 'trash', 'activity', 'mapVersions'];
 const SAVE_DEBOUNCE_MS = 350;
 const SAVE_MAX_WAIT_MS = 2000;
 let saveTimer: ReturnType<typeof setTimeout> | null = null;

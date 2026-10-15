@@ -1,0 +1,503 @@
+/* ═════════════════════════════════════════════════════════════
+   Commentaires en marge (comments.tsx).
+   Teinte « abricot » : distincte des notes privées (jaune), de la recherche (ambre) et de la
+   sélection (bleu) ; adaptée à chaque teinte de page (.ed-engine[data-ed-tint]) et au thème.
+   ═════════════════════════════════════════════════════════════ */
+.ed-root {
+  --cm-accent: #c4733a;
+  --cm-accent-soft: color-mix(in srgb, var(--cm-accent) 14%, transparent);
+  --cm-col: 272px;
+}
+:root[data-theme='sepia'] .ed-root {
+  --cm-accent: #a8652e;
+}
+:root[data-theme='dark'] .ed-root {
+  --cm-accent: #e59a62;
+}
+
+/* Passages commentés (dans la page) : teinte douce, plus marquée quand la bulle est mise en avant. */
+.ed-engine,
+.ed-scroll {
+  --cm-hl: rgba(226, 146, 72, 0.17);
+  --cm-hl-hot: rgba(226, 146, 72, 0.33);
+  --cm-rule: rgba(196, 108, 42, 0.8);
+  --cm-dot: #c97a3d;
+}
+.ed-engine[data-ed-tint='white'],
+.ed-scroll:has(> .ed-engine[data-ed-tint='white']) {
+  --cm-hl: rgba(236, 148, 66, 0.15);
+  --cm-hl-hot: rgba(236, 148, 66, 0.3);
+}
+.ed-engine[data-ed-tint='sepia'],
+.ed-scroll:has(> .ed-engine[data-ed-tint='sepia']) {
+  --cm-hl: rgba(192, 112, 44, 0.19);
+  --cm-hl-hot: rgba(192, 112, 44, 0.34);
+  --cm-rule: rgba(160, 86, 28, 0.85);
+  --cm-dot: #a8652e;
+}
+.ed-engine[data-ed-tint='dark'],
+.ed-scroll:has(> .ed-engine[data-ed-tint='dark']) {
+  --cm-hl: rgba(236, 156, 92, 0.16);
+  --cm-hl-hot: rgba(236, 156, 92, 0.3);
+  --cm-rule: rgba(240, 168, 110, 0.85);
+  --cm-dot: #e59a62;
+}
+/* Couleurs du moteur (CommentHighlightDecorator : variables lues à chaque peinture). */
+.ed-engine {
+  --sd-comments-highlight-external: var(--cm-hl);
+  --sd-comments-highlight-internal: var(--cm-hl);
+  --sd-comments-highlight-external-active: var(--cm-hl-hot);
+  --sd-comments-highlight-internal-active: var(--cm-hl-hot);
+  --sd-comments-highlight-external-faded: var(--cm-hl);
+  --sd-comments-highlight-internal-faded: var(--cm-hl);
+}
+.ed-engine .superdoc-comment-highlight {
+  transition: background-color 160ms var(--ease-out), box-shadow 160ms var(--ease-out);
+  border-radius: 1px;
+}
+/* Commentaires masqués : plus aucune teinte dans la page. */
+.ed-root.ed-cm-hidden .ed-engine {
+  --cm-hl: transparent;
+  --cm-hl-hot: transparent;
+}
+
+/* ── Place réservée à droite de la page (l'ajustement à la largeur en tient compte) ── */
+.ed-root.ed-cm-on .ed-engine {
+  margin-right: calc(var(--cm-col) + 36px);
+}
+/* L'objectif de mots (en bas à droite) se range au pied de la page, hors de la colonne. */
+.ed-root.ed-cm-on .wg-group {
+  right: calc(var(--cm-col) + 58px);
+}
+/* Peu de place : le plan se replie (il reste dans l'onglet Plan du panneau latéral). */
+@media (max-width: 1599px) {
+  .ed-root.ed-cm-on.ed-has-extracts .ed-outline {
+    display: none;
+  }
+}
+@media (max-width: 1279px) {
+  .ed-root.ed-cm-on .ed-outline {
+    display: none;
+  }
+}
+
+/* ── Liens et points d'ancrage ── */
+.cm-links {
+  position: absolute;
+  left: 0;
+  top: 0;
+  z-index: 3;
+  overflow: visible;
+  pointer-events: none;
+}
+.cm-anchor {
+  fill: var(--cm-dot);
+  opacity: 0.38;
+  transition: opacity 160ms var(--ease-out), r 160ms var(--ease-out);
+}
+.cm-anchor.hot {
+  opacity: 0.95;
+}
+.cm-link {
+  fill: none;
+  stroke: var(--cm-dot);
+  stroke-width: 1.25;
+  stroke-linecap: round;
+  opacity: 0.6;
+  animation: fade-in 200ms var(--ease-out);
+}
+/* Passage d'un fil résolu : teinté seulement quand sa bulle est mise en avant. */
+.cm-pass {
+  fill: transparent;
+  transition: fill 160ms var(--ease-out);
+}
+.cm-pass.hot,
+.cm-pass.pending {
+  fill: var(--cm-hl-hot);
+}
+
+/* ── Colonne ── */
+.cm-col {
+  position: absolute;
+  z-index: 4;
+  pointer-events: none;
+  font-family: var(--font-ui);
+}
+.cm-col > * {
+  pointer-events: auto;
+}
+.cm-colhead {
+  position: absolute;
+  top: 0;
+  left: 2px;
+  right: 2px;
+  height: 26px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: var(--fs-sm);
+  color: var(--muted);
+  animation: fade-in var(--dur-med) var(--ease-out);
+}
+.cm-colhead-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+}
+.cm-colhead-title svg {
+  color: var(--cm-accent);
+}
+.cm-filter {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 22px;
+  padding: 0 9px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted);
+  font-size: var(--fs-xs);
+  cursor: default;
+  transition: background var(--dur) var(--ease), color var(--dur) var(--ease), border-color var(--dur) var(--ease);
+}
+.cm-filter:hover {
+  background: var(--bg-hover);
+  color: var(--ink-2);
+}
+.cm-filter.on {
+  border-color: transparent;
+  background: var(--cm-accent-soft);
+  color: var(--cm-accent);
+}
+
+/* ── Bulle ── */
+.cm-bubble {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  padding: 10px 12px 11px 14px;
+  border-radius: 12px;
+  background: var(--bg-panel);
+  box-shadow: var(--shadow-sm);
+  font-size: var(--fs-md);
+  line-height: 1.5;
+  color: var(--ink);
+  user-select: text;
+  -webkit-user-select: text;
+  cursor: default;
+  animation: cm-in 260ms var(--ease-out) backwards;
+  transition: box-shadow 180ms var(--ease-out), opacity 180ms var(--ease-out), background 180ms var(--ease-out);
+}
+.cm-bubble.placed {
+  transition: transform 260ms var(--ease-out), box-shadow 180ms var(--ease-out), opacity 180ms var(--ease-out), background 180ms var(--ease-out);
+}
+.cm-bubble:not(.placed) {
+  visibility: hidden;
+}
+@keyframes cm-in {
+  from {
+    opacity: 0;
+    translate: 10px 0;
+  }
+}
+/* Filet coloré à gauche : la bulle de ce passage. */
+.cm-bubble::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 12px;
+  bottom: 12px;
+  width: 2.5px;
+  border-radius: 0 2px 2px 0;
+  background: var(--cm-accent);
+  opacity: 0;
+  transition: opacity 180ms var(--ease-out), top 180ms var(--ease-out), bottom 180ms var(--ease-out);
+}
+.cm-bubble.hot::before,
+.cm-bubble.active::before {
+  opacity: 1;
+}
+.cm-bubble.hot {
+  box-shadow: var(--shadow-md);
+}
+.cm-bubble.active {
+  z-index: 2;
+  box-shadow: var(--shadow-lg);
+}
+.cm-bubble.resolved {
+  padding-top: 7px;
+  padding-bottom: 8px;
+  opacity: 0.62;
+  background: color-mix(in srgb, var(--bg-panel) 70%, transparent);
+  box-shadow: 0 0 0 1px var(--border);
+}
+.cm-bubble.resolved:hover,
+.cm-bubble.resolved.hot {
+  opacity: 1;
+}
+
+.cm-head,
+.cm-reply-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  min-height: 22px;
+}
+.cm-meta {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  min-width: 0;
+  font-size: var(--fs-sm);
+}
+.cm-dot {
+  flex: none;
+  align-self: center;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--dot);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--dot) 17%, transparent);
+}
+.cm-dot.xs {
+  width: 6px;
+  height: 6px;
+  box-shadow: 0 0 0 1.5px var(--bg-panel);
+}
+.cm-author {
+  font-weight: 600;
+  color: var(--ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cm-date {
+  font-size: var(--fs-xs);
+  color: var(--muted);
+  white-space: nowrap;
+}
+/* Actions : en surimpression en haut à droite (le nom de l'auteur garde toute la largeur). */
+.cm-head {
+  position: relative;
+}
+.cm-actions {
+  position: absolute;
+  top: -3px;
+  right: -6px;
+  display: flex;
+  align-items: center;
+  gap: 1px;
+  padding-left: 14px;
+  background: linear-gradient(to right, transparent, var(--bg-panel) 12px);
+  opacity: 0;
+  transition: opacity 140ms var(--ease-out);
+}
+.cm-bubble:hover .cm-actions,
+.cm-bubble.active .cm-actions,
+.cm-bubble:focus-within .cm-actions {
+  opacity: 1;
+}
+.cm-bubble.resolved .cm-actions {
+  background: linear-gradient(to right, transparent, color-mix(in srgb, var(--bg-panel) 70%, var(--bg-app)) 12px);
+}
+.cm-actions .icon-btn.sm,
+.cm-reply-more {
+  width: 24px;
+  height: 24px;
+  color: var(--muted);
+}
+.cm-actions .cm-resolve:hover {
+  color: var(--cat-argument);
+}
+.cm-reply-more {
+  margin-right: -6px;
+  opacity: 0;
+  transition: opacity 140ms var(--ease-out);
+}
+.cm-reply:hover .cm-reply-more {
+  opacity: 1;
+}
+
+.cm-text {
+  margin: 3px 0 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: var(--ink);
+}
+.cm-text.clamp {
+  display: -webkit-box;
+  -webkit-line-clamp: 5;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.cm-resolved-line {
+  display: -webkit-box;
+  -webkit-line-clamp: 1;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: var(--fs-sm);
+}
+.cm-resolved-line svg {
+  vertical-align: -1px;
+  color: var(--cat-argument);
+}
+.cm-resolved-line span {
+  color: var(--ink-2);
+  font-weight: 500;
+}
+
+.cm-replies-sum {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: 7px;
+  font-size: var(--fs-xs);
+  color: var(--muted);
+}
+.cm-mini-dots {
+  display: inline-flex;
+}
+.cm-mini-dots .cm-dot + .cm-dot {
+  margin-left: -1px;
+}
+.cm-replies {
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0;
+}
+.cm-reply {
+  position: relative;
+  margin: 0;
+  padding: 9px 0 0 12px;
+  border-top: 1px solid var(--border);
+  animation: fade-in 200ms var(--ease-out);
+}
+.cm-reply + .cm-reply {
+  margin-top: 9px;
+}
+/* fil : petit retrait marqué d'un trait */
+.cm-reply::before {
+  content: '';
+  position: absolute;
+  left: 2px;
+  top: 14px;
+  bottom: 4px;
+  width: 1px;
+  background: var(--border-strong);
+}
+
+/* ── Saisie ── */
+.cm-composer {
+  margin-top: 6px;
+}
+.cm-composer.compact {
+  margin-top: 10px;
+}
+.cm-composer textarea {
+  display: block;
+  width: 100%;
+  min-height: 32px;
+  max-height: 220px;
+  padding: 6px 9px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-inset);
+  color: var(--ink);
+  font: inherit;
+  font-size: var(--fs-md);
+  line-height: 1.45;
+  resize: none;
+  outline: none;
+  user-select: text;
+  -webkit-user-select: text;
+  transition: border-color var(--dur) var(--ease), background var(--dur) var(--ease), box-shadow var(--dur) var(--ease);
+}
+.cm-composer textarea::placeholder {
+  color: var(--faint);
+}
+.cm-composer textarea:focus {
+  border-color: color-mix(in srgb, var(--cm-accent) 55%, transparent);
+  background: var(--bg-page);
+  box-shadow: 0 0 0 3px var(--cm-accent-soft);
+}
+.cm-composer-bar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 7px;
+}
+.cm-hint {
+  margin-right: auto;
+  font-size: 10.5px;
+  color: var(--faint);
+  white-space: nowrap;
+}
+.cm-composer-bar .btn-sm {
+  height: 24px;
+  padding: 0 9px;
+}
+
+/* ── Menu ── */
+.cm-menu {
+  min-width: 190px;
+}
+.cm-menu .cm-danger {
+  color: var(--danger);
+}
+
+/* ── Barre du haut : bouton et compteur ── */
+.ed-cm-toggle {
+  position: relative;
+}
+.ed-cm-count {
+  position: absolute;
+  top: 2px;
+  right: 1px;
+  min-width: 15px;
+  height: 15px;
+  padding: 0 4px;
+  border-radius: 8px;
+  background: var(--cm-accent);
+  color: #fff;
+  font-size: 9.5px;
+  font-weight: 650;
+  line-height: 15px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  box-shadow: 0 0 0 2px var(--bg-app);
+  pointer-events: none;
+}
+:root[data-theme='dark'] .ed-cm-count {
+  color: #1a1410;
+}
+
+/* ── Barre de sélection : « Commenter » ── */
+.ed-selbar .ed-sb-comment {
+  gap: 5px;
+  padding: 0 8px 0 7px;
+  color: var(--ink);
+  font-weight: 500;
+}
+.ed-selbar .ed-sb-comment svg {
+  color: var(--cm-accent);
+}
+.ed-selbar .ed-sb-comment:hover {
+  background: var(--bg-hover);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cm-bubble,
+  .cm-bubble.placed,
+  .cm-link,
+  .cm-reply {
+    animation: none;
+    transition: none;
+  }
+}

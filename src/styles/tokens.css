@@ -89,6 +89,7 @@
   /* Relations de la carte d'argument */
   --rel-soutient: #3b9a5f;
   --rel-objecte: #d4556b;
+  --rel-oppose: #8a6a3b;
   --rel-precise: #3d7be0;
   --rel-illustre: #8c63d9;
 
@@ -149,6 +150,7 @@
 
   --rel-soutient: #5cc283;
   --rel-objecte: #ec7389;
+  --rel-oppose: #c9a46e;
   --rel-precise: #6b9cf5;
   --rel-illustre: #a98af0;
 

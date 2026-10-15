@@ -77,8 +77,15 @@ export const KIND_COL: Record<TrashKind, TrackedCollection> = {
   card: 'cards',
   workspace: 'workspaces',
   group: 'groups',
+  // Cartes libres / de mouvement : `maps` est un objet indexé (voir store.trashDelete).
+  map: 'maps',
 };
-export const TRASHABLE = new Set<ActivityKind>(Object.keys(KIND_COL) as TrashKind[]);
+/**
+ * Natures qui passent par la corbeille pour leurs créations / suppressions ordinaires.
+ * 'map' n'y figure pas : une carte de livre se crée et s'efface par ses changements (⌘Z) ;
+ * seules les cartes libres sont mises à la corbeille, explicitement (deleteBoard).
+ */
+export const TRASHABLE = new Set<ActivityKind>((Object.keys(KIND_COL) as TrashKind[]).filter((k) => k !== 'map'));
 
 export const plural = (n: number, kind: ActivityKind) => `${n} ${n > 1 ? KIND_PLURAL[kind] : KIND_LABEL[kind].toLowerCase()}`;
 
@@ -114,12 +121,15 @@ export function titleOf(col: TrackedCollection, item: any, d: Partial<Data>): st
     case 'bookmarks':
       return clip(item.label) || 'Signet';
     case 'maps': {
+      if (typeof item.title === 'string' && item.title.trim()) return item.title.trim();
       const b = d.books?.find((x) => x.id === item.bookId);
       return b ? b.title : 'Carte d’argument';
     }
     case 'wsItems': {
       const colOf: Record<string, TrackedCollection> = { book: 'books', map: 'books', draft: 'drafts', plan: 'plans', argument: 'arguments', study: 'studies' };
       const c = colOf[item.kind];
+      // Carte libre rangée dans un espace : refId = clé de la carte.
+      if (item.kind === 'map' && !d.books?.some((b) => b.id === item.refId) && d.maps?.[item.refId]) return titleOf('maps', d.maps[item.refId], d);
       const ref = c ? ((d as any)[c] as any[] | undefined)?.find((x) => x.id === item.refId) : null;
       return ref ? titleOf(c, ref, d) : KIND_LABEL.wsItem;
     }
@@ -135,11 +145,13 @@ export function bookIdOf(col: TrackedCollection, item: any, d: Partial<Data>): s
     case 'highlights':
     case 'studies':
     case 'maps':
+      return item.bookId || null;
     case 'cards':
     case 'arguments':
     case 'bookmarks':
       return item.bookId ?? null;
     case 'wsItems':
+      if (item.kind === 'map' && d.maps?.[item.refId]?.kind === 'board') return null;
       return item.kind === 'book' || item.kind === 'map' ? item.refId : null;
     default:
       return null;
@@ -468,7 +480,15 @@ export function mergeActivity(list: ActivityEntry[], entries: NewEntry[], now: n
       );
       if (i >= 0) {
         const prev = out[i];
-        const merged = composeChanges([...(prev.changes ?? []), ...e.changes]);
+        // Changements allégés (slimChanges) : chacun ne porte que ses champs modifiés. La composition
+        // garde l'avant le plus ancien et l'après le plus récent de CHAQUE champ (sinon un champ
+        // présent d'un seul côté laisserait un « avant » sans « après », p. ex. carte : nodes + edges).
+        const pc = prev.changes?.[0];
+        const rec = (x: unknown): x is Record<string, unknown> => !!x && typeof x === 'object' && !Array.isArray(x);
+        const merged =
+          pc && rec(pc.before) && rec(pc.after) && rec(nc.before) && rec(nc.after)
+            ? composeChanges([{ ...pc, before: { ...nc.before, ...pc.before }, after: { ...pc.after, ...nc.after } }])
+            : composeChanges([...(prev.changes ?? []), ...e.changes]);
         out.splice(i, 1);
         if (!merged.length || deepEqual(merged[0].before, merged[0].after)) continue; // revenu au point de départ
         const c = merged[0] as ItemChange & { col: TrackedCollection };

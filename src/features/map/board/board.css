@@ -1,0 +1,221 @@
+/* Page d'une carte libre et panneau « Ajouter ». Le rendu de la carte elle-même est dans map.css. */
+.board-view {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-width: 0;
+}
+.board-top {
+  gap: var(--sp-2);
+}
+.board-back {
+  max-width: 220px;
+  color: var(--ink-2);
+  padding: 0 8px;
+}
+.board-sep {
+  width: 1px;
+  height: 18px;
+  background: var(--border);
+  flex: none;
+}
+.board-title {
+  font-family: var(--font-display);
+  font-size: var(--fs-lg);
+  font-weight: 600;
+  margin: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  cursor: text;
+}
+.board-title-pen {
+  color: var(--faint);
+  opacity: 0;
+  transition: opacity var(--dur) var(--ease);
+  flex: none;
+}
+.board-title:hover .board-title-pen {
+  opacity: 1;
+}
+.board-title-input {
+  max-width: 420px;
+}
+.board-count {
+  font-size: var(--fs-sm);
+  white-space: nowrap;
+}
+.btn.board-add-on {
+  background: var(--bg-active);
+}
+.board-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  gap: var(--sp-3);
+  padding: 0 var(--sp-3) var(--sp-3);
+}
+.board-canvas {
+  flex: 1;
+  min-width: 0;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  border-radius: var(--radius-lg);
+  background: var(--bg-page);
+  box-shadow: var(--shadow-sm);
+  overflow: hidden;
+}
+.board-canvas > * {
+  flex: 1;
+  min-height: 0;
+}
+
+/* ── Panneau « Ajouter » ── */
+.board-add {
+  width: 340px;
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-panel);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-md);
+  overflow: hidden;
+  min-height: 0;
+}
+.board-add > header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 12px 10px 6px 14px;
+  font-size: var(--fs-lg);
+}
+.board-add-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 0 10px 8px;
+}
+.board-add-tabs .chip {
+  gap: 5px;
+}
+.board-add-filters {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 0 10px 8px;
+  border-bottom: 1px solid var(--border);
+}
+.board-add-select {
+  appearance: auto;
+}
+.board-add-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.board-add-chips .chip {
+  font-size: var(--fs-xs);
+}
+.board-add-hint {
+  font-size: var(--fs-xs);
+}
+.board-add-all {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--fs-sm);
+}
+.board-add-srctitle {
+  font-size: var(--fs-md);
+}
+.board-add-filters > .btn {
+  align-self: flex-start;
+}
+.board-add-list {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.board-add-empty {
+  padding: 12px 8px;
+  font-size: var(--fs-sm);
+}
+.board-add-row,
+.board-add-maprow {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 7px 8px 7px 10px;
+  border-radius: var(--radius-sm);
+  border: 0;
+  border-left: 3px solid var(--c, var(--border));
+  background: transparent;
+  text-align: left;
+  color: inherit;
+  font: inherit;
+}
+.board-add-maprow {
+  border-left-color: var(--border-strong);
+  align-items: center;
+}
+.board-add-row:hover,
+.board-add-maprow:hover {
+  background: var(--bg-hover);
+}
+.board-add-row.on {
+  background: var(--bg-active);
+}
+.board-add-row.disabled {
+  opacity: 0.55;
+}
+.board-add-row input {
+  margin-top: 3px;
+  flex: none;
+}
+.board-add-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.board-add-cat {
+  font-size: var(--fs-xs);
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.board-add-text {
+  font-size: var(--fs-sm);
+  line-height: 1.4;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.board-add-loc {
+  font-size: var(--fs-xs);
+}
+.board-add-ideas {
+  border-bottom: 0;
+  flex: 1;
+}
+.board-add-ideas textarea {
+  min-height: 160px;
+  font: inherit;
+}
+.board-add-foot {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 10px;
+  border-top: 1px solid var(--border);
+}

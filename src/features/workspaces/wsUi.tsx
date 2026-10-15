@@ -469,7 +469,13 @@ export function AddItemsDialog({ workspaceId, groupId, onClose }: { workspaceId:
       plan: plans.map((p) => ({ id: p.id, title: p.title || 'Plan sans titre', sub: p.sujet })),
       argument: args.map((a) => ({ id: a.id, title: a.title || 'Argument sans titre', sub: a.conclusion.text })),
       study: studies.map((x) => ({ id: x.id, title: x.title || 'Fiche sans titre', sub: books.find((b) => b.id === x.bookId)?.title ?? '' })),
-      map: books.filter((b) => (maps[b.id]?.nodes.length ?? 0) > 0).map((b) => ({ id: b.id, title: `Carte — ${b.title}`, sub: `${maps[b.id].nodes.length} nœuds` })),
+      map: [
+        ...Object.values(maps)
+          .filter((m) => m.kind === 'board' && m.id)
+          .sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0))
+          .map((m) => ({ id: m.id!, title: m.title?.trim() || 'Carte sans titre', sub: `Carte libre · ${m.nodes.length} carte${m.nodes.length > 1 ? 's' : ''}` })),
+        ...books.filter((b) => (maps[b.id]?.nodes.length ?? 0) > 0).map((b) => ({ id: b.id, title: `Carte — ${b.title}`, sub: `${maps[b.id].nodes.length} nœuds` })),
+      ],
     };
     return m;
   }, [books, drafts, plans, args, studies, maps]);

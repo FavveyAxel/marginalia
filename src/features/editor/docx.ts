@@ -407,6 +407,8 @@ function noteRuns(text: string): string {
 interface GenCtx {
   notes: string[];
   nums: { ordered: boolean }[];
+  /** Signets de citation liés (`<span data-cite-hl>`) déjà émis. */
+  bms?: number;
 }
 
 function inlineXml(node: Node, f: RunFmt, ctx: GenCtx): string {
@@ -423,6 +425,15 @@ function inlineXml(node: Node, f: RunFmt, ctx: GenCtx): string {
     return `<w:r><w:rPr><w:rStyle w:val="FootnoteReference"/></w:rPr><w:footnoteReference w:id="${id}"/></w:r>`;
   }
   if (tag === 'br') return '<w:r><w:br/></w:r>';
+  // Citation liée à un extrait : <span data-cite-hl="<highlightId>">« texte »</span> → signet Word
+  // `_mglHl_<id>` autour du texte (même lien citation → extrait que l'insertion depuis l'éditeur).
+  const hl = e.getAttribute('data-cite-hl');
+  if (hl && /^[A-Za-z0-9_-]+$/.test(hl)) {
+    ctx.bms = (ctx.bms ?? 0) + 1;
+    const bid = 900 + ctx.bms;
+    const inner = Array.from(e.childNodes).map((c) => inlineXml(c, f, ctx)).join('');
+    return `<w:bookmarkStart w:id="${bid}" w:name="_mglHl_${hl}"/>${inner}<w:bookmarkEnd w:id="${bid}"/>`;
+  }
   const nf: RunFmt = { ...f };
   if (tag === 'strong' || tag === 'b') nf.b = true;
   if (tag === 'em' || tag === 'i' || tag === 'cite') nf.i = true;

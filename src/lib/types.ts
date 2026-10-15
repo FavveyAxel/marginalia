@@ -11,7 +11,7 @@ export type CategoryId = 'probleme' | 'these' | 'argument' | 'objection' | 'conc
 export type NoteKind = 'reformulation' | 'question' | 'critique' | 'presuppose';
 
 /** Relations de la carte d'argument. */
-export type RelationId = 'soutient' | 'objecte' | 'precise' | 'illustre' | 'repond';
+export type RelationId = 'soutient' | 'objecte' | 'precise' | 'illustre' | 'repond' | 'oppose';
 
 /** Édition de référence d'un document (pour les citations). */
 export interface Edition {
@@ -226,6 +226,47 @@ export interface MapNode {
   text: string;
   x: number;
   y: number;
+  /** Carte repliée (affichage compact). Absent : dépliée. */
+  collapsed?: boolean;
+  /** Teinte d'une carte « idée » (variable CSS --cat-* / --rel-*). Absent : jaune post-it. */
+  color?: string;
+  /** Carte « concept » (cartes libres) : concept d'origine ; `text` en garde le nom et la définition. */
+  conceptId?: string;
+  /** Carte copiée depuis une autre carte : clé de la carte et id de la carte d'origine. */
+  from?: { mapKey: string; nodeId: string };
+}
+
+/** Force d'un lien (1 faible, 2 normal, 3 fort). Absent : normal. */
+export type EdgeStrength = 1 | 2 | 3;
+
+/** Zone (cadre titré) qui regroupe des cartes. */
+export interface MapZone {
+  id: string;
+  title: string;
+  /** Nom de teinte (variable CSS --cat-* / --rel-*, ou couleur hex). */
+  color: string;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  /** Zone repliée : ses cartes sont masquées (voir hiddenNodeIds). */
+  collapsed?: boolean;
+  /** Cartes masquées par le repli (ids). */
+  hiddenNodeIds?: string[];
+}
+
+/** Instantané d'une carte (versions). Stocké hors du journal d'annulation. */
+export interface MapVersion {
+  id: string;
+  /** Clé de la carte dans `maps`. */
+  mapKey: string;
+  createdAt: number;
+  /** Nom donné par l'utilisateur (null : instantané automatique, élagué). */
+  name: string | null;
+  /** Raison d'un instantané automatique. */
+  reason: 'manual' | 'layout' | 'convert' | 'delete-many' | 'restore';
+  /** Copie de la carte (sans viewport). */
+  map: ArgumentMap;
 }
 
 export interface MapEdge {
@@ -238,13 +279,38 @@ export interface MapEdge {
    * forment un argument conjoint (prémisses qui ne valent qu'ensemble).
    */
   groupId: string | null;
+  /** Force du lien (absent : normale). */
+  strength?: EdgeStrength;
+  /** Note libre sur le lien (« pourquoi ce lien »). */
+  note?: string;
 }
 
+/**
+ * Carte d'argument. Rangées dans `Database.maps` :
+ *  - carte d'un livre (historique) : clé = bookId, `kind` absent ou 'book' ;
+ *  - carte libre multi-livres (« comparer deux auteurs ») : clé = `id`, kind 'board',
+ *    `bookIds` = livres dont elle cite des extraits, `bookId` = '' ;
+ *  - carte d'un mouvement de fiche-texte : clé = `id`, kind 'movement', `bookId` = livre,
+ *    `studyId` + `movementId`.
+ * Tous les nouveaux champs sont facultatifs : une base ancienne reste valable telle quelle.
+ */
 export interface ArgumentMap {
   bookId: string;
   nodes: MapNode[];
   edges: MapEdge[];
   viewport: { x: number; y: number; zoom: number } | null;
+  /** Clé dans `maps` quand elle diffère de bookId (cartes libres, cartes de mouvement). */
+  id?: string;
+  kind?: 'book' | 'board' | 'movement';
+  title?: string;
+  bookIds?: string[];
+  studyId?: string;
+  movementId?: string;
+  zones?: MapZone[];
+  /** Carte marquée « thèse centrale » (absent : la première thèse posée). */
+  centralId?: string;
+  createdAt?: number;
+  updatedAt?: number;
 }
 
 /** Reconstruction d'argument en forme standard : P1, P2… ⇒ C. */
@@ -478,6 +544,8 @@ export interface Database {
   trash: TrashEntry[];
   /** Journal d'activité, du plus récent au plus ancien (plafonné). */
   activity: ActivityEntry[];
+  /** Instantanés des cartes d'argument (bases antérieures : absent). Hors du journal et de ⌘Z. */
+  mapVersions?: MapVersion[];
 }
 
 // ── Corbeille, journal d'activité, annuler / rétablir ─────────
@@ -498,7 +566,8 @@ export interface ItemChange {
   index?: number;
 }
 
-export type TrashKind = 'book' | 'highlight' | 'concept' | 'argument' | 'study' | 'plan' | 'draft' | 'card' | 'workspace' | 'group';
+/** 'map' : carte libre ou carte de mouvement (clé de `maps`) ; les cartes de livre partent avec leur livre. */
+export type TrashKind = 'book' | 'highlight' | 'concept' | 'argument' | 'study' | 'plan' | 'draft' | 'card' | 'workspace' | 'group' | 'map';
 
 export interface TrashEntry {
   id: string;
@@ -582,6 +651,8 @@ export type Route =
   | { name: 'arguments'; argumentId: string | null }
   | { name: 'revision' }
   | { name: 'plans'; planId: string | null }
+  /** Carte libre (clé dans `maps`, kind 'board'). */
+  | { name: 'board'; boardId: string }
   | { name: 'write'; draftId: string | null }
   | { name: 'trash' }
   | { name: 'history' }

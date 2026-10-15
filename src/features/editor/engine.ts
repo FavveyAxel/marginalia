@@ -205,6 +205,53 @@ export interface DocEngine {
   setProofing(cfg: object | null): void;
   /** Éditeur de présentation de SuperDoc (correcteur : hitTest, proofingManager, editor). */
   presentation(): unknown;
+  // ── Commentaires Word (comments.tsx) : w:comments, conservés à l'export .docx ──
+  /** Fils ancrés dans le corps (racines puis réponses), dans l'ordre du document. */
+  listComments(): DocComment[];
+  /** Passage sélectionné (positions et texte), ou null si la sélection est vide. */
+  selectionRange(): { from: number; to: number; quote: string } | null;
+  /** Commente le passage [from, to] ; renvoie l'identifiant du commentaire. */
+  addComment(range: { from: number; to: number }, text: string): string | null;
+  replyComment(parentId: string, text: string): string | null;
+  editComment(id: string, text: string): boolean;
+  setCommentResolved(id: string, resolved: boolean): boolean;
+  /** Supprime le fil (racine et réponses) ; renvoie de quoi l'annuler. */
+  deleteComment(id: string): CommentSnapshot | null;
+  restoreComment(snap: CommentSnapshot): boolean;
+  /** Rectangles (coordonnées de la fenêtre) du passage [from, to], d'après la mise en page. */
+  rangeRects(from: number, to: number): { left: number; top: number; right: number; bottom: number }[];
+  /** Place le curseur dans le passage (sans défiler). */
+  caretTo(pos: number): void;
+}
+
+/** Commentaire Word (w:comment) : racine d'un fil (passage commenté) ou réponse. */
+export interface DocComment {
+  id: string;
+  /** Racine du fil (null pour une racine). */
+  parentId: string | null;
+  text: string;
+  author: string;
+  /** Écrit dans Marginalia (auteur affiché « Vous »). */
+  mine: boolean;
+  createdAt: number | null;
+  resolved: boolean;
+  /** Passage commenté (positions du document ; celles de la racine pour une réponse). */
+  from: number;
+  to: number;
+  quote: string;
+}
+
+/** De quoi remettre un fil supprimé (« Annuler »). */
+export interface CommentSnapshot {
+  id: string;
+  from: number;
+  to: number;
+  quote: string;
+  resolved: boolean;
+  /** Réponse seule (le passage reste commenté par la racine). */
+  reply: boolean;
+  /** Entrées du moteur (racine et réponses), copiées telles quelles. */
+  entries: unknown[];
 }
 
 export interface EngineOptions {
@@ -237,6 +284,9 @@ function loadSuperDoc(): Promise<Any> {
   });
   return loading;
 }
+
+/** Auteur des commentaires créés dans Marginalia (w:author dans Word). */
+export const COMMENT_AUTHOR = 'Marginalia';
 
 const QUOTE_IDS = ['Quote', 'BlockText', 'IntenseQuote', 'Citation'];
 const QUOTE_NAMES = ['quote', 'block text', 'intense quote', 'citation'];
@@ -306,7 +356,12 @@ export async function openDocEngine(host: HTMLElement, data: ArrayBuffer, opts: 
           disablePiniaDevtools: true,
           disableContextMenu: true,
           rulers: false,
-          user: { name: 'Marginalia', email: '' },
+          // Commentaires Word : l'interface de SuperDoc (barre latérale, bulles flottantes, menu
+          // près de la sélection) est coupée — elle décalait la page. Les données restent gérées par
+          // le moteur (converter.comments, API documentaire `doc.comments`, w:comments à l'export) ;
+          // l'interface est celle de comments.tsx.
+          modules: { comments: false },
+          user: { name: COMMENT_AUTHOR, email: '' },
           zoom:
             zoomValue === 'fit'
               ? { mode: 'fit-width', fitWidth: { min: FIT_MIN, max: FIT_MAX, padding: 32 } }
@@ -640,6 +695,78 @@ export async function openDocEngine(host: HTMLElement, data: ArrayBuffer, opts: 
     const pp = n.attrs?.paragraphProperties;
     const k = kindOfStyle(pp?.styleId, pp);
     return k === 'h1' ? 1 : k === 'h2' ? 2 : k === 'h3' ? 3 : 0;
+  };
+
+  // ── Commentaires Word ──
+  // Données : converter.comments (entrées du moteur, écrites dans comments.xml à l'export) et,
+  // dans le texte, la marque `commentMark` (fil ouvert) ou les nœuds commentRangeStart/End (fil
+  // résolu). Opérations : API documentaire `doc.comments` (research : create / patch / delete).
+  /** Fils supprimés (pour ⌘Z dans le texte, qui remet la marque mais pas l'entrée du moteur). */
+  const deletedComments = new Map<string, Any[]>();
+  const commentStore = (ed: Any): Any[] => {
+    const c = ed?.converter;
+    if (!c) return [];
+    if (!Array.isArray(c.comments)) c.comments = [];
+    return c.comments;
+  };
+  /** Positions des passages commentés : identifiant (commentId et importedId) → [from, to]. */
+  const commentAnchors = (doc: Any): Map<string, { from: number; to: number }> => {
+    const out = new Map<string, { from: number; to: number }>();
+    const open = new Map<string, number>();
+    const put = (ids: (string | null | undefined)[], from: number, to: number) => {
+      for (const id of ids) {
+        if (!id) continue;
+        const cur = out.get(id);
+        out.set(id, cur ? { from: Math.min(cur.from, from), to: Math.max(cur.to, to) } : { from, to });
+      }
+    };
+    doc.descendants((n: Any, pos: number) => {
+      if (n.isText) {
+        for (const m of n.marks) if (m.type.name === 'commentMark') put([m.attrs.commentId, m.attrs.importedId], pos, pos + n.nodeSize);
+        return false;
+      }
+      const name = n.type.name;
+      if (name === 'commentRangeStart') {
+        const id = String(n.attrs['w:id'] ?? n.attrs.commentId ?? '');
+        if (id) open.set(id, pos + n.nodeSize);
+      } else if (name === 'commentRangeEnd') {
+        const id = String(n.attrs['w:id'] ?? n.attrs.commentId ?? '');
+        const s = open.get(id);
+        if (id && s !== undefined && !out.has(id)) put([id], s, pos);
+      }
+      return true;
+    });
+    return out;
+  };
+  /** Texte d'une entrée importée, paragraphe par paragraphe (« \n » entre deux paragraphes). */
+  const entryText = (e: Any): string => {
+    const paras: Any[] = Array.isArray(e?.elements) ? e.elements : [];
+    if (paras.length < 2) return '';
+    const flat = (v: Any): string => {
+      if (!v || typeof v !== 'object') return '';
+      if (Array.isArray(v)) return v.map(flat).join('');
+      if (v.type === 'text' && typeof v.text === 'string') return v.text;
+      return flat(v.content);
+    };
+    return paras
+      .map((p) => flat(p))
+      .join('\n')
+      .replace(/^\n+|\n+$/g, '');
+  };
+  /** Racine et réponses (dans l'ordre du moteur). */
+  const commentTree = (store: Any[], rootId: string): Any[] => {
+    const ids = new Set([rootId]);
+    let grew = true;
+    while (grew) {
+      grew = false;
+      for (const e of store) if (e.parentCommentId && ids.has(e.parentCommentId) && !ids.has(e.commentId)) (ids.add(e.commentId), (grew = true));
+    }
+    return store.filter((e) => ids.has(e.commentId) || (e.importedId && ids.has(e.importedId)));
+  };
+  /** Sélection posée sur [from, to] → cible de l'API documentaire. */
+  const rangeTarget = (ed: Any, from: number, to: number): Any | null => {
+    ed.commands.setTextSelection({ from, to });
+    return selectionTarget(ed);
   };
 
   const engine: DocEngine = {
@@ -1533,6 +1660,266 @@ export async function openDocEngine(host: HTMLElement, data: ArrayBuffer, opts: 
     },
     presentation() {
       return pres();
+    },
+
+    // ── Commentaires Word ──
+    listComments() {
+      const ed = body();
+      if (!ed?.doc?.comments) return [];
+      const doc = ed.state.doc;
+      const anchors = commentAnchors(doc);
+      const store = commentStore(ed);
+      // ⌘Z dans le texte après une suppression : la marque revient, l'entrée du moteur non → on la remet.
+      for (const [id, entries] of deletedComments) {
+        if (!anchors.has(id)) continue;
+        for (const en of entries) if (!store.some((x) => x.commentId === en.commentId)) store.push({ ...en });
+        deletedComments.delete(id);
+      }
+      let items: Any[] = [];
+      try {
+        items = ed.doc.comments.list({ includeResolved: true }).items ?? [];
+      } catch (e) {
+        console.warn('commentaires', e);
+        return [];
+      }
+      const byId = new Map<string, Any>();
+      for (const it of items) byId.set(String(it.id ?? it.commentId), it);
+      const rootOf = (it: Any): Any => {
+        let cur = it;
+        const seen = new Set<string>();
+        while (cur?.parentCommentId && byId.has(cur.parentCommentId) && !seen.has(cur.parentCommentId)) {
+          seen.add(cur.parentCommentId);
+          cur = byId.get(cur.parentCommentId);
+        }
+        return cur;
+      };
+      const entries = new Map<string, Any>();
+      for (const en of store) entries.set(String(en.commentId), en);
+      const commentText = (it: Any): string => {
+        const t = String(it.text ?? '');
+        if (t.includes('\n')) return t;
+        const multi = entryText(entries.get(String(it.id ?? it.commentId)));
+        return multi && multi.replace(/\n/g, '') === t.replace(/\n/g, '') ? multi : t;
+      };
+      const out: DocComment[] = [];
+      for (const it of items) {
+        if (it.trackedChange) continue;
+        const id = String(it.id ?? it.commentId);
+        const root = rootOf(it);
+        const rid = String(root.id ?? root.commentId);
+        const a = anchors.get(rid) ?? (root.importedId ? anchors.get(String(root.importedId)) : undefined);
+        if (!a) continue; // fil sans passage dans le corps (en-tête, note, ou annulé par ⌘Z)
+        const author = String(it.creatorName ?? '').trim();
+        out.push({
+          id,
+          parentId: root === it ? null : String(it.parentCommentId),
+          text: commentText(it),
+          author: author || 'Auteur inconnu',
+          mine: !author || author === COMMENT_AUTHOR,
+          createdAt: typeof it.createdTime === 'number' ? it.createdTime : null,
+          resolved: (root.status ?? it.status) === 'resolved',
+          from: a.from,
+          to: a.to,
+          quote: doc.textBetween(a.from, a.to, ' ', ' '),
+        });
+      }
+      out.sort((x, y) => x.from - y.from || (x.parentId ? 1 : 0) - (y.parentId ? 1 : 0) || (x.createdAt ?? 0) - (y.createdAt ?? 0));
+      return out;
+    },
+    selectionRange() {
+      const ed = body();
+      const sel = ed?.state.selection;
+      if (!sel || sel.empty) return null;
+      const quote = ed.state.doc.textBetween(sel.from, sel.to, ' ', ' ');
+      if (!quote.trim()) return null;
+      return { from: sel.from, to: sel.to, quote };
+    },
+    addComment(range, text) {
+      const ed = body();
+      const t = text.trim();
+      if (!ed?.doc?.comments || !t) return null;
+      touched = true;
+      try {
+        const max = ed.state.doc.content.size;
+        const target = rangeTarget(ed, Math.max(0, Math.min(range.from, max)), Math.max(0, Math.min(range.to, max)));
+        if (!target) return null;
+        const r = ed.doc.comments.create({ target, text: t });
+        if (!r?.success) return null;
+        // curseur à la fin du passage (la sélection ne reste pas affichée sous la bulle)
+        const end = Math.min(range.to, ed.state.doc.content.size);
+        ed.commands.setTextSelection({ from: end, to: end });
+        changed();
+        return String(r.id);
+      } catch (e) {
+        console.error('commentaire', e);
+        return null;
+      }
+    },
+    replyComment(parentId, text) {
+      const ed = body();
+      const t = text.trim();
+      if (!ed?.doc?.comments || !t) return null;
+      touched = true;
+      try {
+        const r = ed.doc.comments.create({ parentCommentId: parentId, text: t });
+        if (!r?.success) return null;
+        changed();
+        return String(r.id);
+      } catch (e) {
+        console.error('réponse', e);
+        return null;
+      }
+    },
+    editComment(id, text) {
+      const ed = body();
+      const t = text.trim();
+      if (!ed?.doc?.comments || !t) return false;
+      touched = true;
+      try {
+        const r = ed.doc.comments.patch({ commentId: id, text: t });
+        changed();
+        return r?.success !== false;
+      } catch (e) {
+        console.error('commentaire', e);
+        return false;
+      }
+    },
+    setCommentResolved(id, resolved) {
+      const ed = body();
+      if (!ed?.doc?.comments) return false;
+      touched = true;
+      try {
+        const r = ed.doc.comments.patch({ commentId: id, status: resolved ? 'resolved' : 'active' });
+        changed();
+        return r?.success !== false;
+      } catch (e) {
+        console.error('commentaire', e);
+        return false;
+      }
+    },
+    deleteComment(id) {
+      const ed = body();
+      if (!ed?.doc?.comments) return null;
+      const doc = ed.state.doc;
+      const a = commentAnchors(doc).get(id);
+      const store = commentStore(ed);
+      const entries = commentTree(store, id).map((e) => JSON.parse(JSON.stringify(e)));
+      const reply = !!entries.find((e: Any) => e.commentId === id)?.parentCommentId;
+      let resolved = false;
+      try {
+        resolved = ed.doc.comments.get({ commentId: id })?.status === 'resolved';
+      } catch {
+        /* inconnu */
+      }
+      touched = true;
+      try {
+        const r = ed.doc.comments.delete({ commentId: id });
+        if (r?.success === false) return null;
+      } catch (e) {
+        console.error('commentaire', e);
+        return null;
+      }
+      // entrées encore présentes (réponses orphelines) : retirées aussi
+      const gone = new Set(entries.map((e: Any) => e.commentId));
+      const left = store.filter((e) => !gone.has(e.commentId));
+      if (left.length !== store.length) store.splice(0, store.length, ...left);
+      if (!reply) deletedComments.set(id, entries);
+      changed();
+      return { id, from: a?.from ?? 0, to: a?.to ?? 0, quote: a ? doc.textBetween(a.from, a.to, ' ', ' ') : '', resolved, reply, entries };
+    },
+    restoreComment(snap) {
+      const ed = body();
+      if (!ed) return false;
+      const doc = ed.state.doc;
+      const entries = snap.entries as Any[];
+      if (!snap.reply && !commentAnchors(doc).has(snap.id)) {
+        // passage : à sa place si le texte n'a pas bougé, sinon l'occurrence la plus proche
+        let from = -1;
+        if (snap.to > snap.from && snap.to <= doc.content.size && doc.textBetween(snap.from, snap.to, ' ', ' ') === snap.quote) from = snap.from;
+        else if (snap.quote) {
+          const hits: number[] = [];
+          doc.descendants((n: Any, pos: number) => {
+            if (!n.isTextblock) return true;
+            const txt = doc.textBetween(pos + 1, pos + n.nodeSize - 1, ' ', ' ');
+            let i = txt.indexOf(snap.quote);
+            while (i >= 0) {
+              // position du caractère i dans le bloc (texte d'un seul tenant en général)
+              let acc = 0;
+              let found = -1;
+              n.descendants((c: Any, p: number) => {
+                if (found >= 0) return false;
+                if (c.isText) {
+                  if (i < acc + c.text.length) found = pos + 1 + p + (i - acc);
+                  acc += c.text.length;
+                }
+                return true;
+              });
+              if (found >= 0) hits.push(found);
+              i = txt.indexOf(snap.quote, i + 1);
+            }
+            return false;
+          });
+          hits.sort((x, y) => Math.abs(x - snap.from) - Math.abs(y - snap.from));
+          from = hits[0] ?? -1;
+        }
+        const mark = ed.state.schema.marks.commentMark;
+        if (from < 0 || !mark) return false;
+        const to = Math.min(doc.content.size, from + (snap.to - snap.from));
+        const root = entries.find((e) => e.commentId === snap.id) ?? {};
+        touched = true;
+        ed.view.dispatch(ed.state.tr.addMark(from, to, mark.create({ commentId: snap.id, importedId: root.importedId ?? null, internal: false, trackedChange: false })));
+      }
+      const store = commentStore(ed);
+      for (const en of entries) if (!store.some((x) => x.commentId === en.commentId)) store.push({ ...en });
+      deletedComments.delete(snap.id);
+      if (snap.resolved && !snap.reply) {
+        try {
+          ed.doc.comments.patch({ commentId: snap.id, status: 'resolved' });
+        } catch {
+          /* reste ouvert */
+        }
+      }
+      changed();
+      return true;
+    },
+    rangeRects(from, to) {
+      try {
+        // bornes ramenées au texte : posées entre deux runs (passage d'un fil résolu, entre
+        // commentRangeStart/End), elles donneraient des rectangles de lignes entières
+        const ed = body();
+        if (ed) {
+          let a = -1;
+          let b = -1;
+          ed.state.doc.nodesBetween(from, to, (n: Any, pos: number) => {
+            if (!n.isText) return true;
+            const s = Math.max(from, pos);
+            const e = Math.min(to, pos + n.nodeSize);
+            if (e > s) {
+              if (a < 0) a = s;
+              b = e;
+            }
+            return false;
+          });
+          if (a >= 0 && b > a) {
+            from = a;
+            to = b;
+          }
+        }
+        const rects: Any[] = pres()?.getRangeRects?.(from, to) ?? [];
+        return rects.filter((r) => Number.isFinite(r?.top) && Number.isFinite(r?.left)).map((r) => ({ left: r.left, top: r.top, right: r.right, bottom: r.bottom }));
+      } catch {
+        return [];
+      }
+    },
+    caretTo(pos) {
+      const ed = body();
+      if (!ed) return;
+      const p = Math.max(1, Math.min(pos, ed.state.doc.content.size - 1));
+      try {
+        ed.commands.setTextSelection({ from: p, to: p });
+      } catch {
+        /* position hors texte */
+      }
     },
   };
   return engine;

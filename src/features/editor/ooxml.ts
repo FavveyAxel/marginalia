@@ -276,6 +276,13 @@ export function fixAttributes(xml: string): string {
     const selfClose = /\/\s*$/.test(attrs);
     return `<w:comment${kept.map((a) => a[0]).join('')}${selfClose ? '/' : ''}>`;
   });
+  // w:annotationRef : un seul par paragraphe de commentaire (SuperDoc en rajoute un à chaque
+  // aller-retour : réimporté comme contenu, puis réécrit)
+  if (out.includes('<w:annotationRef')) {
+    const REF_RUN = /<w:r>(?:<w:rPr>(?:(?!<\/w:rPr>).)*<\/w:rPr>)?<w:annotationRef\s*\/><\/w:r>/;
+    const dup = new RegExp(`(${REF_RUN.source})(?:\\s*${REF_RUN.source})+`, 'g');
+    out = out.replace(dup, '$1');
+  }
   // w:shd exige w:val
   out = out.replace(/<w:shd\b(?![^>]*\sw:val=)([^>]*?)(\/?)>/g, '<w:shd w:val="clear"$1$2>');
   // Images flottantes (wp:anchor) : attributs obligatoires manquants, positions vides

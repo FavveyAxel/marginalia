@@ -1,9 +1,10 @@
-// Actions asynchrones des espaces : import dans un groupe, nouvel écrit.
+// Actions des espaces : import dans un groupe, nouvel écrit, nouvelle carte libre.
 import { useStore } from '../../lib/store';
 import { host, filesFromDrop, type PickedFile } from '../../lib/platform';
 import { createDraft } from '../editor/api';
 import type { Book } from '../../lib/types';
 import { goToWorkspace } from './wsModel';
+import { createBoardIn } from '../map/model/actions';
 
 export async function importIntoWorkspace(files: PickedFile[], workspaceId: string, groupId: string | null): Promise<Book[]> {
   const s = useStore.getState();
@@ -39,6 +40,14 @@ export async function newDraftHere(workspaceId: string, groupId: string | null) 
     console.error(e);
     useStore.getState().toast('Impossible de créer l’écrit', 'error');
   }
+}
+
+/** Nouvelle carte libre dans l'espace (et le groupe), ouverte aussitôt. */
+export function newBoardHere(workspaceId: string, groupId: string | null): string {
+  const key = createBoardIn(workspaceId, groupId, 'Nouvelle carte');
+  goToWorkspaceSilently(workspaceId);
+  useStore.getState().navigate({ name: 'board', boardId: key });
+  return key;
 }
 
 function goToWorkspaceSilently(workspaceId: string) {

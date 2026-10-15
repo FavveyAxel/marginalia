@@ -8,6 +8,7 @@ import { useStore } from '../../../lib/store';
 import { NOTE_KIND_BY_ID, kindColor } from '../../../lib/categories';
 import { locatorOf } from '../../../lib/citation';
 import { roleLabel, useMapCtx, type ExtractData, type IdeaData } from './ctx';
+import { PortalNode, ReuseBadge } from './portal';
 
 const sides: [Position, string][] = [
   [Position.Top, 't'],
@@ -119,6 +120,7 @@ export function ExtractNode({ id, data, selected }: NodeProps) {
           ))}
         </div>
       )}
+      <ReuseBadge highlightId={h.id} mapKey={ctx.mapKey} />
       <Handles />
     </div>
   );
@@ -194,4 +196,4 @@ export function IdeaNode({ id, data, selected }: NodeProps) {
   );
 }
 
-export const nodeTypes = { extract: ExtractNode, idea: IdeaNode };
+export const nodeTypes = { extract: ExtractNode, idea: IdeaNode, portal: PortalNode };

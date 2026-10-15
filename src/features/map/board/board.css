@@ -219,3 +219,39 @@
   padding: 8px 10px;
   border-top: 1px solid var(--border);
 }
+
+/* Autres cartes : copier des cartes, ou poser un portail vers la carte */
+.board-add-mapitem {
+  display: flex;
+  flex-direction: column;
+  border-radius: var(--radius-sm);
+}
+.board-add-mapitem:hover {
+  background: var(--bg-hover);
+}
+.board-add-mapitem .board-add-maprow:hover {
+  background: transparent;
+}
+.board-add-maprow:disabled {
+  cursor: default;
+  opacity: 0.75;
+}
+.board-add-portal {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin: -2px 0 6px 32px;
+  padding: 2px 8px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: var(--fs-xs);
+  cursor: pointer;
+}
+.board-add-portal:hover {
+  background: color-mix(in srgb, var(--focus) 10%, transparent);
+  color: var(--ink);
+}

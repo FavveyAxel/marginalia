@@ -234,6 +234,8 @@ export interface MapNode {
   conceptId?: string;
   /** Carte copiée depuis une autre carte : clé de la carte et id de la carte d'origine. */
   from?: { mapKey: string; nodeId: string };
+  /** Portail : clé (dans `maps`) de la carte vers laquelle cette carte mène. Absent : carte ordinaire. */
+  portal?: string;
 }
 
 /** Force d'un lien (1 faible, 2 normal, 3 fort). Absent : normal. */

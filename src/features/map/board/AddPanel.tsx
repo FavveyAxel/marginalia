@@ -1,14 +1,16 @@
 // Panneau « Ajouter » d'une carte libre : extraits de tous les livres, cartes venues d'autres
 // cartes (avec leurs liens), concepts, idées. Toutes les écritures passent par model/actions.
 import { useEffect, useMemo, useState, type CSSProperties } from 'react';
-import { Highlighter, Lightbulb, Network, StickyNote, X } from 'lucide-react';
+import { Highlighter, Lightbulb, Network, StickyNote, Waypoints, X } from 'lucide-react';
 import { useStore } from '../../../lib/store';
 import { CATEGORIES, catColor, kindColor, kindLabel, kindOf, type ExtractKind } from '../../../lib/categories';
 import { locatorOf } from '../../../lib/citation';
 import type { ArgumentMap } from '../../../lib/types';
 import { addConcepts, addIdeas, copyNodesInto, lookup, placeHighlights } from '../model/actions';
-import { mapKindOf, nodeCategory, nodeText } from '../model/core';
+import { nodeCategory, nodeText } from '../model/core';
 import { mapDisplayTitle } from '../model/convert';
+import { mapChoices, PORTAL_KIND_LABEL } from '../model/portals';
+import { addPortal } from '../ui/portal';
 
 type Tab = 'extraits' | 'cartes' | 'concepts' | 'idees';
 const TABS: { id: Tab; label: string; icon: JSX.Element }[] = [
@@ -172,16 +174,17 @@ function MapsTab({ boardKey }: { boardKey: string }) {
   const [src, setSrc] = useState<string | null>(null);
   const { sel, setSel, toggle, clear } = useToggleSet();
   const lk = useMemo(() => lookup(), [highlights, books]);
-  const sources = useMemo(() => {
-    const out: { key: string; title: string; kind: string; n: number }[] = [];
-    for (const [key, m] of Object.entries(maps)) {
-      if (key === boardKey || !m.nodes.length) continue;
-      const k = mapKindOf(m);
-      if (k === 'book' && !books.some((b) => b.id === key)) continue;
-      out.push({ key, title: mapDisplayTitle(m, lk), kind: k === 'book' ? 'Carte du livre' : k === 'board' ? 'Carte libre' : 'Carte de mouvement', n: m.nodes.length });
-    }
-    return out.sort((a, b) => a.title.localeCompare(b.title, 'fr'));
-  }, [maps, books, boardKey, lk]);
+  // Toutes les autres cartes (une carte libre vide peut recevoir un portail, pas être copiée).
+  const sources = useMemo(
+    () =>
+      mapChoices(maps, lk, boardKey)
+        .map((t) => ({ key: t.key, title: t.kind === 'board' ? t.title : mapDisplayTitle(t.map, lk), kind: PORTAL_KIND_LABEL[t.kind], n: t.nodeCount }))
+        .sort((a, b) => a.title.localeCompare(b.title, 'fr')),
+    [maps, boardKey, lk],
+  );
+  const portalTo = (key: string, title: string) => {
+    if (addPortal(boardKey, key)) useStore.getState().toast(`Lien vers « ${title} » posé sur la carte`, 'success');
+  };
   useEffect(() => clear(), [src]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const source: ArgumentMap | undefined = src ? maps[src] : undefined;
@@ -190,15 +193,20 @@ function MapsTab({ boardKey }: { boardKey: string }) {
       <div className="board-add-list" aria-label="Cartes">
         {sources.length === 0 && <p className="muted board-add-empty">Aucune autre carte n’a encore de contenu.</p>}
         {sources.map((s) => (
-          <button key={s.key} className="board-add-maprow" onClick={() => setSrc(s.key)} data-map={s.key}>
-            <Network size={14} />
-            <span className="board-add-body">
-              <span className="board-add-text">{s.title}</span>
-              <span className="board-add-loc muted">
-                {s.kind} · {plural(s.n, 'carte', 'cartes')}
+          <div key={s.key} className="board-add-mapitem" data-map={s.key}>
+            <button className="board-add-maprow" onClick={() => setSrc(s.key)} disabled={!s.n} title={s.n ? 'Choisir des cartes à copier' : 'Carte vide : rien à copier'}>
+              <Network size={14} />
+              <span className="board-add-body">
+                <span className="board-add-text">{s.title}</span>
+                <span className="board-add-loc muted">
+                  {s.kind} · {s.n ? plural(s.n, 'carte', 'cartes') : 'vide'}
+                </span>
               </span>
-            </span>
-          </button>
+            </button>
+            <button className="board-add-portal" data-act="add-portal" onClick={() => portalTo(s.key, s.title)} title="Poser sur cette carte un portail qui mène à celle-ci">
+              <Waypoints size={13} /> Poser un lien vers cette carte
+            </button>
+          </div>
         ))}
       </div>
     );

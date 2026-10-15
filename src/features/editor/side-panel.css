@@ -492,10 +492,7 @@
   font-weight: 600;
 }
 
-/* Mode concentration : le panneau se retire. */
-.ed-focus .ed-side {
-  display: none;
-}
+/* Mode concentration : le panneau reste en place et s’efface pendant la frappe (focus.css). */
 
 @media (max-width: 900px) {
   .ed-side:not(.is-half) {

@@ -705,47 +705,13 @@
   opacity: 1;
 }
 
-/* ── Mode concentration ───────────────────────────────────── */
+/* ── Mode concentration ─────────────────────────────────────
+   Plein écran dans la fenêtre ; l'interface reste en place et s'efface pendant la frappe
+   (focus.tsx, focus.css). */
 .ed-root.ed-focus {
   position: fixed;
   inset: 0;
   z-index: 40;
-}
-.ed-focus .ed-topbar,
-.ed-focus .ed-toolbar-row,
-.ed-focus .ed-outline,
-.ed-focus .ed-extracts,
-.ed-focus .ed-count,
-.ed-focus .ed-banner {
-  display: none;
-}
-.ed-focus .ed-scroll {
-  padding-top: 40px;
-}
-.ed-focus-exit {
-  position: fixed;
-  top: 12px;
-  right: 16px;
-  z-index: 41;
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  height: 28px;
-  padding: 0 10px;
-  border: 0;
-  border-radius: 999px;
-  background: transparent;
-  font-size: var(--fs-sm);
-  color: var(--muted);
-  opacity: 0.55;
-  cursor: default;
-  transition: opacity var(--dur) var(--ease), background var(--dur) var(--ease);
-  animation: pop-in 200ms var(--ease);
-}
-.ed-focus-exit:hover {
-  opacity: 1;
-  background: var(--bg-hover);
-  color: var(--ink);
 }
 
 @media (max-width: 1180px) {
@@ -1634,4 +1600,131 @@
   .ed-engine-in .presentation-editor__selection-caret {
     animation: none;
   }
+}
+
+/* ═════════════════════════════════════════════════════════════
+   Teinte de la page (view.ts) — AFFICHAGE SEULEMENT : le .docx, les exports et l'impression
+   gardent les couleurs du document. `data-ed-tint` (white | cream | sepia | dark) est posé sur
+   l'hôte du moteur ; SuperDoc peint la page avec --sd-layout-page-bg et le texte « automatique »
+   avec --sd-layout-page-color. En teinte sombre, view.ts remappe les couleurs explicites trop
+   proches du fond via --mgl-fg / --mgl-bg / --mgl-b* (sans modifier le document).
+   ═════════════════════════════════════════════════════════════ */
+.ed-engine {
+  /* crème (thème clair), valeurs par défaut */
+  --ed-page-bg: #fbf7ee;
+  --ed-page-fg: #1f1b16;
+  --ed-sel: rgba(86, 116, 178, 0.17);
+  --ed-caret: #ec9b00;
+  --ed-find: rgba(245, 197, 66, 0.5);
+  --ed-find-active: rgba(240, 138, 36, 0.62);
+  --sd-layout-page-bg: var(--ed-page-bg);
+  --sd-layout-page-color: var(--ed-page-fg);
+  --sd-proofing-spelling-color: rgba(196, 64, 58, 0.78);
+  --pn-bg: #fbefc4;
+  --pn-rule: #d9a400;
+  --pn-ink: #6b5310;
+}
+.ed-engine[data-ed-tint='white'] {
+  --ed-page-bg: #ffffff;
+  --ed-page-fg: #000000;
+  --ed-sel: rgba(70, 110, 200, 0.16);
+  --pn-bg: #fff3c4;
+}
+.ed-engine[data-ed-tint='sepia'] {
+  --ed-page-bg: #f4ead5;
+  --ed-page-fg: #2f2519;
+  --ed-sel: rgba(150, 112, 60, 0.2);
+  --ed-caret: #dc8a00;
+  --ed-find: rgba(232, 178, 50, 0.5);
+  --pn-bg: #ecdcae;
+  --pn-rule: #b8862b;
+  --pn-ink: #5e4520;
+}
+.ed-engine[data-ed-tint='dark'] {
+  --ed-page-bg: #2a2926;
+  --ed-page-fg: #e2dccf;
+  --ed-sel: rgba(132, 160, 220, 0.26);
+  --ed-caret: #ffb21e;
+  --ed-find: rgba(214, 170, 52, 0.38);
+  --ed-find-active: rgba(232, 128, 40, 0.55);
+  --sd-proofing-spelling-color: rgba(240, 120, 110, 0.85);
+  --pn-bg: #3a3322;
+  --pn-rule: #c9971c;
+  --pn-ink: #eedb9f;
+}
+/* Page sombre : bord et ombre discrets sur le fond de l'interface. */
+.ed-engine[data-ed-tint='dark'] .superdoc-page {
+  border-color: rgba(255, 245, 225, 0.07) !important;
+}
+
+/* Sélection : moins vive que le bleu du moteur, adaptée à la teinte. */
+.ed-engine .presentation-editor__selection-rect {
+  background-color: var(--ed-sel) !important;
+}
+
+/* Recherche : occurrences lisibles sur chaque teinte (remplace les teintes fixes de find.css). */
+.ed-engine[data-ed-tint] .superdoc-text-run.ProseMirror-search-match {
+  background: var(--ed-find) !important;
+}
+.ed-engine[data-ed-tint] .superdoc-text-run.ProseMirror-active-search-match {
+  background: var(--ed-find-active) !important;
+  box-shadow: 0 0 0 1px var(--ed-find-active);
+}
+
+/* Couleurs remappées à l'écran (teinte sombre). Les images ne sont jamais touchées. */
+.ed-engine[data-ed-tint='dark'] .superdoc-page [data-mgl-fg] {
+  color: var(--mgl-fg) !important;
+}
+.ed-engine[data-ed-tint='dark'] .superdoc-page [data-mgl-bg]:not(.ProseMirror-search-match):not(.ProseMirror-active-search-match) {
+  background-color: var(--mgl-bg) !important;
+}
+.ed-engine[data-ed-tint='dark'] .superdoc-page [data-mgl-bd] {
+  border-top-color: var(--mgl-bt) !important;
+  border-right-color: var(--mgl-br) !important;
+  border-bottom-color: var(--mgl-bb) !important;
+  border-left-color: var(--mgl-bl) !important;
+}
+
+/* Menu Affichage : pastilles des teintes */
+.ed-tint-swatch {
+  width: 14px;
+  height: 14px;
+  border-radius: 4px;
+  box-shadow: inset 0 0 0 1px var(--border-strong);
+}
+.ed-tint-swatch.theme {
+  background: linear-gradient(135deg, #fbf7ee 0 50%, #2a2926 50% 100%);
+}
+.ed-view-menu {
+  min-width: 220px;
+}
+.ed-menu-head {
+  padding: 6px 10px 2px;
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  color: var(--muted);
+}
+/* Nouveau : police des nouveaux écrits */
+.ed-tpl-font {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin: 4px 4px 2px;
+  padding: 8px 6px 2px;
+  border-top: 1px solid var(--border);
+  font-size: var(--fs-sm);
+  color: var(--ink-2);
+}
+.ed-tpl-font > span {
+  white-space: nowrap;
+}
+.ed-tpl-font select {
+  flex: 1;
+  min-width: 0;
+  width: auto;
+  max-width: 170px;
+  height: 28px;
+  padding: 0 6px;
+  font-size: var(--fs-sm);
 }

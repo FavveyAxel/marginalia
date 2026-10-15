@@ -299,10 +299,6 @@
   font-weight: 600;
   font-variant-numeric: tabular-nums;
 }
-.ed-focus .ed-style,
-.ed-focus .wg-group {
-  display: none;
-}
 @media (max-width: 900px) {
   .ed-style {
     width: 280px;

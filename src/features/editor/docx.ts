@@ -513,11 +513,14 @@ const NS_DECL =
 export interface DocLayout {
   /** Présentation universitaire : alinéa, citations et notes en 10, page de garde, numéros de page. */
   academic?: boolean;
+  /** Police du corps et des titres (défaut : Times New Roman, celle des modèles universitaires). */
+  font?: string;
 }
 
 function stylesXml(layout: DocLayout = {}): string {
   const ac = !!layout.academic;
-  const font = '<w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman" w:eastAsia="Times New Roman" w:cs="Times New Roman"/>';
+  const f = esc(layout.font?.trim() || 'Times New Roman');
+  const font = `<w:rFonts w:ascii="${f}" w:hAnsi="${f}" w:eastAsia="${f}" w:cs="${f}"/>`;
   const heading = (n: number, size: number, before: number, extra = '') =>
     `<w:style w:type="paragraph" w:styleId="Heading${n}"><w:name w:val="heading ${n}"/><w:basedOn w:val="Normal"/><w:next w:val="Normal"/><w:uiPriority w:val="9"/><w:qFormat/><w:pPr><w:keepNext/><w:keepLines/><w:spacing w:before="${before}" w:after="120" w:line="276" w:lineRule="auto"/>${ac ? '<w:ind w:firstLine="0"/>' : ''}<w:jc w:val="left"/><w:outlineLvl w:val="${n - 1}"/></w:pPr><w:rPr><w:b/><w:bCs/>${extra}<w:sz w:val="${size}"/><w:szCs w:val="${size}"/></w:rPr></w:style>`;
   return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
@@ -563,6 +566,21 @@ function footnotesXml(notes: string[]): string {
 <w:footnotes ${NS_DECL}><w:footnote w:type="separator" w:id="-1"><w:p><w:pPr><w:spacing w:after="0" w:line="240" w:lineRule="auto"/></w:pPr><w:r><w:separator/></w:r></w:p></w:footnote><w:footnote w:type="continuationSeparator" w:id="0"><w:p><w:pPr><w:spacing w:after="0" w:line="240" w:lineRule="auto"/></w:pPr><w:r><w:continuationSeparator/></w:r></w:p></w:footnote>${body}</w:footnotes>`;
 }
 
+/** Famille (w:family) et police de repli (w:altName) des polices proposées pour les nouveaux écrits. */
+const FONT_INFO: Record<string, { family: 'roman' | 'swiss'; alt?: string; panose?: string }> = {
+  Literata: { family: 'roman', alt: 'Georgia' },
+  Georgia: { family: 'roman', panose: '02040502050405020303' },
+  Arial: { family: 'swiss', panose: '020B0604020202020204' },
+  'Helvetica Neue': { family: 'swiss', alt: 'Arial', panose: '02000503000000020004' },
+  'Segoe UI': { family: 'swiss', alt: 'Arial', panose: '020B0502040204020203' },
+};
+function fontTableXml(font: string | undefined): string | null {
+  const f = font?.trim();
+  if (!f || f === 'Times New Roman') return null;
+  const i = FONT_INFO[f] ?? { family: 'auto' as const };
+  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<w:fonts ${NS_DECL}><w:font w:name="${esc(f)}">${i.alt ? `<w:altName w:val="${i.alt}"/>` : ''}${'panose' in i && i.panose ? `<w:panose1 w:val="${i.panose}"/>` : ''}<w:charset w:val="00"/><w:family w:val="${i.family}"/><w:pitch w:val="variable"/></w:font><w:font w:name="Times New Roman"><w:panose1 w:val="02020603050405020304"/><w:charset w:val="00"/><w:family w:val="roman"/><w:pitch w:val="variable"/></w:font></w:fonts>`;
+}
+
 /** Construit un .docx complet (A4, styles français usuels, vraies notes) depuis un HTML simple. */
 export async function htmlToDocx(html: string, title: string, layout: DocLayout = {}): Promise<ArrayBuffer> {
   const dom = new DOMParser().parseFromString(`<body>${html}</body>`, 'text/html');
@@ -570,6 +588,9 @@ export async function htmlToDocx(html: string, title: string, layout: DocLayout 
   let bodyXml = blocksXml(dom.body, ctx);
   if (!bodyXml) bodyXml = paraXml(null, '');
   const ac = !!layout.academic;
+  // Police choisie (nouveaux écrits) : table des polices avec sa famille, pour qu'un Word où elle
+  // n'est pas installée la remplace par une police de même genre (Literata → une serif, pas Calibri).
+  const ft = fontTableXml(layout.font);
   // Présentation universitaire : pied « numéro de page » centré, page de garde sans numéro (titlePg).
   const sectPr = ac ? `<w:sectPr><w:footerReference w:type="default" r:id="rId10"/><w:footerReference w:type="first" r:id="rId11"/>${PG_SZ}${PG_MAR}<w:titlePg/></w:sectPr>` : A4_SECTPR;
   const docXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<w:document ${NS_DECL}><w:body>${bodyXml}${sectPr}</w:body></w:document>`;
@@ -578,7 +599,7 @@ export async function htmlToDocx(html: string, title: string, layout: DocLayout 
   zip.file(
     '[Content_Types].xml',
     `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/><Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/><Override PartName="/word/settings.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.settings+xml"/><Override PartName="/word/numbering.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.numbering+xml"/><Override PartName="/word/footnotes.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.footnotes+xml"/><Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/><Override PartName="/docProps/app.xml" ContentType="application/vnd.openxmlformats-officedocument.extended-properties+xml"/>${ac ? '<Override PartName="/word/footer1.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.footer+xml"/><Override PartName="/word/footer2.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.footer+xml"/>' : ''}</Types>`,
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/><Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/><Override PartName="/word/settings.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.settings+xml"/><Override PartName="/word/numbering.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.numbering+xml"/><Override PartName="/word/footnotes.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.footnotes+xml"/><Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/><Override PartName="/docProps/app.xml" ContentType="application/vnd.openxmlformats-officedocument.extended-properties+xml"/>${ac ? '<Override PartName="/word/footer1.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.footer+xml"/><Override PartName="/word/footer2.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.footer+xml"/>' : ''}${ft ? '<Override PartName="/word/fontTable.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.fontTable+xml"/>' : ''}</Types>`,
   );
   zip.file(
     '_rels/.rels',
@@ -588,10 +609,11 @@ export async function htmlToDocx(html: string, title: string, layout: DocLayout 
   zip.file(
     'word/_rels/document.xml.rels',
     `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/settings" Target="settings.xml"/><Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/numbering" Target="numbering.xml"/><Relationship Id="rId4" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/footnotes" Target="footnotes.xml"/>${ac ? '<Relationship Id="rId10" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/footer" Target="footer1.xml"/><Relationship Id="rId11" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/footer" Target="footer2.xml"/>' : ''}</Relationships>`,
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/settings" Target="settings.xml"/><Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/numbering" Target="numbering.xml"/><Relationship Id="rId4" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/footnotes" Target="footnotes.xml"/>${ac ? '<Relationship Id="rId10" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/footer" Target="footer1.xml"/><Relationship Id="rId11" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/footer" Target="footer2.xml"/>' : ''}${ft ? '<Relationship Id="rId5" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/fontTable" Target="fontTable.xml"/>' : ''}</Relationships>`,
   );
   zip.file('word/document.xml', docXml);
   zip.file('word/styles.xml', stylesXml(layout));
+  if (ft) zip.file('word/fontTable.xml', ft);
   if (ac) {
     zip.file(
       'word/footer1.xml',

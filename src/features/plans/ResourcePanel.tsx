@@ -3,8 +3,9 @@ import { useMemo, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { GripVertical, Plus, Search } from 'lucide-react';
 import { useStore } from '../../lib/store';
-import { CategoryDot } from '../../components/ui';
+import { KindDot } from '../../components/ui';
 import { RES_MIME, type ResRef } from './dnd';
+import type { Highlight } from '../../lib/types';
 
 type Tab = 'highlight' | 'concept' | 'argument';
 const TABS: { id: Tab; label: string }[] = [
@@ -48,7 +49,7 @@ export function ResourcePanel({
           ref: { kind: 'highlight', id: h.id } as ResRef,
           title: h.text.replace(/\s+/g, ' ').trim(),
           meta: [bookName(h.bookId), h.printedPage ? `p. ${h.printedPage}` : h.locationLabel].filter(Boolean).join(' · '),
-          cat: h.category,
+          cat: { category: h.category, plain: h.plain } as Pick<Highlight, 'category' | 'plain'> | null,
         }));
     }
     if (tab === 'concept') {
@@ -169,7 +170,7 @@ export function ResourcePanel({
                 <GripVertical size={13} className="plan-grip" />
                 <div className="plan-res-body">
                   <div className={`plan-res-title${tab === 'highlight' ? ' read' : ''}`}>
-                    {r.cat && <CategoryDot id={r.cat} size={7} />}
+                    {r.cat && <KindDot h={r.cat} size={7} />}
                     <span>{r.title}</span>
                   </div>
                   {r.meta && <div className="plan-res-meta truncate">{r.meta}</div>}

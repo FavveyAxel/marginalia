@@ -1,11 +1,18 @@
 // Primitives partagées (FIGÉ)
 import { useLayoutEffect, useState, type CSSProperties, type ReactNode } from 'react';
 import type { CategoryId } from '../lib/types';
-import { catColor } from '../lib/categories';
+import { catColor, PLAIN_DEF } from '../lib/categories';
 import { fmtKeys } from '../lib/keys';
 
 export function CategoryDot({ id, size = 9 }: { id: CategoryId; size?: number }) {
   return <span className="cat-dot" style={{ background: catColor(id), width: size, height: size }} />;
+}
+
+/** Pastille d'un extrait : sa catégorie, ou le sable du surlignage simple ; rien pour une note de marge. */
+export function KindDot({ h, size = 9 }: { h: { category: CategoryId | null; plain?: boolean }; size?: number }) {
+  if (h.category) return <CategoryDot id={h.category} size={size} />;
+  if (!h.plain) return null;
+  return <span className="cat-dot" title={PLAIN_DEF.label} style={{ background: 'var(--cat-plain)', width: size, height: size }} />;
 }
 
 /** Touche ou raccourci (notation Mac ; affiché « Ctrl+… » sous Windows, voir lib/keys). */

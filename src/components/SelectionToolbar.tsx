@@ -2,7 +2,7 @@
 import { useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { BookmarkPlus, Copy, Highlighter, MessageSquarePlus, Milestone, Quote } from 'lucide-react';
-import { CATEGORIES, PLAIN_DEF } from '../lib/categories';
+import { CATEGORIES } from '../lib/categories';
 import type { CategoryId } from '../lib/types';
 import { CategoryDot, Kbd, useFloating } from './ui';
 
@@ -66,11 +66,11 @@ export function SelectionToolbar({ rect, onPick, onMovement, onCopy, onDismiss, 
     >
       <button
         className="cat-btn sel-plain"
-        title={`${PLAIN_DEF.label} (H) — sans catégorie`}
+        title="Surligner (H) — sans catégorie"
         aria-label="Surligner, sans catégorie"
         onClick={() => onPick(null, false, true)}
       >
-        <Highlighter size={13} style={{ color: 'var(--cat-plain)' }} />
+        <Highlighter size={13} style={{ color: 'var(--cat-plain)' }} aria-hidden />
         <span className="sel-plain-lbl">Surligner</span>
         <Kbd>H</Kbd>
       </button>

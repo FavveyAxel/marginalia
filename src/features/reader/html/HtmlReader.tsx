@@ -763,8 +763,16 @@ export const HtmlReader = forwardRef<EngineHandle, EngineProps>(function HtmlRea
             const rect = charRect(init.chapter, off);
             if (!sc || !rect) return null;
             return sc.scrollTop + rect.top - sc.getBoundingClientRect().top - Math.max(24, sc.clientHeight * 0.06);
-          });
-        else await scrollStable(() => sectionTop(init.chapter) + init.scroll * (sectionsRef.current[init.chapter].offsetHeight || 0));
+          }, () => alive);
+        else
+          await scrollStable(
+            () => {
+              // Le lecteur peut avoir été démonté entre deux images (navigation rapide).
+              const sec = sectionsRef.current[init.chapter];
+              return sec && sec.isConnected && scrollRef.current ? sectionTop(init.chapter) + init.scroll * (sec.offsetHeight || 0) : null;
+            },
+            () => alive,
+          );
       }
       if (!alive) return;
       readyRef.current = true;

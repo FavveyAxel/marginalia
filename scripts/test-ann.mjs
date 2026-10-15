@@ -83,8 +83,8 @@ async function run(dark) {
       await page.evaluate((id) => window.__store.getState().openBook(id), bookId);
       await page.waitForSelector('.reader-side-body');
       await page.waitForSelector('.ann-empty');
-      ok(`[${tag}] état vide : légende 6 catégories + N + M`, (await page.locator('.ann-legend li').count()) === 8);
-      ok(`[${tag}] état vide : touches 1-6, N, M`, (await page.locator('.ann-legend .kbd').allTextContents()).join('') === '123456NM');
+      ok(`[${tag}] état vide : légende 6 catégories + H + N + M`, (await page.locator('.ann-legend li').count()) === 9);
+      ok(`[${tag}] état vide : touches 1-6, H, N, M`, (await page.locator('.ann-legend .kbd').allTextContents()).join('') === '123456HNM');
       await shot(page, `shots/ann/01-extraits-vide-${tag}.png`);
 
       // ── 2. Rempli ──

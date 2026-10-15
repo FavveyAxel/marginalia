@@ -79,7 +79,7 @@
   /* Catégories — fond de surlignage */
   /* Surlignage simple (sans catégorie) : sable ocre doux, désaturé */
   --cat-plain: #a8935c;
-  --hl-plain: rgba(190, 168, 108, 0.36);
+  --hl-plain: rgba(196, 166, 96, 0.36);
   --hl-these: rgba(240, 190, 40, 0.34);
   --hl-argument: rgba(70, 175, 110, 0.26);
   --hl-objection: rgba(230, 95, 120, 0.24);
@@ -103,6 +103,9 @@
   --bg-sidebar: #e4dac5;
   --ink: #2b2318;
   --ink-2: #54473a;
+  /* Surlignage simple : un ton plus soutenu pour rester lisible sur le papier sépia */
+  --cat-plain: #9c8452;
+  --hl-plain: rgba(176, 146, 78, 0.34);
 }
 
 :root[data-theme='dark'] {

@@ -10,7 +10,7 @@
   --pn-ink: #5e4520;
 }
 :root[data-theme='dark'] {
-  /* la page reste blanche (papier) : teinte plus franche pour se détacher de l'interface sombre */
+  /* valeurs de repli ; dans l'éditeur, la teinte de la page (editor.css, data-ed-tint) les redéfinit */
   --pn-bg: #fbe7a6;
   --pn-rule: #c08a00;
   --pn-ink: #5a440a;

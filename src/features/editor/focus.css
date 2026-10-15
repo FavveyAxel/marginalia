@@ -1,0 +1,54 @@
+/* ── Mode concentration (focus.tsx) ───────────────────────────
+   L'interface reste en place (aucun saut de mise en page) : elle s'efface en fondu pendant la
+   frappe (.ed-chrome-off) et revient vite quand on la cherche. */
+.ed-focus :is(.ed-topbar, .ed-toolbar-row, .ed-outline, .ed-side, .ed-style, .ed-versions, .ver-compare, .ed-count, .wg-group, .wg-track) {
+  transition: opacity 180ms var(--ease-out);
+}
+.ed-focus.ed-chrome-off :is(.ed-topbar, .ed-toolbar-row, .ed-outline, .ed-side, .ed-style, .ed-versions, .ver-compare, .ed-count, .wg-group, .wg-track) {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 650ms ease;
+}
+
+/* ── Paragraphes estompés : le bloc du curseur (.ed-cur) reste à pleine opacité ── */
+.ed-dim .superdoc-page [data-layout-fragment-id]:not([data-layout-fragment-id] *) {
+  opacity: var(--ed-dim-opacity, 0.4);
+  transition: opacity 320ms ease;
+}
+.ed-dim .superdoc-page [data-layout-fragment-id].ed-cur:not([data-layout-fragment-id] *) {
+  opacity: 1;
+  transition-duration: 160ms;
+}
+/* Sombre : le texte clair sur page sombre perd plus vite en lisibilité. */
+:root[data-theme='dark'] .ed-dim {
+  --ed-dim-opacity: 0.44;
+}
+
+/* ── Machine à écrire : espace en haut et en bas (valeurs calculées par focus.tsx) ── */
+.ed-scroll.ed-tw {
+  padding-top: var(--ed-tw-top, 2px);
+  padding-bottom: var(--ed-tw-bottom, 72px);
+}
+
+/* ── Menu des réglages ── */
+.ed-focus-options {
+  min-width: 260px;
+}
+.ed-focus-opt-label {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.ed-focus-opt-label small {
+  font-size: var(--fs-xs);
+  color: var(--muted);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ed-focus :is(.ed-topbar, .ed-toolbar-row, .ed-outline, .ed-side, .ed-style, .ed-versions, .ver-compare, .ed-count, .wg-group, .wg-track),
+  .ed-focus.ed-chrome-off :is(.ed-topbar, .ed-toolbar-row, .ed-outline, .ed-side, .ed-style, .ed-versions, .ver-compare, .ed-count, .wg-group, .wg-track),
+  .ed-dim .superdoc-page [data-layout-fragment-id] {
+    transition: none;
+  }
+}

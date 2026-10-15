@@ -34,6 +34,7 @@ import {
 import { familyName } from './fonts';
 import { PRIVATE_STYLE_DEF, PRIVATE_STYLE_ID, VIEW_META, inPrivateNote, privateParagraphs, setNotesHidden, stripClipboard, textblocksOf, togglePrivateNote } from './privateNotes';
 import { moveSection as moveSectionOp, stepSection, type LevelOf } from './outlineMove';
+import { FIT_MAX, FIT_MIN, ZOOM_MAX, ZOOM_MIN, readZoomPref, type ZoomPref } from './view';
 
 export type ParaStyle = 'title' | 'h1' | 'h2' | 'h3' | 'body' | 'quote' | 'caption';
 export type MarkName = 'bold' | 'italic' | 'underline' | 'strike' | 'superscript' | 'subscript' | 'smallCaps';
@@ -170,6 +171,10 @@ export interface DocEngine {
   setZoom(z: number | 'fit'): void;
   /** Rectangle (coordonnées écran) de la sélection, pour la barre flottante. */
   selectionRect(): DOMRect | null;
+  /** Mode concentration (focus.tsx) : positions du ou des blocs de premier niveau qui contiennent la sélection. */
+  caretBlockRange(): { from: number; to: number } | null;
+  /** Mode concentration (focus.tsx) : rectangle (coordonnées écran) du curseur, ou null. */
+  caretCoords(): { top: number; bottom: number } | null;
   /** Insère des paragraphes de corps (texte brut) à la fin du document — tests et outils. */
   appendParagraph(text: string): void;
   undo(): void;
@@ -281,7 +286,8 @@ export async function openDocEngine(host: HTMLElement, data: ArrayBuffer, opts: 
   const live = () => !destroyed && (ready || touched);
   /** Copie de styles.xml (pour les valeurs héritées des styles et le dialogue « Modifier le style »). */
   let stylesXml = await readStylesXml(data).catch(() => '');
-  let zoomValue: number | 'fit' = 'fit';
+  // Zoom d'affichage mémorisé (view.ts) : « Ajuster à la largeur » par défaut, bornes 75–200 %.
+  let zoomValue: ZoomPref = readZoomPref();
 
   const create = (buf: ArrayBuffer): Promise<Any> => {
     const file = new File([buf], 'document.docx', {
@@ -301,7 +307,10 @@ export async function openDocEngine(host: HTMLElement, data: ArrayBuffer, opts: 
           disableContextMenu: true,
           rulers: false,
           user: { name: 'Marginalia', email: '' },
-          zoom: { mode: 'fit-width', fitWidth: { min: 55, max: 100, padding: 32 } },
+          zoom:
+            zoomValue === 'fit'
+              ? { mode: 'fit-width', fitWidth: { min: FIT_MIN, max: FIT_MAX, padding: 32 } }
+              : { mode: 'manual', initial: zoomValue, fitWidth: { min: FIT_MIN, max: FIT_MAX, padding: 32 } },
           onReady: () => {
             clearTimeout(timer);
             // les transactions de normalisation qui suivent l'ouverture ne comptent pas comme modifications
@@ -1363,7 +1372,7 @@ export async function openDocEngine(host: HTMLElement, data: ArrayBuffer, opts: 
       zoomValue = z;
       try {
         if (z === 'fit') sd.setZoomMode?.('fit-width');
-        else sd.setZoom(Math.max(50, Math.min(200, z)));
+        else sd.setZoom(Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, z)));
       } catch (e) {
         console.warn(e);
       }
@@ -1382,6 +1391,31 @@ export async function openDocEngine(host: HTMLElement, data: ArrayBuffer, opts: 
         const top = Math.min(...same.map((r) => r.top));
         const bottom = Math.max(...same.map((r) => r.bottom));
         return new DOMRect(left, top, right - left, bottom - top);
+      } catch {
+        return null;
+      }
+    },
+    caretBlockRange() {
+      const ed = body();
+      const sel = ed?.state?.selection;
+      if (!sel) return null;
+      try {
+        const { $from, $to } = sel;
+        if ($from.depth < 1 || $to.depth < 1) return null;
+        return { from: $from.before(1), to: $to.after(1) };
+      } catch {
+        return null;
+      }
+    },
+    caretCoords() {
+      const ed = body();
+      const sel = ed?.state?.selection;
+      if (!sel) return null;
+      try {
+        // coordonnées des pages peintes (déjà dans la fenêtre), pas du ProseMirror caché
+        const c: Any = pres()?.coordsAtPos?.(sel.head);
+        if (!c || !Number.isFinite(c.top) || !Number.isFinite(c.bottom)) return null;
+        return { top: c.top, bottom: c.bottom };
       } catch {
         return null;
       }

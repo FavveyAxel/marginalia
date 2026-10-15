@@ -44,6 +44,8 @@ import { STYLE_LABEL, STYLE_ORDER, StyleEditor } from './StyleEditor';
 import { PageSetupPanel } from './PageSetup';
 import { PrivateNoteTools } from './privateNotesUi';
 import { useTypography } from './FindReplace';
+import { PAGE_TINTS, type PageTint } from './view';
+import { fmtKeys } from '../../lib/keys';
 
 export type StructuralOp = (label: string, run: () => Promise<ArrayBuffer>) => Promise<void>;
 
@@ -59,6 +61,11 @@ export interface ToolbarProps {
   insertFootnote: () => void;
   zoom: number;
   setZoom: (z: number | 'fit') => void;
+  /** Mode « Ajuster à la largeur » actif. */
+  zoomFit?: boolean;
+  /** Teinte de la page (affichage seulement). */
+  tint?: PageTint;
+  setTint?: (t: PageTint) => void;
   undo: () => void;
   redo: () => void;
   notify: (message: string, tone?: 'info' | 'error' | 'success') => void;
@@ -461,14 +468,31 @@ export function Toolbar(p: ToolbarProps) {
           <FileText size={15} />
           <ChevronDown size={11} className="ed-tb-chev" />
         </button>
-        <MenuButton label="Zoom" tb="zoom" text={`${p.zoom} %`} menuClass="ed-zoom-menu" className="ed-tb-zoom">
+        <MenuButton label="Affichage : zoom et teinte de la page" tb="zoom" text={`${p.zoom} %`} menuClass="ed-zoom-menu ed-view-menu" className="ed-tb-zoom">
           {(close) => (
             <>
+              <div className="ed-menu-head">Zoom</div>
+              <MenuRow label="Ajuster à la largeur" shortcut={fmtKeys('⌘0')} checked={!!p.zoomFit} onClick={() => (close(), p.setZoom('fit'))} data-zoom="fit" />
               {ZOOMS.map((z) => (
-                <MenuRow key={z} label={`${z} %`} checked={p.zoom === z} onClick={() => (close(), p.setZoom(z))} data-zoom={String(z)} />
+                <MenuRow key={z} label={`${z} %`} checked={!p.zoomFit && p.zoom === z} onClick={() => (close(), p.setZoom(z))} data-zoom={String(z)} />
               ))}
-              <div className="divider" />
-              <MenuRow label="Ajuster à la fenêtre" onClick={() => (close(), p.setZoom('fit'))} data-zoom="fit" />
+              {p.setTint && (
+                <>
+                  <div className="divider" />
+                  <div className="ed-menu-head">Page</div>
+                  {PAGE_TINTS.map((t) => (
+                    <MenuRow
+                      key={t.id}
+                      icon={<span className={`ed-tint-swatch ${t.id}`} style={t.swatch ? { background: t.swatch } : undefined} />}
+                      label={t.label}
+                      checked={p.tint === t.id}
+                      onClick={() => (close(), p.setTint!(t.id))}
+                      data-tint={t.id}
+                    />
+                  ))}
+                  <p className="ed-pop-note">Affichage seulement : le fichier Word, les exports et l’impression gardent les couleurs du document.</p>
+                </>
+              )}
             </>
           )}
         </MenuButton>

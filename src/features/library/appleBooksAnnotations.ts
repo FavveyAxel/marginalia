@@ -37,6 +37,17 @@ export const DEFAULT_COLOR_MAP: Record<AppleBooksColor, AppleBooksColorTarget> =
   souligne: 'probleme',
 };
 
+/**
+ * Ce que devient un surlignage de Livres selon la destination de sa couleur :
+ * une catégorie, une note de marge, ou un « Surlignage simple » (sans catégorie ;
+ * s'il porte une note dans Livres, c'est une note de marge).
+ */
+export function kindForTarget(target: AppleBooksColorTarget, note: string): { category: CategoryId | null; plain: boolean } {
+  if (target === 'note' || target === 'skip') return { category: null, plain: false };
+  if (target === 'plain') return { category: null, plain: !note.trim() };
+  return { category: target, plain: false };
+}
+
 export function colorMapOf(s: Settings): Record<AppleBooksColor, AppleBooksColorTarget> {
   return { ...DEFAULT_COLOR_MAP, ...(s.appleBooksColorMap ?? {}) };
 }
@@ -321,9 +332,7 @@ async function run(opts: { manual?: boolean }): Promise<AppleBooksSyncReport | n
       }
       const text = parsed.chapters[span.chapter].text;
       const target = colorMap[colorOf(a)];
-      const category: CategoryId | null = target === 'note' || target === 'plain' || target === 'skip' ? null : target;
-      // « Surlignage simple » : sans catégorie, et sans note si Livres n'en a pas.
-      const plainTarget = target === 'plain';
+      const { category, plain } = kindForTarget(target, a.note);
       const quote = text.slice(span.start, span.end);
       const anchor = makeAnchor(text, span.chapter, span.start, span.end);
       const now = Date.now();
@@ -334,7 +343,7 @@ async function run(opts: { manual?: boolean }): Promise<AppleBooksSyncReport | n
             id: uid(),
             bookId: book.id,
             category,
-            ...(plainTarget && !a.note.trim() ? { plain: true } : {}),
+            ...(plain ? { plain: true } : {}),
             text: quote,
             note: a.note,
             noteKind: null,
@@ -344,7 +353,7 @@ async function run(opts: { manual?: boolean }): Promise<AppleBooksSyncReport | n
             printedPage: printedPageAt(parsed.pages, span.chapter, span.start),
             createdAt: a.created ?? now,
             updatedAt: a.modified ?? now,
-            source: { app: 'livres', uuid: a.uuid, modified: a.modified ?? 0, category, ...(plainTarget && !a.note.trim() ? { plain: true } : {}), note: a.note, text: a.text },
+            source: { app: 'livres', uuid: a.uuid, modified: a.modified ?? 0, category, ...(plain ? { plain: true } : {}), note: a.note, text: a.text },
           },
         });
         remember.add(a.uuid);
@@ -358,12 +367,14 @@ async function run(opts: { manual?: boolean }): Promise<AppleBooksSyncReport | n
       const userNote = (cur.note ?? '') !== (src.note ?? '');
       if (!userCat && target !== 'skip' && cur.category !== category) patch.category = category;
       if (!userNote && cur.note !== a.note) patch.note = a.note;
-      // Surlignage simple <-> note de marge, tant que l'utilisateur n'a rien changé de son côté.
+      // Surlignage simple (drapeau `plain`) : suit Livres tant que l'utilisateur n'a rien changé de son côté,
+      // et disparaît dès que l'extrait a une catégorie, une note ou un type de note.
       const userKind = !!cur.plain !== !!src.plain;
-      if (!userCat && !userNote && !userKind && target !== 'skip' && category === null) {
-        const wantPlain = plainTarget && !(patch.note ?? cur.note).trim();
-        if (!!cur.plain !== wantPlain) patch.plain = wantPlain || undefined;
-      }
+      const nextCat = 'category' in patch ? patch.category ?? null : cur.category;
+      const nextNote = patch.note ?? cur.note;
+      let nextPlain = userKind || userCat || target === 'skip' ? !!cur.plain : plain;
+      if (nextCat !== null || nextNote.trim() || cur.noteKind) nextPlain = false;
+      if (nextPlain !== !!cur.plain) patch.plain = nextPlain || undefined;
       if (cur.text !== quote || cur.anchor.kind !== 'html' || cur.anchor.chapter !== span.chapter || cur.anchor.start !== span.start || cur.anchor.end !== span.end) {
         patch.text = quote;
         patch.anchor = anchor;
@@ -378,7 +389,7 @@ async function run(opts: { manual?: boolean }): Promise<AppleBooksSyncReport | n
         text: a.text,
         category: userCat ? src.category : patch.category !== undefined ? patch.category : cur.category,
         note: userNote ? src.note : a.note,
-        plain: userKind ? src.plain : patch.plain !== undefined || 'plain' in patch ? patch.plain : cur.plain,
+        plain: userKind ? src.plain : nextPlain || undefined,
       };
       if (changed) {
         patch.updatedAt = Math.max(cur.updatedAt, a.modified ?? 0);

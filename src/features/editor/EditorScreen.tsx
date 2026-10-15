@@ -1,6 +1,6 @@
 // Éditeur pleine page d'un écrit (route { name: 'write', draftId }).
 import { useCallback, useEffect, useMemo, useRef, useState, type MutableRefObject } from 'react';
-import { AlertTriangle, ChevronLeft, ChevronDown, Download, FileDown, FileText, Maximize2, PanelRight, SearchCheck } from 'lucide-react';
+import { AlertTriangle, ChevronLeft, ChevronDown, Download, FileDown, FileText, PanelRight, SearchCheck } from 'lucide-react';
 import { useStore } from '../../lib/store';
 import { host, type ExportFormat } from '../../lib/platform';
 import type { Book, Draft, Highlight } from '../../lib/types';
@@ -43,6 +43,8 @@ import { CiteBar } from './CiteBar';
 import { attachCiteLinks, tagInsertedCitation, type CiteHover } from './citeLink';
 import { ActiveClock, addVersion, addVersionFromLibrary, registerSnapshotter, restoredTitle, fullDate, versionTitle, versionsOf } from './versions';
 import { fmtKeys, isMac, isMod, matchKeys } from '../../lib/keys';
+import { readZoomPref, stepZoom, usePageTint, writeZoomPref } from './view';
+import { FocusButton, useChromeAutoHide, useFocusPrefs, useParagraphDim, useTypewriter } from './focus';
 
 type Phase = 'loading' | 'ready' | 'error';
 type Status = 'saved' | 'dirty' | 'saving' | 'blocked' | 'error';
@@ -156,6 +158,9 @@ function Editor({ draft }: { draft: Draft }) {
   const [fmt, setFmt] = useState<EngineState>(EMPTY_STATE);
   const [stats, setStats] = useState<EngineStats>({ words: draft.wordCount, chars: 0, charsNoSpaces: 0 });
   const [focusMode, setFocusMode] = useState(false);
+  const focusPrefs = useFocusPrefs();
+  const rootRef = useRef<HTMLDivElement>(null);
+  const getEngine = useCallback(() => engineRef.current, []);
   const [extractsOpen, setExtractsOpen] = useState(() => readPref(EXTRACTS_KEY, true));
   const [styleOpen, setStyleOpen] = useState(false);
   const [title, setTitle] = useState(draft.title);
@@ -167,6 +172,7 @@ function Editor({ draft }: { draft: Draft }) {
   const [linkCtx, setLinkCtx] = useState<{ current: string | null; needsText: boolean }>({ current: null, needsText: false });
   const [selRect, setSelRect] = useState<DOMRect | null>(null);
   const [zoom, setZoomState] = useState(100);
+  const [zoomFit, setZoomFit] = useState(() => readZoomPref() === 'fit');
   const [layoutBusy, setLayoutBusy] = useState(false);
   const dragging = useRef(false);
   const selFrame = useRef(0);
@@ -597,8 +603,49 @@ function Editor({ draft }: { draft: Draft }) {
     const e = engineRef.current;
     if (!e) return;
     e.setZoom(z);
+    // Zoom d'affichage seulement (la taille du document ne change pas), mémorisé (view.ts).
+    writeZoomPref(z);
+    setZoomFit(z === 'fit');
     setTimeout(() => setZoomState(e.zoom()), 250);
   }, []);
+
+  // ⌘+ / ⌘- / ⌘0 : zoom de la PAGE quand le texte de l'écrit a le focus (⌘0 : « Ajuster à la largeur »).
+  // Phase de capture + preventDefault : le raccourci n'atteint pas le menu Présentation d'Electron
+  // (zoom de toute l'interface), qui reste actif partout ailleurs (listes, lecteur, champs…).
+  useEffect(() => {
+    const onKey = (ev: KeyboardEvent) => {
+      const eng = engineRef.current;
+      if (!eng || !isMod(ev) || ev.altKey || !inDocument(ev.target)) return;
+      const k = ev.key;
+      const c = ev.code;
+      const dir = k === '+' || k === '=' || c === 'Equal' || c === 'NumpadAdd' ? 1 : k === '-' || k === '_' || c === 'Minus' || c === 'NumpadSubtract' ? -1 : (k === '0' || c === 'Digit0' || c === 'Numpad0') && !ev.shiftKey ? 0 : null;
+      if (dir === null) return;
+      ev.preventDefault();
+      ev.stopPropagation();
+      setZoom(dir === 0 ? 'fit' : stepZoom(eng.zoom(), dir));
+    };
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
+  }, [setZoom]);
+
+  // Zoom affiché : suit l'ajustement à la largeur (fenêtre, plan, panneau latéral redimensionnés).
+  useEffect(() => {
+    const el = hostRef.current?.closest('.ed-scroll');
+    if (!el || phase !== 'ready' || typeof ResizeObserver === 'undefined') return;
+    let t: ReturnType<typeof setTimeout> | undefined;
+    const ro = new ResizeObserver(() => {
+      clearTimeout(t);
+      t = setTimeout(() => {
+        const e = engineRef.current;
+        if (e) setZoomState(e.zoom());
+      }, 220);
+    });
+    ro.observe(el);
+    return () => {
+      ro.disconnect();
+      clearTimeout(t);
+    };
+  }, [phase]);
 
   // ── Raccourcis : ⌘S, Échap (concentration), mise en forme (Word / Google Docs pour Mac) ──
   useEffect(() => {
@@ -607,8 +654,9 @@ function Editor({ draft }: { draft: Draft }) {
         e.preventDefault();
         void save(true);
       } else if (e.key === 'Escape' && focusMode) {
+        // (si l'interface était effacée, focus.tsx a déjà consommé Échap pour la rappeler)
         setFocusMode(false);
-      } else if (isMod(e) && e.shiftKey && e.key.toLowerCase() === 'f') {
+      } else if (matchKeys(e, '⌘⇧F')) {
         e.preventDefault();
         setFocusMode((f) => !f);
       }
@@ -836,9 +884,20 @@ function Editor({ draft }: { draft: Draft }) {
 
   const editable = phase === 'ready' && !loadGuard;
   const spell = useSpellcheck(() => engineRef.current, phase === 'ready', editable);
+  // Teinte de la page selon le thème ou le réglage « Page » (affichage seulement, view.ts).
+  const [pageTint, setPageTint] = usePageTint(hostRef, phase === 'ready');
+  // Mode concentration (focus.tsx) : interface effacée pendant la frappe, paragraphes estompés,
+  // machine à écrire (aussi hors concentration).
+  const chrome = useChromeAutoHide(rootRef, focusMode);
+  const dimOn = focusMode && focusPrefs.dim && phase === 'ready';
+  useParagraphDim(hostRef, getEngine, dimOn, fmt);
+  useTypewriter(hostRef, getEngine, focusPrefs.typewriter && phase === 'ready');
 
   return (
-    <div className={`ed-root ed-root-in ${focusMode ? 'ed-focus' : ''} ${extractsOpen ? 'ed-has-extracts' : ''}`}>
+    <div
+      ref={rootRef}
+      className={`ed-root ed-root-in ${focusMode ? 'ed-focus' : ''} ${chrome.hidden ? 'ed-chrome-off' : ''} ${dimOn ? 'ed-dim' : ''} ${focusPrefs.typewriter ? 'ed-typewriter' : ''} ${extractsOpen ? 'ed-has-extracts' : ''}`}
+    >
       <header className="topbar ed-topbar">
         <button className="btn btn-ghost btn-sm ed-back" onClick={() => navigate({ name: 'write', draftId: null })}>
           <ChevronLeft size={16} /> Écrits
@@ -893,9 +952,7 @@ function Editor({ draft }: { draft: Draft }) {
         >
           <PanelRight size={16} />
         </button>
-        <button className="icon-btn" onClick={() => setFocusMode(true)} title={fmtKeys("Mode concentration (⌘⇧F)")} aria-label="Mode concentration">
-          <Maximize2 size={15} />
-        </button>
+        <FocusButton focusMode={focusMode} setFocusMode={setFocusMode} prefs={focusPrefs} />
         <button className="btn" disabled={phase !== 'ready' || busyExport} onClick={(e) => exportPop.toggle(e.currentTarget)} aria-haspopup="menu">
           <Download size={14} /> Exporter <ChevronDown size={13} style={{ marginRight: -4, opacity: 0.7 }} />
         </button>
@@ -969,6 +1026,9 @@ function Editor({ draft }: { draft: Draft }) {
           insertFootnote={insertFootnote}
           zoom={zoom}
           setZoom={setZoom}
+          zoomFit={zoomFit}
+          tint={pageTint}
+          setTint={setPageTint}
           undo={undo}
           redo={redo}
           notify={(m, t) => toast(m, t ?? 'info')}
@@ -1090,11 +1150,6 @@ function Editor({ draft }: { draft: Draft }) {
       </div>
       {citeHover && phase === 'ready' && !focusMode && <CiteBar hover={citeHover} />}
 
-      {focusMode && (
-        <button className="ed-focus-exit" onClick={() => setFocusMode(false)}>
-          Quitter la concentration <Kbd>Échap</Kbd>
-        </button>
-      )}
       {spell.enabled && editable && <SpellMenu spell={spell} />}
       {import.meta.env.DEV && <DevHandle engineRef={engineRef} save={save} exportAs={exportAs} undo={undo} />}
     </div>

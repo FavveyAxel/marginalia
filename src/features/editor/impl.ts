@@ -7,6 +7,7 @@ import type { CreateDraftOptions } from './api';
 import { countDocxWords, ensureA4SectPr, htmlToDocx } from './docx';
 import { templateByKey, templateInfo, type TemplateKey } from './templates';
 import { hasPrivateNotes, isExportOf } from './privateNotes';
+import { newDraftFontName } from './view';
 
 export const DRAFT_FILE = 'document.docx';
 /** G3 : copie de la version précédente dans la bibliothèque. */
@@ -19,10 +20,12 @@ export async function createDraftImpl(opts: CreateDraftOptions): Promise<Draft> 
   if (opts.docx) {
     // G1 : format de page A4 si le sectPr est absent ou vide (sinon octets d'origine conservés).
     data = (await ensureA4SectPr(opts.docx)).data;
-  } else if (opts.html != null) {
-    data = await htmlToDocx(opts.html, title);
   } else {
-    data = await htmlToDocx(templateInfo(opts.template ?? 'vide').html, title);
+    // Modèle « Vide » et écrits créés sans modèle (Markdown importé…) : police choisie pour les
+    // nouveaux écrits (Literata par défaut), 12 pt, interligne 1,5. Les autres modèles gardent Times.
+    const plain = !opts.template || opts.template === 'vide';
+    const layout = plain ? { font: newDraftFontName() } : {};
+    data = await htmlToDocx(opts.html ?? templateInfo(opts.template ?? 'vide').html, title, layout);
   }
   let wordCount = 0;
   try {

@@ -3,7 +3,7 @@ import { useMemo, useState, type CSSProperties } from 'react';
 import { Check, Layers } from 'lucide-react';
 import { uid, useStore } from '../../lib/store';
 import { kindLabel } from '../../lib/categories';
-import { CategoryDot } from '../../components/ui';
+import { CategoryDot, KindDot } from '../../components/ui';
 import type { Book, Concept, ConceptSense, Highlight, ReviewCard } from '../../lib/types';
 import { newFsrs } from './fsrs';
 import { BLANK } from './RichText';
@@ -296,7 +296,7 @@ export function Creator() {
                     <span className="rev-src-meta">
                       {src.kind === 'extract' ? (
                         <>
-                          {src.h.category && <CategoryDot id={src.h.category} size={7} />}
+                          <KindDot h={src.h} size={7} />
                           {kindLabel(src.h)}
                           {src.h.locationLabel ? ` · ${src.h.locationLabel}` : ''}
                         </>

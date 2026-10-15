@@ -294,10 +294,6 @@
   font-size: var(--fs-sm);
   color: var(--muted);
 }
-.ed-focus .ver-compare,
-.ed-focus .ed-versions {
-  display: none;
-}
 @media (max-width: 900px) {
   .ver-compare {
     right: 304px;

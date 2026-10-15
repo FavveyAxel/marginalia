@@ -13,6 +13,7 @@ import { useMultiSelect, useLasso, useSelectionKeys, LassoBox, type ClickMods } 
 import { SelectionActionBar, SelectCheck, AddToWorkspaceDialog } from '../../components/MultiSelect';
 import { ContextMenu } from '../workspaces/wsUi';
 import { fmtKeys } from '../../lib/keys';
+import { NEW_DRAFT_FONTS, readNewDraftFont, writeNewDraftFont, type NewDraftFont } from './view';
 
 const TEMPLATE_ICON: Record<TemplateId, typeof FileText> = {
   vide: FileText,
@@ -30,6 +31,7 @@ export function NewDraftButton({ primary = true }: { primary?: boolean }) {
   const pop = usePop();
   const navigate = useStore((s) => s.navigate);
   const [busy, setBusy] = useState(false);
+  const [font, setFont] = useState<NewDraftFont>(readNewDraftFont);
   const create = async (key: TemplateKey) => {
     pop.close();
     setBusy(true);
@@ -64,6 +66,16 @@ export function NewDraftButton({ primary = true }: { primary?: boolean }) {
             </button>
           );
         })}
+        <label className="ed-tpl-font" title="Police du modèle « Vide » et des écrits créés sans modèle (12 pt, interligne 1,5). Les autres modèles gardent leur police.">
+          <span>Police des nouveaux écrits</span>
+          <select className="input ed-select" value={font} onChange={(e) => (writeNewDraftFont(e.target.value as NewDraftFont), setFont(e.target.value as NewDraftFont))} data-new-font="">
+            {NEW_DRAFT_FONTS.map((f) => (
+              <option key={f.id} value={f.id}>
+                {f.label}
+              </option>
+            ))}
+          </select>
+        </label>
       </Popover>
     </>
   );

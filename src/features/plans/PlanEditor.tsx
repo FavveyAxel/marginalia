@@ -14,7 +14,7 @@ import {
 } from 'lucide-react';
 import { useStore } from '../../lib/store';
 import type { EssayPlan, PlanItemRef, PlanNode } from '../../lib/types';
-import { CategoryDot } from '../../components/ui';
+import { KindDot } from '../../components/ui';
 import { createDraft } from '../editor/api';
 import { AutoTextarea } from '../study/AutoTextarea';
 import { ResourcePanel } from './ResourcePanel';
@@ -512,7 +512,7 @@ function ItemCard({ id, refItem, onRemove }: { id: string; refItem: PlanItemRef;
     >
       <div className="plan-item-main">
         <div className="plan-item-kind">
-          {refItem.kind === 'highlight' && hl?.category && <CategoryDot id={hl.category} size={7} />}
+          {refItem.kind === 'highlight' && hl && <KindDot h={hl} size={7} />}
           {kind}
         </div>
         <div className={`plan-item-body${refItem.kind === 'highlight' ? ' read' : ''}`}>

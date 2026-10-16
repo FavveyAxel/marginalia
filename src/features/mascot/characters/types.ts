@@ -2,9 +2,19 @@
 // Chaque philosophe réutilise toutes les poses du cerveau (marche, saut, lecture, guitare…) : il ne
 // fournit que sa tête, son vêtement et ce qui grandit avec le nombre de documents (niveau 0 à 4).
 //
+// Les philosophes ont un vrai corps : une tête plus petite posée sur un torse, des bras et des jambes
+// pleins (couleur du vêtement ou de la peau, cernés d'encre) et des chaussures ; Sprite dessine les
+// membres (selon `limbs`) et les mains, le personnage fournit la tête, le torse et le vêtement.
+//
 // Repère (viewBox 100 × 130, le même que Sprite.tsx) :
-//  - la tête remplace le cerveau : de face, environ x 14..86, y 8..62 ; de profil (regard vers la
-//    droite), environ x 18..90, y 4..60 ;
+//  - la TÊTE se dessine dans le repère du cerveau (de face, environ x 14..86, y 8..62 ; de profil,
+//    regard vers la droite, environ x 18..90, y 4..60) ; Sprite la réduit (× 0,64, depuis le haut du
+//    crâne : (49, 4) de face, (52, 2) de profil). Une fois réduite, elle occupe de face environ
+//    x 26..72, y 7..41 (menton vers y 41), de profil x 30..76, y 3..39 ;
+//  - le CORPS (body) se dessine en coordonnées réelles, non réduites : cou vers (49, 42), épaules vers
+//    (37, 47) et (61, 47) de face, (47..52, 47) de profil ; torse jusqu'aux hanches vers (42, 64) et
+//    (57, 64) de face, (50, 58) de profil ; la tunique peut descendre plus bas (jusqu'aux genoux, vers
+//    y 90 debout) ;
 //  - le visage (yeux, bouche, joues) est dessiné PAR-DESSUS par Sprite, aux mêmes endroits que pour le
 //    cerveau : de face, yeux (37, 43) et (59, 43), bouche vers (48, 52) ; de profil, œil (75, 30),
 //    bouche vers (84, 42). La tête doit donc laisser ces zones libres (peau) ; une barbe peut entourer
@@ -45,6 +55,8 @@ export interface CharacterDef {
   overFace?: (a: DrawArgs) => ReactNode;
   /** Accessoire devant tout (après les bras) : rouleaux sous le bras, etc. */
   front?: (a: DrawArgs) => ReactNode;
-  /** Couleur de peau (joues, mains éventuelles). */
+  /** Couleur de peau (mains, et visage si la tête la reprend). */
   skin?: string;
+  /** Membres pleins : couleur des bras (manches ou peau), des jambes (peau, bas…) et des chaussures. */
+  limbs?: { arm: string; leg: string; shoe: string };
 }

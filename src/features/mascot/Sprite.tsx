@@ -87,6 +87,12 @@ const CIGAR_CYCLE = 12;
 const cigarUp = (f: number) => f % CIGAR_CYCLE < 4;
 
 const W_LIMB = [3.2, 3.8, 4.5, 5.3, 6.2];
+// Philosophes : tête réduite (facteur, point fixe en haut du crâne), épaules sur le torse.
+const HEAD_K = 0.64;
+const HEAD_PIVOT_FRONT: Pt = [49, 4];
+const HEAD_PIVOT_SIDE: Pt = [52, 2];
+const CH_SHOULDERS_FRONT: [Pt, Pt] = [[37, 47], [61, 47]];
+const CH_SHOULDERS_SIDE: [Pt, Pt] = [[47, 47], [52, 47]];
 const BICEP = [0, 2.6, 3.6, 4.6, 5.8];
 const CALF = [0, 1.6, 2.3, 3, 3.8];
 /** Le cerveau lui-même grossit avec le niveau. */
@@ -520,8 +526,17 @@ export function Sprite({
   // De dos et assis : les jambes pendent de l'autre côté de l'encadré, on ne les voit pas.
   if (v === 'back' && isSeated(pose)) r.feet = 'none';
   const pivot: Pt = side ? [52, 58] : [49, 63];
-  /** Point du visage (repère non agrandi) → position réelle, une fois le cerveau grossi. */
-  const onFace = (p: Pt): Pt => [pivot[0] + (p[0] - pivot[0]) * k, pivot[1] + (p[1] - pivot[1]) * k];
+  // Philosophes : la tête (dessinée dans le repère du cerveau) est réduite et posée sur un torse.
+  const hp: Pt = side ? HEAD_PIVOT_SIDE : HEAD_PIVOT_FRONT;
+  /** Point du visage (repère du cerveau) → position réelle (cerveau grossi, ou tête de philosophe réduite). */
+  const onFace = (p: Pt): Pt =>
+    ch ? [hp[0] + (p[0] - hp[0]) * HEAD_K, hp[1] + (p[1] - hp[1]) * HEAD_K] : [pivot[0] + (p[0] - pivot[0]) * k, pivot[1] + (p[1] - pivot[1]) * k];
+  if (ch) {
+    // Épaules sur le torse ; la main qui touche le menton (réfléchir) suit le visage.
+    const sh = side ? CH_SHOULDERS_SIDE : CH_SHOULDERS_FRONT;
+    r.arms = r.arms.map((l, i) => ({ ...l, a: sh[i] })) as [Limb, Limb];
+    if (pose === 'think') r.arms[1] = { ...r.arms[1], c: onFace(r.arms[1].c), b: side ? [62, 54] : [70, 54] };
+  }
   if (r.faceHand !== undefined) {
     const arm = r.arms[r.faceHand];
     r.arms[r.faceHand] = { ...arm, c: onFace(arm.c) };
@@ -535,7 +550,20 @@ export function Sprite({
   const grad = `mascot-vol-${uid}`;
   const fid = `mascot-halo-${uid}`;
 
-  const limbs = (ls: Limb[], width: number) => (
+  /** Membre plein (philosophes) : contour d'encre, puis la couleur du vêtement ou de la peau. */
+  const tubes = (ls: Limb[], width: number, color: string) => (
+    <g fill="none" strokeLinecap="round" strokeLinejoin="round">
+      {ls.map((l, i) => (
+        <path key={'o' + i} d={path(l)} stroke="currentColor" strokeWidth={width + 2.4} />
+      ))}
+      {ls.map((l, i) => (
+        <path key={'i' + i} d={path(l)} stroke={color} strokeWidth={width} />
+      ))}
+    </g>
+  );
+  const limbsCh = ch?.limbs;
+  const limbs = (ls: Limb[], width: number) =>
+    limbsCh ? (width === lw ? tubes(ls, 5, limbsCh.leg) : tubes(ls, 4.4, limbsCh.arm)) : (
     <g fill="none" stroke="currentColor" strokeWidth={width} strokeLinecap="round" strokeLinejoin="round">
       {ls.map((l, i) => (
         <path key={i} d={path(l)} />
@@ -545,25 +573,36 @@ export function Sprite({
   const feet = (ls: Limb[]) =>
     ls.map((l, i) => {
       const [x, y] = l.c;
+      if (limbsCh) {
+        // Pieds chaussés (sandales, souliers), cernés d'encre.
+        const sh = { fill: limbsCh.shoe, stroke: 'currentColor', strokeWidth: 1.4 };
+        if (r.feet === 'hang') return <ellipse key={i} cx={x + (i ? 1.5 : -1.5)} cy={y + 1.5} rx={4.2} ry={3.4} {...sh} />;
+        if (r.feet === 'flat') return <ellipse key={i} cx={x + 1} cy={y - 3} rx={2.9} ry={4.6} {...sh} />;
+        if (side) return <ellipse key={i} cx={x + 3.5} cy={y + 0.5} rx={5.8} ry={3} {...sh} />;
+        const out = i === 0 ? -1 : 1;
+        return <ellipse key={i} cx={x + out * 2.5} cy={y + 0.8} rx={5.2} ry={2.9} {...sh} />;
+      }
       if (r.feet === 'hang') return <ellipse key={i} cx={x + (i ? 1.5 : -1.5)} cy={y + 1} rx={3.8} ry={3.2} fill="currentColor" />;
       if (r.feet === 'flat') return <ellipse key={i} cx={x + 1} cy={y - 3} rx={2.6} ry={4.4} fill="currentColor" />;
       if (side) return <ellipse key={i} cx={x + 3.5} cy={y + 0.5} rx={5.6} ry={2.8} fill="currentColor" />;
       const out = i === 0 ? -1 : 1;
       return <path key={i} d={`M${x - (out < 0 ? 8 : 1)} ${y + 3} Q${x + out * 3} ${y - 3} ${x + (out < 0 ? 1 : 8)} ${y + 3} Z`} fill="currentColor" stroke="currentColor" strokeWidth={2} strokeLinejoin="round" />;
     });
-  const hands = (ls: Limb[]) => ls.map((l, i) => <circle key={i} cx={l.c[0]} cy={l.c[1]} r={2.6 + muscle * 0.25} fill="currentColor" />);
+  const hands = (ls: Limb[]) =>
+    ls.map((l, i) =>
+      limbsCh ? (
+        <circle key={i} cx={l.c[0]} cy={l.c[1]} r={2.9} fill={ch?.skin ?? '#f1d3b8'} stroke="currentColor" strokeWidth={1.3} />
+      ) : (
+        <circle key={i} cx={l.c[0]} cy={l.c[1]} r={2.6 + muscle * 0.25} fill="currentColor" />
+      ),
+    );
   const biceps = (ls: Limb[]) => ls.map((l, i) => <Bulge key={i} p={l.a} q={l.b} r={BICEP[muscle]} t={0.55} />);
   const calves = (ls: Limb[]) => ls.map((l, i) => <Bulge key={i} p={l.b} q={l.c} r={CALF[muscle]} t={r.feet === 'stand' ? 0.3 : 0.35} />);
 
   const args: DrawArgs = { view: v, level, frame, pose, seated: isSeated(pose), uid };
   let brain: ReactNode;
   if (ch) {
-    brain = (
-      <g>
-        {ch.body?.(args)}
-        {ch.head(args)}
-      </g>
-    );
+    brain = ch.head(args);
   } else if (side) {
     brain = (
       <g>
@@ -631,7 +670,8 @@ export function Sprite({
               {hands(behind ? r.arms : [r.arms[0]])}
             </g>
           )}
-          <g transform={`translate(${pivot[0]} ${pivot[1]}) scale(${k}) translate(${-pivot[0]} ${-pivot[1]})`}>
+          {ch?.body?.(args)}
+          <g transform={ch ? `translate(${hp[0]} ${hp[1]}) scale(${HEAD_K}) translate(${-hp[0]} ${-hp[1]})` : `translate(${pivot[0]} ${pivot[1]}) scale(${k}) translate(${-pivot[0]} ${-pivot[1]})`}>
             {brain}
             {face}
             {ch?.overFace && v !== 'back' && ch.overFace(args)}

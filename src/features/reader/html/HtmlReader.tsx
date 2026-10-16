@@ -19,6 +19,7 @@ import { bookmarkColor, clipWords, proposeLabel, sentenceAt } from '../bookmarks
 import { allIndexes, fold, isBlockEl, locate, makeAnchor, offsetOf, rangeFor, resolveAnchor, unwrapAll, wrapOffsets, type Folded, type TextSpan } from './anchoring';
 import { parseBook, printedPageAt, ReaderError, type ParsedDoc } from './parse';
 import { ESTIMATED_NOTE, findPage, lastLabel, paginate, romanToInt, type Pagination, type PageStatus } from '../pages';
+import { readerDisplay } from '../display';
 import './html-reader.css';
 
 interface HlState {
@@ -1032,8 +1033,10 @@ export const HtmlReader = forwardRef<EngineHandle, EngineProps>(function HtmlRea
   }, [loaded]);
 
   // Typographie : garder le passage lu à la même hauteur
-  const pageMode = settings.pageMarks ?? 'paper';
-  const typoKey = `${settings.fontFamily}|${settings.fontSize}|${settings.lineHeight}|${settings.measure}|${pageMode}`;
+  // Panneau « Mise en page et affichage » : présentation, livre, papier, repères (display.ts).
+  const display = readerDisplay(settings);
+  const pageMode = display.pgClass;
+  const typoKey = `${settings.fontFamily}|${settings.fontSize}|${settings.lineHeight}|${settings.measure}|${pageMode}|${display.layout}|${display.spread}|${display.bookLayout}|${display.paperLook}`;
   const lastTypo = useRef(typoKey);
   const pendingAnchor = useRef<ReadingAnchor | null>(null);
   if (lastTypo.current !== typoKey) {
@@ -1561,7 +1564,14 @@ export const HtmlReader = forwardRef<EngineHandle, EngineProps>(function HtmlRea
   } as CSSProperties;
 
   return (
-    <div className="html-reader">
+    // Racine du lecteur (contrat du panneau de mise en page) : data-layout = scroll | sheets | paged,
+    // classes .book-layout / .paper-look ; data-spread et data-page-marks pour les rendus qui en dépendent.
+    <div
+      className={`html-reader${display.bookLayout ? ' book-layout' : ''}${display.paperLook ? ' paper-look' : ''}`}
+      data-layout={display.layout}
+      data-spread={display.spread}
+      data-page-marks={display.marks}
+    >
       <div className="html-scroll" ref={scrollRef} onClick={onClick} onContextMenu={onContextMenu} tabIndex={-1}>
         <div className={`html-doc html-fmt-${book.format}${revealed ? ' is-revealed' : ''} pg-${pageMode}`} ref={docRef} style={docStyle} />
       </div>

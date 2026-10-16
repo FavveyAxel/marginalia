@@ -1,0 +1,352 @@
+/* Panneau « Mise en page et affichage » (TypographyPopover) : en-tête, sections repliables,
+   tuiles de présentation à pictogramme. Reprend les briques .typo-* de reader-tools.css. */
+
+.typo-pop.reader-panel {
+  width: 340px;
+  padding: 0;
+  gap: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* ── En-tête ── */
+.rp-head {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 10px 9px 16px;
+  border-bottom: 1px solid var(--border);
+}
+.rp-head-title {
+  font-size: var(--fs-md);
+  font-weight: 600;
+  color: var(--ink);
+  letter-spacing: 0.005em;
+}
+.rp-close {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--muted);
+  cursor: default;
+}
+.rp-close:hover {
+  background: var(--bg-hover);
+  color: var(--ink);
+}
+
+/* ── Corps défilant ── */
+.rp-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 2px 0 6px;
+}
+
+/* ── Sections ── */
+.rp-section + .rp-section {
+  border-top: 1px solid var(--border);
+}
+.rp-section-h {
+  margin: 0;
+  font: inherit;
+}
+.rp-section-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  height: 38px;
+  padding: 0 14px 0 16px;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  font: 600 var(--fs-xs) / 1 var(--font-ui);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  text-align: left;
+  cursor: default;
+}
+.rp-section-btn:hover .rp-section-title {
+  color: var(--ink);
+}
+.rp-section-title {
+  color: var(--ink-2, var(--ink));
+}
+.rp-section-summary {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: right;
+  font-weight: 400;
+  letter-spacing: 0;
+  text-transform: none;
+  font-size: var(--fs-sm);
+  color: var(--muted);
+}
+.rp-chevron {
+  flex: none;
+  margin-left: auto;
+  color: var(--faint);
+  transform: rotate(-90deg);
+  transition: transform var(--dur) var(--ease);
+}
+.rp-section-summary + .rp-chevron {
+  margin-left: 0;
+}
+.rp-section.is-open .rp-chevron {
+  transform: none;
+}
+.rp-section-btn:focus-visible,
+.rp-close:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: -2px;
+  border-radius: var(--radius-sm);
+}
+.rp-section-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 0 16px 16px;
+}
+
+/* ── Présentation : trois tuiles ── */
+.rp-tiles {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+.rp-tile {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  padding: 8px 4px 9px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--muted);
+  font: 500 var(--fs-sm) / 1.2 var(--font-ui);
+  text-align: center;
+  cursor: default;
+  transition:
+    background var(--dur-fast, 120ms) var(--ease),
+    border-color var(--dur-fast, 120ms) var(--ease),
+    color var(--dur-fast, 120ms) var(--ease);
+}
+.rp-tile:hover {
+  background: var(--bg-hover);
+  color: var(--ink);
+}
+.rp-tile.active {
+  background: var(--bg-panel);
+  border-color: color-mix(in srgb, var(--ink) 55%, transparent);
+  box-shadow: 0 0 0 0.5px color-mix(in srgb, var(--ink) 55%, transparent), var(--shadow-sm);
+  color: var(--ink);
+}
+.rp-tile:focus-visible,
+.rp-themes button:focus-visible,
+.reader-panel .typo-seg button:focus-visible,
+.reader-panel .typo-switch:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+.rp-tile-picto {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 46px;
+  border-radius: calc(var(--radius-md) - 3px);
+  background: var(--bg-inset);
+  color: color-mix(in srgb, var(--ink) 45%, transparent);
+}
+.rp-tile.active .rp-tile-picto {
+  background: color-mix(in srgb, var(--ink) 6%, transparent);
+  color: color-mix(in srgb, var(--ink) 70%, transparent);
+}
+.rp-tile-label {
+  min-height: 2.4em;
+  display: flex;
+  align-items: center;
+}
+
+/* Pictogrammes : traits en currentColor, papier à la couleur de la page de lecture. */
+.rp-picto {
+  width: 48px;
+  height: 33px;
+  overflow: visible;
+}
+.rp-picto-sm {
+  width: 22px;
+  height: 15px;
+  flex: none;
+}
+.rp-picto *,
+.rp-picto-sm * {
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.rp-picto-text line {
+  stroke-width: 1.6;
+  opacity: 0.55;
+}
+.rp-picto-sheet {
+  fill: var(--bg-page) !important;
+  stroke-width: 1.1;
+}
+.rp-picto-dashed {
+  stroke-dasharray: 2 1.6;
+  fill: transparent !important;
+}
+.rp-picto-folio {
+  stroke-width: 1.6;
+}
+.rp-picto-track {
+  stroke-width: 2.4;
+  opacity: 0.18;
+}
+.rp-picto-thumb {
+  stroke-width: 2.4;
+  opacity: 0.75;
+}
+.rp-picto-arrow {
+  stroke-width: 1.5;
+  opacity: 0.8;
+}
+
+.rp-hint {
+  margin: -2px 0 0;
+  font-size: var(--fs-xs);
+  line-height: 1.45;
+  color: var(--muted);
+}
+
+/* Sous-choix de « Page par page ». */
+.rp-sub {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  padding-top: 2px;
+}
+.rp-spreads {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 3px;
+  padding: 3px;
+  border-radius: calc(var(--radius-md) - 2px);
+  background: var(--bg-inset);
+}
+.rp-spread {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  padding: 6px 2px 6px;
+  border: 0;
+  border-radius: calc(var(--radius-md) - 4px);
+  background: transparent;
+  color: var(--muted);
+  font: 500 var(--fs-sm) / 1.1 var(--font-ui);
+  white-space: nowrap;
+  cursor: default;
+}
+.rp-spread:hover {
+  color: var(--ink);
+}
+.rp-spread.active {
+  background: var(--bg-panel);
+  color: var(--ink);
+  box-shadow: var(--shadow-sm);
+}
+.rp-spread:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 1px;
+}
+.rp-spread .rp-picto-sm {
+  width: 26px;
+  height: 18px;
+}
+
+/* ── Interrupteurs (les sections les espacent sans filet) ── */
+.rp-switch-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+}
+.rp-switch-text {
+  min-width: 0;
+}
+.reader-panel .typo-switch-sub {
+  margin-top: 2px;
+  line-height: 1.4;
+}
+.rp-choices {
+  margin-top: -2px;
+}
+
+/* « Numéro seul » : un petit folio, sans trait. */
+.pm-number i:first-child {
+  right: 1px;
+  top: 6px;
+  width: 3px;
+  height: 6px;
+  border-radius: 1px;
+  background: color-mix(in srgb, var(--ink) 55%, transparent);
+}
+.pm-number i:last-child {
+  right: 5.5px;
+  top: 6px;
+  width: 3px;
+  height: 6px;
+  border-radius: 1px;
+  background: color-mix(in srgb, var(--ink) 55%, transparent);
+}
+
+/* ── Thème : pastilles de couleur ── */
+.segmented.rp-themes button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  height: 28px;
+}
+.rp-swatch {
+  width: 10px;
+  height: 10px;
+  flex: none;
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.18);
+}
+.rp-swatch-system {
+  background: linear-gradient(135deg, #fffdf8 50%, #1f1e1b 50%);
+}
+.rp-swatch-light {
+  background: #fffdf8;
+}
+.rp-swatch-sepia {
+  background: #f1e5cb;
+}
+.rp-swatch-dark {
+  background: #2a2925;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.18);
+}
+
+/* Police : le bouton « Serif » est composé dans la police de lecture. */
+.reader-panel [data-font='serif'] {
+  font-family: var(--font-read);
+}

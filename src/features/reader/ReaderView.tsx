@@ -1,7 +1,7 @@
 // Coquille du lecteur (intégrateur) : moteur(s), panneaux, popovers, côte à côte, fiche-texte.
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type MutableRefObject } from 'react';
 import { useShallow } from 'zustand/react/shallow';
-import { Bookmark as BookmarkIcon, ChevronLeft, Columns2, Download, PanelLeft, PanelRight, Search, Type, X } from 'lucide-react';
+import { ALargeSmall, Bookmark as BookmarkIcon, ChevronLeft, Columns2, Download, PanelLeft, PanelRight, Search, X } from 'lucide-react';
 import { useStore, selectBook, uid } from '../../lib/store';
 import { host } from '../../lib/platform';
 import type { Book, Bookmark, Highlight, Movement, ReaderPosition, Route, TextStudy, TocItem } from '../../lib/types';
@@ -705,8 +705,17 @@ export function ReaderView({ bookId, tab, splitBookId }: Props) {
               <button className={`icon-btn ${searchOpen ? 'active' : ''}`} onClick={() => setSearchOpen((v) => !v)} title={fmtKeys("Rechercher (⌘F)")}>
                 <Search size={16} />
               </button>
-              <button className={`icon-btn ${typoAnchor ? 'active' : ''}`} onClick={(e) => setTypoAnchor(typoAnchor ? null : e.currentTarget.getBoundingClientRect())} title="Affichage">
-                <Type size={16} />
+              {/* Un seul bouton pour tout l'affichage : présentation, typographie, livre, numéros de page, thème. */}
+              <button
+                className={`icon-btn ${typoAnchor ? 'active' : ''}`}
+                onClick={(e) => setTypoAnchor(typoAnchor ? null : e.currentTarget.getBoundingClientRect())}
+                title="Mise en page et affichage"
+                aria-label="Mise en page et affichage"
+                aria-haspopup="dialog"
+                aria-expanded={!!typoAnchor}
+                data-testid="reader-display-btn"
+              >
+                <ALargeSmall size={17} />
               </button>
               {canBookmark && (
                 <button

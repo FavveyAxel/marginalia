@@ -2,7 +2,7 @@
 // scripts/reader-layouts-common.mjs (readerLayout × livre × papier × thème) :
 //  - textContent des chapitres identique dans toutes les combinaisons (les ancrages en dépendent) ;
 //  - surlignages présents, exacts (texte, offsets) et visibles (fond coloré, à l'écran après un saut) ;
-//  - indicateur de page valide (« p. X / 7 », « p. X–Y / 7 » en double page) ;
+//  - indicateur de page valide : un seul numéro (« p. X / 7 »), jamais d'intervalle, double page comprise ;
 //  - aucune erreur console / page ; pas de débordement horizontal de l'application ;
 //  - contraste du texte courant ≥ 4,5:1 sur son fond effectif ;
 //  - défiler / tourner (molette, Page suivante, flèches) ne lève rien, et la lecture avance.
@@ -24,7 +24,7 @@ const check = (cond, label, extra) => {
   console.log(`${cond ? 'OK  ' : 'ÉCHEC'} ${label}${!cond && extra !== undefined ? ' → ' + JSON.stringify(extra) : ''}`);
 };
 
-const PAGE_RE = /^p\. (–|[ivxlcdm]+|\d+)([–-]([ivxlcdm]+|\d+))? \/ 7$/i;
+const PAGE_RE = /^p\. (–|[ivxlcdm]+|\d+) \/ 7$/i;
 
 const chapterTexts = (page) =>
   page.evaluate(() => Object.fromEntries([...document.querySelectorAll('.reader-page[data-pane="a"] .html-chapter-text')].map((r) => [r.dataset.chapter, r.textContent])));
@@ -181,6 +181,23 @@ await withApp(PORT, async (page, errors) => {
     // 3. Indicateur.
     const ind = await indicator(page);
     check(PAGE_RE.test(ind ?? ''), `${tag} indicateur de page valide (« ${ind} »)`, ind);
+    // Page par page : folio d'un seul numéro ; pastilles de marge entières, hors du texte.
+    const fol = await page.evaluate(() => {
+      const p = document.querySelector('.reader-page[data-pane="a"]');
+      const sec = p.querySelector('.html-chapter.paged-cur');
+      if (!sec) return null;
+      const v = sec.getBoundingClientRect();
+      const pills = [...p.querySelectorAll('.paged-pill')]
+        .filter((e) => getComputedStyle(e.parentElement).display !== 'none')
+        .map((e) => e.getBoundingClientRect())
+        .filter((r) => r.right > v.left && r.left < v.right);
+      return {
+        folios: [...p.querySelectorAll('.paged-page:not(.is-blank) .paged-folio')].map((e) => e.textContent),
+        clipped: pills.filter((r) => r.left < v.left || r.right > v.right || r.top < v.top || r.bottom > v.bottom).length,
+        pills: pills.length,
+      };
+    });
+    if (fol) check(fol.folios.every((f) => /^([ivxlcdm]+|\d+)$/i.test(f)) && fol.clipped === 0, `${tag} folios d’un seul numéro, pastilles entières`, fol);
 
     // 4. Débordement horizontal.
     const ov = await overflow(page);

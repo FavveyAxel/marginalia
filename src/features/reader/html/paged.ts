@@ -55,10 +55,20 @@ interface Geo {
   lineH: number;
 }
 
+/** Repère de page d'un chapitre, tel que mis en page. */
 interface MarkPos {
+  /** Indice de la page du livre. */
   index: number;
+  /** Offset (dans le chapitre) du premier caractère de la page. */
+  off: number;
+  /** Page d'écran (colonne) où commence la page du livre. */
   col: number;
+  /** Centre de la ligne où elle commence, depuis le haut de la colonne. */
+  y: number;
+  /** La page du livre commence exactement en haut de cette page d'écran (ou ouvre le chapitre). */
   atTop: boolean;
+  /** Au milieu d'un paragraphe : encoche au mot exact (x, haut, hauteur, depuis le coin de la colonne). */
+  tick: { x: number; top: number; h: number } | null;
 }
 
 const TURN_MS = 260;
@@ -82,6 +92,10 @@ export class PagedLayout {
   geo: Geo | null = null;
   private counts = new Map<number, number>();
   private markCache = new Map<number, MarkPos[]>();
+  /** Offset du premier caractère (non blanc) de chaque page d'écran : `${chapitre}:${colonne}`. */
+  private colStarts = new Map<string, number>();
+  /** Chapitre dont les pastilles de marge sont posées (null : à refaire). */
+  private pillsOf: number | null = null;
   private firstOff: number | null = null;
   private desk: HTMLElement;
   private spreadEl: HTMLElement;
@@ -138,6 +152,7 @@ export class PagedLayout {
     this.cleanup.forEach((f) => f());
     this.cleanup = [];
     this.desk.remove();
+    this.clearPills();
     const { scroll, doc } = this.host;
     scroll.classList.remove('paged-scroll');
     delete scroll.dataset.zone;
@@ -237,6 +252,8 @@ export class PagedLayout {
   invalidate() {
     this.counts.clear();
     this.markCache.clear();
+    this.colStarts.clear();
+    this.pillsOf = null;
     this.firstOff = null;
   }
 
@@ -509,7 +526,69 @@ export class PagedLayout {
     return ch === this.chapter && k >= this.page && k < this.page + this.n;
   }
 
-  // ── Folios et titres courants ─────────────────────────────
+  // ── Folios, pastilles de marge et titres courants ─────────
+  //
+  // Folio d'une page d'écran : la page du livre en cours à son PREMIER caractère (un seul numéro,
+  // jamais « 1–2 » ; il se répète si plusieurs pages d'écran tombent dans la même page du livre).
+  // Une page du livre qui commence plus bas dans la page d'écran est signalée, comme en défilement
+  // continu, par une pastille numérotée dans la marge extérieure, à la hauteur de la ligne, et une
+  // encoche au mot exact (calque .paged-marks de la colonne, couleurs de .pg-number, page-marks.css).
+
+  /** Premier caractère non blanc à partir de `off` (ou la fin du chapitre). */
+  private skipBlank(ch: number, off: number): number {
+    const t = this.host.texts()[ch] ?? '';
+    while (off < t.length && /\s/.test(t[off])) off++;
+    return off;
+  }
+
+  /** Offset du premier caractère (non blanc) de la page d'écran k. */
+  colStart(ch: number, k: number): number {
+    const key = `${ch}:${k}`;
+    const hit = this.colStarts.get(key);
+    if (hit != null) return hit;
+    const v = this.skipBlank(ch, this.startOffset(ch, k));
+    this.colStarts.set(key, v);
+    return v;
+  }
+
+  /** Rectangle du caractère à l'offset `off` du chapitre (null : pas de texte rendu là). */
+  private charRectAt(ch: number, off: number): DOMRect | null {
+    const nodes = this.textNodes(ch);
+    let lo = 0;
+    let hi = nodes.length - 1;
+    let j = -1;
+    while (lo <= hi) {
+      const mid = (lo + hi) >> 1;
+      if (nodes[mid].start <= off) {
+        j = mid;
+        lo = mid + 1;
+      } else hi = mid - 1;
+    }
+    if (j < 0) return null;
+    const t = nodes[j].node;
+    const i = off - nodes[j].start;
+    if (i >= t.data.length) return null;
+    const r = document.createRange();
+    r.setStart(t, i);
+    r.setEnd(t, i + 1);
+    const rect = r.getClientRects()[0];
+    return rect && (rect.width || rect.height) ? rect : null;
+  }
+
+  /** Offset de chaque repère de page du chapitre (le repère est un <span> vide). */
+  private markOffsets(ch: number): Map<Element, number> {
+    const root = this.host.roots()[ch];
+    const out = new Map<Element, number>();
+    if (!root) return out;
+    const w = document.createTreeWalker(root, NodeFilter.SHOW_TEXT | NodeFilter.SHOW_ELEMENT);
+    let pos = 0;
+    let n: Node | null;
+    while ((n = w.nextNode())) {
+      if (n.nodeType === Node.TEXT_NODE) pos += (n as Text).data.length;
+      else if ((n as Element).classList.contains('pg-mark')) out.set(n as Element, pos);
+    }
+    return out;
+  }
 
   private markPositions(ch: number): MarkPos[] {
     const hit = this.markCache.get(ch);
@@ -521,35 +600,50 @@ export class PagedLayout {
     const out: MarkPos[] = [];
     if (col && g && first.length > ch + 1) {
       const cr = col.getBoundingClientRect();
+      const offs = this.markOffsets(ch);
       for (let i = first[ch]; i < first[ch + 1]; i++) {
-        const r = marks[i].getBoundingClientRect();
-        // Repère qui ouvre la colonne : sur la première ligne (ou au début du chapitre).
+        const el = marks[i];
+        const off = this.skipBlank(ch, offs.get(el) ?? 0);
         // Début de chapitre (ou du livre) : la première page d'écran, quelle que soit la place du repère.
-        const opening = /pg-chap|pg-start/.test(marks[i].className);
-        const atTop = opening || r.top - cr.top < g.lineH * 0.9;
-        out.push({ index: i, col: opening ? 0 : this.colOfX(r.left - cr.left), atTop });
+        if (/pg-chap|pg-start/.test(el.className)) {
+          out.push({ index: i, off, col: 0, y: 0, atTop: true, tick: null });
+          continue;
+        }
+        // La ligne où commence la page : celle de son premier caractère (sinon, le repère lui-même).
+        const cr0 = this.charRectAt(ch, off);
+        const r = cr0 ?? el.getBoundingClientRect();
+        const k = this.colOfX(r.left - cr.left);
+        // L'encoche est dessinée devant le premier caractère de la page, et non par la bordure du
+        // repère : un <span> vide après une espace peut rester en fin de ligne précédente.
+        const tick = cr0 && el.classList.contains('pg-inline') ? { x: cr0.left - cr.left, top: cr0.top - cr.top + cr0.height * 0.2, h: cr0.height * 0.6 } : null;
+        out.push({ index: i, off, col: k, y: r.top - cr.top + r.height / 2, atTop: off <= this.colStart(ch, k), tick });
       }
     }
     this.markCache.set(ch, out);
     return out;
   }
 
-  /** Pages du livre (indices) couvertes par la page d'écran k du chapitre ch. */
-  pagesOf(ch: number, k: number): number[] {
+  /** Page du livre (indice) en cours au premier caractère de la page d'écran k (-1 : aucune). */
+  pageAtStart(ch: number, k: number): number {
     const pos = this.markPositions(ch);
-    const first = this.host.firstMark();
-    const inCol = pos.filter((p) => p.col === k);
-    const before = pos.filter((p) => p.col < k);
-    const out: number[] = [];
-    if (!(inCol.length && inCol[0].atTop)) {
-      const prev = before.length ? before[before.length - 1].index : (first[ch] ?? 0) - 1;
-      if (prev >= 0) out.push(prev);
+    const s = this.colStart(ch, k);
+    let ans = (this.host.firstMark()[ch] ?? 0) - 1;
+    for (const p of pos) {
+      if (p.off <= s && p.col <= k) ans = p.index;
+      else break;
     }
-    out.push(...inCol.map((p) => p.index));
+    return ans;
+  }
+
+  /** Pages du livre (indices) présentes sur la page d'écran k : celle du haut, puis celles qui y commencent. */
+  pagesOf(ch: number, k: number): number[] {
+    const a = this.pageAtStart(ch, k);
+    const out = a >= 0 ? [a] : [];
+    for (const p of this.markPositions(ch)) if (p.col === k && !p.atTop && p.index !== a) out.push(p.index);
     return out;
   }
 
-  /** Page du livre lue : la première de la page de gauche (ou celle demandée, si visible). */
+  /** Page du livre lue : celle du premier caractère de la page de gauche (ou celle demandée, si visible). */
   pageIndexAtView(): number {
     const g = this.geo;
     if (!g) return -1;
@@ -557,30 +651,73 @@ export class PagedLayout {
       for (let i = 0; i < g.n; i++) if (this.pagesOf(this.chapter, this.page + i).includes(this.pinnedLabel)) return this.pinnedLabel;
       this.pinnedLabel = null;
     }
-    const p = this.pagesOf(this.chapter, this.page);
-    return p.length ? p[0] : -1;
+    return this.pageAtStart(this.chapter, this.page);
   }
 
   private folioText(ch: number, k: number): string {
     const labels = this.host.labels();
-    const pages = this.pagesOf(ch, k);
     if (!labels.length) return String(k + 1); // document sans pages : numérotation des pages d'écran
-    if (!pages.length) return '';
-    const a = labels[pages[0]];
-    const b = labels[pages[pages.length - 1]];
-    return a === b ? a : `${a}–${b}`;
+    const i = this.pageAtStart(ch, k);
+    return i >= 0 ? labels[i] ?? '' : '';
+  }
+
+  private clearPills() {
+    for (const el of Array.from(this.host.doc.querySelectorAll('.paged-marks'))) el.remove();
+    this.pillsOf = null;
+  }
+
+  /**
+   * Pastilles de marge du chapitre lu : une par page du livre qui commence ailleurs qu'en haut d'une
+   * page d'écran, dans la marge extérieure (gauche sur la page de gauche d'une double page, droite
+   * sinon), à la hauteur de sa première ligne. Calque dans la colonne : il tourne avec le texte.
+   */
+  private paintPills() {
+    const g = this.geo;
+    const ch = this.chapter;
+    if (!g || this.pillsOf === ch) return;
+    this.clearPills();
+    const col = this.colEl(ch);
+    const labels = this.host.labels();
+    if (!col || !labels.length) return;
+    const layer = document.createElement('div');
+    layer.className = 'paged-marks';
+    layer.setAttribute('aria-hidden', 'true');
+    for (const p of this.markPositions(ch)) {
+      if (p.tick) {
+        const t = document.createElement('span');
+        t.className = 'paged-tick';
+        t.dataset.pgIndex = String(p.index);
+        t.style.cssText = `left:${p.tick.x.toFixed(1)}px;top:${p.tick.top.toFixed(1)}px;height:${p.tick.h.toFixed(1)}px`;
+        layer.appendChild(t);
+      }
+      if (p.atTop) continue;
+      const left = g.n === 2 && p.col % 2 === 0;
+      const pill = document.createElement('span');
+      pill.className = `paged-pill ${left ? 'is-left' : 'is-right'}`;
+      pill.textContent = labels[p.index] ?? '';
+      pill.dataset.pgIndex = String(p.index);
+      pill.dataset.col = String(p.col);
+      pill.style.top = `${Math.round(p.y)}px`;
+      // Centre de la marge extérieure de la page d'écran p.col (repère : bord gauche de la colonne 0).
+      const x = left ? p.col * g.w - g.mx / 2 : p.col * g.w + g.cw + g.mx / 2;
+      pill.style.left = `${Math.round(x)}px`;
+      layer.appendChild(pill);
+    }
+    col.appendChild(layer);
+    this.pillsOf = ch;
   }
 
   private parity(label: string, k: number) {
-    const t = label.split('–')[0].trim();
+    const t = label.trim();
     const v = /^[0-9]+$/.test(t) ? Number(t) : romanToInt(t);
     return (v ?? k + 1) % 2;
   }
 
-  /** Feuilles : titre courant (pas sur la page qui ouvre un chapitre), folio, page blanche. */
+  /** Feuilles : titre courant (pas sur la page qui ouvre un chapitre), folio, page blanche ; pastilles. */
   paint() {
     const g = this.geo;
     if (!g) return;
+    this.paintPills();
     const ch = this.chapter;
     const cnt = this.count(ch);
     const book = this.host.bookTitle();

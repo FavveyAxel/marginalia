@@ -64,6 +64,47 @@ await withApp(PORT, async (page, errors) => {
     await showSpan(page, hl.span);
     await capture(c, `${pad(n)}-panneaux-${id}.png`, `Sommaire + extraits · ${c.label}`, { theme: c.theme, layout: id });
   }
+  // Page par page, de près : folio d'un seul numéro et pastille de marge où une page du livre commence
+  // en cours de page d'écran (double page : de préférence une pastille dans chaque marge extérieure).
+  const pillSides = () =>
+    page.evaluate(() => {
+      const p = document.querySelector('.reader-page[data-pane="a"]');
+      const sec = p.querySelector('.html-chapter.paged-cur');
+      if (!sec) return [];
+      const v = sec.getBoundingClientRect();
+      const mid = v.left + v.width / 2;
+      return [...p.querySelectorAll('.paged-pill')]
+        .map((e) => e.getBoundingClientRect())
+        .filter((r) => r.right > v.left && r.left < v.right)
+        .map((r) => (r.left < mid ? 'left' : 'right'));
+    });
+  const turn = async () => {
+    await page.evaluate(() => document.querySelector('.reader-page[data-pane="a"] .html-scroll')?.focus());
+    await page.keyboard.press('ArrowRight');
+    await page.waitForTimeout(320);
+  };
+  for (const [id, file, label] of [
+    ['paged2', 'folio-deux-pages.png', 'Pages (double) de près · folio et pastille de marge'],
+    ['paged1', 'folio-une-page.png', 'Pages (simple) de près · folio et pastille de marge'],
+  ]) {
+    const c = hero(id);
+    await applyCombo(page, c, { legacy });
+    await showSpan(page, hl.span);
+    let firstAny = -1;
+    let done = false;
+    for (let i = 0; i < 30 && !done; i++) {
+      const sides = await pillSides();
+      if (sides.length && firstAny < 0) firstAny = i;
+      done = id === 'paged1' ? sides.length > 0 : sides.includes('left') && sides.includes('right');
+      if (!done) await turn();
+    }
+    if (!done && firstAny >= 0) {
+      await applyCombo(page, c, { legacy });
+      await showSpan(page, hl.span);
+      for (let i = 0; i < firstAny; i++) await turn();
+    }
+    await capture(c, file, label, { theme: c.theme, layout: id });
+  }
   await page.evaluate(() => window.__store.getState().updateSettings({ showToc: true, showExtracts: true, theme: 'light' }));
 
   // ── Planche contact : composée dans le navigateur (HTML + images en data:), puis capturée.

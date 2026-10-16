@@ -1786,7 +1786,7 @@ export const HtmlReader = forwardRef<EngineHandle, EngineProps>(function HtmlRea
       data-page-marks={display.marks}
     >
       <div className="html-scroll" ref={scrollRef} onClick={onClick} onContextMenu={onContextMenu} tabIndex={-1}>
-        {/* Page par page : pas de repères dessinés dans le texte (folios sur les feuilles). */}
+        {/* Page par page : folio en bas de chaque page, pastille en marge où commence une page du livre (paged.ts). */}
         <div className={`html-doc html-fmt-${book.format}${revealed ? ' is-revealed' : ''} ${display.docClass}`} ref={docRef} style={docStyle} />
       </div>
       {selRect && (

@@ -15,9 +15,9 @@ export interface ReaderDisplay {
   /** Repères de page demandés (indépendamment de la présentation). */
   marks: PageMarkStyle;
   /**
-   * Classe pg-* du document HTML : « paper » = rendu des feuilles ; page par page : « off » (aucun
-   * repère dans le texte, le folio est en bas de chaque page) ; sinon le style des repères du
-   * défilement continu.
+   * Classe pg-* du document HTML : « paper » = rendu des feuilles ; page par page : « number »
+   * (pastille en marge et encoche au mot exact, sans filet ; le folio est en bas de chaque page),
+   * ou « off » si les numéros sont masqués ; sinon le style des repères du défilement continu.
    */
   pgClass: 'paper' | PageMarkStyle;
   /** Classes du document HTML (.html-doc) qui en découlent : pg-* (+ paged-on en page par page). */
@@ -32,7 +32,7 @@ export function readerDisplay(s: Settings): ReaderDisplay {
   const pm = s.pageMarks;
   // Anciennes valeurs : 'paper' et 'rule' (trait seul) se lisent « trait et numéro ».
   const marks: PageMarkStyle = pm === 'off' ? 'off' : pm === 'number' ? 'number' : 'numbered';
-  const pgClass: ReaderDisplay['pgClass'] = layout === 'sheets' ? 'paper' : layout === 'paged' ? 'off' : marks;
+  const pgClass: ReaderDisplay['pgClass'] = layout === 'sheets' ? 'paper' : layout === 'paged' ? (marks === 'off' ? 'off' : 'number') : marks;
   return {
     layout,
     spread: s.pagedSpread ?? READER_DISPLAY_DEFAULTS.pagedSpread,
@@ -40,6 +40,6 @@ export function readerDisplay(s: Settings): ReaderDisplay {
     paperLook: s.paperLook ?? READER_DISPLAY_DEFAULTS.paperLook,
     marks,
     pgClass,
-    docClass: layout === 'paged' ? 'pg-off paged-on' : `pg-${pgClass}`,
+    docClass: layout === 'paged' ? `pg-${pgClass} paged-on` : `pg-${pgClass}`,
   };
 }

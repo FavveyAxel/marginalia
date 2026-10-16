@@ -4,7 +4,10 @@
 // - une page / deux pages / automatique (selon la largeur du volet) ;
 // - navigation : ← →, Page préc./suiv., Espace / Maj+Espace, clic dans les marges, balayage du pavé
 //   tactile (molette deltaX, un geste = une page), passage d'un chapitre à l'autre ;
-// - folios (« 12 », « 12–13 », romains ; numérotation estimée sinon) et titres courants ;
+// - folios : un seul numéro, la page du livre en cours au premier caractère de la page d'écran (répété
+//   si besoin, jamais « 12–13 » ; romains ; numérotation estimée sinon) et titres courants ;
+// - pastille numérotée dans la marge extérieure où une page du livre commence en cours de page d'écran
+//   (encoche au mot exact ; aucune si la page commence en haut ; masquées avec les numéros) ;
 // - aller à la page (imprimée, romaine, estimée), recherche, sommaire ;
 // - surlignage dans une page et à cheval sur les deux pages d'une double page (texte et offsets exacts) ;
 // - signet ; position restaurée (réouverture, rechargement, changement de taille du texte) ;
@@ -339,6 +342,137 @@ const pageStartOffset = (page, slot, pane = 'a') =>
     { slot, pane },
   );
 
+/**
+ * Folios et pastilles des pages d'écran affichées, comparés à la vérité du DOM : pour chaque feuille,
+ * le premier caractère visible et le dernier repère de page qui le précède (la page en cours) ; pour
+ * chaque repère qui commence sur une feuille ailleurs qu'à son premier caractère, sa pastille.
+ */
+const folioAudit = (page, pane = 'a') =>
+  page.evaluate((pane) => {
+    const p = document.querySelector(`.reader-page[data-pane="${pane}"]`);
+    const sec = p.querySelector('.html-chapter.paged-cur');
+    const root = sec.querySelector('.html-chapter-text');
+    const v = sec.getBoundingClientRect();
+    const doc = getComputedStyle(p.querySelector('.html-doc'));
+    const w = parseFloat(doc.getPropertyValue('--pg-w'));
+    const mx = parseFloat(doc.getPropertyValue('--pg-mx'));
+    const sheets = [...p.querySelectorAll('.paged-page')];
+    const marks = [...p.querySelectorAll('.pg-mark')];
+    const firstChar = (slot) => {
+      const lo = v.left + slot * w + mx;
+      const hi = lo + w - 2 * mx;
+      const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+      const r = document.createRange();
+      let n;
+      while ((n = walker.nextNode())) {
+        const nr = document.createRange();
+        nr.selectNodeContents(n);
+        if (![...nr.getClientRects()].some((q) => q.right > lo - 2 && q.left < hi + 2)) continue;
+        for (let i = 0; i < n.data.length; i++) {
+          if (/\s/.test(n.data[i])) continue;
+          r.setStart(n, i);
+          r.setEnd(n, i + 1);
+          const rect = r.getClientRects()[0];
+          if (rect && rect.left >= lo - 2 && rect.right <= hi + 2 && rect.top >= v.top && rect.bottom <= v.bottom) return { node: n, i, rect };
+        }
+      }
+      return null;
+    };
+    const before = (m, node) => !!(m.compareDocumentPosition(node) & Node.DOCUMENT_POSITION_FOLLOWING);
+    // Rectangle du premier caractère non blanc après un repère.
+    const charAfter = (m) => {
+      const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+      walker.currentNode = m;
+      let n;
+      const r = document.createRange();
+      while ((n = walker.nextNode())) {
+        for (let i = 0; i < n.data.length; i++) {
+          if (/\s/.test(n.data[i])) continue;
+          r.setStart(n, i);
+          r.setEnd(n, i + 1);
+          return { node: n, i, rect: r.getClientRects()[0] };
+        }
+      }
+      return null;
+    };
+    const pills = [...p.querySelectorAll('.paged-pill')]
+      .filter((e) => e.offsetParent && getComputedStyle(e.parentElement).display !== 'none')
+      .map((e) => ({ e, r: e.getBoundingClientRect() }))
+      .filter(({ r }) => r.right > v.left && r.left < v.right);
+    const out = sheets.map((sheet, slot) => {
+      const sr = sheet.getBoundingClientRect();
+      const folioEl = sheet.querySelector('.paged-folio');
+      const headEl = sheet.querySelector('.paged-head');
+      const fc = sheet.classList.contains('is-blank') ? null : firstChar(slot);
+      let truth = '';
+      if (fc) for (const m of marks) if (before(m, fc.node) || (m.nextSibling === fc.node && fc.i === 0)) truth = m.dataset.pg;
+      // Repères qui commencent sur cette feuille, après son premier caractère.
+      const starts = [];
+      if (fc)
+        for (const m of root.querySelectorAll('.pg-mark')) {
+          if (/pg-chap|pg-start/.test(m.className)) continue;
+          const c = charAfter(m);
+          if (!c?.rect) continue;
+          const cx = c.rect.left + c.rect.width / 2;
+          if (cx < sr.left || cx > sr.right || c.rect.top < v.top || c.rect.bottom > v.bottom) continue;
+          if (c.node === fc.node && c.i === fc.i) continue;
+          // Encoche : dessinée juste devant le premier caractère de la page, sur sa ligne.
+          const tk = [...p.querySelectorAll(`.paged-tick[data-pg-index="${m.dataset.pgIndex}"]`)].map((e) => e.getBoundingClientRect()).find((t) => t.height > 0);
+          const tick = !!tk && Math.abs(tk.left - c.rect.left) <= 2.5 && tk.top >= c.rect.top - 1 && tk.bottom <= c.rect.bottom + 1;
+          starts.push({ label: m.dataset.pg, y: c.rect.top + c.rect.height / 2, inline: m.classList.contains('pg-inline'), tick });
+        }
+      const mine = pills.filter(({ r }) => r.left + r.width / 2 > sr.left && r.left + r.width / 2 < sr.right);
+      const fr = folioEl.getBoundingClientRect();
+      const hr = headEl.getBoundingClientRect();
+      const overlap = (a, b) => a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
+      return {
+        slot,
+        folio: folioEl.textContent,
+        truth,
+        starts,
+        pills: mine.map(({ e, r }) => ({
+          label: e.textContent,
+          y: r.top + r.height / 2,
+          side: r.right <= sr.left + mx + 1 ? 'left' : r.left >= sr.right - mx - 1 ? 'right' : 'text',
+          inSheet: r.left >= sr.left && r.right <= sr.right,
+          clipped: r.left < v.left - 0.5 || r.right > v.right + 0.5 || r.top < v.top - 0.5 || r.bottom > v.bottom + 0.5,
+          hitsFolio: overlap(r, fr) || (getComputedStyle(headEl).visibility !== 'hidden' && headEl.textContent && overlap(r, hr)),
+          paint: getComputedStyle(e).color,
+        })),
+      };
+    });
+    return { n: sheets.length, sheets: out, indicator: p.querySelector('[data-testid=page-indicator]')?.textContent ?? null };
+  }, pane);
+
+/** Folios et pastilles conformes ? Renvoie la liste des écarts (vide : tout va bien). */
+function auditIssues(a, { pills = true } = {}) {
+  const bad = [];
+  a.sheets.forEach((s, i) => {
+    if (!s.truth && !s.folio) return;
+    if (s.folio !== s.truth) bad.push(`feuille ${i} : folio « ${s.folio} », attendu « ${s.truth} »`);
+    if (/[–-]/.test(s.folio)) bad.push(`feuille ${i} : folio en intervalle « ${s.folio} »`);
+    if (!pills) {
+      if (s.pills.length) bad.push(`feuille ${i} : pastilles alors que les numéros sont masqués`);
+      if (s.starts.some((st) => st.tick)) bad.push(`feuille ${i} : encoche alors que les numéros sont masqués`);
+      return;
+    }
+    const want = a.n === 2 && i === 0 ? 'left' : 'right';
+    for (const st of s.starts) {
+      const pl = s.pills.find((x) => x.label === st.label);
+      if (!pl) bad.push(`feuille ${i} : pas de pastille pour la page ${st.label}`);
+      else {
+        if (Math.abs(pl.y - st.y) > 3) bad.push(`pastille ${st.label} : pas à la hauteur de la ligne (${pl.y} / ${st.y})`);
+        if (pl.side !== want) bad.push(`pastille ${st.label} : marge ${pl.side}, attendu ${want}`);
+        if (!pl.inSheet || pl.clipped) bad.push(`pastille ${st.label} : coupée ou hors de la feuille`);
+        if (pl.hitsFolio) bad.push(`pastille ${st.label} : chevauche le folio ou le titre courant`);
+      }
+      if (st.inline && !st.tick) bad.push(`page ${st.label} : pas d’encoche au mot exact`);
+    }
+    for (const pl of s.pills) if (!s.starts.some((st) => st.label === pl.label)) bad.push(`feuille ${i} : pastille ${pl.label} en trop (page commencée en haut ?)`);
+  });
+  return bad;
+}
+
 const verifyHighlights = (page, bookId) =>
   page.evaluate((bookId) => {
     const doc = document.querySelector('.reader-page[data-pane="a"] .html-doc');
@@ -475,18 +609,53 @@ await withApp(async (page, errors) => {
   await jumpTo(page, '5');
   st = await state(page);
   check(st.page > 0 && st.heads[0] === 'Discours de la méthode' && st.heads[1] === 'Première partie', 'titre courant : livre à gauche, partie à droite', st);
-  check(st.folios.every((f) => /^\d+(–\d+)?$/.test(f)) && st.folios.join(' ').includes('5'), 'folios : page imprimée (ou « 4–5 ») en bas de chaque page', st.folios);
+  check(st.folios.every((f) => /^\d+$/.test(f)) && auditIssues(await folioAudit(page)).length === 0, 'folios : un seul numéro (page imprimée) en bas de chaque page', st.folios);
   check(st.indicator === 'p. 5 / 20', 'indicateur : la page demandée', st.indicator);
   check(await markVisible(page, '5'), 'aller à la page 5 : la page d’écran où elle commence');
-  let folioSpan = false;
-  for (let i = 0; i < 8 && !folioSpan; i++) {
-    folioSpan = await page.evaluate(() => [...document.querySelectorAll('.paged-folio')].some((e) => /^\d+–\d+$/.test(e.textContent)));
-    if (!folioSpan) {
-      await page.keyboard.press('ArrowRight');
-      await sleep(300);
-    }
+  // Parcourir la partie : folio = page en cours au premier caractère ; pastille là où une page commence.
+  let issues = [];
+  let midStarts = 0;
+  let pillsSeen = 0;
+  let seenPill = null;
+  for (let i = 0; i < 9; i++) {
+    const a = await folioAudit(page);
+    issues.push(...auditIssues(a));
+    midStarts += a.sheets.reduce((t, x) => t + x.starts.length, 0);
+    pillsSeen += a.sheets.reduce((t, x) => t + x.pills.length, 0);
+    if (!seenPill) seenPill = a.sheets.find((x) => x.pills.length) ?? null;
+    // Indicateur (hors saut demandé) : page en cours au premier caractère de la page de gauche.
+    if (i > 0 && a.indicator !== `p. ${a.sheets[0].truth} / 20`) issues.push(`indicateur ${a.indicator}, attendu p. ${a.sheets[0].truth}`);
+    await page.keyboard.press('ArrowRight');
+    await sleep(300);
   }
-  check(folioSpan, 'une page d’écran à cheval sur deux pages imprimées : folio « a–b »');
+  check(issues.length === 0, 'folios et pastilles conformes sur 9 doubles pages (folio = page au 1er caractère, pastille en marge extérieure)', issues.slice(0, 6));
+  console.log('  pastilles :', { midStarts, pillsSeen, seenPill: seenPill && { folio: seenPill.folio, pills: seenPill.pills.map((x) => x.label + ':' + x.side) } });
+  check(midStarts > 0 && pillsSeen === midStarts, 'pages commencées en cours de page d’écran : une pastille chacune', { midStarts, pillsSeen });
+  check(!!seenPill, 'pastille vue', seenPill);
+  // Une page d'écran dont la page imprimée commence ailleurs qu'en haut : folio = la précédente.
+  await jumpTo(page, '5');
+  // Une seule page à l'écran.
+  await set(page, { pagedSpread: 'single' });
+  await sleep(600);
+  issues = [];
+  const singles = [];
+  for (let i = 0; i < 10; i++) {
+    const a = await folioAudit(page);
+    issues.push(...auditIssues(a));
+    singles.push(a.sheets[0].folio);
+    await page.keyboard.press('ArrowRight');
+    await sleep(300);
+  }
+  check(issues.length === 0, 'une page : folios et pastilles (marge droite) conformes', issues.slice(0, 6));
+  console.log('  folios (une page) :', singles.join(' '));
+  check(singles.some((f, i) => i > 0 && f === singles[i - 1]), 'folio répété quand deux pages d’écran tombent dans la même page du livre', singles);
+  // Numéros de page masqués : plus de pastille ni d'encoche, les folios restent.
+  await set(page, { pageMarks: 'off' });
+  await sleep(500);
+  let a0 = await folioAudit(page);
+  check(auditIssues(a0, { pills: false }).length === 0 && a0.sheets.every((x) => x.folio), 'numéros masqués : folios gardés, aucune pastille', auditIssues(a0, { pills: false }));
+  await set(page, { pageMarks: 'numbered', pagedSpread: 'double' });
+  await sleep(600);
   await jumpTo(page, 'x');
   st = await state(page);
   check(st.chapter === 0 && (await markVisible(page, 'x')) && st.folios.some((f) => /x/.test(f)) && st.indicator === 'p. x / 20', 'aller à la page x (romains) : folio romain', st);
@@ -692,10 +861,11 @@ await withApp(async (page, errors) => {
   console.log('\n== Livre sans pages imprimées ==');
   await open(page, plainId);
   st = await state(page);
-  check(st.folios[0] === '1' || /^1(–\d+)?$/.test(st.folios[0]), 'pagination estimée : folios numérotés depuis 1', st.folios);
+  check(st.folios[0] === '1' && st.folios.every((f) => /^\d+$/.test(f)), 'pagination estimée : folios numérotés depuis 1, un seul numéro', st.folios);
+  check(auditIssues(await folioAudit(page)).length === 0, 'pagination estimée : folios et pastilles conformes', auditIssues(await folioAudit(page)));
   await jumpTo(page, '5');
   st = await state(page);
-  check((await markVisible(page, '5')) && st.folios.join(' ').includes('5'), 'aller à la page 5 (estimée) : sa page d’écran, folio', st);
+  check((await markVisible(page, '5')) && auditIssues(await folioAudit(page)).length === 0, 'aller à la page 5 (estimée) : sa page d’écran, folio et pastille', st);
 
   console.log('\n== Captures ==');
   await set(page, { showExtracts: false, showToc: false });

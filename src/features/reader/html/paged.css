@@ -108,14 +108,63 @@
   margin-bottom: 1.4em;
 }
 
-/* Repères de page : invisibles (le folio en bas de la feuille les remplace). */
-.paged-on .pg-mark::before,
-.paged-on .pg-mark::after {
+/* Repères de page : rien de dessiné par le repère lui-même (le folio est en bas de chaque page) ;
+   une page du livre qui commence plus bas dans la page d'écran a son encoche au mot exact
+   (.paged-tick) et sa pastille numérotée dans la marge extérieure (.paged-pill), posées par paged.ts
+   dans un calque de la colonne. Repère identique avec ou sans numéros : afficher ou masquer les
+   numéros ne remet pas le texte en page. Numéros masqués (pg-off) : ni encoche ni pastille, les
+   folios restent. */
+.html-doc.paged-on .pg-mark::before,
+.html-doc.paged-on .pg-mark::after {
   display: none;
 }
-.paged-on .pg-mark.pg-inline {
+.html-doc.paged-on .pg-mark.pg-mark.pg-inline {
   border-left: 0;
   margin-right: 0;
+  font-size: 0.62em;
+  vertical-align: 0.32em;
+}
+.paged-marks {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 0;
+  height: 0;
+  overflow: visible;
+  pointer-events: none;
+  user-select: none;
+}
+.html-doc.pg-off .paged-marks {
+  display: none;
+}
+.paged-tick {
+  position: absolute;
+  width: 0;
+  margin-left: -1px;
+  border-left: 1.5px solid var(--pg-tick, color-mix(in srgb, var(--ink) 62%, transparent));
+}
+.paged-pill {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  box-sizing: border-box;
+  min-width: 24px;
+  padding: 3px 7px;
+  border: 1px solid var(--pg-pill-edge, color-mix(in srgb, var(--ink) 20%, transparent));
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--ink) 4%, transparent);
+  font: 500 12.5px / 1 var(--font-ui);
+  font-variant-numeric: tabular-nums lining-nums;
+  letter-spacing: 0.02em;
+  text-align: center;
+  white-space: nowrap;
+  color: var(--pg-num, color-mix(in srgb, var(--ink) 68%, transparent));
+}
+@container html-reader (max-width: 560px) {
+  .paged-pill {
+    min-width: 0;
+    padding: 1.5px 4px;
+    font-size: 10.5px;
+  }
 }
 
 /* Repères de marge (mouvements, signets) : placés en colonne par paged.ts. */

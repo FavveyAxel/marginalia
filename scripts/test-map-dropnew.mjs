@@ -18,6 +18,10 @@ await withApp(5296, async (page) => {
   await page.waitForTimeout(500);
   const m = await page.evaluate((id) => window.__store.getState().getMap(id), id);
   console.log('nœuds', m.nodes.length, 'liens', m.edges.length, JSON.stringify(m.edges));
+  // Lien lâché dans le vide : nouvelle carte, reliée par un lien neutre carte de départ → nouvelle carte.
+  const nouvelle = m.nodes.find((n) => n.id !== 'n1');
+  if (!(m.nodes.length === 2 && m.edges.length === 1 && m.edges[0].source === 'n1' && m.edges[0].target === nouvelle?.id && m.edges[0].relation === 'lien')) throw new Error('ÉCHEC : lien neutre n1 → nouvelle carte attendu');
+  console.log('  ok lien neutre n1 → nouvelle carte');
   // clic ailleurs sans rien écrire : la carte vide doit rester
   await page.mouse.click(900, 600);
   await page.waitForTimeout(300);

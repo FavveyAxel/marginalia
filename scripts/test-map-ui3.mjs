@@ -307,7 +307,7 @@ async function main() {
     await page.mouse.up();
     await wait(page, 400);
     const cmp2 = await mapOf(page, route.boardId);
-    check(cmp2.edges.some((e) => e.source === hTh.id && e.target === rTh.id && e.relation === 'oppose'), '13. relier deux livres : « s’oppose à » par défaut');
+    check(cmp2.edges.some((e) => e.source === hTh.id && e.target === rTh.id && e.relation === 'lien'), '13. relier deux livres : lien neutre, dans le sens du geste');
     await page.keyboard.press('Escape');
 
     // Depuis un espace

@@ -6,7 +6,11 @@
 //  - appuis : ce qui soutient, précise ou illustre la carte, puis ce qui appuie ces appuis (récursif) ;
 //  - objections : ce qui objecte à (ou s'oppose à, ou répond à) la carte ou à l'un de ses appuis ;
 //  - réponses : ce qui répond à ces objections ;
-//  - conséquences (facultatif) : ce que la carte soutient, en remontant (récursif).
+//  - conséquences (facultatif) : ce que la carte soutient, en remontant (récursif) ;
+//  - liées : les voisines directes de la carte par un lien neutre (« lien », dans un sens ou dans
+//    l'autre), hors de la chaîne. Un lien neutre n'affirme rien : ni appui, ni objection ; ces
+//    cartes sont données à part (`linked`, `linkedEdges`), sans rôle, pour un affichage discret,
+//    et n'entrent pas dans le diagnostic.
 //
 // Diagnostic : branches d'appui indépendantes (prémisses conjointes = une seule branche), chaîne
 // la plus longue, objections sans réponse, et « point fragile » : une carte dont le retrait
@@ -16,6 +20,8 @@ import type { ArgumentMap, MapEdge, RelationId } from '../../../lib/types';
 export const SUPPORT_RELATIONS: ReadonlySet<RelationId> = new Set<RelationId>(['soutient', 'precise', 'illustre']);
 export const ATTACK_RELATIONS: ReadonlySet<RelationId> = new Set<RelationId>(['objecte', 'oppose']);
 export const REPLY_RELATIONS: ReadonlySet<RelationId> = new Set<RelationId>(['repond']);
+/** Relations neutres : ni appui, ni objection. */
+export const NEUTRAL_RELATIONS: ReadonlySet<RelationId> = new Set<RelationId>(['lien']);
 
 export type ChainRole = 'root' | 'support' | 'objection' | 'reply' | 'consequence';
 
@@ -42,6 +48,10 @@ export interface Chain {
   objections: string[];
   replies: string[];
   consequences: string[];
+  /** Voisines directes par un lien neutre, hors de la chaîne (sans rôle : affichage estompé « liées »). */
+  linked: string[];
+  /** Liens neutres qui relient la carte à ces voisines. */
+  linkedEdges: string[];
   /** Ids des liens de la chaîne. */
   edges: string[];
   /** Distance à la carte (0 pour elle ; négative pour les conséquences). */
@@ -142,6 +152,17 @@ export function computeChain(map: MapLike, rootId: string, opts: ChainOptions = 
     }
   }
 
+  // ── Liées : voisines directes par un lien neutre (hors chaîne, sans rôle) ──
+  const linked: string[] = [];
+  const linkedEdges: string[] = [];
+  for (const e of [...(outOf.get(rootId) ?? []), ...(into.get(rootId) ?? [])]) {
+    if (!NEUTRAL_RELATIONS.has(e.relation)) continue;
+    const other = e.source === rootId ? e.target : e.source;
+    if (role[other]) continue;
+    linkedEdges.push(e.id);
+    if (!linked.includes(other)) linked.push(other);
+  }
+
   // ── Diagnostic ──
   const supIn = (x: string) => (into.get(x) ?? []).filter((e) => SUPPORT_RELATIONS.has(e.relation) && anchored.has(e.source));
   const preds = new Map([...anchored].map((x) => [x, supIn(x).map((e) => e.source).filter((p) => p !== x)]));
@@ -172,6 +193,8 @@ export function computeChain(map: MapLike, rootId: string, opts: ChainOptions = 
     objections,
     replies,
     consequences,
+    linked,
+    linkedEdges,
     edges: [...chainEdges],
     depth,
     role,

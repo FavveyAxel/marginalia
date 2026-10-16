@@ -4,6 +4,9 @@
 //  - « Chronologique » : dans l'ordre du texte, les idées près des cartes qu'elles touchent ;
 //  - « Radial » : carte mentale, le centre (problématique, sujet ou thèse) au milieu, ses branches autour (radial.ts).
 // La racine (`centralId`) est le centre de la carte s'il y en a un (model/center.ts), sinon la thèse centrale.
+// Liens neutres (« lien ») : la cible est l'enfant de la source (sens du geste, comme model/fold.ts) ;
+// si ce sens est impossible (cible déjà rattachée, racine, cycle), le lien vaut dans l'autre sens.
+// Ils passent après les relations d'argument : celles-ci décident d'abord de la forme de l'arbre.
 import type { CategoryId, RelationId } from '../../../lib/types';
 import type { Pt } from './geom';
 import { radialPositions } from './radial';
@@ -35,7 +38,8 @@ export interface LEdge {
 }
 
 const CAT_ORDER: (CategoryId | null)[] = ['these', 'probleme', 'argument', 'objection', 'concept', 'exemple', null];
-const REL_ORDER: RelationId[] = ['repond', 'rattache', 'soutient', 'precise', 'illustre', 'repond', 'objecte', 'oppose'];
+const REL_ORDER: RelationId[] = ['repond', 'rattache', 'soutient', 'precise', 'illustre', 'objecte', 'oppose', 'lien'];
+const NEUTRAL: RelationId = 'lien';
 const CONTRA = new Set<RelationId>(['objecte', 'oppose']);
 
 interface Forest {
@@ -44,7 +48,10 @@ interface Forest {
   isolated: string[];
 }
 
-/** Arbre couvrant : le parent d'une carte est la cible de son premier lien sortant (A soutient B ⇒ B parent de A). */
+/**
+ * Arbre couvrant : le parent d'une carte est la cible de son premier lien sortant (A soutient B ⇒ B
+ * parent de A) ; lien neutre A → B ⇒ A parent de B (à défaut, B parent de A).
+ */
 function forest(nodes: LNode[], edges: LEdge[], centralId: string | null): Forest {
   const byId = new Map(nodes.map((n) => [n.id, n]));
   const rank = (id: string) => {
@@ -63,19 +70,22 @@ function forest(nodes: LNode[], edges: LEdge[], centralId: string | null): Fores
     .filter((e) => byId.has(e.source) && byId.has(e.target) && e.source !== e.target)
     .sort((a, b) => REL_ORDER.indexOf(a.relation) - REL_ORDER.indexOf(b.relation));
   // La thèse centrale reste une racine.
-  for (const e of sorted) {
-    if (e.source === centralId || parent.has(e.source)) continue;
-    // Pas de cycle : on remonte la chaîne de la cible.
-    let p: string | undefined = e.target;
-    let cyc = false;
+  const attach = (child: string, par: string, rel: RelationId): boolean => {
+    if (child === centralId || parent.has(child)) return false;
+    // Pas de cycle : on remonte la chaîne du parent.
+    let p: string | undefined = par;
     for (let k = 0; p && k < 500; k++) {
-      if (p === e.source) {
-        cyc = true;
-        break;
-      }
+      if (p === child) return false;
       p = parent.get(p)?.id;
     }
-    if (!cyc) parent.set(e.source, { id: e.target, rel: e.relation });
+    parent.set(child, { id: par, rel });
+    return true;
+  };
+  for (const e of sorted) {
+    if (e.relation === NEUTRAL) {
+      // Sens du geste (la carte tirée est l'enfant), sinon l'autre sens.
+      if (!attach(e.target, e.source, e.relation)) attach(e.source, e.target, e.relation);
+    } else attach(e.source, e.target, e.relation);
   }
   const children = new Map<string, { id: string; rel: RelationId }[]>();
   for (const [c, p] of parent) children.set(p.id, [...(children.get(p.id) ?? []), { id: c, rel: p.rel }]);

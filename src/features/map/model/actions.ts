@@ -51,13 +51,15 @@
 //       restoreVersion(versionId)            → boolean  (instantané « restore » avant, ⌘Z, toast Annuler)
 //       renameVersion(versionId, name) ; deleteVersion(versionId)
 //   20. setEdgeNoteOf(key, edgeId, note)
+//       reverseEdge(key, edgeId)             → boolean  inverse le sens d'un lien (« Inverser le sens »),
+//                                                       une étape d'annulation ; false si rien n'a changé
 // ─────────────────────────────────────────────────────────────
 import type { ArgumentMap, Highlight, MapVersion, MapZone, TrashEntry } from '../../../lib/types';
 import { host } from '../../../lib/platform';
 import { separateUndoStep, uid, useStore, type RestoreResult } from '../../../lib/store';
 import { createDraft } from '../../editor/api';
 import { sortMovements } from '../../study/studyUtils';
-import { addHighlightNodes, isBoard, listBoards, newBoard, setEdgeNote, touch } from './boards';
+import { addHighlightNodes, isBoard, listBoards, newBoard, reverseEdgeIn, setEdgeNote, touch } from './boards';
 import { conceptNode, copyIntoMap, ideaNode, placeNewNodes } from './copy';
 import { mapToDraftHtml, mapDisplayTitle, mapToPlan } from './convert';
 import { mapKindOf, type MapLookup } from './core';
@@ -395,5 +397,23 @@ export function deleteVersion(versionId: string): void {
 
 // ── 20. Notes sur les liens ──────────────────────────────────
 export const setEdgeNoteOf = (key: string, edgeId: string, note: string) => updateMap(key, (m) => setEdgeNote(m, edgeId, note));
+
+/** « Inverser le sens » d'un lien (source ↔ cible) : une étape d'annulation à part. */
+export function reverseEdge(key: string, edgeId: string): boolean {
+  const e = readMap(key).edges.find((x) => x.id === edgeId);
+  if (!e) return false;
+  separateUndoStep();
+  const after = updateMap(key, (m) => {
+    const r = reverseEdgeIn(m, edgeId);
+    if (r === m) return m;
+    // Le lien quitte son groupe : un groupe resté seul (prémisse conjointe sans partenaire) est défait.
+    const cnt = new Map<string, number>();
+    for (const x of r.edges) if (x.groupId) cnt.set(`${x.target}::${x.groupId}`, (cnt.get(`${x.target}::${x.groupId}`) ?? 0) + 1);
+    const lone = (x: (typeof r.edges)[number]) => !!x.groupId && (cnt.get(`${x.target}::${x.groupId}`) ?? 0) < 2;
+    return r.edges.some(lone) ? { ...r, edges: r.edges.map((x) => (lone(x) ? { ...x, groupId: null } : x)) } : r;
+  });
+  separateUndoStep();
+  return after.edges.find((x) => x.id === edgeId)?.source !== e.source;
+}
 
 export { isBoard };

@@ -11,7 +11,7 @@ export type CategoryId = 'probleme' | 'these' | 'argument' | 'objection' | 'conc
 export type NoteKind = 'reformulation' | 'question' | 'critique' | 'presuppose';
 
 /** Relations de la carte d'argument. */
-export type RelationId = 'soutient' | 'objecte' | 'precise' | 'illustre' | 'repond' | 'oppose' | 'rattache';
+export type RelationId = 'soutient' | 'objecte' | 'precise' | 'illustre' | 'repond' | 'oppose' | 'rattache' | 'lien';
 
 /** Édition de référence d'un document (pour les citations). */
 export interface Edition {

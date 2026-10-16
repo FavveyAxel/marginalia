@@ -9,12 +9,21 @@
 //     « se rattache à ») : la carte se lit comme un thème à explorer (carte mentale).
 // En principe un seul centre par carte ; plusieurs ne cassent rien (le premier fait foi).
 //
+// Liens tracés à la main (tirer un lien depuis une carte, vers une carte ou dans le vide) : ils sont
+// NEUTRES par défaut (relation « lien », qui n'affirme rien), y compris depuis ou vers le centre ;
+// leur sens est celui du geste (source = carte de départ). L'utilisateur leur donne une nature
+// ensuite s'il le souhaite. « répond à » / « se rattache à » ne sont plus posés automatiquement que
+// par les commandes explicites (Tab sur le centre : « une thèse qui y répond »).
+//
 // API :
 //   CENTER_LABEL, CENTER_PLACEHOLDER          libellés (« Problématique », « Sujet »)
 //   isCenter(n)                                la carte est-elle un centre ?
 //   mapCenter(map)                             premier centre de la carte (ou null)
 //   centerRelation(kind)                       relation naturelle vers un centre ('repond' / 'rattache')
-//   relationToward(map, targetId)              relation proposée pour un lien vers `targetId` (null : ordinaire)
+//   NEUTRAL_RELATION                           'lien' : relation par défaut d'un lien tracé à la main
+//   newLinkRelation()                          relation d'un nouveau lien tracé (toujours 'lien')
+//   relationToward(map, targetId)              relation d'une carte CRÉÉE comme enfant de `targetId` par une
+//                                              commande explicite (Tab) : celle du centre, sinon null
 //   addCenter(map, kind, at, opts)             → { map, id }   pose un centre (texte vide, à écrire)
 //   setNodeCenter(map, nodeId, kind | null)    → map           fait d'une idée le centre (ou l'inverse) ;
 //                                                              les liens « soutient » vers elle deviennent
@@ -43,7 +52,21 @@ export function mapCenter(map: Pick<ArgumentMap, 'nodes'>): MapNode | null {
 /** Relation naturelle d'une carte vers un centre : une thèse « répond à » la problématique, une idée « se rattache à » un sujet. */
 export const centerRelation = (kind: CenterKind): RelationId => (kind === 'question' ? 'repond' : 'rattache');
 
-/** Relation proposée pour un nouveau lien vers `targetId` : celle du centre, sinon null (relation ordinaire). */
+/** Relation par défaut d'un lien tracé à la main : neutre, elle n'affirme rien. */
+export const NEUTRAL_RELATION: RelationId = 'lien';
+
+/**
+ * Relation d'un nouveau lien tracé à la main (glisser depuis une carte, vers une autre carte ou dans
+ * le vide), quelle que soit la carte de départ ou d'arrivée — centre compris : toujours neutre.
+ * Le lien va de la carte de départ (source) à la carte atteinte ou créée (cible).
+ */
+export const newLinkRelation = (): RelationId => NEUTRAL_RELATION;
+
+/**
+ * Relation d'une carte créée comme « enfant » de `targetId` par une commande explicite (Tab : « une
+ * thèse qui répond à la problématique ») : celle du centre, sinon null (relation ordinaire). Ne sert
+ * plus pour les liens tracés à la main (voir newLinkRelation).
+ */
 export function relationToward(map: Pick<ArgumentMap, 'nodes'>, targetId: string): RelationId | null {
   const t = map.nodes.find((n) => n.id === targetId);
   return t && isCenter(t) ? centerRelation(t.kind!) : null;
@@ -63,7 +86,8 @@ export function addCenter(map: ArgumentMap, kind: CenterKind, at: { x: number; y
 
 /**
  * Fait de la carte `nodeId` (une idée) le centre `kind`, ou la rend à l'état d'idée (`kind` null).
- * Les liens entrants suivent : « soutient » ↔ relation du centre (« répond à » / « se rattache à »).
+ * Les liens entrants suivent : « soutient » ↔ relation du centre (« répond à » / « se rattache à ») ;
+ * les liens neutres (« lien ») et les autres relations restent tels quels.
  * Un extrait ne devient pas un centre (le centre est la question ou le thème de l'utilisateur).
  */
 export function setNodeCenter(map: ArgumentMap, nodeId: string, kind: CenterKind | null): ArgumentMap {

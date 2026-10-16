@@ -12,6 +12,9 @@
 //   listBoards(maps)                       → ArgumentMap[]  plus récentes d'abord
 //   addHighlightNodes(map, hls, opts?)     → { map, nodeIds }  place des extraits (grille sous le contenu)
 //   setEdgeNote(map, edgeId, note)         → ArgumentMap   note libre sur un lien ('' : retire)
+//   reverseEdgeIn(map, edgeId)             → ArgumentMap   inverse le sens d'un lien (source ↔ cible) ;
+//                                                          quitte son groupe de prémisses conjointes ;
+//                                                          inchangée si le lien inverse existe déjà
 //   touch(map, now?)                       → ArgumentMap   updatedAt
 // ─────────────────────────────────────────────────────────────
 import type { ArgumentMap, Highlight, MapNode } from '../../../lib/types';
@@ -100,5 +103,21 @@ export function setEdgeNote(map: ArgumentMap, edgeId: string, note: string): Arg
       const { note: _n, ...rest } = x;
       return rest;
     }),
+  };
+}
+
+/**
+ * Inverse le sens d'un lien : la source devient la cible et réciproquement (relation, force et note
+ * gardées). Un lien inversé quitte son groupe de prémisses conjointes (il ne vise plus la même carte).
+ * Carte inchangée si le lien n'existe pas, boucle sur lui-même, ou si le lien inverse (mêmes
+ * extrémités, même relation) existe déjà.
+ */
+export function reverseEdgeIn(map: ArgumentMap, edgeId: string): ArgumentMap {
+  const e = map.edges.find((x) => x.id === edgeId);
+  if (!e || e.source === e.target) return map;
+  if (map.edges.some((x) => x.id !== edgeId && x.source === e.target && x.target === e.source && x.relation === e.relation)) return map;
+  return {
+    ...map,
+    edges: map.edges.map((x) => (x.id === edgeId ? { ...x, source: e.target, target: e.source, groupId: null } : x)),
   };
 }

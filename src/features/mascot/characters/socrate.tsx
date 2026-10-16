@@ -4,7 +4,7 @@
 // jusqu'à la ceinture et au-delà au niveau 4 (posée sur les genoux quand il est assis).
 import type { ReactNode } from 'react';
 import type { CharacterDef, DrawArgs } from './types';
-import type { Level } from '../Sprite';
+import { Cigar, type Expr, type Level } from '../Sprite';
 
 const SKIN = '#f1d3b8';
 const SKIN_DARK = '#e2b493';
@@ -237,47 +237,228 @@ function head({ view, level, seated, uid }: DrawArgs): ReactNode {
 function Brow({ d }: { d: string }) {
   return (
     <g fill="none" strokeLinecap="round">
-      <path d={d} stroke="currentColor" strokeWidth={5.2} />
-      <path d={d} stroke={HAIR} strokeWidth={3} />
+      <path d={d} stroke="currentColor" strokeWidth={6} />
+      <path d={d} stroke={HAIR} strokeWidth={3.8} />
     </g>
   );
 }
 
-function overFace({ view, pose }: DrawArgs): ReactNode {
-  const cigar = pose === 'cigar';
+const LIP = '#c9604f';
+const MOUTH = '#4a1c16';
+const EYE_W = '#fbf4e6';
+const clampG = (g: [number, number]): [number, number] => [Math.max(-1.4, Math.min(1.4, g[0] * 0.6)), Math.max(-1, Math.min(1, g[1] * 0.5))];
+
+/** Œil de face, globuleux : globe un peu saillant, paupière lourde, poche dessous. */
+function EyeFront({ x, y, eyes, g, flip }: { x: number; y: number; eyes: Expr['eyes']; g: [number, number]; flip: boolean }) {
+  const s = flip ? -1 : 1;
+  const bag = <path d={`M${x - 4.8} ${y + 4.2} Q ${x} ${y + 7.6}, ${x + 4.8} ${y + 4.2}`} fill="none" stroke={SKIN_DARK} strokeWidth={1.3} strokeLinecap="round" />;
+  if (eyes === 'closed')
+    return (
+      <g>
+        <path d={`M${x - 5} ${y + 0.4} Q ${x} ${y + 3.8}, ${x + 5} ${y + 0.4}`} fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" />
+        {bag}
+      </g>
+    );
+  if (eyes === 'happy')
+    return (
+      <g>
+        <path d={`M${x - 5} ${y + 2} Q ${x} ${y - 3.2}, ${x + 5} ${y + 2}`} fill="none" stroke="currentColor" strokeWidth={1.9} strokeLinecap="round" />
+        <path d={`M${x - 4} ${y + 4.6} Q ${x} ${y + 6.8}, ${x + 4} ${y + 4.6}`} fill="none" stroke={SKIN_DARK} strokeWidth={1.2} strokeLinecap="round" />
+      </g>
+    );
+  const lid = eyes === 'lidded';
+  return (
+    <g>
+      <ellipse cx={x} cy={y + 0.6} rx={5.1} ry={4.3} fill={EYE_W} stroke="currentColor" strokeWidth={1.2} />
+      <circle cx={x + g[0] + s * 0.2} cy={y + 1.1 + g[1]} r={2.3} fill="#3b2a1c" />
+      <circle cx={x + g[0] + s * 0.2 + 0.8} cy={y + 0.6 + g[1]} r={0.65} fill={EYE_W} />
+      {lid ? (
+        <path d={`M${x - 4.9} ${y + 0.8} C ${x - 4.4} ${y - 3.8}, ${x + 4.4} ${y - 3.8}, ${x + 4.9} ${y + 0.8} Z`} fill={SKIN} stroke="currentColor" strokeWidth={1.4} strokeLinejoin="round" />
+      ) : (
+        <g>
+          {/* paupière lourde : elle couvre le haut du globe */}
+          <path d={`M${x - 4.9} ${y + 0.2} C ${x - 4.4} ${y - 4.4}, ${x + 4.4} ${y - 4.4}, ${x + 4.9} ${y + 0.2} Q ${x} ${y - 1.9}, ${x - 4.9} ${y + 0.2} Z`} fill={SKIN} transform={`translate(${x} ${y}) scale(1.1) translate(${-x} ${-y})`} />
+          <path d={`M${x - 5.4} ${y + 0.3} Q ${x} ${y - 2.1}, ${x + 5.4} ${y + 0.3}`} fill="none" stroke="currentColor" strokeWidth={1.9} strokeLinecap="round" />
+          <path d={`M${x - 5.2} ${y - 0.6} C ${x - 4} ${y - 5}, ${x + 4} ${y - 5}, ${x + 5.2} ${y - 0.6}`} fill="none" stroke={SKIN_DARK} strokeWidth={1.1} strokeLinecap="round" />
+        </g>
+      )}
+      {bag}
+    </g>
+  );
+}
+
+/** Bouche de face : lèvres épaisses (la lèvre inférieure charnue), sous la moustache. */
+function MouthFront({ mouth, hot }: { mouth: Expr['mouth']; hot: boolean }) {
+  const lower = (y: number, w = 4.4) => <path d={`M${48 - w} ${y} Q 48 ${y + 4.4}, ${48 + w} ${y} Q 48 ${y + 1.6}, ${48 - w} ${y} Z`} fill={LIP} stroke="currentColor" strokeWidth={1} strokeLinejoin="round" />;
+  switch (mouth) {
+    case 'o':
+    case 'puff':
+      return <ellipse cx={48.6} cy={52.8} rx={mouth === 'o' ? 2.2 : 1.7} ry={mouth === 'o' ? 2.5 : 2} fill={MOUTH} stroke={LIP} strokeWidth={1.8} />;
+    case 'sleep':
+      return (
+        <g>
+          <ellipse cx={48} cy={52.6} rx={1.8} ry={1.3} fill={MOUTH} />
+          {lower(53.4, 3.4)}
+        </g>
+      );
+    case 'flat':
+    case 'tongue':
+      return (
+        <g>
+          <path d="M43.4 51.8 Q 48 52.8, 52.6 51.8" fill="none" stroke="currentColor" strokeWidth={1.3} strokeLinecap="round" />
+          {lower(52.4, 4)}
+          {mouth === 'tongue' && <ellipse cx={52.6} cy={52.6} rx={1.4} ry={1.1} fill="#d9606a" stroke="currentColor" strokeWidth={0.6} transform="rotate(25 52.6 52.6)" />}
+        </g>
+      );
+    case 'cigar':
+      return (
+        <g>
+          <path d="M44 51.8 Q 47.6 52.8, 50.6 52.4" fill="none" stroke="currentColor" strokeWidth={1.3} strokeLinecap="round" />
+          {lower(52.6, 3.8)}
+          <Cigar x={50.2} y={52.6} rot={14} len={13} hot={hot} />
+        </g>
+      );
+    case 'smirk':
+      return (
+        <g>
+          <path d="M44 52.4 Q 48.6 54, 52.8 50.6" fill="none" stroke="currentColor" strokeWidth={1.4} strokeLinecap="round" />
+          <path d="M44.6 53 Q 48.4 56.6, 51.6 53 Q 48.4 54.4, 44.6 53 Z" fill={LIP} stroke="currentColor" strokeWidth={0.9} strokeLinejoin="round" />
+        </g>
+      );
+    default:
+      // sourire bonhomme
+      return (
+        <g>
+          <path d="M42 50.6 Q 48 55.6, 54 50.6 Q 48 51.8, 42 50.6 Z" fill={MOUTH} stroke="currentColor" strokeWidth={1.1} strokeLinejoin="round" />
+          <path d="M43.4 52.2 Q 48 59, 52.6 52.2 Q 48 55, 43.4 52.2 Z" fill={LIP} stroke="currentColor" strokeWidth={1} strokeLinejoin="round" />
+          <path d="M46 55.6 Q 48 56.6, 50 55.6" fill="none" stroke="#e3a090" strokeWidth={0.8} strokeLinecap="round" />
+        </g>
+      );
+  }
+}
+
+function MouthSide({ mouth, hot }: { mouth: Expr['mouth']; hot: boolean }) {
+  const lower = <path d="M84.4 43.2 C 85.6 46.4, 89.4 46.2, 89.6 43.2 Z" fill={LIP} stroke="currentColor" strokeWidth={1} strokeLinejoin="round" />;
+  switch (mouth) {
+    case 'o':
+    case 'puff':
+      return <ellipse cx={88.4} cy={42.8} rx={1.5} ry={mouth === 'o' ? 2.1 : 1.7} fill={MOUTH} stroke={LIP} strokeWidth={1.6} />;
+    case 'sleep':
+      return (
+        <g>
+          <ellipse cx={88} cy={43} rx={1.2} ry={1} fill={MOUTH} />
+          {lower}
+        </g>
+      );
+    case 'flat':
+    case 'tongue':
+      return (
+        <g>
+          {lower}
+          <path d="M82.6 43 L 89.6 43.2" fill="none" stroke="currentColor" strokeWidth={1.3} strokeLinecap="round" />
+          {mouth === 'tongue' && <ellipse cx={89.6} cy={43.8} rx={1.2} ry={1} fill="#d9606a" stroke="currentColor" strokeWidth={0.6} />}
+        </g>
+      );
+    case 'cigar':
+      return (
+        <g>
+          {lower}
+          <path d="M82.6 43 L 87 43" fill="none" stroke="currentColor" strokeWidth={1.3} strokeLinecap="round" />
+          <Cigar x={86.2} y={42.6} rot={6} len={11} hot={hot} />
+        </g>
+      );
+    case 'smirk':
+      return (
+        <g>
+          {lower}
+          <path d="M82.4 42 Q 85 43.6, 89.6 43" fill="none" stroke="currentColor" strokeWidth={1.3} strokeLinecap="round" />
+        </g>
+      );
+    default:
+      return (
+        <g>
+          <path d="M81.8 41.6 Q 84.6 45, 89.8 42.8 L 89.6 43.6 Q 85 46.6, 81.8 41.6 Z" fill={MOUTH} stroke="currentColor" strokeWidth={1} strokeLinejoin="round" />
+          <path d="M84.6 44.2 C 85.8 47, 89.2 46.8, 89.6 43.8 Z" fill={LIP} stroke="currentColor" strokeWidth={1} strokeLinejoin="round" />
+        </g>
+      );
+  }
+}
+
+/** Œil de profil : globe saillant (on le voit dépasser), paupière lourde, poche dessous. */
+function EyeSide({ eyes, g }: { eyes: Expr['eyes']; g: [number, number] }) {
+  const bag = <path d="M71.6 33.8 Q 75 36.4, 78.6 33.6" fill="none" stroke={SKIN_DARK} strokeWidth={1.2} strokeLinecap="round" />;
+  if (eyes === 'closed')
+    return (
+      <g>
+        <path d="M71.4 30.6 Q 75 33.6, 79 30.4" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" />
+        {bag}
+      </g>
+    );
+  if (eyes === 'happy')
+    return (
+      <g>
+        <path d="M71.4 32 Q 75 27, 79 31.6" fill="none" stroke="currentColor" strokeWidth={1.9} strokeLinecap="round" />
+        {bag}
+      </g>
+    );
+  return (
+    <g>
+      <path d="M72 30.6 C 72 27.4, 79.6 27, 80 30.6 C 79.6 33.6, 72 34, 72 30.6 Z" fill={EYE_W} stroke="currentColor" strokeWidth={1.2} />
+      <circle cx={77.4 + g[0] * 0.6} cy={31 + g[1]} r={2.3} fill="#3b2a1c" />
+      <circle cx={78.1 + g[0] * 0.6} cy={30.2 + g[1]} r={0.65} fill={EYE_W} />
+      {eyes === 'lidded' ? (
+        <path d="M71.6 30.8 C 72 26.6, 80 26.4, 80.4 30.8 Z" fill={SKIN} stroke="currentColor" strokeWidth={1.4} strokeLinejoin="round" />
+      ) : (
+        <g>
+          <path d="M71.8 30.4 C 72.2 26.4, 79.8 26, 80.2 30 Q 76 28.6, 71.8 30.4 Z" fill={SKIN} />
+          <path d="M71.6 30.4 Q 76 28.6, 80.6 30" fill="none" stroke="currentColor" strokeWidth={1.9} strokeLinecap="round" />
+          <path d="M71.2 29.4 C 72.4 25.6, 79 25.2, 80.8 28.8" fill="none" stroke={SKIN_DARK} strokeWidth={1.1} strokeLinecap="round" />
+        </g>
+      )}
+      {bag}
+    </g>
+  );
+}
+
+function face({ view, expr }: DrawArgs & { expr: Expr }): ReactNode {
+  const g = clampG(expr.gaze);
+  const up = expr.browUp;
+  const cigar = expr.mouth === 'cigar';
   if (view === 'side') {
     return (
       <g>
-        <Brow d={cigar ? 'M70.5 21.6 Q75 17.6 80.2 20.6' : 'M70.5 22.4 Q75.5 19.2 81 21.8'} />
+        <EyeSide eyes={expr.eyes} g={g} />
+        <Brow d={up ? 'M70.4 22.2 Q75.4 17.4 81 20.8' : 'M70.4 23.6 Q75.6 20.4 81.2 22.8'} />
+        <MouthSide mouth={expr.mouth} hot={expr.hot} />
         {/* nez camus : court, rond, retroussé */}
-        <path d="M87.6 28.6 C 90.4 30.6, 95.4 34.4, 94.8 37.6 C 94.3 40.2, 91 40.6, 88.6 39.4" fill={SKIN} stroke="currentColor" strokeWidth={1.7} strokeLinejoin="round" strokeLinecap="round" />
-        <ellipse cx={91.3} cy={38.5} rx={1.1} ry={0.7} fill="currentColor" opacity={0.75} />
-        <ellipse cx={92.6} cy={34.4} rx={1.2} ry={0.8} fill="#fff8ee" opacity={0.7} />
-        <path d="M90 39.8 C 86.5 38.8, 81.6 39, 78.6 42 C 81.6 40.9, 85.2 40.7, 89 40.6 Z" fill={HAIR} stroke="currentColor" strokeWidth={1} strokeLinejoin="round" />
+        <path d="M87.6 28.6 C 89.6 30.4, 92.6 31.4, 95.4 33.8 C 97.6 35.8, 96.6 40.2, 93.2 40.4 C 91.4 40.6, 89.8 40.2, 88.6 39.4" fill={SKIN} stroke="currentColor" strokeWidth={1.7} strokeLinejoin="round" strokeLinecap="round" />
+        <path d="M90 35.8 Q 88.4 38.2, 90.8 39.6" fill="none" stroke="currentColor" strokeWidth={1} strokeLinecap="round" />
+        <ellipse cx={91.8} cy={39} rx={1.2} ry={0.7} fill="currentColor" opacity={0.75} />
+        <ellipse cx={94} cy={35.2} rx={1.3} ry={0.8} fill="#fff8ee" opacity={0.7} />
+        <path d="M90 40.2 C 86.5 39.2, 81.6 39.4, 79.6 42.4 C 82.6 41.4, 85.6 41.2, 89.2 41.2 Z" fill={HAIR} stroke="currentColor" strokeWidth={1} strokeLinejoin="round" />
+        <ellipse cx={71} cy={40} rx={3} ry={1.6} fill="#e8795f" opacity={0.28} />
       </g>
     );
   }
   return (
     <g>
-      {cigar ? (
-        <g>
-          <Brow d="M31 34.5 Q36.5 29 43 33" />
-          <Brow d="M53.5 36.4 Q59 35.2 64.5 36.8" />
-        </g>
-      ) : (
-        <g>
-          <Brow d="M30.5 35 Q36 31 43 33.2" />
-          <Brow d="M55 33.2 Q62 31 67.5 35" />
-        </g>
-      )}
-      {/* nez camus vu de face : une boule large, narines visibles */}
-      <ellipse cx={48} cy={46.4} rx={4.6} ry={3} fill={SKIN} stroke="currentColor" strokeWidth={1.5} />
-      <ellipse cx={46.3} cy={47.6} rx={0.9} ry={0.6} fill="currentColor" opacity={0.75} />
-      <ellipse cx={49.7} cy={47.6} rx={0.9} ry={0.6} fill="currentColor" opacity={0.75} />
-      <ellipse cx={46.6} cy={45.2} rx={1.3} ry={0.7} fill="#fff8ee" opacity={0.75} />
+      <ellipse cx={28.6} cy={51} rx={3.4} ry={1.8} fill="#e8795f" opacity={0.28} />
+      <ellipse cx={67.4} cy={51} rx={3.4} ry={1.8} fill="#e8795f" opacity={0.28} />
+      <EyeFront x={35.4} y={42} eyes={expr.eyes} g={g} flip={false} />
+      <EyeFront x={60.6} y={42} eyes={expr.eyes} g={g} flip />
+      <Brow d={up ? 'M29 33 Q35.6 26 42.4 31' : 'M28.6 34.6 Q34.6 29.2 42 31.6'} />
+      <Brow d={up ? 'M54 34.8 Q60.6 33.6 67 35.6' : 'M54 31.6 Q61.4 29.2 67.4 34.6'} />
+      <MouthFront mouth={expr.mouth} hot={expr.hot} />
+      {/* nez camus vu de face : large boule retroussée, narines bien visibles */}
+      <path d="M46.2 38.6 Q 45.6 41.6, 44.4 43.4 M49.8 38.6 Q 50.4 41.6, 51.6 43.4" fill="none" stroke={SKIN_DARK} strokeWidth={1.1} strokeLinecap="round" />
+      <path d="M41.4 47.4 C 40.6 44.6, 43.4 43, 45.4 44 C 46.4 42, 49.6 42, 50.6 44 C 52.6 43, 55.4 44.6, 54.6 47.4 C 54 49.8, 51 50.4, 48 49.8 C 45 50.4, 42 49.8, 41.4 47.4 Z" fill={SKIN} stroke="currentColor" strokeWidth={1.5} strokeLinejoin="round" />
+      <ellipse cx={45.8} cy={48} rx={1.4} ry={0.85} fill="currentColor" opacity={0.8} />
+      <ellipse cx={50.2} cy={48} rx={1.4} ry={0.85} fill="currentColor" opacity={0.8} />
+      <ellipse cx={47} cy={45.2} rx={1.5} ry={0.8} fill="#fff8ee" opacity={0.75} />
+      <path d="M41.4 47.6 Q 42.6 46.4, 43.6 47.8 M54.6 47.6 Q 53.4 46.4, 52.4 47.8" fill="none" stroke="currentColor" strokeWidth={0.9} strokeLinecap="round" />
       {/* moustache : deux mèches qui encadrent la bouche */}
-      <path d="M48 49.3 C 45 48.3, 41.2 48.6, 38.6 52.4 C 41.2 50.8, 44 50.2, 46.2 50 Z" fill={HAIR} stroke="currentColor" strokeWidth={1} strokeLinejoin="round" />
-      {!cigar && <path d="M48 49.3 C 51 48.3, 54.8 48.6, 57.4 52.4 C 54.8 50.8, 52 50.2, 49.8 50 Z" fill={HAIR} stroke="currentColor" strokeWidth={1} strokeLinejoin="round" />}
+      <path d="M46.6 49.6 C 44 49, 40.6 49.4, 38.2 53.4 C 40.6 51.6, 43 50.8, 45.6 50.6 Z" fill={HAIR} stroke="currentColor" strokeWidth={1} strokeLinejoin="round" />
+      {!cigar && <path d="M49.4 49.6 C 52 49, 55.4 49.4, 57.8 53.4 C 55.4 51.6, 53 50.8, 50.4 50.6 Z" fill={HAIR} stroke="currentColor" strokeWidth={1} strokeLinejoin="round" />}
     </g>
   );
 }
@@ -370,5 +551,5 @@ export const socrate: CharacterDef = {
   limbs: { arm: SKIN, leg: SKIN, shoe: '#8a5a36' },
   body,
   head,
-  overFace,
+  face,
 };

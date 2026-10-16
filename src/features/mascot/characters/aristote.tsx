@@ -4,7 +4,7 @@
 // rouleaux qui dépassent de l'épaule au niveau 0, une colonne branlante plus haute que lui au niveau 4.
 import type { ReactNode } from 'react';
 import type { CharacterDef, DrawArgs } from './types';
-import type { Level } from '../Sprite';
+import { Cigar, type Expr, type Level } from '../Sprite';
 
 type P = [number, number];
 
@@ -158,7 +158,7 @@ const HAIR_SIDE =
 const BEARD_FRONT =
   M([21, 41]) +
   scallop([[21, 41], [20, 50.5], [24, 59], [31, 65.5], [40, 69.6], [49, 70.8], [58, 69.6], [67, 65.5], [74, 59], [78, 50.5], [77, 41]], 1, 0.6, 4.4) +
-  ' C 74 46, 72.5 52, 66.5 56 C 61 58.6, 56 57.4, 52 56.6 C 50 57.6, 46 57.6, 44 56.6 C 40 57.4, 35 58.6, 29.5 56 C 23.5 52, 22.5 46, 21 41 Z';
+  ' C 74 46, 72.5 52, 66.5 56 C 61 58.6, 56 57.4, 53 58 C 51 59.8, 45 59.8, 43 58 C 40 57.4, 35 58.6, 29.5 56 C 23.5 52, 22.5 46, 21 41 Z';
 const BEARD_SIDE =
   M([58.6, 37]) +
   scallop([[58.6, 37], [58.4, 46], [62.6, 53], [70, 58], [78.4, 59.4], [85.6, 57], [89.8, 52], [90.4, 46.8]], 1, 0.6, 4.4) +
@@ -242,25 +242,110 @@ function head({ view, uid }: DrawArgs): ReactNode {
   );
 }
 
-function overFace({ view, pose }: DrawArgs): ReactNode {
-  const brow = { fill: 'none', stroke: HAIR_LO, strokeWidth: 2.6, strokeLinecap: 'round' as const };
-  if (view === 'side')
-    return (
-      <g>
-        {pose !== 'cigar' && <path d="M70 22.6 Q75 19.6 80.6 22.4" {...brow} />}
-        <path d="M89.6 37.4 C 88 38, 86.4 37.6, 85.6 36.6" fill="none" stroke="currentColor" strokeWidth={1.3} strokeLinecap="round" opacity={0.6} />
-      </g>
-    );
+type FaceArgs = DrawArgs & { expr: Expr };
+
+/** Bouche (repère de la tête) : lèvres fines, au milieu de la barbe. */
+function Mouth({ m, x, y, side, hot }: { m: Expr['mouth']; x: number; y: number; side?: boolean; hot: boolean }) {
+  const line = { fill: 'none', stroke: 'currentColor', strokeWidth: 1.8, strokeLinecap: 'round' as const };
+  const w = side ? 2.6 : 3.8;
+  switch (m) {
+    case 'o':
+    case 'puff':
+      return <ellipse cx={x + 0.4} cy={y + 0.4} rx={m === 'o' ? 1.9 : 1.5} ry={m === 'o' ? 2.2 : 1.7} fill="#5a1f1a" stroke="currentColor" strokeWidth={1.3} />;
+    case 'sleep':
+      return <ellipse cx={x} cy={y + 0.4} rx={1.4} ry={1} fill="#5a1f1a" stroke="currentColor" strokeWidth={1} />;
+    case 'flat':
+      return <path d={`M${x - w} ${y} L${x + w} ${y}`} {...line} />;
+    case 'tongue':
+      return (
+        <g>
+          <path d={`M${x - w} ${y} Q${x} ${y + 1} ${x + w} ${y - 0.4}`} {...line} />
+          <ellipse cx={x + w - 0.2} cy={y + 0.8} rx={1.3} ry={1.1} fill="#d9606a" stroke="currentColor" strokeWidth={0.7} />
+        </g>
+      );
+    case 'cigar':
+      return (
+        <g>
+          <path d={`M${x - w} ${y} Q${x - 0.6} ${y + 0.8} ${x + 1.6} ${y + 0.2}`} {...line} />
+          {side ? <Cigar x={86.2} y={42.6} rot={6} len={11} hot={hot} /> : <Cigar x={50.2} y={52.6} rot={14} len={13} hot={hot} />}
+        </g>
+      );
+    case 'smirk':
+      return <path d={`M${x - w} ${y + 0.4} Q${x} ${y + 1.4} ${x + w + 0.4} ${y - 1.6}`} {...line} />;
+    default:
+      return <path d={`M${x - w} ${y - 0.4} Q${x} ${y + 2.2} ${x + w} ${y - 0.4}`} {...line} />;
+  }
+}
+
+/** Œil d'Aristote de face : petit, enfoncé sous l'arcade, paupière lourde. */
+function EyeFront({ cx, cy, e, gaze, flip }: { cx: number; cy: number; e: Expr['eyes']; gaze: [number, number]; flip: number }) {
+  const lid = { fill: 'none', stroke: 'currentColor', strokeWidth: 2, strokeLinecap: 'round' as const };
+  // creux de l'orbite
+  const socket = <path d={`M${cx - 6} ${cy - 1} Q${cx} ${cy - 5.4} ${cx + 6} ${cy - 1}`} fill="none" stroke={SKIN_LO} strokeWidth={2.4} strokeLinecap="round" opacity={0.75} />;
+  if (e === 'closed') return <g>{socket}<path d={`M${cx - 4.4} ${cy} Q${cx} ${cy + 2.2} ${cx + 4.4} ${cy}`} {...lid} /></g>;
+  if (e === 'happy') return <g>{socket}<path d={`M${cx - 4.4} ${cy + 1} Q${cx} ${cy - 2.4} ${cx + 4.4} ${cy + 1}`} {...lid} /></g>;
+  const gx = Math.max(-1.6, Math.min(1.6, gaze[0] * 0.7));
+  const gy = Math.max(-0.8, Math.min(0.8, gaze[1] * 0.4));
+  const almond = `M${cx - 4.6} ${cy + 0.2} Q${cx - 0.6 * flip} ${cy - 3.2} ${cx + 4.6} ${cy - 0.2} Q${cx + 0.4 * flip} ${cy + 2.4} ${cx - 4.6} ${cy + 0.2} Z`;
   return (
     <g>
-      {pose !== 'cigar' && (
-        <g>
-          <path d="M30.5 34 Q36 30 42.6 32.6" {...brow} />
-          <path d="M53.4 32.6 Q60 30 65.5 34" {...brow} />
-        </g>
-      )}
-      {/* le nez */}
-      <path d="M47 45.4 Q50 48.4 47.6 49.6" fill="none" stroke="currentColor" strokeWidth={1.4} strokeLinecap="round" opacity={0.75} />
+      {socket}
+      <path d={almond} fill="#fbf3e6" />
+      <circle cx={cx + gx} cy={cy + 0.1 + gy} r={1.9} fill="#2e2118" />
+      <circle cx={cx + gx + 0.6} cy={cy - 0.5 + gy} r={0.55} fill="#fffaf0" />
+      {e === 'lidded' && <path d={`M${cx - 4.8} ${cy + 0.3} Q${cx} ${cy - 3.6} ${cx + 4.8} ${cy - 0.1} L${cx + 4.6} ${cy + 0.2} Q${cx} ${cy - 0.4} ${cx - 4.6} ${cy + 0.6} Z`} fill={SKIN} />}
+      <path d={almond} fill="none" stroke="currentColor" strokeWidth={0.9} strokeLinejoin="round" />
+      <path d={e === 'lidded' ? `M${cx - 4.8} ${cy + 0.6} Q${cx} ${cy - 0.6} ${cx + 4.8} ${cy + 0.2}` : `M${cx - 4.8} ${cy + 0.2} Q${cx - 0.6 * flip} ${cy - 3.4} ${cx + 4.8} ${cy - 0.3}`} {...lid} />
+    </g>
+  );
+}
+
+/** Le visage du buste de Lysippe : yeux petits et enfoncés, sourcils lourds, nez droit, lèvres fines, moustache. */
+function face({ view, expr }: FaceArgs): ReactNode {
+  const brow = { fill: 'none', stroke: HAIR_LO, strokeWidth: 3, strokeLinecap: 'round' as const };
+  if (view === 'side') {
+    const gx = Math.max(-0.6, Math.min(1.2, expr.gaze[0] * 0.6));
+    const gy = Math.max(-0.8, Math.min(0.8, expr.gaze[1] * 0.4));
+    const lid = { fill: 'none', stroke: 'currentColor', strokeWidth: 2, strokeLinecap: 'round' as const };
+    return (
+      <g>
+        <path d="M70.6 27.2 Q76 24.6 81.6 27" fill="none" stroke={SKIN_LO} strokeWidth={2.4} strokeLinecap="round" opacity={0.75} />
+        {expr.eyes === 'closed' ? (
+          <path d="M72.6 30.4 Q75.8 32.4 79 30.4" {...lid} />
+        ) : expr.eyes === 'happy' ? (
+          <path d="M72.6 31.2 Q75.8 28 79 31.2" {...lid} />
+        ) : (
+          <g>
+            <path d="M73 30.6 Q76.6 27.8 79.6 30 Q77.6 32.6 73 30.6 Z" fill="#fbf3e6" stroke="currentColor" strokeWidth={0.9} strokeLinejoin="round" />
+            <circle cx={77.4 + gx} cy={30.4 + gy} r={1.6} fill="#2e2118" />
+            {expr.eyes === 'lidded' && <path d="M72.8 30.6 Q76.6 27.4 79.8 30 L79.6 30.4 Q76 29.6 73 30.8 Z" fill={SKIN} />}
+            <path d={expr.eyes === 'lidded' ? 'M72.6 30.8 Q76 29.4 80 30.2' : 'M72.6 30.6 Q76.6 27.4 80 29.8'} {...lid} />
+          </g>
+        )}
+        <path d={expr.browUp ? 'M70 24.6 Q75.4 20.4 81.6 23.8' : 'M70 26 Q75.6 23.4 82 25.4'} {...brow} />
+        {/* nez droit : l'arête rejoint le front, une narine */}
+        <path d="M89.4 37.6 C 88 38.4, 86.4 38, 85.8 36.8" fill="none" stroke="currentColor" strokeWidth={1.4} strokeLinecap="round" />
+        {/* moustache tombante */}
+        <path d="M81.6 40.8 C 84 39.6, 87.6 39.4, 90.4 40.2 C 89.6 41.6, 87 41.6, 85 41.4 C 83.6 41.6, 82.4 41.8, 81.6 40.8 Z" fill={HAIR} stroke="currentColor" strokeWidth={1.2} strokeLinejoin="round" />
+        <Mouth m={expr.mouth} x={85.2} y={43} side hot={expr.hot} />
+      </g>
+    );
+  }
+  return (
+    <g>
+      <EyeFront cx={37.4} cy={42.6} e={expr.eyes} gaze={expr.gaze} flip={1} />
+      <EyeFront cx={58.6} cy={42.6} e={expr.eyes} gaze={expr.gaze} flip={-1} />
+      {/* sourcils lourds, un peu froncés au milieu (le penseur) */}
+      <path d={expr.browUp ? 'M30.6 35.6 Q36 30.2 43.4 34.6' : 'M30.4 37.2 Q36.4 34.2 43.6 36.4'} {...brow} />
+      <path d="M52.4 36.4 Q59.6 34.2 65.6 37.2" {...brow} />
+      {/* nez droit, long, ombre d'un côté */}
+      <path d="M46 38.6 L45.2 47.6" fill="none" stroke={SKIN_LO} strokeWidth={1.8} strokeLinecap="round" />
+      <path d="M44.2 48.4 Q45.4 50.4 48 49.8 Q50.6 50.4 51.8 48.4" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" />
+      <path d="M50.6 39.4 L51.4 46.6" fill="none" stroke="currentColor" strokeWidth={1.3} strokeLinecap="round" opacity={0.55} />
+      {/* moustache */}
+      <path d="M39.6 54.6 C 41 51, 45 50.6, 48 51.4 C 51 50.6, 55 51, 56.4 54.6 C 54 53, 51 52.6, 48 53 C 45 52.6, 42 53, 39.6 54.6 Z" fill={HAIR} stroke="currentColor" strokeWidth={1.3} strokeLinejoin="round" />
+      <Mouth m={expr.mouth} x={48} y={55.4} hot={expr.hot} />
+      {expr.mouth === 'smile' || expr.mouth === 'flat' ? <path d="M46 57.6 Q48 58.4 50 57.6" fill="none" stroke={SKIN_LO} strokeWidth={1.3} strokeLinecap="round" /> : null}
     </g>
   );
 }
@@ -368,7 +453,7 @@ export const aristote: CharacterDef = {
   skin: SKIN,
   limbs: { arm: SKIN, leg: SKIN, shoe: '#8a5a36' },
   head,
-  overFace,
+  face,
   body,
   front,
 };

@@ -2607,20 +2607,51 @@ const exportDiagnosticItem = {
   },
 };
 
-const editMenu = {
-  label: 'Édition',
-  submenu: [
-    { role: 'undo', label: 'Annuler' },
-    { role: 'redo', label: 'Rétablir' },
-    { type: 'separator' },
-    { role: 'cut', label: 'Couper' },
-    { role: 'copy', label: 'Copier' },
-    { role: 'paste', label: 'Coller' },
-    { role: 'pasteAndMatchStyle', label: 'Coller sans le style' },
-    { role: 'delete', label: 'Supprimer' },
-    { role: 'selectAll', label: 'Tout sélectionner' },
-  ],
+// Commandes de l'éditeur venues du menu (canal distinct de 'marginalia:menu') : le rendu les reçoit
+// par host.onEditorCommand (src/features/editor/painterMenu.ts → pinceau de mise en forme).
+function sendEditorCommand(cmd, win) {
+  const w = win && !win.isDestroyed() ? win : BrowserWindow.getFocusedWindow() || mainWindow;
+  if (w && !w.isDestroyed()) w.webContents.send('marginalia:editor-command', cmd);
+}
+
+/**
+ * Raccourcis du pinceau de mise en forme (« Reproduire la mise en forme ») et de « Coller sans le style ».
+ *   Mac : ⌥⌘C / ⌥⌘V ; « Coller sans le style » garde ⌥⇧⌘V (celui de macOS, sans conflit).
+ *   Windows / Linux : Ctrl+Maj+C / Ctrl+Maj+V (⌘⌥ → Ctrl+Maj, voir src/lib/keys.ts). Le rôle
+ *   pasteAndMatchStyle afficherait sinon Ctrl+Maj+V lui aussi (accélérateur par défaut d'Electron) :
+ *   « Coller sans le style » passe à Ctrl+Maj+Alt+V. Dans un champ de saisie hors du document,
+ *   Ctrl+Maj+V reste le « coller en texte brut » de Chromium (la page le traite, le menu n'est pas appelé).
+ * Ordre de traitement d'une touche dans Electron : la page d'abord (le pinceau l'intercepte en phase de
+ * capture et appelle preventDefault quand le curseur est dans le texte), puis l'accélérateur du menu
+ * seulement si la page ne l'a pas consommée. Les éléments ci-dessous sont donc le relais quand la touche
+ * n'a pas été prise par la page (focus sur la barre d'outils, ou si macOS donne la main au menu d'abord) :
+ * jamais les deux à la fois.
+ */
+const PAINTER_ACCELERATORS = {
+  darwin: { copy: 'Alt+Command+C', paste: 'Alt+Command+V', plain: 'Alt+Shift+Command+V' },
+  other: { copy: 'Ctrl+Shift+C', paste: 'Ctrl+Shift+V', plain: 'Ctrl+Shift+Alt+V' },
 };
+
+function editMenuTemplate(platform = process.platform) {
+  const k = platform === 'darwin' ? PAINTER_ACCELERATORS.darwin : PAINTER_ACCELERATORS.other;
+  return {
+    label: 'Édition',
+    submenu: [
+      { role: 'undo', label: 'Annuler' },
+      { role: 'redo', label: 'Rétablir' },
+      { type: 'separator' },
+      { role: 'cut', label: 'Couper' },
+      { role: 'copy', label: 'Copier' },
+      { role: 'paste', label: 'Coller' },
+      { role: 'pasteAndMatchStyle', label: 'Coller sans le style', accelerator: k.plain, ...(platform !== 'darwin' && { registerAccelerator: true }) },
+      { role: 'delete', label: 'Supprimer' },
+      { role: 'selectAll', label: 'Tout sélectionner' },
+      { type: 'separator' },
+      { id: 'copy-format', label: 'Copier la mise en forme', accelerator: k.copy, click: (_i, win) => sendEditorCommand('copy-format', win) },
+      { id: 'paste-format', label: 'Coller la mise en forme', accelerator: k.paste, click: (_i, win) => sendEditorCommand('paste-format', win) },
+    ],
+  };
+}
 
 const devItems = () => (DEV_URL ? [{ type: 'separator' }, { role: 'reload', label: 'Recharger' }, { role: 'toggleDevTools', label: 'Outils de développement' }] : []);
 
@@ -2641,7 +2672,7 @@ function macMenuTemplate() {
       ],
     },
     { label: 'Fichier', submenu: [exportBackupItem, restoreBackupItem, { type: 'separator' }, lockMenuItem(), { type: 'separator' }, { role: 'close', label: 'Fermer la fenêtre' }] },
-    editMenu,
+    editMenuTemplate(),
     {
       label: 'Présentation',
       submenu: [
@@ -2682,7 +2713,7 @@ function otherMenuTemplate() {
         { role: 'quit', label: 'Quitter', accelerator: 'Alt+F4' },
       ],
     },
-    editMenu,
+    editMenuTemplate(),
     {
       label: '&Affichage',
       submenu: [
@@ -2716,6 +2747,9 @@ function otherMenuTemplate() {
     },
   ];
 }
+
+// Tests (MARGINALIA_E2E=1) : le gabarit du menu Édition, pour vérifier la branche macOS depuis Linux.
+if (E2E) globalThis.__marginaliaEditMenuTemplate = editMenuTemplate;
 
 function buildMenu() {
   Menu.setApplicationMenu(Menu.buildFromTemplate(IS_MAC ? macMenuTemplate() : otherMenuTemplate()));

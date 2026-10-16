@@ -15,9 +15,9 @@ export type MascotFreq = 'off' | 'rare' | 'sometimes' | 'often';
 export const MASCOT_DEFAULT: MascotFreq = 'sometimes';
 
 const TICK = 333;
-const SCALE = 0.56;
+const SCALE = 0.7;
 const W = VB_W * SCALE;
-const STEP = 5;
+const STEP = 6;
 const PERCHES = '.home-card, .lib-card-cover, .ws-card, .set-list';
 /** Vues où il peut se montrer (jamais dans le lecteur, l'éditeur ni les tableaux). */
 const ROUTES = new Set(['home', 'library', 'workspace', 'settings', 'revision', 'plans', 'extracts', 'concepts', 'arguments', 'maps', 'history', 'trash', 'help']);

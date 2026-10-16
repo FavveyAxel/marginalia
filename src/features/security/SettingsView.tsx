@@ -13,6 +13,7 @@ import {
   MoonStar,
   Printer,
   ShieldCheck,
+  Smile,
   Timer,
   TriangleAlert,
 } from 'lucide-react';
@@ -21,6 +22,8 @@ import { useStore } from '../../lib/store';
 import { Modal } from '../workspaces/wsUi';
 import { fmtKeys } from '../../lib/keys';
 import { machine, normKeyPart, refreshSecurity, useSecurity } from './state';
+import { Sprite } from '../mascot/Sprite';
+import { LEVEL_STEPS, MASCOT_DEFAULT, levelFor, type MascotFreq } from '../mascot/Mascot';
 import './security.css';
 
 const DELAYS: { v: number; label: string }[] = [
@@ -81,6 +84,8 @@ export function SettingsView() {
               <PrivacyCards st={st} where={where} open={setDialog} setOption={setOption} />
             )}
           </section>
+
+          <MascotSettings />
         </div>
       </div>
       {dialog && st && <SecurityDialog kind={dialog} st={st} where={where} onClose={() => setDialog(null)} />}
@@ -796,5 +801,51 @@ function SecurityDialog({ kind, st, where, onClose }: { kind: DialogKind; st: Se
         )}
       </div>
     </Modal>
+  );
+}
+
+const MASCOT_FREQS: { v: MascotFreq; label: string }[] = [
+  { v: 'off', label: 'Jamais' },
+  { v: 'rare', label: 'Rarement' },
+  { v: 'sometimes', label: 'Parfois' },
+  { v: 'often', label: 'Souvent' },
+];
+
+function MascotSettings() {
+  const freq = useStore((s) => s.settings.mascot ?? MASCOT_DEFAULT);
+  const docs = useStore((s) => s.books.length + s.drafts.length);
+  const update = useStore((s) => s.updateSettings);
+  const level = levelFor(docs);
+  const next = LEVEL_STEPS[level + 1];
+  const halo = document.documentElement.dataset.theme === 'dark' ? '#e9dfcc' : undefined;
+  return (
+    <section className="set-section" aria-labelledby="set-mascot">
+      <h2 className="set-section-title" id="set-mascot">
+        <Smile size={18} strokeWidth={1.8} /> Compagnon
+      </h2>
+      <ul className="set-list">
+        <li className="set-row set-mascot">
+          <span className="set-mascot-sprite">
+            <Sprite pose="wave" frame={0} level={level} halo={halo} title="Le compagnon" />
+          </span>
+          <div className="set-body">
+            <span className="set-title">Un petit cerveau qui passe sur l’interface</span>
+            <span className="set-desc">
+              Il s’assoit au bord des encadrés, lit, réfléchit et cite parfois un philosophe. Cliquez sur lui pour une citation. Plus la bibliothèque grandit, plus il se muscle :
+              niveau {level} sur 4 ({docs} document{docs > 1 ? 's' : ''}{next ? `, prochain niveau à ${next}` : ''}).
+            </span>
+          </div>
+          <div className="set-control">
+            <div className="segmented set-seg" role="radiogroup" aria-label="Visites du compagnon">
+              {MASCOT_FREQS.map((f) => (
+                <button type="button" key={f.v} role="radio" aria-checked={freq === f.v} className={freq === f.v ? 'active' : ''} onClick={() => update({ mascot: f.v })}>
+                  {f.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        </li>
+      </ul>
+    </section>
   );
 }

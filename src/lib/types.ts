@@ -568,6 +568,8 @@ export interface Settings {
   editorRecentFonts?: string[];
   /** Éditeur : police des nouveaux écrits (modèle « Vide » et écrits créés sans modèle). */
   newDraftFont?: string;
+  /** Compagnon (petit cerveau qui passe sur l'interface) : fréquence de ses visites. Défaut : « parfois ». */
+  mascot?: 'off' | 'rare' | 'sometimes' | 'often';
 }
 
 export interface Database {

@@ -1,0 +1,79 @@
+/* Le compagnon : calque fixe au-dessus des vues, sous les fenêtres, menus et notifications. */
+.mascot-layer {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 45;
+  overflow: hidden;
+}
+.mascot {
+  position: absolute;
+  left: 0;
+  top: 0;
+  visibility: hidden;
+  pointer-events: auto;
+  cursor: default;
+  filter: drop-shadow(0 1px 1px rgba(40, 28, 10, 0.12));
+}
+.mascot-svg {
+  display: block;
+  overflow: visible;
+}
+.mascot-svg * {
+  pointer-events: visiblePainted;
+}
+
+/* Bulle : une note de marge (papier, filet rouge de la marge, texte de lecture en italique). */
+.mascot-bubble {
+  position: absolute;
+  left: 0;
+  top: 0;
+  visibility: hidden;
+  max-width: 260px;
+  padding: 9px 12px 8px;
+  background: var(--bg-panel);
+  color: var(--ink);
+  border: 1.5px solid color-mix(in srgb, #c9553a 70%, transparent);
+  border-radius: 12px;
+  box-shadow: var(--shadow-sm, 0 2px 8px rgba(0, 0, 0, 0.08));
+  font-family: var(--font-read);
+  font-size: 13.5px;
+  line-height: 1.4;
+  animation: mascot-pop 0.12s steps(2) both;
+}
+.mascot-bubble::after {
+  content: '';
+  position: absolute;
+  bottom: -7px;
+  left: calc(var(--tail, 28px) - 6px);
+  width: 11px;
+  height: 11px;
+  background: var(--bg-panel);
+  border-right: 1.5px solid color-mix(in srgb, #c9553a 70%, transparent);
+  border-bottom: 1.5px solid color-mix(in srgb, #c9553a 70%, transparent);
+  transform: rotate(45deg);
+}
+.mascot-bubble p {
+  margin: 0;
+  font-style: italic;
+}
+.mascot-cite {
+  display: block;
+  margin-top: 4px;
+  font-family: var(--font-ui);
+  font-size: 11px;
+  letter-spacing: 0.02em;
+  color: var(--ink-2);
+}
+.mascot-cite i {
+  font-style: normal;
+  opacity: 0.8;
+}
+@keyframes mascot-pop {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}

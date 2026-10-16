@@ -8,6 +8,7 @@ import type { Route, ThemeId } from './lib/types';
 import { Kbd, PageSkeleton } from './components/ui';
 import { lazyViews, loadAllViews, preloadViews } from './lazyViews';
 import { HomeView } from './features/home/HomeView';
+import { Mascot } from './features/mascot/Mascot';
 import { LibraryView } from './features/library/LibraryView';
 import { useDueCount } from './features/revision/useDueCount';
 import { WorkspaceTree } from './features/workspaces/WorkspaceTree';
@@ -587,6 +588,7 @@ export function App() {
           </main>
         </div>
       )}
+      <Mascot route={route.name} />
       <CommandPalette />
       <ImportProgress />
       <DropOverlay />

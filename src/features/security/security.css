@@ -186,3 +186,8 @@
 @media (prefers-reduced-motion: reduce) {
   .lock-shake { animation: none; }
 }
+
+/* Compagnon */
+.set-mascot { align-items: center; }
+.set-mascot-sprite { flex: none; width: 46px; height: 60px; margin: -6px 4px -8px -4px; }
+@media (max-width: 720px) { .set-mascot { flex-wrap: wrap; } }

@@ -125,7 +125,7 @@ async function run(dark) {
       await dragConnect('n2', 't', 'n1', 'b');
       check((await page.locator('[data-testid=map-edge-menu]').count()) === 1, `[${tag}] menu de relation à la connexion`);
       let mm = await page.evaluate((b) => window.__store.getState().getMap(b), bookId);
-      check(mm.edges.length === 1 && mm.edges[0].relation === 'soutient', `[${tag}] nouvelle connexion = « soutient »`);
+      check(mm.edges.length === 1 && mm.edges[0].relation === 'lien' && mm.edges[0].source === 'n2' && mm.edges[0].target === 'n1', `[${tag}] nouvelle connexion = « lien » neutre, dans le sens du geste`);
       await page.locator('[data-rel=objecte]').click();
       await page.waitForTimeout(200);
       mm = await page.evaluate((b) => window.__store.getState().getMap(b), bookId);

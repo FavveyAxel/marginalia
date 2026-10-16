@@ -69,7 +69,7 @@ const q = (id: string) => `"${CSS.escape(id)}"`;
 const nodeSel = (ids: string[]) => `.map-root:has(> .map-chain-panel) .map-flow :is(${ids.map((id) => `.react-flow__node[data-id=${q(id)}]`).join(',')})`;
 const edgeSel = (ids: string[]) => `.map-root:has(> .map-chain-panel) .map-flow :is(${ids.map((id) => `.react-flow__edge[data-testid=${q(`rf__edge-${id}`)}]`).join(',')})`;
 
-/** Feuille de style de la chaîne : cartes et liens nets, anneaux selon le rôle. */
+/** Feuille de style de la chaîne : cartes et liens nets, anneaux selon le rôle ; voisines par lien neutre estompées. */
 export function chainCss(chain: Chain): string {
   const byRole: Record<ChainRole, string[]> = { root: [], support: [], objection: [], reply: [], consequence: [] };
   for (const [id, r] of Object.entries(chain.role)) byRole[r].push(id);
@@ -81,6 +81,9 @@ export function chainCss(chain: Chain): string {
     // Étiquettes des liens (rendues hors des liens).
     out.push(`.map-root:has(> .map-chain-panel) :is(${chain.edges.map((id) => `.map-pill[data-edge=${q(id)}]`).join(',')}){opacity:1}`);
   }
+  // Voisines par un lien neutre (hors chaîne, sans rôle) : à mi-chemin, ni nettes ni effacées.
+  if (chain.linked.length) out.push(`${nodeSel(chain.linked)}{opacity:.5;filter:none}`);
+  if (chain.linkedEdges.length) out.push(`${edgeSel(chain.linkedEdges)}{opacity:.45}`);
   return out.join('\n');
 }
 

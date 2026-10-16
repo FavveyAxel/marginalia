@@ -1,7 +1,8 @@
-// Menu d'un lien : relation, force, co-prémisses, suppression.
+// Menu d'un lien : nature (lien neutre d'abord, puis les relations argumentatives), sens de
+// lecture (« A soutient B ») et « Inverser le sens », force, note, co-prémisses, suppression.
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
-import { Check, Link2, Trash2, Unlink } from 'lucide-react';
-import { RELATIONS } from '../../../lib/categories';
+import { ArrowLeftRight, Check, Link2, Trash2, Unlink } from 'lucide-react';
+import { RELATIONS, RELATION_BY_ID } from '../../../lib/categories';
 import { useFloating } from '../../../components/ui';
 import type { EdgeStrength, MapEdge, RelationId } from '../../../lib/types';
 import { EdgeNoteField } from './EdgeNote';
@@ -12,6 +13,12 @@ export interface EdgeMenuState {
   y: number;
   fresh: boolean;
 }
+
+/** Lien neutre en tête (« Lien neutre »), puis les relations qui affirment quelque chose. */
+const CHOICES = [
+  { ...RELATION_BY_ID.lien, label: 'Lien neutre' },
+  ...RELATIONS.filter((r) => r.id !== 'lien'),
+];
 
 const STRENGTHS: { id: EdgeStrength; label: string }[] = [
   { id: 1, label: 'Faible' },
@@ -27,6 +34,7 @@ export function EdgeMenu({
   onRelation,
   onStrength,
   onDelete,
+  onReverse,
   onGroupWith,
   onUngroup,
   onNote,
@@ -38,6 +46,8 @@ export function EdgeMenu({
   onRelation(r: RelationId): void;
   onStrength(s: EdgeStrength): void;
   onDelete(): void;
+  /** Inverser le sens du lien (source ↔ cible). */
+  onReverse(): void;
   onGroupWith(otherId: string): void;
   onUngroup(): void;
   /** 20. Note du lien (« Pourquoi ? ») ; absent : pas de champ. */
@@ -76,11 +86,25 @@ export function EdgeMenu({
     >
       {view === 'main' ? (
         <>
-          <div className="map-menu-title">{menu.fresh ? 'Quelle relation ?' : 'Relation'}</div>
-          <div className="map-menu-sub truncate">
-            {titleOf(edge.source)} <b>→</b> {titleOf(edge.target)}
+          <div className="map-menu-title">{menu.fresh ? 'Nouveau lien — quelle relation ?' : 'Relation'}</div>
+          {/* Ce que le lien affirme, dans le sens où il est tracé : « A » soutient « B ». */}
+          <div className="map-menu-sub map-menu-read" data-testid="map-edge-reading" data-relation={edge.relation}>
+            <span className="map-menu-end">{titleOf(edge.source)}</span>
+            <span className="map-menu-verbrow">
+              {edge.relation === 'lien' ? (
+                <b className="map-menu-verb neutral">— lien neutre —</b>
+              ) : (
+                <b className="map-menu-verb" style={{ '--c': `var(${RELATION_BY_ID[edge.relation]?.cssVar ?? '--rel-lien'})` } as CSSProperties}>
+                  ↓ {RELATION_BY_ID[edge.relation]?.label ?? edge.relation}
+                </b>
+              )}
+              <button type="button" className="map-menu-reverse" data-act="reverse" title="Inverser le sens (la source devient la cible)" onClick={onReverse}>
+                <ArrowLeftRight size={12} /> Inverser le sens
+              </button>
+            </span>
+            <span className="map-menu-end">{titleOf(edge.target)}</span>
           </div>
-          {RELATIONS.map((r) => (
+          {CHOICES.map((r) => (
             <button key={r.id} className="menu-item map-menu-rel" data-rel={r.id} onClick={() => onRelation(r.id)}>
               <span className="map-menu-swatch" style={{ '--c': `var(${r.cssVar})` } as CSSProperties} data-dashed={r.dashed} />
               {r.label}

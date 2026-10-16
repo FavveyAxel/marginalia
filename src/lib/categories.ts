@@ -83,7 +83,8 @@ export const RELATIONS: RelationDef[] = [
   { id: 'illustre', label: 'illustre', dashed: true, cssVar: '--rel-illustre' },
   // Carte mentale : une idée se rattache au sujet au centre de la carte (voir map/model/center.ts).
   { id: 'rattache', label: 'se rattache à', dashed: false, cssVar: '--rel-rattache' },
-  // Lien neutre : n'affirme rien, sans flèche ; tracé dans le sens du geste (source → carte tirée).
+  // Lien neutre : relie deux cartes sans rien affirmer (pas de flèche), dans le sens du geste
+  // (source → carte tirée) ; défaut de tout nouveau lien (voir map/model/center.ts newLinkRelation).
   { id: 'lien', label: 'lien', dashed: false, cssVar: '--rel-lien' },
 ];
 

@@ -403,7 +403,15 @@ export function reverseEdge(key: string, edgeId: string): boolean {
   const e = readMap(key).edges.find((x) => x.id === edgeId);
   if (!e) return false;
   separateUndoStep();
-  const after = updateMap(key, (m) => reverseEdgeIn(m, edgeId));
+  const after = updateMap(key, (m) => {
+    const r = reverseEdgeIn(m, edgeId);
+    if (r === m) return m;
+    // Le lien quitte son groupe : un groupe resté seul (prémisse conjointe sans partenaire) est défait.
+    const cnt = new Map<string, number>();
+    for (const x of r.edges) if (x.groupId) cnt.set(`${x.target}::${x.groupId}`, (cnt.get(`${x.target}::${x.groupId}`) ?? 0) + 1);
+    const lone = (x: (typeof r.edges)[number]) => !!x.groupId && (cnt.get(`${x.target}::${x.groupId}`) ?? 0) < 2;
+    return r.edges.some(lone) ? { ...r, edges: r.edges.map((x) => (lone(x) ? { ...x, groupId: null } : x)) } : r;
+  });
   separateUndoStep();
   return after.edges.find((x) => x.id === edgeId)?.source !== e.source;
 }

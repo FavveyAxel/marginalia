@@ -420,7 +420,7 @@
   opacity: 0;
 }
 .react-flow__connection-path {
-  stroke: var(--rel-soutient);
+  stroke: color-mix(in srgb, var(--rel-lien) 80%, var(--ink));
   stroke-width: 1.75;
   stroke-dasharray: 5 4;
   stroke-linecap: round;
@@ -529,6 +529,10 @@
 .map-pill.sel {
   background: color-mix(in srgb, var(--c) 10%, var(--bg-panel));
 }
+/* Lien neutre : pas de pastille au repos (le point reste cliquable) ; « lien » au survol. */
+.map-pill.neutral:not(.show):not(:hover):not(.has-note) i {
+  opacity: 0;
+}
 .map-together {
   display: inline-flex;
   align-items: center;
@@ -583,6 +587,58 @@
 .map-menu-sub b {
   color: var(--faint);
   margin: 0 2px;
+}
+/* Sens de lecture du lien (« A » soutient « B ») et bouton « Inverser le sens ». */
+.map-menu-sub.map-menu-read {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin: 4px 4px 6px;
+  padding: 7px 8px;
+  border-radius: 8px;
+  background: var(--bg-inset);
+  line-height: 1.35;
+}
+.map-menu-end {
+  color: var(--ink-2);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.map-menu-verbrow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 22px;
+}
+.map-menu-sub b.map-menu-verb {
+  color: color-mix(in srgb, var(--c) 72%, var(--ink));
+  margin: 0;
+}
+.map-menu-sub b.map-menu-verb.neutral {
+  color: var(--muted);
+  font-weight: 500;
+  font-style: italic;
+}
+.map-menu-reverse {
+  margin-left: auto;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 22px;
+  padding: 0 7px;
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  background: var(--bg-panel);
+  color: var(--ink-2);
+  font: 500 var(--fs-xs) var(--font-ui);
+  cursor: pointer;
+}
+.map-menu-reverse:hover {
+  background: var(--bg-hover);
+  color: var(--ink);
 }
 .map-menu-none {
   padding: 4px 8px 6px;

@@ -365,8 +365,8 @@ async function main() {
       await wait(page, 300);
       m = await getMap(page, bookId);
       const child = m.nodes[m.nodes.length - 1];
-      const childEdge = m.edges.find((e) => e.source === child.id);
-      check(m.nodes.length === n0 + 1 && childEdge?.target === 'n-these' && childEdge.relation === 'soutient' && child.y > nodeOf(m, 'n-these').y, '9. Tab : carte enfant reliée (soutient), dessous');
+      const childEdge = m.edges.find((e) => e.target === child.id);
+      check(m.nodes.length === n0 + 1 && childEdge?.source === 'n-these' && childEdge.relation === 'lien' && child.y > nodeOf(m, 'n-these').y, '9. Tab : carte enfant reliée (lien neutre thèse → enfant), dessous');
       check((await page.locator('.map-idea-input').count()) === 1, '9. la nouvelle carte est en édition');
       await page.keyboard.type('Une raison commune');
       await page.keyboard.press('Escape');
@@ -381,8 +381,8 @@ async function main() {
       await wait(page, 300);
       m = await getMap(page, bookId);
       const sib = m.nodes[m.nodes.length - 1];
-      const sibEdge = m.edges.find((e) => e.source === sib.id);
-      check(sib.id !== child.id && sibEdge?.target === 'n-these', '9. carte sœur (même parent)');
+      const sibEdge = m.edges.find((e) => e.target === sib.id);
+      check(sib.id !== child.id && sibEdge?.source === 'n-these' && sibEdge.relation === 'lien', '9. carte sœur (même parent, lien neutre)');
       await page.keyboard.press('Escape');
       await wait(page, 150);
       // Entrée sur un extrait : carte sœur

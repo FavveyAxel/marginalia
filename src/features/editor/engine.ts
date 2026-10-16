@@ -28,6 +28,7 @@ import {
   patchStylesXml,
   readStylesXml,
   replaceThemeFonts,
+  setDocDefaultFontXml,
   styleDefinition,
   transformStyles,
   type StylePatch,
@@ -470,6 +471,8 @@ export async function openDocEngine(host: HTMLElement, data: ArrayBuffer, opts: 
   let stylesXml = await readStylesXml(data).catch(() => '');
   // Zoom d'affichage mémorisé (view.ts) : « Ajuster à la largeur » par défaut, bornes 75–200 %.
   let zoomValue: ZoomPref = readZoomPref();
+  /** Suivi des transactions du corps pour annuler / rétablir la police du document (défini plus bas). */
+  let docFontOnTransaction: ((ed: Any, tr: Any) => void) | null = null;
 
   const create = (buf: ArrayBuffer): Promise<Any> => {
     const file = new File([buf], 'document.docx', {
@@ -508,6 +511,7 @@ export async function openDocEngine(host: HTMLElement, data: ArrayBuffer, opts: 
             if (live() && !silent) opts.onChange?.();
           },
           onTransaction: (p: Any) => {
+            if (p?.transaction) docFontOnTransaction?.(p.editor, p.transaction);
             if (!live()) return;
             // couvre aussi les éditeurs de notes (sessions de saisie de note de bas de page)
             if (p?.transaction?.docChanged && !silent && !p.transaction.getMeta?.(VIEW_META)) opts.onChange?.();
@@ -781,6 +785,7 @@ export async function openDocEngine(host: HTMLElement, data: ArrayBuffer, opts: 
     host.innerHTML = '';
     dropStray();
     sd = await create(buf);
+    resetDocFontHistory();
     await waitPainted();
     if (proofingCfg) applyProofing();
     stylesXml = await readStylesXml(buf).catch(() => stylesXml);
@@ -1293,21 +1298,151 @@ export async function openDocEngine(host: HTMLElement, data: ArrayBuffer, opts: 
     while (k < chars.length - 1 && WORD_CH.test(chars[k + 1].ch)) k++;
     return { from: chars[l].pos, to: chars[k].pos + 1 };
   };
+  // ── Police du document (w:docDefaults) ──
+  // Une police choisie pour TOUT le document (« Tout sélectionner », ou document encore sans texte) devient
+  // la police du document : sinon seuls les runs existants la portaient, et tout texte sans police explicite
+  // (texte tapé par-dessus la sélection, paragraphe vidé, paragraphe vide d'un modèle, nouvel écrit rouvert)
+  // revenait à l'ancienne police par défaut (Times New Roman), à l'écran comme à la réouverture.
+  // Le changement passe par l'API documentaire (styles.apply : styles.xml, rendu, export) ; il n'est pas dans
+  // l'historique de ProseMirror : on le suit ici pour qu'Annuler / Rétablir le défassent et le refassent avec
+  // l'étape de mise en forme qui l'accompagne.
+  type DocFontState = { ff: Record<string, unknown> | undefined; xml: string };
+  type DocFontStep = { before: DocFontState; after: DocFontState; depth: number };
+  let docFontDone: DocFontStep[] = [];
+  let docFontUndone: DocFontStep[] = [];
+  let docFontDepth = 0;
+  const historyDepth = (ed: Any): number => {
+    try {
+      const pl = (ed.state.plugins as Any[]).find((x) => x?.spec?.key?.key === 'history$' || x?.key === 'history$');
+      return Number(pl?.getState(ed.state)?.done?.eventCount ?? 0);
+    } catch {
+      return 0;
+    }
+  };
+  const docDefaultRunProps = (ed: Any): Any | null => ed?.converter?.translatedLinkedStyles?.docDefaults?.runProperties ?? null;
+  const readDocFont = (ed: Any): DocFontState => {
+    const ff = docDefaultRunProps(ed)?.fontFamily;
+    return { ff: ff && typeof ff === 'object' ? structuredClone(ff) : undefined, xml: stylesXml };
+  };
+  /** Écrit la police du document (objet w:rFonts complet) ; false si l'API documentaire l'a refusée. */
+  const writeDocFont = (ed: Any, ff: Record<string, unknown>): boolean => {
+    try {
+      const rp = docDefaultRunProps(ed);
+      // la fusion de styles.apply garde les clés existantes : on repart d'un objet vide pour écrire `ff` tel quel
+      if (rp) rp.fontFamily = {};
+      const r = ed.doc.styles.apply({ target: { scope: 'docDefaults', channel: 'run' }, patch: { fontFamily: ff } });
+      return r?.success !== false;
+    } catch (e) {
+      console.warn('police du document', e);
+      return false;
+    }
+  };
+  /** La police `name` devient celle du document (avec étape d'annulation). */
+  const setDocFont = (ed: Any, name: string) => {
+    const before = readDocFont(ed);
+    const cur = before.ff;
+    if (cur && !Object.keys(cur).some((k) => /Theme$|theme$/.test(k)) && ['ascii', 'hAnsi'].every((k) => cur[k] === name)) return;
+    if (!writeDocFont(ed, { ascii: name, hAnsi: name, eastAsia: name, cs: name })) return;
+    stylesXml = setDocDefaultFontXml(stylesXml, name);
+    const step = { before, after: readDocFont(ed), depth: historyDepth(ed) };
+    docFontDone.push(step);
+    docFontUndone = [];
+    docFontDepth = step.depth;
+    changed();
+  };
+  const restoreDocFont = (ed: Any, st: DocFontState) => {
+    writeDocFont(ed, st.ff ?? {});
+    stylesXml = st.xml;
+  };
+  docFontOnTransaction = (ed: Any, tr: Any) => {
+    const b = body();
+    if (!b || (ed && ed !== b) || (!docFontDone.length && !docFontUndone.length)) return;
+    const d = historyDepth(b);
+    const h = tr.getMeta?.('history$');
+    if (h && typeof h === 'object' && 'redo' in h) {
+      if (!h.redo) {
+        // Annuler : les étapes de police au-delà de la profondeur atteinte sont défaites
+        while (docFontDone.length && docFontDone[docFontDone.length - 1].depth > d) {
+          const st = docFontDone.pop()!;
+          restoreDocFont(b, st.before);
+          docFontUndone.push(st);
+        }
+      } else {
+        while (docFontUndone.length && docFontUndone[docFontUndone.length - 1].depth <= d) {
+          const st = docFontUndone.pop()!;
+          restoreDocFont(b, st.after);
+          docFontDone.push(st);
+        }
+      }
+    } else if (tr.docChanged) {
+      // nouvelle modification : plus de rétablissement possible ; l'historique a pu être tronqué (profondeur max)
+      docFontUndone = [];
+      if (d < docFontDepth) {
+        const shift = d - docFontDepth - 1;
+        docFontDone = docFontDone.map((st) => ({ ...st, depth: st.depth + shift })).filter((st) => st.depth > 0);
+      }
+    }
+    docFontDepth = d;
+  };
+  const resetDocFontHistory = () => {
+    docFontDone = [];
+    docFontUndone = [];
+    docFontDepth = 0;
+  };
+  /** Positions du premier et du dernier caractère de texte du corps (null : document sans texte). */
+  const textBounds = (doc: Any): { from: number; to: number } | null => {
+    let from = -1;
+    let to = -1;
+    doc.descendants((n: Any, pos: number) => {
+      if (n.isText) {
+        if (from < 0) from = pos;
+        to = pos + n.nodeSize;
+        return false;
+      }
+      return true;
+    });
+    return from < 0 ? null : { from, to };
+  };
+
   /** Police / taille posées depuis la barre (comme Word) :
    *  - curseur À L'INTÉRIEUR d'un mot : le mot entier change (rien ne serait enregistré sinon : une
    *    « marque en attente » ne vit que jusqu'à la prochaine frappe ou fermeture) ;
    *  - curseur ailleurs : le texte tapé ensuite (et la marque de paragraphe d'un paragraphe vide : SuperDoc) ;
    *  - sélection : le texte, et la marque de paragraphe (w:pPr/w:rPr) des paragraphes vides ou sélectionnés
    *    jusqu'au bout — sinon, après « Tout sélectionner », les paragraphes vides gardaient l'ancienne
-   *    police (barre d'outils et texte tapé ensuite), à l'écran comme à la réouverture. */
-  const applyRunFormat = (ed: Any, apply: () => void, rp: Record<string, unknown>) => {
-    const sel = ed.state.selection;
+   *    police (barre d'outils et texte tapé ensuite), à l'écran comme à la réouverture ;
+   *  - `docFont` (police) : choisie pour tout le document (tout sélectionné, ou document sans texte),
+   *    elle devient aussi la police du document (w:docDefaults), voir setDocFont. */
+  const applyRunFormat = (ed: Any, apply: () => void, rp: Record<string, unknown>, docFont?: string) => {
+    let sel = ed.state.selection;
+    // « Tout sélectionner » donne une AllSelection : taper par-dessus remplaçait alors tout le contenu par un
+    // paragraphe neuf, sans la police choisie. Même étendue, mais en sélection de texte (le premier run et
+    // son paragraphe survivent à la frappe, avec leur police).
+    if (sel.toJSON?.().type === 'all' && ed.state.doc.firstChild?.isTextblock && ed.state.doc.lastChild?.isTextblock) {
+      const TS = textSelClass(ed);
+      if (TS) {
+        const a = TS.atStart(ed.state.doc);
+        const b = TS.atEnd(ed.state.doc);
+        if (a && b) {
+          ed.view.dispatch(ed.state.tr.setSelection(TS.create(ed.state.doc, a.from, b.to)));
+          sel = ed.state.selection;
+        }
+      }
+    }
+    const bounds = textBounds(ed.state.doc);
+    const wholeDoc = !!docFont && (!bounds || (!sel.empty && sel.from <= bounds.from && sel.to >= bounds.to));
     if (sel.empty) {
       // (textSelClass seulement ici : sur une sélection non textuelle, il la réduirait à un curseur)
       const TS = textSelClass(ed);
       const w = wordAt(ed.state.doc, sel.from);
       if (!TS || !w || !(w.from < sel.from && sel.from < w.to)) {
         apply();
+        if (wholeDoc) {
+          // la marque en attente (texte tapé ensuite) survit à l'écriture dans styles.xml
+          const stored = ed.state.storedMarks;
+          setDocFont(ed, docFont!);
+          if (stored && !ed.state.storedMarks) ed.view.dispatch(ed.state.tr.setStoredMarks(stored));
+        }
         return;
       }
       const caret = sel.from;
@@ -1335,6 +1470,7 @@ export async function openDocEngine(host: HTMLElement, data: ArrayBuffer, opts: 
       });
       if (n) ed.view.dispatch(tr);
     });
+    if (wholeDoc) setDocFont(ed, docFont!);
   };
   /** Runs du paragraphe dont la mise en forme directe répète le style `styleId` : propriétés à retirer
    *  (propriétés du run et marques du texte : SuperDoc écrit l'une ou l'autre). */
@@ -1537,7 +1673,7 @@ export async function openDocEngine(host: HTMLElement, data: ArrayBuffer, opts: 
       const ed = body();
       if (!ed) return;
       const name = familyName(family) ?? family;
-      applyRunFormat(ed, () => ed.commands.setFontFamily(family), { fontFamily: { ascii: name, eastAsia: name, hAnsi: name, cs: name } });
+      applyRunFormat(ed, () => ed.commands.setFontFamily(family), { fontFamily: { ascii: name, eastAsia: name, hAnsi: name, cs: name } }, name);
       ed.view.focus();
     },
     setFontSize(pt) {

@@ -9,6 +9,8 @@
 //     texte tapé ensuite) ; curseur dans un mot + police → le mot ; quitter l'écrit tout de suite puis
 //     rouvrir, quitter l'app tout de suite puis relancer : même police à l'écran, dans la barre, dans le .docx.
 //  3. « Police des nouveaux écrits » : conservée au redémarrage (réglages de l'app).
+//  4. Police du document : écrit vide, « Tout sélectionner » + police, frappe, ⌘Q immédiat, relance → barre,
+//     texte et w:docDefaults dans la police ; nouveau paragraphe dans la police ; récentes conservées.
 //
 // Lancer (après `npx vite build`) : DISPLAY=:99 timeout 600 node scripts/test-electron-fonts.mjs
 // APP_DIR : dossier de l'app (défaut : ce dépôt). SHOTS : captures (défaut /home/claude/marginalia/shots/polices).
@@ -148,11 +150,14 @@ const openDraft = async () => {
   await page.waitForFunction(() => document.querySelector('.superdoc-page .superdoc-text-run'), null, { timeout: 30000 });
   await sleep(1800);
 };
-/** w:rFonts ascii du .docx enregistré (bibliothèque) : runs et marques de paragraphe. */
+/** w:rFonts ascii du .docx enregistré (bibliothèque) : runs (ou police du document) et marques de paragraphe. */
 function docxFonts() {
   const lib = path.join(TMP, '.config/Marginalia/library');
   const dir = fs.readdirSync(lib).find((d) => fs.existsSync(path.join(lib, d, 'document.docx')));
   const xml = execFileSync('unzip', ['-p', path.join(lib, dir, 'document.docx'), 'word/document.xml'], { encoding: 'utf8' });
+  // police du document (w:docDefaults) : celle des runs sans w:rFonts
+  const styles = execFileSync('unzip', ['-p', path.join(lib, dir, 'document.docx'), 'word/styles.xml'], { encoding: 'utf8' });
+  const docFont = /<w:rPrDefault>[\s\S]*?<w:rFonts\b[^>]*w:ascii="([^"]+)"/.exec(styles)?.[1] ?? null;
   const paras = (xml.match(/<w:p[ >][\s\S]*?<\/w:p>/g) ?? []).map((p) => ({
     text: (p.match(/<w:t(?: [^>]*)?>([^<]*)<\/w:t>/g) ?? []).map((t) => t.replace(/<[^>]+>/g, '')).join(''),
     mark: /<w:pPr>[\s\S]*?<w:rPr>[\s\S]*?w:ascii="([^"]+)"/.exec(p)?.[1] ?? null,
@@ -162,7 +167,12 @@ function docxFonts() {
     })),
   }));
   return {
-    fontOf: (needle) => paras.flatMap((p) => p.runs).find((r) => r.text.includes(needle))?.font ?? null,
+    /** Police effective du run : w:rFonts du run, sinon police du document. */
+    fontOf: (needle) => {
+      const r = paras.flatMap((p) => p.runs).find((r) => r.text.includes(needle));
+      return r ? r.font ?? docFont : null;
+    },
+    docFont,
     emptyMarks: paras.filter((p) => !p.text).map((p) => p.mark),
   };
 }
@@ -216,7 +226,7 @@ try {
   check('réouverture : texte peint dans les polices choisies', (await runFont('Premier')) === FONT_A && (await runFont('Second')) === FONT_B && (await runFont('Ajout')) === FONT_A);
   {
     const d = docxFonts();
-    check('.docx : runs avec w:rFonts choisis', d.fontOf('Premier') === FONT_A && d.fontOf('Second') === FONT_B && d.fontOf('Ajout') === FONT_A, { Premier: d.fontOf('Premier'), Second: d.fontOf('Second'), Ajout: d.fontOf('Ajout') });
+    check('.docx : runs dans les polices choisies (w:rFonts, ou police du document)', d.fontOf('Premier') === FONT_A && d.fontOf('Second') === FONT_B && d.fontOf('Ajout') === FONT_A, { Premier: d.fontOf('Premier'), Second: d.fontOf('Second'), Ajout: d.fontOf('Ajout') });
   }
 
   // ── 1. Favoris ──
@@ -290,6 +300,48 @@ try {
   await page.waitForSelector('.ed-engine-in .superdoc-page', { timeout: 60000 });
   await sleep(1500);
   check('nouvel écrit « Vide » : barre en Georgia', (await fontLabel()) === 'Georgia', await fontLabel());
+
+  // ── 4. Police du document : écrit vide, ⌘A + police, frappe, ⌘Q immédiat, relance ──
+  // (signalement : « elle remet Times New Roman quand je quitte l'app et la relance »)
+  const DOC = 'Police du document';
+  await page.evaluate((t) => {
+    const s = window.__store.getState();
+    s.patch('drafts', s.drafts.at(-1).id, { title: t });
+  }, DOC);
+  const pg2 = await page.locator('.superdoc-page').first().boundingBox();
+  await page.mouse.click(pg2.x + pg2.width / 2, pg2.y + 120);
+  await sleep(300);
+  await page.keyboard.press('Control+a');
+  await sleep(250);
+  await pickFont(FONT_A);
+  check(`écrit vide, ⌘A + ${FONT_A} : barre ${FONT_A}`, (await fontLabel()) === FONT_A, await fontLabel());
+  await page.keyboard.type('Ligne de la police du document.', { delay: 2 });
+  await sleep(400);
+  check(`écrit vide : texte tapé en ${FONT_A}`, (await runFont('Ligne de la')) === FONT_A, await runFont('Ligne de la'));
+  await quit();
+  await launch();
+  await list();
+  await page.locator('.ed-card', { hasText: DOC }).first().locator('.ed-card-open').click();
+  await page.waitForSelector('.ed-engine-in .superdoc-page', { timeout: 60000 });
+  await page.waitForFunction(() => document.querySelector('.superdoc-page .superdoc-text-run'), null, { timeout: 30000 });
+  await sleep(1800);
+  check(`relance : barre ${FONT_A} (curseur au début de l’écrit)`, (await fontLabel()) === FONT_A, await fontLabel());
+  check(`relance : texte peint en ${FONT_A}`, (await runFont('Ligne de la')) === FONT_A, await runFont('Ligne de la'));
+  {
+    const id = await page.evaluate((t) => window.__store.getState().drafts.find((d) => d.title === t)?.id, DOC);
+    const f = path.join(TMP, '.config/Marginalia/library', id, 'document.docx');
+    const st = execFileSync('unzip', ['-p', f, 'word/styles.xml'], { encoding: 'utf8' });
+    const dd = /<w:rPrDefault>[\s\S]*?<w:rFonts\b[^>]*w:ascii="([^"]+)"/.exec(st)?.[1] ?? null;
+    check(`relance : police du document (w:docDefaults) = ${FONT_A}`, dd === FONT_A, dd);
+  }
+  await caretAt('Ligne', 2);
+  await page.keyboard.press('End');
+  await page.keyboard.press('Enter');
+  await page.keyboard.type('Suite après relance', { delay: 2 });
+  await sleep(400);
+  check(`relance : nouveau paragraphe tapé en ${FONT_A}`, (await runFont('Suite après')) === FONT_A, await runFont('Suite après'));
+  const rec = await page.evaluate(() => window.__store.getState().settings.editorRecentFonts);
+  check(`relance : polices récentes conservées (${FONT_A} en tête)`, rec?.[0] === FONT_A && rec.includes(FONT_FAV), rec);
 } catch (e) {
   check('déroulement', false, String(e?.stack || e).slice(0, 800));
   await page?.screenshot({ path: path.join(SHOTS, 'echec.png') }).catch(() => {});

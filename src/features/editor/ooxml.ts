@@ -709,3 +709,27 @@ export function replaceThemeFonts(stylesXml: string, font: string): string {
   const el = mkEl('w:rFonts', { 'w:ascii': font, 'w:hAnsi': font, 'w:eastAsia': font, 'w:cs': font });
   return stylesXml.replace(/<w:rFonts\b[^>]*\b(?:asciiTheme|hAnsiTheme)\s*=[^>]*?\/?>(?:<\/w:rFonts>)?/g, el);
 }
+
+/**
+ * Police du document (w:docDefaults/w:rPrDefault/w:rFonts) remplacée par `font` dans styles.xml : les
+ * polices de thème de cet élément sont retirées (elles l'emporteraient dans Word). Crée les éléments manquants.
+ */
+export function setDocDefaultFontXml(stylesXml: string, font: string): string {
+  const rf = mkEl('w:rFonts', { 'w:ascii': font, 'w:hAnsi': font, 'w:eastAsia': font, 'w:cs': font });
+  const withRPr = (rPr: string): string => {
+    // <w:rPr/> ou <w:rPr>…</w:rPr> ; w:rFonts est le premier enfant de w:rPr (ordre du schéma)
+    const inner = /^<w:rPr\s*\/>$/.test(rPr) ? '' : rPr.replace(/^<w:rPr>/, '').replace(/<\/w:rPr>$/, '');
+    return `<w:rPr>${rf}${inner.replace(/<w:rFonts\b[^>]*?(?:\/>|>[\s\S]*?<\/w:rFonts>)/, '')}</w:rPr>`;
+  };
+  const dd = /<w:docDefaults\s*\/>|<w:docDefaults>[\s\S]*?<\/w:docDefaults>/.exec(stylesXml);
+  if (!dd) return stylesXml.replace(/(<w:styles\b[^>]*>)/, (m) => `${m}<w:docDefaults><w:rPrDefault><w:rPr>${rf}</w:rPr></w:rPrDefault></w:docDefaults>`);
+  let block = dd[0].replace(/^<w:docDefaults\s*\/>$/, '<w:docDefaults></w:docDefaults>');
+  const rd = /<w:rPrDefault\s*\/>|<w:rPrDefault>[\s\S]*?<\/w:rPrDefault>/.exec(block);
+  if (!rd) block = block.replace('<w:docDefaults>', `<w:docDefaults><w:rPrDefault><w:rPr>${rf}</w:rPr></w:rPrDefault>`);
+  else {
+    const rPr = /<w:rPr\s*\/>|<w:rPr>[\s\S]*?<\/w:rPr>/.exec(rd[0]);
+    const next = rPr ? rd[0].replace(rPr[0], () => withRPr(rPr[0])) : `<w:rPrDefault><w:rPr>${rf}</w:rPr></w:rPrDefault>`;
+    block = block.replace(rd[0], () => next);
+  }
+  return stylesXml.replace(dd[0], () => block);
+}

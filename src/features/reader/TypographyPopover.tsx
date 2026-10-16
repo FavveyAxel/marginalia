@@ -490,7 +490,9 @@ export function TypographyPopover({ anchor, onClose }: { anchor: DOMRect; onClos
               )}
             />
           )}
-          {d.layout === 'sheets' && <p className="rp-hint">En feuilles, chaque page porte aussi son folio en bas.</p>}
+          {d.layout !== 'scroll' && (
+            <p className="rp-hint">{d.layout === 'sheets' ? 'En feuilles' : 'Page par page'}, chaque page porte aussi son folio en bas.</p>
+          )}
         </Section>
 
         <Section id="theme" title="Thème" summary={THEMES.find((t) => t.id === s.theme)?.label} open={isOpen('theme')} onToggle={() => toggle('theme')}>

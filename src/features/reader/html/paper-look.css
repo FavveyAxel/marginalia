@@ -69,10 +69,10 @@
   background: var(--pl-grain) 0 0 / 256px 256px repeat;
 }
 /* Pied du volet (indicateur de page) : même teinte que la surface. */
-.reader-page:has(.paper-look:not([data-layout='sheets'])) {
+.reader-page:has(.paper-look[data-layout='scroll']) {
   background: var(--pl-base);
 }
-.reader-page:has(.paper-look:not([data-layout='sheets'])) .reader-pagejump-host {
+.reader-page:has(.paper-look[data-layout='scroll']) .reader-pagejump-host {
   background: var(--pl-grain) 0 0 / 256px 256px repeat, var(--pl-base);
 }
 

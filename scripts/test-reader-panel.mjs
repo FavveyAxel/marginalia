@@ -344,8 +344,9 @@ try {
   await waitHtml(page);
   st = await rootState(page);
   check(
-    st.layout === 'paged' && st.spread === 'single' && st.book && st.paper && st.pg === 'pg-number',
-    'après rechargement : data-layout=paged, data-spread=single, .book-layout, .paper-look, numéro seul',
+    // Page par page : pas de repères dans le texte (pg-off), le folio est en bas de chaque page ; le style choisi est gardé.
+    st.layout === 'paged' && st.spread === 'single' && st.book && st.paper && st.pg === 'pg-off' && st.s.pageMarks === 'number',
+    'après rechargement : data-layout=paged, data-spread=single, .book-layout, .paper-look, numéro seul gardé (folios en page par page)',
     st,
   );
   await page.click('[data-testid=reader-display-btn]');

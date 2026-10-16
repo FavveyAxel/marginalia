@@ -221,3 +221,10 @@
     font-size: 1.55em;
   }
 }
+
+/* Repères de page (filet, pastille, folio des feuilles) : contenus générés dans un paragraphe, ils
+   hériteraient de l'alinéa (text-indent) — pastille étirée, folio décentré. */
+.book-layout .pg-mark::before,
+.book-layout .pg-mark::after {
+  text-indent: 0;
+}

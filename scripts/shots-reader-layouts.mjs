@@ -43,16 +43,16 @@ await withApp(PORT, async (page, errors) => {
     await capture(c, `${pad(c.n)}-${c.slug}.png`, c.label, { errBefore, theme: c.theme, layout: c.layout.id });
   }
 
-  // Panneau « Affichage » ouvert : défaut et vitrine pages doubles.
+  // Panneau « Mise en page et affichage » ouvert : défaut et vitrine pages doubles.
   let n = all.length;
   const hero = (id) => all.find((c) => c.layout.id === id && c.bookLayout && c.paperLook && c.theme === 'light');
   for (const c of [all[0], hero('paged2')]) {
     n++;
     await applyCombo(page, c, { legacy });
     await showSpan(page, hl.span);
-    await page.click('.reader-topbar button[title="Affichage"]');
+    await page.click('[data-testid=reader-display-btn]');
     await page.waitForTimeout(600);
-    await capture(c, `${pad(n)}-reglages-${c.layout.id}.png`, `Réglages ouverts · ${c.label}`, { theme: c.theme, layout: c.layout.id });
+    await capture(c, `${pad(n)}-reglages-${c.layout.id}.png`, `Panneau « Mise en page et affichage » · ${c.label}`, { theme: c.theme, layout: c.layout.id });
     await page.keyboard.press('Escape');
     await page.waitForTimeout(250);
   }

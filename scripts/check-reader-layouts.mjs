@@ -50,7 +50,11 @@ const highlightState = (page, bookId) =>
         const cs = getComputedStyle(els[0]);
         const painted = !/rgba\(0, 0, 0, 0\)|transparent/.test(cs.backgroundColor) || cs.backgroundImage !== 'none' || cs.boxShadow !== 'none';
         const rendered = els.some((e) => e.getClientRects().length > 0) && cs.visibility !== 'hidden' && cs.display !== 'none';
-        return { id: h.id, ok: exact && painted && rendered, exact, painted, rendered, bg: cs.backgroundColor };
+        // Page par page : seul le chapitre lu est affiché (les autres sont display: none ou masqués) ;
+        // un surlignage d'un chapitre non affiché doit être exact et coloré, pas forcément peint à l'écran.
+        const chap = getComputedStyle(root.closest('.html-chapter') ?? root);
+        const shown = chap.display !== 'none' && chap.visibility !== 'hidden';
+        return { id: h.id, ok: exact && painted && (rendered || !shown), exact, painted, rendered, shown, bg: cs.backgroundColor };
       });
   }, bookId);
 

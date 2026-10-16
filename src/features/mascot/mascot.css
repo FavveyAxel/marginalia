@@ -15,6 +15,10 @@
   cursor: default;
   filter: drop-shadow(0 1px 1px rgba(40, 28, 10, 0.12));
 }
+.mascot-body {
+  width: 100%;
+  height: 100%;
+}
 .mascot-svg {
   display: block;
   overflow: visible;
@@ -29,7 +33,8 @@
   left: 0;
   top: 0;
   visibility: hidden;
-  max-width: 260px;
+  width: 260px;
+  box-sizing: border-box;
   padding: 9px 12px 8px;
   background: var(--bg-panel);
   color: var(--ink);
@@ -39,19 +44,35 @@
   font-family: var(--font-read);
   font-size: 13.5px;
   line-height: 1.4;
-  animation: mascot-pop 0.12s steps(2) both;
+  animation: mascot-pop 0.16s ease-out both;
 }
 .mascot-bubble::after {
   content: '';
   position: absolute;
-  bottom: -7px;
-  left: calc(var(--tail, 28px) - 6px);
   width: 11px;
   height: 11px;
   background: var(--bg-panel);
-  border-right: 1.5px solid color-mix(in srgb, #c9553a 70%, transparent);
-  border-bottom: 1.5px solid color-mix(in srgb, #c9553a 70%, transparent);
+  border: 0 solid color-mix(in srgb, #c9553a 70%, transparent);
   transform: rotate(45deg);
+}
+/* Pointe vers le personnage : sous la bulle (bulle au-dessus), ou sur le côté. */
+.mascot-bubble[data-side='top']::after {
+  bottom: -7px;
+  left: calc(var(--tail, 28px) - 6px);
+  border-right-width: 1.5px;
+  border-bottom-width: 1.5px;
+}
+.mascot-bubble[data-side='left']::after {
+  left: -7px;
+  top: calc(var(--tail, 22px) - 6px);
+  border-left-width: 1.5px;
+  border-bottom-width: 1.5px;
+}
+.mascot-bubble[data-side='right']::after {
+  right: -7px;
+  top: calc(var(--tail, 22px) - 6px);
+  border-right-width: 1.5px;
+  border-top-width: 1.5px;
 }
 .mascot-bubble p {
   margin: 0;

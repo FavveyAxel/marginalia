@@ -1,5 +1,5 @@
-// Compagnon : apparition sur un encadré, ancrage au bord (face, profil, dos), à-coups (~3 i/s), bulle
-// de citation, clic, musculature selon le nombre de documents, réglage « Jamais », absent du lecteur.
+// Compagnon : apparition sur un encadré, ancrage au bord (face, profil, dos), rythme des poses
+// (8 i/s en marchant, déplacement fluide), bulle de citation qui ne cache aucun texte, clic, musculature selon le nombre de documents, réglage « Jamais », absent du lecteur.
 // Port 5421. Lancer : timeout 400 node scripts/test-mascot.mjs
 import fs from 'node:fs';
 import { execSync } from 'node:child_process';
@@ -32,7 +32,7 @@ const anchor = (page, units) => page.evaluate((units) => {
   const c = perch.getBoundingClientRect();
   return { line: m.top + (units / 130) * m.height, edge: c.top, inside: m.left >= c.left - 1 && m.right <= c.right + 1 };
 }, units);
-const hold = (page, pose, view, facing) => page.evaluate(([p, v, f]) => window.__mascot.act(p, 400, undefined, v, f), [pose, view, facing]);
+const hold = (page, pose, view, facing) => page.evaluate(([p, v, f]) => window.__mascot.act(p, 120000, undefined, v, f), [pose, view, facing]);
 
 await withApp(5421, async (page, errors) => {
   await page.evaluate(() => window.__store.getState().updateSettings({ mascot: 'often', theme: 'light' }));
@@ -41,6 +41,7 @@ await withApp(5421, async (page, errors) => {
   await sleep(800);
   await page.evaluate(() => window.__mascot.appear());
   let g = await waitShown(page);
+  await page.evaluate(() => window.__mascot.calm());
   check(g.shown, 'accueil : le compagnon apparaît', g);
   check(/home-card/.test(g.perch ?? ''), 'il se pose sur une carte de l’accueil', g.perch);
   check(g.level === 0, 'niveau 0 avec 3 documents', g.level);
@@ -51,33 +52,118 @@ await withApp(5421, async (page, errors) => {
     check(Math.abs(a.line - a.edge) < 2 && a.inside, label, a);
   }
 
-  // à-coups : l'image ne change qu'environ 3 fois par seconde
+  // rythme : en marchant, ~8 poses par seconde et un déplacement fluide ; en lisant, ~4 poses par seconde
+  const sample = async (ms) => {
+    const out = [];
+    const t0 = Date.now();
+    while (Date.now() - t0 < ms) {
+      out.push(await page.evaluate(() => ({ f: window.__mascot.state().frame, tr: document.querySelector('.mascot').style.transform, pose: window.__mascot.state().pose })));
+      await sleep(15);
+    }
+    return out;
+  };
+  const changes = (a, k) => a.filter((v, i) => i && v[k] !== a[i - 1][k]).length;
+  await page.evaluate(() => { const el = window.__mascot.perchEl(); window.__mascot.perchOn(el, 6); window.__mascot.act('walk', 0, undefined, 'side', 1, 1); });
+  await sleep(700);
+  let smp = (await sample(1500)).filter((x) => x.pose === 'walk');
+  const fw = changes(smp, 'f') / 1.5;
+  const mv = changes(smp, 'tr') / 1.5;
+  check(fw >= 6 && fw <= 10, `marche : environ 8 poses par seconde (${fw.toFixed(1)}/s)`, fw);
+  check(mv >= 25, `marche : déplacement fluide (${mv.toFixed(0)} positions/s)`, mv);
   await hold(page, 'read', 'front'); await sleep(400);
-  const frames = [];
-  const t0 = Date.now();
-  while (Date.now() - t0 < 2000) { frames.push((await state(page)).frame); await sleep(40); }
-  const changes = frames.filter((f, i) => i && f !== frames[i - 1]).length;
-  check(changes >= 4 && changes <= 8, `environ 3 images par seconde (${changes} changements en 2 s)`, frames);
+  smp = await sample(2000);
+  const fr = changes(smp, 'f') / 2;
+  check(fr >= 3 && fr <= 5, `lecture : environ 4 poses par seconde (${fr.toFixed(1)}/s)`, fr);
   await shot(page, `${OUT}/app-accueil-lecture.png`);
 
-  // GIF : une petite vie complète, image par image (marche de profil, s'assoit, lit, coucou, s'en va)
+  // GIF : une petite vie complète (12 images par seconde)
   fs.rmSync('/tmp/mascot-gif', { recursive: true, force: true });
   fs.mkdirSync('/tmp/mascot-gif', { recursive: true });
-  const clip = await page.evaluate(() => { const st = window.__mascot.state(); const c = [...document.querySelectorAll('.home-card')].find((x) => x.className === st.perch).getBoundingClientRect(); return { x: Math.max(0, c.left - 10), y: Math.max(0, c.top - 170), width: Math.min(c.width + 20, 820), height: 250 }; });
-  await page.evaluate(() => {
+  await page.evaluate(() => { const el = window.__mascot.perchEl(); window.__mascot.perchOn(el, 20); });
+  const clip = await page.evaluate(() => { const c = window.__mascot.perchEl().getBoundingClientRect(); return { x: Math.max(0, c.left - 10), y: Math.max(0, c.top - 150), width: 520, height: 220 }; });
+  const walkTo = await page.evaluate(() => 150 / Math.max(1, window.__mascot.perchEl().getBoundingClientRect().width - 82));
+  await page.evaluate((walkTo) => {
     const s = window.__mascot;
-    // empilé à l'envers (chaque act passe devant)
-    s.act('walk', 3, undefined, 'back'); s.act('stand', 1, undefined, 'back');
-    s.act('sitwave', 5, 'hello', 'front');
-    s.act('read', 14, undefined, 'side', -1);
-    s.act('read', 14, undefined, 'front');
-    s.act('stand', 1, undefined, 'front');
-    s.act('walk', 0);
+    s.act('walk', 700, undefined, 'back'); s.act('stand', 300, undefined, 'back');
+    s.act('sitwave', 1500, 'hello', 'front');
+    s.act('read', 3500, undefined, 'side', -1);
+    s.act('read', 3500, undefined, 'front');
+    s.act('stand', 400, undefined, 'front');
+    s.act('walk', 0, undefined, undefined, undefined, walkTo);
+  }, walkTo);
+  const g0 = Date.now();
+  let gi = 0;
+  while (Date.now() - g0 < 15000) { const t = Date.now(); await page.screenshot({ path: `/tmp/mascot-gif/${String(gi++).padStart(4, '0')}.png`, clip }); await sleep(Math.max(0, 83 - (Date.now() - t))); }
+  globalThis.gifMs = Math.round(15000 / gi);
+
+  // la bulle ne cache rien : sur chaque carte de l'accueil, au début, au milieu et à la fin du bord
+  const covered = () => page.evaluate(() => {
+    const b = document.querySelector('.mascot-bubble');
+    if (!b) return { none: true };
+    const r = b.getBoundingClientRect();
+    const hits = [];
+    const tw = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+    let n;
+    while ((n = tw.nextNode())) {
+      if (!n.textContent.trim() || n.parentElement.closest('.mascot-layer')) continue;
+      const rg = document.createRange(); rg.selectNodeContents(n);
+      for (const q of rg.getClientRects()) if (q.width > 1 && q.right > r.left && q.left < r.right && q.bottom > r.top && q.top < r.bottom) hits.push(n.textContent.trim().slice(0, 30));
+    }
+    for (const el of document.querySelectorAll('button, a, input, img')) {
+      if (el.closest('.mascot-layer')) continue;
+      const q = el.getBoundingClientRect();
+      if (q.width * q.height > 30000) continue; // grandes cartes : couvrir leur fond ne cache rien
+      if (q.width > 1 && q.right > r.left && q.left < r.right && q.bottom > r.top && q.top < r.bottom && !hits.includes('[' + el.tagName + ']')) hits.push('[' + el.tagName + ']');
+    }
+    if (getComputedStyle(b).visibility === 'hidden') return { waiting: true, hits: [] };
+    return { hits, side: b.dataset.side, inView: r.left >= 0 && r.right <= innerWidth && r.top >= 0 && r.bottom <= innerHeight };
   });
-  for (let i = 0; i < 60; i++) { await page.screenshot({ path: `/tmp/mascot-gif/${String(i).padStart(3, '0')}.png`, clip }); await sleep(333); }
+  const cards = await page.evaluate(() => document.querySelectorAll('.home-card').length);
+  let spots = 0, clean = 0, shown = 0;
+  const bad = [];
+  for (let ci = 0; ci < cards; ci++) {
+    for (const fx of [0.02, 0.5, 0.95]) {
+      const ok = await page.evaluate(([ci, fx]) => {
+        const el = document.querySelectorAll('.home-card')[ci];
+        const r = el.getBoundingClientRect();
+        if (r.width < 90 || r.top < 90) return false;
+        window.__mascot.hush();
+        window.__mascot.perchOn(el, fx * (r.width - 70 - 12) + 6);
+        window.__mascot.act('stand', 120000, 'quote', 'front');
+        return true;
+      }, [ci, fx]);
+      if (!ok) continue;
+      await sleep(900);
+      const c = await covered();
+      spots++;
+      if (c.none) { bad.push({ ci, fx, err: 'pas de bulle' }); continue; }
+      if (c.waiting) { clean++; continue; }
+      shown++;
+      if (!c.hits.length && c.inView) clean++;
+      else bad.push({ ci, fx, ...c });
+    }
+  }
+  check(spots >= 9 && clean === spots, `bulle : ne cache aucun texte ni contrôle (${clean}/${spots} positions)`, bad);
+  check(shown >= spots * 0.75, `bulle : trouve une place libre presque partout (${shown}/${spots} affichées, les autres attendent)`, { shown, spots });
+  // le cas signalé : sur « À réviser aujourd'hui », sous le titre de la carte voisine
+  await page.evaluate(() => {
+    const el = document.querySelector('.home-review');
+    const r = el.getBoundingClientRect();
+    window.__mascot.hush();
+    window.__mascot.perchOn(el, r.width * 0.5);
+    window.__mascot.act('think', 120000, 'quote', 'front');
+  });
+  await sleep(600);
+  const c2 = await covered();
+  check(!c2.none && !c2.hits.length, `bulle sur « À réviser » : rien de caché${c2.waiting ? ' (elle attend une place)' : ''}`, c2);
+  // un clic : la bulle s'affiche toujours
+  await page.evaluate(() => { window.__mascot.hush(); window.__mascot.act('sit', 120000, 'poke', 'front'); });
+  await sleep(600);
+  check(await page.evaluate(() => getComputedStyle(document.querySelector('.mascot-bubble')).visibility === 'visible'), 'bulle demandée par un clic : toujours affichée');
+  await shot(page, `${OUT}/app-bulle-libre.png`);
 
   // bulle de citation
-  await page.evaluate(() => window.__mascot.act('think', 30, 'quote', 'front'));
+  await page.evaluate(() => { window.__mascot.hush(); window.__mascot.act('think', 120000, 'poke', 'front'); });
   await sleep(800);
   const bub = await page.evaluate(() => { const b = document.querySelector('.mascot-bubble'); if (!b) return null; const r = b.getBoundingClientRect(); return { text: b.textContent, vis: getComputedStyle(b).visibility, inView: r.left >= 0 && r.right <= innerWidth && r.top >= 0 }; });
   check(!!bub && bub.vis === 'visible' && /«/.test(bub.text), 'bulle de citation affichée', bub);
@@ -105,7 +191,7 @@ await withApp(5421, async (page, errors) => {
   await shot(page, `${OUT}/app-accueil-niveau3.png`);
   await addDocs(page, 60, 45);
   await sleep(800);
-  await page.evaluate(() => window.__mascot.act('flex', 400, 'flex', 'front'));
+  await page.evaluate(() => window.__mascot.act('flex', 120000, 'flex', 'front'));
   await sleep(900);
   check((await state(page)).level === 4, 'niveau 4 avec 105 documents');
   await shot(page, `${OUT}/app-accueil-niveau4.png`);
@@ -149,7 +235,7 @@ try {
   execSync(`python3 -c "
 from PIL import Image; import glob
 fr=[Image.open(f).convert('RGB') for f in sorted(glob.glob('/tmp/mascot-gif/*.png'))]
-fr[0].save('${OUT}/compagnon.gif', save_all=True, append_images=fr[1:], duration=333, loop=0, optimize=True)"`);
+fr[0].save('${OUT}/compagnon.gif', save_all=True, append_images=fr[1:], duration=${globalThis.gifMs ?? 83}, loop=0, optimize=True)"`);
   console.log('gif:', `${OUT}/compagnon.gif`);
 } catch (e) { console.log('gif impossible', e.message); }
 console.log(`\n${passed} OK, ${failed} échec(s)`);

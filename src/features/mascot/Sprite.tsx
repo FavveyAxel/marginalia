@@ -62,9 +62,9 @@ function rigFront(pose: Pose, f: number): Rig {
   switch (pose) {
     case 'walk': // de dos : il s'éloigne en se dandinant
       return {
-        arms: f % 2 ? [{ a: [21, 54], b: [16, 71], c: [18, 87] }, { a: [78, 54], b: [85, 71], c: [86, 85] }] : [{ a: [21, 54], b: [14, 71], c: [13, 85] }, { a: [78, 54], b: [83, 71], c: [81, 87] }],
-        legs: f % 2 ? [{ a: [42, 64], b: [42, 92], c: [42, 121] }, { a: [57, 64], b: [59, 90], c: [58, 116] }] : [{ a: [42, 64], b: [40, 90], c: [41, 116] }, { a: [57, 64], b: [57, 92], c: [57, 121] }],
-        lift: -1,
+        arms: Math.floor(f / 2) % 2 ? [{ a: [21, 54], b: [16, 71], c: [18, 87] }, { a: [78, 54], b: [85, 71], c: [86, 85] }] : [{ a: [21, 54], b: [14, 71], c: [13, 85] }, { a: [78, 54], b: [83, 71], c: [81, 87] }],
+        legs: Math.floor(f / 2) % 2 ? [{ a: [42, 64], b: [42, 92], c: [42, 121] }, { a: [57, 64], b: [59, 90], c: [58, 116] }] : [{ a: [42, 64], b: [40, 90], c: [41, 116] }, { a: [57, 64], b: [57, 92], c: [57, 121] }],
+        lift: f % 2 ? -1 : 0,
         gaze: [0, 0],
         feet: 'stand',
       };
@@ -104,7 +104,7 @@ function rigFront(pose: Pose, f: number): Rig {
     case 'doze':
       return { arms: edgeArms, legs: sitLegs(0), lift: f % 4 < 2 ? 0 : 0.6, gaze: [0, 0], feet: 'hang' };
     default:
-      return { arms: restArms, legs: standLegs, lift: f % 6 === 3 ? -1 : 0, gaze: [0, 0], feet: 'stand' };
+      return { arms: restArms, legs: standLegs, lift: f % 2 ? -0.8 : 0, gaze: [0, 0], feet: 'stand' };
   }
 }
 
@@ -116,23 +116,30 @@ function rigSide(pose: Pose, f: number): Rig {
   const sh: Pt = [50, 51];
   const shFar: Pt = [46, 51];
   if (pose === 'walk') {
-    const fwd: Limb = { a: hip, b: [58, 90], c: [64, 121] };
-    const back: Limb = { a: hip, b: [43, 90], c: [36, 121] };
-    const lifted: Limb = { a: hip, b: [57, 85], c: [53, 115] };
-    const plant: Limb = { a: hip, b: [49, 90], c: [48, 121] };
-    const handF: Pt = [62, 84];
-    const handB: Pt = [38, 84];
-    const handM: Pt = [50, 88];
-    switch (f % 4) {
-      case 0:
-        return { legs: [back, fwd], arms: [{ a: shFar, b: [52, 70], c: handF }, { a: sh, b: [44, 70], c: handB }], lift: 0, gaze: [1, 0], feet: 'stand' };
-      case 1:
-        return { legs: [lifted, plant], arms: [{ a: shFar, b: [47, 72], c: handM }, { a: sh, b: [51, 72], c: handM }], lift: -1.5, gaze: [1, 0], feet: 'stand' };
-      case 2:
-        return { legs: [fwd, back], arms: [{ a: shFar, b: [42, 70], c: handB }, { a: sh, b: [56, 70], c: handF }], lift: 0, gaze: [1, 0], feet: 'stand' };
-      default:
-        return { legs: [plant, lifted], arms: [{ a: shFar, b: [47, 72], c: handM }, { a: sh, b: [51, 72], c: handM }], lift: -1.5, gaze: [1, 0], feet: 'stand' };
-    }
+    // Cycle de marche en 8 images : chaque pied décrit une ellipse (en avant levé, en arrière posé),
+    // les bras balancent à l'opposé, le corps monte au passage des pieds.
+    const ph = (f % 8) / 8;
+    const leg = (p: number): Limb => {
+      const s = Math.sin(2 * Math.PI * p);
+      const c = Math.cos(2 * Math.PI * p);
+      const up = Math.max(0, c);
+      const fx = 50 + 13 * s;
+      const fy = 121 - 6 * up;
+      return { a: hip, b: [(50 + fx) / 2 + 3 + 4 * up, 90 - 4 * up], c: [fx, fy] };
+    };
+    const arm = (p: number, a: Pt): Limb => {
+      const s = Math.sin(2 * Math.PI * p);
+      return { a, b: [a[0] - 4 * s, 70], c: [50 - 12 * s, 86 - Math.abs(s) * 2] };
+    };
+    const near = ph;
+    const far = (ph + 0.5) % 1;
+    return {
+      legs: [leg(far), leg(near)],
+      arms: [arm(near, shFar), arm(far, sh)],
+      lift: -1.6 * (1 - Math.abs(Math.sin(2 * Math.PI * ph))),
+      gaze: [1, 0],
+      feet: 'stand',
+    };
   }
   if (isSeated(pose)) {
     // Assis de profil sur l'encadré (bord à y = 64) : le cerveau remonte de 8 pour laisser voir les
@@ -171,7 +178,7 @@ function rigSide(pose: Pose, f: number): Rig {
       { a: shFar, b: [46, 70], c: [46, 87] },
       { a: sh, b: [52, 70], c: [52, 88] },
     ],
-    lift: f % 6 === 3 ? -1 : 0,
+    lift: f % 2 ? -0.8 : 0,
     gaze: [1, 0],
     feet: 'stand',
   };
@@ -291,6 +298,7 @@ export function Sprite({
   facing = 1,
   title,
   halo,
+  blink: blinkProp,
 }: {
   pose: Pose;
   frame: number;
@@ -299,6 +307,8 @@ export function Sprite({
   facing?: 1 | -1;
   title?: string;
   halo?: string;
+  /** Clignement imposé (l'animation le déclenche) ; à défaut, de temps en temps selon l'image. */
+  blink?: boolean;
 }) {
   const uid = useId().replace(/:/g, '');
   if (pose === 'puff') return <Puff frame={frame} />;
@@ -310,7 +320,7 @@ export function Sprite({
   // De dos et assis : les jambes pendent de l'autre côté de l'encadré, on ne les voit pas.
   if (v === 'back' && isSeated(pose)) r.feet = 'none';
   const lw = W_LIMB[level];
-  const blink = pose === 'doze' || (pose !== 'read' && frame % 17 === 16);
+  const blink = pose === 'doze' || (blinkProp ?? (pose !== 'read' && frame % 17 === 16));
   const pulse = level >= 3 && frame % 2 === 0;
   const fill = FILL[level];
   const flip = side && facing === -1 ? `translate(${VB_W} 0) scale(-1 1)` : undefined;

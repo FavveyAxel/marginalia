@@ -168,8 +168,15 @@ function pickScene(page: Page): Scene {
   return list[0];
 }
 
-/** Une visite complète : arrivée, 2 ou 3 scènes, éventuellement un au revoir, départ. */
-export function buildVisit(page: Page, level: Level, flex: boolean, scenes = 2 + (chance(0.4) ? 1 : 0)): Act[] {
+/** Durée des visites (réglage, 0 à 4) : facteur appliqué au nombre de scènes et aux activités calmes. */
+export const STAY = [0.4, 0.7, 1, 1.7, 3];
+export const STAY_LABELS = ['Très courte', 'Courte', 'Normale', 'Longue', 'Très longue'];
+/** Durée approximative d'une visite, pour l'affichage. */
+export const STAY_HINT = ['une quinzaine de secondes', 'environ 25 secondes', 'environ 45 secondes', 'près de 2 minutes', 'environ 3 minutes et demie'];
+const POSES_CALMES = new Set<Pose>(['sit', 'read', 'doze', 'guitar', 'write', 'cigar', 'whistle']);
+
+/** Une visite complète : arrivée, des scènes (plus ou moins selon la durée choisie), au revoir, départ. */
+export function buildVisit(page: Page, level: Level, flex: boolean, stay = 1, scenes = Math.max(1, Math.min(7, Math.round((2 + (chance(0.4) ? 1 : 0)) * stay)))): Act[] {
   const q: Act[] = [{ pose: 'puff', ms: 300 }, { pose: 'stand', ms: 450, view: 'front' }];
   if (flex) q.push({ pose: 'flex', ms: 2600, say: 'flex' });
   else if (chance(0.45)) q.push({ pose: 'wave', ms: 1400, say: chance(0.5) ? 'hello' : undefined });
@@ -178,6 +185,9 @@ export function buildVisit(page: Page, level: Level, flex: boolean, scenes = 2 +
     q.push(...pickScene(page).acts(level));
     if (level >= 2 && chance(0.15)) q.push({ pose: 'flex', ms: 1800 });
   }
+  // Activités calmes plus ou moins longues selon la durée choisie (les gestes et la parole ne changent pas).
+  const k = Math.max(0.6, Math.min(2, stay));
+  for (const a of q) if (POSES_CALMES.has(a.pose) && a.ms > 2500) a.ms = Math.round(a.ms * k);
   if (chance(0.35)) q.push({ pose: 'wave', ms: 1600, say: 'bye' });
   // Il s'en va : demi-tour, quelques pas de dos, puis un petit nuage.
   q.push({ pose: 'stand', ms: 300, view: 'back' }, { pose: 'walk', ms: 700, view: 'back' }, { pose: 'puff', ms: 300, leave: true });

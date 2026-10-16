@@ -14,6 +14,8 @@ import {
   Printer,
   ShieldCheck,
   Smile,
+  MessageCircle,
+  Hourglass,
   Timer,
   TriangleAlert,
 } from 'lucide-react';
@@ -24,6 +26,7 @@ import { fmtKeys } from '../../lib/keys';
 import { machine, normKeyPart, refreshSecurity, useSecurity } from './state';
 import { Sprite } from '../mascot/Sprite';
 import { LEVEL_STEPS, MASCOT_DEFAULT, levelFor, type MascotFreq } from '../mascot/Mascot';
+import { STAY_HINT, STAY_LABELS } from '../mascot/scenes';
 import './security.css';
 
 const DELAYS: { v: number; label: string }[] = [
@@ -815,6 +818,8 @@ function MascotSettings() {
   const freq = useStore((s) => s.settings.mascot ?? MASCOT_DEFAULT);
   const docs = useStore((s) => s.books.length + s.drafts.length);
   const update = useStore((s) => s.updateSettings);
+  const stay = useStore((s) => s.settings.mascotStay ?? 2);
+  const silent = useStore((s) => !!s.settings.mascotSilent);
   const level = levelFor(docs);
   const next = LEVEL_STEPS[level + 1];
   const halo = document.documentElement.dataset.theme === 'dark' ? '#e9dfcc' : undefined;
@@ -843,6 +848,52 @@ function MascotSettings() {
                 </button>
               ))}
             </div>
+          </div>
+        </li>
+        <li className={`set-row sub set-talk ${freq === 'off' ? 'is-off' : ''}`}>
+          <span className="set-icon" aria-hidden="true">
+            <MessageCircle size={15} />
+          </span>
+          <div className="set-body">
+            <span className="set-title">Bulles de dialogue</span>
+            <span className="set-desc">{silent ? 'Il ne dit rien : il lit, joue et se promène en silence.' : 'Citations, blagues et petites remarques de temps en temps.'}</span>
+          </div>
+          <div className="set-control">
+            <Switch on={!silent} onChange={(v) => update({ mascotSilent: !v })} label="Bulles de dialogue du compagnon" disabled={freq === 'off'} />
+          </div>
+        </li>
+        <li className={`set-row sub set-stay ${freq === 'off' ? 'is-off' : ''}`}>
+          <span className="set-icon" aria-hidden="true">
+            <Hourglass size={15} />
+          </span>
+          <div className="set-body">
+            <label className="set-title" htmlFor="set-mascot-stay">
+              Durée des visites
+            </label>
+            <span className="set-desc">
+              {STAY_LABELS[stay]} : il reste {STAY_HINT[stay]} avant de repartir.
+            </span>
+          </div>
+          <div className="set-control set-range-wrap">
+            <span className="set-range-end" aria-hidden="true">
+              Courte
+            </span>
+            <input
+              id="set-mascot-stay"
+              className="set-range"
+              type="range"
+              min={0}
+              max={4}
+              step={1}
+              value={stay}
+              disabled={freq === 'off'}
+              aria-valuetext={STAY_LABELS[stay]}
+              style={{ ['--p' as string]: `${stay * 25}%` }}
+              onChange={(e) => update({ mascotStay: Number(e.target.value) })}
+            />
+            <span className="set-range-end" aria-hidden="true">
+              Longue
+            </span>
           </div>
         </li>
       </ul>

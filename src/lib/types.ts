@@ -570,6 +570,10 @@ export interface Settings {
   newDraftFont?: string;
   /** Compagnon (petit cerveau qui passe sur l'interface) : fréquence de ses visites. Défaut : « parfois ». */
   mascot?: 'off' | 'rare' | 'sometimes' | 'often';
+  /** Compagnon : durée de ses visites, de 0 (très courte) à 4 (très longue). Défaut : 2 (normale). */
+  mascotStay?: number;
+  /** Compagnon : ne dit jamais rien (aucune bulle). Défaut : non. */
+  mascotSilent?: boolean;
 }
 
 export interface Database {

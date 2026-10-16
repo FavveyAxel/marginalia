@@ -223,6 +223,40 @@ await withApp(5421, async (page, errors) => {
   await page.locator('#set-mascot').scrollIntoViewIfNeeded();
   await shot(page, `${OUT}/app-reglages.png`);
 
+  // durée des visites : curseur à cinq crans, réglage enregistré, visites plus ou moins longues
+  await page.locator('[aria-label="Visites du compagnon"] button', { hasText: 'Parfois' }).click();
+  const slider = page.locator('#set-mascot-stay');
+  check((await slider.count()) === 1 && (await slider.inputValue()) === '2', 'réglages : curseur « Durée des visites », normale par défaut');
+  await slider.fill('4');
+  await sleep(200);
+  check((await page.evaluate(() => window.__store.getState().settings.mascotStay)) === 4, 'curseur sur « Très longue » : réglage enregistré');
+  check(/Très longue/.test(await page.locator('.set-stay .set-desc').textContent()), 'le libellé suit le curseur');
+  await page.locator('#set-mascot-stay').scrollIntoViewIfNeeded();
+  await shot(page, `${OUT}/app-reglages-duree.png`);
+  const lens = await page.evaluate(() => [0, 1, 2, 3, 4].map((i) => Math.round(window.__mascot.visitMs(i) / 1000)));
+  check(lens.every((v, i) => !i || v > lens[i - 1]), `visites de plus en plus longues d’un cran à l’autre (${lens.join(' s, ')} s)`, lens);
+  check(lens[4] >= lens[0] * 8, `très longue au moins 8 fois plus longue que très courte`, lens);
+  // sans bulles : il fait ses gestes mais ne dit rien, même quand on clique sur lui
+  const talk = page.locator('[aria-label="Bulles de dialogue du compagnon"]');
+  check((await talk.getAttribute('aria-checked')) === 'true', 'bulles de dialogue activées par défaut');
+  await talk.click();
+  check((await page.evaluate(() => window.__store.getState().settings.mascotSilent)) === true, 'interrupteur « Bulles de dialogue » : parole coupée');
+  await page.evaluate(() => window.__store.getState().navigate({ name: 'home' }));
+  await sleep(800);
+  await page.evaluate(() => window.__mascot.appear());
+  await page.waitForFunction(() => window.__mascot.state().visible, null, { timeout: 15000 });
+  await page.evaluate(() => { const m = window.__mascot; m.calm(); m.act('think', 4000, 'quote', 'front'); m.act('stand', 3000, 'joke', 'front'); });
+  await sleep(1500);
+  const box2 = await page.locator('.mascot').boundingBox();
+  await page.mouse.click(box2.x + box2.width / 2, box2.y + box2.height * 0.3);
+  await sleep(1200);
+  check((await page.locator('.mascot-bubble').count()) === 0, 'sans bulles : aucune bulle, même après un clic');
+  await page.evaluate(() => window.__store.getState().updateSettings({ mascotSilent: false }));
+  await page.evaluate(() => window.__store.getState().navigate({ name: 'settings' }));
+  await sleep(600);
+  await page.locator('[aria-label="Visites du compagnon"] button', { hasText: 'Jamais' }).click();
+  check(await slider.isDisabled(), 'curseur désactivé quand le compagnon est sur « Jamais »');
+
   // lecteur : jamais
   await page.locator('[aria-label="Visites du compagnon"] button', { hasText: 'Souvent' }).click();
   await page.evaluate(async (b64) => { const bin = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0)); const [b] = await window.__store.getState().importFiles([{ name: 'm.epub', data: bin.buffer }], { asBook: true }); window.__store.getState().openBook(b.id); }, Buffer.from(await epubFrench()).toString('base64'));

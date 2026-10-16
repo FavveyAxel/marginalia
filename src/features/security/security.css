@@ -191,3 +191,31 @@
 .set-mascot { align-items: center; }
 .set-mascot-sprite { flex: none; width: 46px; height: 60px; margin: -6px 4px -8px -4px; }
 @media (max-width: 720px) { .set-mascot { flex-wrap: wrap; } }
+
+/* Compagnon : durée des visites (curseur à cinq crans) */
+.set-stay.is-off,
+.set-talk.is-off { opacity: 0.55; }
+.set-range-wrap { display: flex; align-items: center; gap: 10px; }
+.set-range-end { font-size: 12px; color: var(--ink-2); }
+.set-range {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 180px;
+  height: 4px;
+  border-radius: 4px;
+  background: linear-gradient(to right, var(--ink-2) var(--p, 50%), var(--bg-active) var(--p, 50%));
+  outline: none;
+  cursor: pointer;
+}
+.set-range:disabled { cursor: default; }
+.set-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--bg-panel);
+  border: 1px solid var(--border-strong);
+  box-shadow: var(--shadow-sm);
+}
+.set-range:focus-visible::-webkit-slider-thumb { outline: 2px solid var(--focus); outline-offset: 2px; }
+@media (max-width: 720px) { .set-range { width: 120px; } }

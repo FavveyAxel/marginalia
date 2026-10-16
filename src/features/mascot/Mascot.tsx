@@ -12,7 +12,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useStore } from '../../lib/store';
 import { Sprite, anchorOf, isSeated, VB_H, VB_W, type Level, type Pose, type View } from './Sprite';
 import { CONTEXT, FLEX, HELLO, JOKES, PONDER, POKE, BYE, QUOTES, GUITAR, WHISTLE, WRITE, CIGAR, pick, type Ctx } from './lines';
-import { ALL_PERCHES, PERCHES, buildVisit, sceneActs, sceneCount, type Act, type Hop, type Page, type Say } from './scenes';
+import { ALL_PERCHES, PERCHES, STAY, buildVisit, sceneActs, sceneCount, type Act, type Hop, type Page, type Say } from './scenes';
 import './mascot.css';
 
 export type MascotFreq = 'off' | 'rare' | 'sometimes' | 'often';
@@ -408,6 +408,12 @@ function put(el: HTMLElement, k: string, v: string) {
 export function Mascot({ route, workspaceId }: { route: string; workspaceId?: string }) {
   const freq: MascotFreq = useStore((s) => s.settings.mascot ?? MASCOT_DEFAULT);
   const docs = useStore((s) => s.books.length + s.drafts.length);
+  const stay = useStore((s) => s.settings.mascotStay ?? 2);
+  const stayRef = useRef(stay);
+  stayRef.current = stay;
+  const silent = useStore((s) => !!s.settings.mascotSilent);
+  const silentRef = useRef(silent);
+  silentRef.current = silent;
   const level = levelFor(docs);
   const [, setTick] = useState(0);
   const wrap = useRef<HTMLDivElement>(null);
@@ -464,6 +470,14 @@ export function Mascot({ route, workspaceId }: { route: string; workspaceId?: st
     setTick((t) => t + 1);
     wakeRef.current();
   }, [route, freq]);
+
+  // Parole coupée dans les réglages : la bulle en cours disparaît.
+  useEffect(() => {
+    if (!silent) return;
+    st.current.bubble = null;
+    st.current.bubblePos = null;
+    setTick((t) => t + 1);
+  }, [silent]);
 
   // Il gagne un niveau : il vient le montrer.
   useEffect(() => {
@@ -542,7 +556,8 @@ export function Mascot({ route, workspaceId }: { route: string; workspaceId?: st
       const now = performance.now();
       if (!still && isSeated(a.pose) && !wasSeated) s.squash = { t0: now, dur: 260, k: 0.1 };
       if (!still && a.pose === 'stand' && s.anchor < 100) s.squash = { t0: now, dur: 220, k: -0.06 };
-      if (a.say) {
+      // Réglage « sans bulles » : il fait ses gestes, mais ne dit rien.
+      if (a.say && !silentRef.current) {
         s.bubble = bubbleFor(a.say, ctxFor(page, s.perch, level, workspaceId));
         s.bubbleId++;
         s.bubbleForced = a.say === 'poke';
@@ -572,7 +587,7 @@ export function Mascot({ route, workspaceId }: { route: string; workspaceId?: st
         applyScale(scaleFor(el.getBoundingClientRect().width));
         s.x = found!.x;
         s.facing = Math.random() < 0.5 ? 1 : -1;
-        s.queue = buildVisit(page, level, s.pendingFlex);
+        s.queue = buildVisit(page, level, s.pendingFlex, STAY[stayRef.current] ?? 1);
         s.pendingFlex = false;
         s.visible = true;
         s.pose = 'puff';
@@ -912,6 +927,12 @@ export function Mascot({ route, workspaceId }: { route: string; workspaceId?: st
         wakeRef.current();
       },
       page: () => pageOf(route),
+      /** Durée moyenne d'une visite (ms, sans compter la marche) pour un cran du réglage. */
+      visitMs: (idx: number, n = 200) => {
+        let t = 0;
+        for (let i = 0; i < n; i++) t += buildVisit(pageOf(route), level, false, STAY[idx]).reduce((a, x) => a + x.ms, 0);
+        return t / n;
+      },
       spotInfo: (el: HTMLElement) => {
         const rw = el.getBoundingClientRect().width;
         const k = scaleFor(rw);

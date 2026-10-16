@@ -420,6 +420,10 @@
 .pg-mark {
   pointer-events: none;
 }
+/* Espaceur d'alinéa après une coupure de feuille (book-layout.css) : invisible ailleurs. */
+.pg-indent {
+  display: none;
+}
 /* Le trait : un filet fin sur toute la largeur du texte, estompé aux deux bouts. */
 .pg-mark::before {
   content: '';

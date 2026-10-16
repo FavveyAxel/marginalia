@@ -201,15 +201,18 @@
   max-width: calc(min(var(--html-measure, 66ch), var(--book-measure)) + 2 * var(--sheet-px));
 }
 /* Feuille qui commence entre deux paragraphes : le repère (premier enfant du paragraphe) n'a plus
-   de marge de paragraphe à absorber (voir html-reader.css), et il devient un flottant pleine largeur
-   plutôt qu'un bloc. En bloc, il ferait du texte qui le suit un bloc anonyme, dont la première ligne
-   ne prend pas l'alinéa ; flottant, il pousse la première ligne du paragraphe sous lui, et celle-ci
-   garde son retrait. (Au milieu d'un paragraphe, .pg-inline reste un bloc : la phrase reprend en
-   haut de la feuille suivante sans retrait, comme il se doit.) */
+   de marge de paragraphe à absorber (voir html-reader.css). Il reste un bloc (la coupure) ; le texte
+   qui le suit formant un bloc anonyme sans alinéa, l'espaceur vide .pg-indent inséré juste après
+   (HtmlReader, insertPageMarks) prend la largeur de l'alinéa quand le paragraphe en a un.
+   (Ancienne version : repère flottant pleine largeur — la première ligne pouvait se placer à côté,
+   hors de la feuille.) */
 .book-layout[data-layout='sheets'] .pg-mark.pg-block:not(.pg-chap):not(.pg-start) {
-  float: left;
-  width: 100%;
   margin-top: 0;
+}
+.book-layout[data-layout='sheets'] .html-chapter-text p:not([data-blank], [data-verse], [data-verse] p, :has(> br ~ br)) + p:not([data-verse], [data-verse] p, :has(> br ~ br)) > .pg-mark.pg-block + .pg-indent,
+.book-layout[data-layout='sheets'] .html-chapter-text p:not([data-blank], [data-verse], [data-verse] p, :has(> br ~ br)) + :is(span, a):empty + p:not([data-verse], [data-verse] p, :has(> br ~ br)) > .pg-mark.pg-block + .pg-indent {
+  display: inline-block;
+  width: var(--book-indent);
 }
 
 @container html-reader (max-width: 560px) {

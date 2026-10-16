@@ -148,6 +148,16 @@ function insertPageMarks(
         starts[k] = eff;
       }
       at.parentNode!.insertBefore(el, at);
+      // Feuilles + mise en page livre : la coupure entre deux paragraphes est un bloc ; le texte qui
+      // la suit perd l'alinéa du paragraphe. Un espaceur vide (rien dans le textContent) le rétablit
+      // quand le paragraphe en a un (book-layout.css). Remplace l'ancien flottant, qui pouvait laisser
+      // la première ligne de la page suivante sortir de la feuille.
+      if (blockStart && !el.classList.contains('pg-chap') && !el.classList.contains('pg-start')) {
+        const ind = document.createElement('span');
+        ind.className = 'pg-indent';
+        ind.setAttribute('aria-hidden', 'true');
+        at.parentNode!.insertBefore(ind, at);
+      }
     }
     out.push(el);
   }

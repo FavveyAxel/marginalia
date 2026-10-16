@@ -126,16 +126,35 @@ function perches(page: Page, avoid: HTMLElement | null = null) {
   return found.length || page === 'other' ? found : [...document.querySelectorAll<HTMLElement>(ALL_PERCHES)].filter((el) => el !== avoid && edgeOk(el, true));
 }
 
-function findPerch(page: Page) {
-  const all = perches(page);
-  return all.length ? all[randInt(all.length)] : null;
+/** Encadré d'arrivée et place sur son bord : parmi quelques encadrés tirés au hasard, celui où sa
+ *  silhouette cache le moins de choses. */
+function findPerch(page: Page): { el: HTMLElement; x: number } | null {
+  const all = perches(page).sort(() => Math.random() - 0.5).slice(0, 8);
+  let best: { el: HTMLElement; x: number; covered: number } | null = null;
+  for (const el of all) {
+    const rw = el.getBoundingClientRect().width;
+    const k = scaleFor(rw);
+    const spot = bestX(el, k, 6 + Math.random() * Math.max(0, rw - VB_W * k - 12));
+    if (!best || spot.covered < best.covered) best = { el, ...spot };
+    if (spot.covered === 0) break;
+  }
+  // Aucune place où il ne cache rien : il ne vient pas (il réessaiera plus tard).
+  return best && best.covered === 0 ? best : null;
 }
 
-/** Cible d'un saut : un encadré précis, ou le plus proche (au hasard parmi les trois plus proches). */
-function hopTarget(page: Page, from: HTMLElement, h: Hop): HTMLElement | null {
+/** Place libre sur le bord d'un encadré (sa silhouette n'y cache rien), ou null s'il n'y en a pas. */
+function freeSpot(el: HTMLElement, prefer?: number): { el: HTMLElement; x: number } | null {
+  const rw = el.getBoundingClientRect().width;
+  const k = scaleFor(rw);
+  const spot = bestX(el, k, prefer ?? 6 + Math.random() * Math.max(0, rw - VB_W * k - 12));
+  return spot.covered === 0 ? { el, x: spot.x } : null;
+}
+
+/** Cible d'un saut : un encadré précis, ou l'un des plus proches ; toujours avec une place libre. */
+function hopTarget(page: Page, from: HTMLElement, h: Hop): { el: HTMLElement; x: number } | null {
   if (h.sel) {
     const el = [...document.querySelectorAll<HTMLElement>(h.sel)].find((e) => edgeOk(e, true)) ?? null;
-    return el === from ? null : el;
+    return el && el !== from ? freeSpot(el) : null;
   }
   const fr = from.getBoundingClientRect();
   const c = (q: DOMRect) => [q.left + q.width / 2, q.top] as const;
@@ -146,9 +165,14 @@ function hopTarget(page: Page, from: HTMLElement, h: Hop): HTMLElement | null {
       return { el, d: Math.hypot(x - fx, (y - fy) * 1.4) };
     })
     .sort((a, b) => a.d - b.d);
-  if (!all.length) return null;
-  const pool = h.near ? all.slice(0, 3).filter((o) => o.d < 900) : all;
-  return (pool.length ? pool : all)[randInt(Math.min(pool.length || all.length, 3))].el;
+  const pool = h.near ? all.filter((o) => o.d < 900).slice(0, 6) : all.sort(() => Math.random() - 0.5).slice(0, 8);
+  // les plus proches d'abord, avec un peu de hasard entre voisins
+  pool.sort((a, b) => a.d * (0.8 + Math.random() * 0.4) - b.d * (0.8 + Math.random() * 0.4));
+  for (const o of pool) {
+    const spot = freeSpot(o.el);
+    if (spot) return spot;
+  }
+  return null;
 }
 
 /** Contexte de la phrase : la page, l'heure, la bibliothèque, et ce sur quoi il est assis. */
@@ -294,6 +318,41 @@ function cover(obs: Box[], l: number, t: number, w: number, h: number) {
   return a;
 }
 
+/** Surface recouverte (pondérée), sans contrainte d'écran. */
+function overlap(obs: Box[], l: number, t: number, w: number, h: number) {
+  let a = 0;
+  for (const o of obs) {
+    const x = Math.min(l + w, o.r) - Math.max(l, o.l);
+    const y = Math.min(t + h, o.b) - Math.max(t, o.t);
+    if (x > 0 && y > 0) a += x * y * o.w;
+  }
+  return a;
+}
+
+/** Où se mettre le long du bord d'un encadré pour que sa silhouette (debout, la plus haute) ne cache
+ *  rien au-dessus : on essaie les positions tous les 10 px et on garde la plus libre, la plus proche
+ *  de `prefer`. Renvoie l'abscisse (depuis le bord gauche de l'encadré) et ce qui reste caché. */
+function bestX(perch: HTMLElement, k: number, prefer: number): { x: number; covered: number } {
+  const r = perch.getBoundingClientRect();
+  const w = VB_W * k;
+  const h = 124 * k;
+  const max = Math.max(6, r.width - w - 6);
+  // seuls le texte et les petits contrôles comptent : couvrir le fond vide d'une carte ne cache rien
+  // (l'encadré lui-même et son contenu ne comptent pas : ils sont sous ses pieds)
+  const inside = (o: Box) => o.l >= r.left - 4 && o.r <= r.right + 4 && o.t >= r.top - 4 && o.b <= r.bottom + 4;
+  const obs = nearObstacles({ l: r.left, t: r.top - h, r: r.right, b: r.top, w: 0 }).filter((o) => o.w === 1 && !inside(o) && o.b > r.top - h && o.t < r.top - 1);
+  let best = { x: Math.max(6, Math.min(prefer, max)), covered: Infinity, cost: Infinity };
+  const step = Math.max(10, (max - 6) / 60);
+  for (let x = 6; x <= max + 0.1; x += step) {
+    // silhouette : le cerveau (large) en haut, le corps plus étroit en bas
+    const a =
+      overlap(obs, r.left + x + w * 0.1, r.top - h + 3 * k, w * 0.8, 66 * k) + overlap(obs, r.left + x + w * 0.25, r.top - h + 66 * k, w * 0.5, h - 66 * k - 2);
+    const cost = a * 20 + Math.abs(x - prefer) * 0.5;
+    if (cost < best.cost) best = { x, covered: a, cost };
+  }
+  return { x: best.x, covered: best.covered };
+}
+
 type Spot = { l: number; t: number; side: Side; tail: number };
 const BUBBLE_WIDTHS = [260, 340, 210];
 
@@ -435,12 +494,12 @@ export function Mascot({ route, workspaceId }: { route: string; workspaceId?: st
       if (!a) return vanish(s, between(GAP[freq as Exclude<MascotFreq, 'off'>]));
       // Saut : on choisit l'encadré d'arrivée ; s'il n'y en a pas (ou qu'il y est déjà), on passe.
       if (a.hop) {
-        const to = s.perch ? hopTarget(page, s.perch, a.hop) : null;
-        if (!to || !s.perch) return start(s, s.queue.shift());
+        const spot = s.perch ? hopTarget(page, s.perch, a.hop) : null;
+        if (!spot || !s.perch) return start(s, s.queue.shift());
+        const to = spot.el;
         const tr = to.getBoundingClientRect();
         const fr = s.perch.getBoundingClientRect();
-        const tw = VB_W * scaleFor(tr.width);
-        const tx = 6 + Math.random() * Math.max(0, tr.width - tw - 12);
+        const tx = spot.x;
         const dx = tr.left + tx - (fr.left + s.x);
         const dy = tr.top - fr.top;
         const dist = Math.hypot(dx, dy);
@@ -458,7 +517,7 @@ export function Mascot({ route, workspaceId }: { route: string; workspaceId?: st
       }
       if (a.walkTo != null && s.perch) {
         const max = Math.max(0, s.perch.getBoundingClientRect().width - W - 12);
-        s.target = 6 + a.walkTo * max;
+        s.target = bestX(s.perch, SCALE, 6 + a.walkTo * max).x;
         const dir: 1 | -1 = s.target >= s.x ? 1 : -1;
         if (still) s.x = s.target;
         // Avant de marcher : il se tourne d'abord vers où il va.
@@ -503,14 +562,15 @@ export function Mascot({ route, workspaceId }: { route: string; workspaceId?: st
         if (now - lastCheck < 400) return changed;
         lastCheck = now;
         if (document.hidden || Date.now() < s.next) return changed;
-        const el = findPerch(page);
+        const found = findPerch(page);
+        const el = found?.el;
         if (!el) {
           s.next = Date.now() + 8000;
           return changed;
         }
         s.perch = el;
         applyScale(scaleFor(el.getBoundingClientRect().width));
-        s.x = 6 + Math.random() * Math.max(0, el.getBoundingClientRect().width - W - 12);
+        s.x = found!.x;
         s.facing = Math.random() < 0.5 ? 1 : -1;
         s.queue = buildVisit(page, level, s.pendingFlex);
         s.pendingFlex = false;
@@ -852,6 +912,17 @@ export function Mascot({ route, workspaceId }: { route: string; workspaceId?: st
         wakeRef.current();
       },
       page: () => pageOf(route),
+      spotInfo: (el: HTMLElement) => {
+        const rw = el.getBoundingClientRect().width;
+        const k = scaleFor(rw);
+        const r = el.getBoundingClientRect();
+        const h = 124 * k;
+        // (l'encadré lui-même et son contenu ne comptent pas : ils sont sous ses pieds)
+  const inside = (o: Box) => o.l >= r.left - 4 && o.r <= r.right + 4 && o.t >= r.top - 4 && o.b <= r.bottom + 4;
+  const obs = nearObstacles({ l: r.left, t: r.top - h, r: r.right, b: r.top, w: 0 }).filter((o) => o.w === 1 && !inside(o) && o.b > r.top - h && o.t < r.top - 1);
+        return { k, spot: bestX(el, k, 6), obs, edge: edgeOk(el, true) };
+      },
+      freePerches: () => perches(pageOf(route)).filter((el) => freeSpot(el)).length,
       sceneCount: () => sceneCount(pageOf(route)),
       /** Place le personnage sur un encadré donné, à une abscisse donnée (px depuis le bord gauche). */
       perchOn: (el: HTMLElement, x: number) => {

@@ -28,10 +28,11 @@ export type Act = {
 export const PERCHES: Record<Page, string[]> = {
   home: ['.home-resume-card:not(.home-resume-empty)', '.home-review', '.home-space', '.home-card'],
   library: ['.lib-card-cover', '.lib-row:not(.lib-row-head)'],
-  workspace: ['.ws-card'],
+  // Dans un espace, il peut aussi s'installer sur les boutons de la barre d'actions (au-dessus, il y a de la place).
+  workspace: ['.ws-card', '.ws-actions > button'],
   other: ['.set-list', '.home-card', '.ws-card', '.lib-card-cover'],
 };
-export const ALL_PERCHES = '.home-card, .lib-card-cover, .lib-row:not(.lib-row-head), .ws-card, .set-list';
+export const ALL_PERCHES = '.home-card, .lib-card-cover, .lib-row:not(.lib-row-head), .ws-card, .ws-actions > button, .set-list';
 
 const r = Math.random;
 const sec = (a: number, b = a) => (a + r() * (b - a)) * 1000;

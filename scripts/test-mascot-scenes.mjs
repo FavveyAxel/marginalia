@@ -87,6 +87,30 @@ const snapshot = (fnSrc) => {
       const c = perch.getBoundingClientRect();
       if (Math.abs(line - c.top) > 3) out.problems.push({ k: 'pas sur le bord', pose: st.pose, view: st.view, line: Math.round(line), edge: Math.round(c.top) });
       if (r.left < c.left - 2 || r.right > c.right + 2) out.problems.push({ k: 'déborde de l’encadré', l: Math.round(r.left - c.left), r: Math.round(c.right - r.right) });
+      // sa silhouette, au-dessus du bord, ne cache ni texte ni petit contrôle (cerveau en haut, corps plus étroit)
+      if (!st.act || st.act.walkTo == null) {
+        const k = r.width / 100;
+        const zones = [
+          [r.left + r.width * 0.12, c.top - 124 * k + 6 * k, r.width * 0.76, 60 * k],
+          [r.left + r.width * 0.3, c.top - 124 * k + 66 * k, r.width * 0.4, 124 * k - 66 * k - 4],
+        ];
+        const hit = (q) => zones.some(([l, t, w, h]) => q.right > l + 2 && q.left < l + w - 2 && q.bottom > t + 2 && q.top < t + h - 2);
+        const body = [];
+        const tw = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+        let n;
+        while ((n = tw.nextNode())) {
+          if (!n.textContent.trim() || n.parentElement.closest('.mascot-layer') || perch.contains(n)) continue;
+          const rg = document.createRange();
+          rg.selectNodeContents(n);
+          for (const q of rg.getClientRects()) if (q.width > 1 && hit(q)) body.push(n.textContent.trim().slice(0, 24));
+        }
+        for (const el of document.querySelectorAll('button, a, input')) {
+          if (el.closest('.mascot-layer') || perch.contains(el) || el.contains(perch)) continue;
+          const q = el.getBoundingClientRect();
+          if (q.width > 1 && q.width * q.height < 30000 && hit(q)) body.push('[' + el.tagName + ']');
+        }
+        if (body.length) out.problems.push({ k: 'il cache', pose: st.pose, view: st.view, body: body.slice(0, 4) });
+      }
     }
   }
   const bc = new Function('return (' + fnSrc + ')()')();
@@ -118,7 +142,12 @@ await withApp(PORT, async (page, errors) => {
       const t0 = Date.now();
       while (Date.now() - t0 < 8000 && !(await page.evaluate(() => window.__mascot.state().visible))) await sleep(100);
       const shown = await page.evaluate(() => window.__mascot.state().visible);
-      check(shown, `${w}×${h} ${pg} : il apparaît`);
+      const free = await page.evaluate(() => window.__mascot.freePerches());
+      if (!free) {
+        check(!shown, `${LAYOUT} ${w}×${h} ${pg} : aucune place libre, il ne vient pas`);
+        continue;
+      }
+      check(shown, `${LAYOUT} ${w}×${h} ${pg} : il apparaît (${free} encadrés avec une place libre)`);
       if (!shown) continue;
       const sc = await page.evaluate(() => ({ k: window.__mascot.state().scale, pw: window.__mascot.perchEl().getBoundingClientRect().width }));
       const want = Math.max(0.5, Math.min(scaleBase(w), (sc.pw - 12) / 100));

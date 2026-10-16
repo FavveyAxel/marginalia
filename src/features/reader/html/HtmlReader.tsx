@@ -20,6 +20,7 @@ import { allIndexes, fold, isBlockEl, locate, makeAnchor, offsetOf, rangeFor, re
 import { parseBook, printedPageAt, ReaderError, type ParsedDoc } from './parse';
 import { ESTIMATED_NOTE, findPage, lastLabel, paginate, romanToInt, type Pagination, type PageStatus } from '../pages';
 import './html-reader.css';
+import './paper-look.css'; // Aspect papier (réglage paperLook)
 
 interface HlState {
   sig: string;
@@ -1561,7 +1562,8 @@ export const HtmlReader = forwardRef<EngineHandle, EngineProps>(function HtmlRea
   } as CSSProperties;
 
   return (
-    <div className="html-reader">
+    // Aspect papier : classe sur la racine du lecteur (styles dans paper-look.css).
+    <div className={`html-reader${settings.paperLook ? ' paper-look' : ''}`}>
       <div className="html-scroll" ref={scrollRef} onClick={onClick} onContextMenu={onContextMenu} tabIndex={-1}>
         <div className={`html-doc html-fmt-${book.format}${revealed ? ' is-revealed' : ''} pg-${pageMode}`} ref={docRef} style={docStyle} />
       </div>

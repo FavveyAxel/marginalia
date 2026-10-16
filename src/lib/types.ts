@@ -535,6 +535,8 @@ export interface Settings {
    * folio en bas), trait et numéro, trait seul, ou aucun.
    */
   pageMarks?: 'paper' | 'numbered' | 'rule' | 'off';
+  /** Aspect papier : grain et teinte de papier sous le texte (classe .paper-look sur la racine du lecteur). */
+  paperLook?: boolean;
   /** Éditeur : marques de mise en forme (¶, espaces, police et style des paragraphes), affichage seulement. */
   showFormatMarks?: boolean;
 }

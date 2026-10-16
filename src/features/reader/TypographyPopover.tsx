@@ -175,6 +175,23 @@ export function TypographyPopover({ anchor, onClose }: { anchor: DOMRect; onClos
           ))}
         </div>
       )}
+      {/* Aspect papier — bascule provisoire (l'interface définitive viendra avec le nouveau panneau). */}
+      <label className="typo-switch-row">
+        <span>
+          <span className="typo-switch-title">Aspect papier</span>
+          <span className="typo-switch-sub">Grain et teinte d’un vrai papier</span>
+        </span>
+        <button
+          type="button"
+          role="switch"
+          aria-checked={!!s.paperLook}
+          className={`typo-switch ${s.paperLook ? 'on' : ''}`}
+          onClick={() => set({ paperLook: !s.paperLook })}
+          data-testid="paper-look-switch"
+        >
+          <span />
+        </button>
+      </label>
       <div
         className="typo-preview"
         style={{

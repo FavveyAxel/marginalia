@@ -1,0 +1,105 @@
+/* ─────────────────────────────────────────────────────────────
+   Aspect papier (réglage paperLook → classe .paper-look sur la racine du lecteur).
+
+   La surface de lecture prend la teinte et le grain d'un vrai papier :
+   - teinte : blanc cassé chaud (clair), crème (sépia), gris chaud (sombre) ;
+   - grain : un petit carreau SVG (feTurbulence, < 1 Ko, en data-URI, aucun réseau) répété —
+     un grain fin, un voile fibreux et un léger nuage (épair), à très faible opacité ;
+   - bords (feuilles et pages) : un ombrage doux sur les côtés, la page est un peu plus claire au centre.
+
+   Mise en page :
+   - colonne continue : toute la surface (teinte unie sur le conteneur de défilement ; grain sur
+     le document, qui défile avec le texte) ;
+   - feuilles (pages façon papier) : chaque feuille ; la table autour reste unie ;
+   - pages (mise en page paginée) : chaque .paged-page.
+
+   Coût : tout est en background statique (pas de background-attachment: fixed, pas de filtre ni
+   de mélange, pas de pseudo-élément par-dessus le texte, conteneur de défilement opaque) : le
+   grain défile avec le calque du contenu, sans repeinture ; seules les tuiles nouvellement
+   découvertes sont rastérisées, hors du fil principal (images/s inchangées, test-reader-paper).
+   Le texte n'est pas touché (textContent, ancrages, sélection inchangés).
+   ───────────────────────────────────────────────────────────── */
+
+:root {
+  /* Clair : blanc cassé chaud, grain brun très léger. Encre #1d1a15 : contraste ≥ 13:1 même sur le grain (mesuré). */
+  --pl-base: #faf6ec;
+  --pl-edge: rgba(120, 92, 50, 0.07);
+  --pl-grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='256' height='256'%3E%3Cfilter id='m' x='0' y='0'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.008' numOctaves='2' seed='3' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 .5 0 0 0 0 .4 0 0 0 0 .25 .12 0 0 0 -.035'/%3E%3C/filter%3E%3Cfilter id='f' x='0' y='0'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.09 .16' numOctaves='3' seed='7' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 .45 0 0 0 0 .35 0 0 0 0 .2 .3 0 0 0 -.16'/%3E%3C/filter%3E%3Cfilter id='g' x='0' y='0'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 .36 0 0 0 0 .27 0 0 0 0 .15 .42 0 0 0 -.18'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23m)'/%3E%3Crect width='100%25' height='100%25' filter='url(%23f)'/%3E%3Crect width='100%25' height='100%25' filter='url(%23g)'/%3E%3C/svg%3E");
+}
+:root[data-theme='sepia'] {
+  /* Sépia : crème, grain un peu plus présent (papier de livre ancien). Encre #2b2318 : ≥ 10:1. */
+  --pl-base: #f4ead3;
+  --pl-edge: rgba(120, 84, 36, 0.09);
+  --pl-grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='256' height='256'%3E%3Cfilter id='m' x='0' y='0'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.008' numOctaves='2' seed='3' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 .55 0 0 0 0 .4 0 0 0 0 .2 .14 0 0 0 -.04'/%3E%3C/filter%3E%3Cfilter id='f' x='0' y='0'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.09 .16' numOctaves='3' seed='7' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 .45 0 0 0 0 .32 0 0 0 0 .14 .36 0 0 0 -.19'/%3E%3C/filter%3E%3Cfilter id='g' x='0' y='0'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 .4 0 0 0 0 .28 0 0 0 0 .12 .48 0 0 0 -.2'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23m)'/%3E%3Crect width='100%25' height='100%25' filter='url(%23f)'/%3E%3Crect width='100%25' height='100%25' filter='url(%23g)'/%3E%3C/svg%3E");
+}
+:root[data-theme='dark'] {
+  /* Sombre : gris chaud, grain clair à peine visible. Encre #ece6da : ≥ 11:1. */
+  --pl-base: #24221e;
+  --pl-edge: rgba(0, 0, 0, 0.16);
+  --pl-grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='256' height='256'%3E%3Cfilter id='m' x='0' y='0'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.008' numOctaves='2' seed='3' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 .25 0 0 0 -.08'/%3E%3C/filter%3E%3Cfilter id='f' x='0' y='0'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.09 .16' numOctaves='3' seed='7' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 .94 0 0 0 0 .82 .1 0 0 0 -.055'/%3E%3C/filter%3E%3Cfilter id='g' x='0' y='0'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 .95 0 0 0 0 .84 .14 0 0 0 -.06'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23m)'/%3E%3Crect width='100%25' height='100%25' filter='url(%23f)'/%3E%3Crect width='100%25' height='100%25' filter='url(%23g)'/%3E%3C/svg%3E");
+}
+
+.paper-look {
+  /* Ombrage des bords : une feuille (ou la surface) un peu plus claire au centre. */
+  --pl-shade: linear-gradient(90deg, var(--pl-edge), transparent 9%, transparent 91%, var(--pl-edge));
+  --pl-shade-v: linear-gradient(180deg, color-mix(in srgb, var(--pl-edge) 60%, transparent), transparent 7%, transparent 93%, color-mix(in srgb, var(--pl-edge) 60%, transparent));
+  /* Pour les feuilles et les pages : grain + ombrage + teinte, en une seule déclaration. */
+  --pl-sheet-bg: var(--pl-grain) 0 0 / 256px 256px repeat, var(--pl-shade), var(--pl-base);
+  /* Les surlignages restent translucides : un soupçon de saturation en plus pour qu'ils
+     ne se perdent pas dans la teinte chaude. */
+  --hl-plain: rgba(176, 146, 78, 0.38);
+}
+/* Sombre : le surlignage simple d'origine reste le plus lisible (un fond plus clair éteindrait le texte). */
+:root[data-theme='dark'] .paper-look {
+  --hl-plain: rgba(196, 176, 120, 0.28);
+}
+
+/* ── Colonne continue : toute la surface ──────────────────── */
+
+/* Teinte unie sur le conteneur de défilement : il reste opaque, Chromium peint donc son fond
+   dans le calque qui défile et garde le défilement sur le compositeur (un dégradé ici le rendrait
+   transparent : mesuré, images/s ÷ 1,3 en rendu logiciel). */
+.paper-look .html-scroll {
+  background: var(--pl-base);
+}
+/* Grain : sur le document, il défile avec le texte. Pas d'ombrage des bords ici : un dégradé de
+   plus sur toute la surface rend chaque tuile plus chère à rastériser (mesuré : × 1,6) pour un
+   effet à peine visible sur une colonne pleine largeur ; il reste sur les feuilles et les pages. */
+.paper-look .html-doc {
+  background: var(--pl-grain) 0 0 / 256px 256px repeat;
+}
+/* Pied du volet (indicateur de page) : même teinte que la surface. */
+.reader-page:has(.paper-look .html-doc:not(.pg-paper)) {
+  background: var(--pl-base);
+}
+.reader-page:has(.paper-look .html-doc:not(.pg-paper)) .reader-pagejump-host {
+  background: var(--pl-grain) 0 0 / 256px 256px repeat, var(--pl-base);
+}
+
+/* ── Feuilles (pages façon papier) : chaque feuille ───────────
+   La feuille est le ruban .html-col ; les intervalles entre feuilles (pseudo-éléments des
+   repères de page) peignent la table par-dessus, la texture ne déborde donc jamais. */
+
+.paper-look .html-doc.pg-paper,
+.paper-look[data-layout='sheets'] .html-doc {
+  --paper: var(--pl-base);
+  background: var(--desk);
+}
+.paper-look .html-scroll:has(> .html-doc.pg-paper),
+.paper-look[data-layout='sheets'] .html-scroll {
+  background: var(--paper-desk);
+}
+.paper-look .pg-paper .html-col,
+.paper-look[data-layout='sheets'] .html-col {
+  background: var(--pl-sheet-bg);
+}
+
+/* ── Pages (mise en page paginée) : chaque page ───────────── */
+
+.paper-look[data-layout='paged'] .html-doc {
+  background: none;
+}
+.paper-look .paged-page,
+.paper-look[data-layout='paged'] .paged-page {
+  background: var(--pl-grain) 0 0 / 256px 256px repeat, var(--pl-shade), var(--pl-shade-v), var(--pl-base);
+}

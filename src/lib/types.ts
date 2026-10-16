@@ -574,6 +574,8 @@ export interface Settings {
   mascotStay?: number;
   /** Compagnon : ne dit jamais rien (aucune bulle). Défaut : non. */
   mascotSilent?: boolean;
+  /** Compagnon choisi : le cerveau (défaut), Socrate, Platon, Aristote ou Rousseau. */
+  mascotCharacter?: 'brain' | 'socrate' | 'platon' | 'aristote' | 'rousseau';
 }
 
 export interface Database {

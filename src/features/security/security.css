@@ -219,3 +219,19 @@
 }
 .set-range:focus-visible::-webkit-slider-thumb { outline: 2px solid var(--focus); outline-offset: 2px; }
 @media (max-width: 720px) { .set-range { width: 120px; } }
+
+/* Compagnon : choix du personnage */
+.set-row.set-who { grid-template-columns: minmax(0, 1fr); padding-left: 60px; }
+.set-who.is-off { opacity: 0.55; }
+.set-who-grid { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; }
+.set-who-card {
+  display: flex; flex-direction: column; align-items: center; gap: 2px;
+  width: 92px; padding: 8px 4px 6px; border-radius: var(--radius-md);
+  border: 1px solid var(--border); background: var(--bg-panel); cursor: pointer;
+  color: var(--ink); font: inherit;
+}
+.set-who-card:hover:not(:disabled) { background: var(--bg-hover); }
+.set-who-card.active { border-color: var(--ink-2); box-shadow: 0 0 0 1px var(--ink-2) inset; }
+.set-who-card:disabled { cursor: default; }
+.set-who-sprite { width: 52px; height: 68px; display: block; }
+.set-who-name { font-size: var(--fs-sm); }

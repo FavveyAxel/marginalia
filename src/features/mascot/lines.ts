@@ -350,3 +350,23 @@ export const CIGAR: string[] = [
 ];
 
 export const pick = <T,>(a: readonly T[]): T => a[Math.floor(Math.random() * a.length)];
+
+// ── Répliques propres à chaque philosophe ──────────────────
+
+/** Citations ajoutées pour les philosophes (en plus de celles de QUOTES du même auteur). */
+const EXTRA_QUOTES: Quote[] = [
+  { text: 'La pensée est un dialogue intérieur et silencieux de l’âme avec elle-même.', author: 'Platon', source: 'Le Sophiste' },
+  { text: 'L’étonnement est le point de départ de la philosophie.', author: 'Platon', source: 'Théétète' },
+  { text: 'Renoncer à sa liberté, c’est renoncer à sa qualité d’homme.', author: 'Rousseau', source: 'Du contrat social' },
+];
+
+/** Citations d'un auteur (le philosophe choisi comme compagnon cite surtout les siennes). */
+export const quotesBy = (author: string): Quote[] => [...QUOTES, ...EXTRA_QUOTES].filter((q) => q.author === author);
+
+/** Salutations propres à chaque philosophe. */
+export const HELLO_BY: Record<string, string[]> = {
+  Socrate: ['Je sais que je ne sais rien. Mais je suis curieux.', 'Une petite question, si tu permets…', 'Me revoilà sur l’agora.'],
+  Platon: ['Sorti de la caverne, me voici.', 'Que nul n’entre ici s’il ne lit pas.', 'Les Idées m’envoient prendre des nouvelles.'],
+  Aristote: ['J’ai classé ta bibliothèque. Enfin, presque.', 'Le Lycée est fermé aujourd’hui, je passe ici.', 'Je cherche le juste milieu de cette page.'],
+  Rousseau: ['Je reviens de promenade, solitaire comme toujours.', 'J’herborisais dans tes marges.', 'Bonjour, citoyen lecteur.'],
+};

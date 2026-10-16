@@ -257,6 +257,28 @@ await withApp(5421, async (page, errors) => {
   await page.locator('[aria-label="Visites du compagnon"] button', { hasText: 'Jamais' }).click();
   check(await slider.isDisabled(), 'curseur désactivé quand le compagnon est sur « Jamais »');
 
+  // choix du compagnon : Socrate dans les réglages, puis sur l'accueil
+  await page.evaluate(() => window.__store.getState().navigate({ name: 'settings' }));
+  await sleep(600);
+  await page.locator('[aria-label="Visites du compagnon"] button', { hasText: 'Souvent' }).click();
+  check((await page.locator('.set-who-card').count()) === 5, 'réglages : cinq compagnons proposés');
+  await page.locator('.set-who-card', { hasText: 'Socrate' }).click();
+  check((await page.evaluate(() => window.__store.getState().settings.mascotCharacter)) === 'socrate', 'choix de Socrate enregistré');
+  check(/barbe/.test(await page.locator('.set-mascot .set-desc').textContent()), 'la description parle de sa barbe');
+  await page.locator('.set-who-grid').scrollIntoViewIfNeeded();
+  await shot(page, `${OUT}/app-reglages-compagnon.png`);
+  await page.evaluate(() => window.__store.getState().navigate({ name: 'home' }));
+  await sleep(800);
+  await page.evaluate(() => window.__mascot.appear());
+  await page.waitForFunction(() => window.__mascot.state().visible, null, { timeout: 15000 });
+  await page.evaluate(() => { const m = window.__mascot; m.calm(); m.act('read', 600000, 'quote', 'front'); });
+  await sleep(1200);
+  check((await page.locator('.mascot[data-character="socrate"]').count()) === 1, 'Socrate se promène sur l’accueil');
+  await shot(page, `${OUT}/app-socrate.png`);
+  await page.evaluate(() => window.__store.getState().updateSettings({ mascotCharacter: 'brain' }));
+  await page.evaluate(() => window.__store.getState().navigate({ name: 'settings' }));
+  await sleep(500);
+
   // lecteur : jamais
   await page.locator('[aria-label="Visites du compagnon"] button', { hasText: 'Souvent' }).click();
   await page.evaluate(async (b64) => { const bin = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0)); const [b] = await window.__store.getState().importFiles([{ name: 'm.epub', data: bin.buffer }], { asBook: true }); window.__store.getState().openBook(b.id); }, Buffer.from(await epubFrench()).toString('base64'));

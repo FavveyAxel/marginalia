@@ -11,8 +11,9 @@
 import { useEffect, useRef, useState } from 'react';
 import { useStore } from '../../lib/store';
 import { Sprite, anchorOf, isSeated, VB_H, VB_W, type Level, type Pose, type View } from './Sprite';
-import { CONTEXT, FLEX, HELLO, JOKES, PONDER, POKE, BYE, QUOTES, GUITAR, WHISTLE, WRITE, CIGAR, pick, type Ctx } from './lines';
+import { quotesBy, HELLO_BY, CONTEXT, FLEX, HELLO, JOKES, PONDER, POKE, BYE, QUOTES, GUITAR, WHISTLE, WRITE, CIGAR, pick, type Ctx } from './lines';
 import { ALL_PERCHES, PERCHES, STAY, buildVisit, sceneActs, sceneCount, type Act, type Hop, type Page, type Say } from './scenes';
+import { CHARACTERS } from './characters';
 import './mascot.css';
 
 export type MascotFreq = 'off' | 'rare' | 'sometimes' | 'often';
@@ -207,18 +208,21 @@ function ctxFor(page: Page, perch: HTMLElement | null, level: Level, workspaceId
   return c;
 }
 
-function bubbleFor(say: Say, ctx: Ctx): Bubble {
+function bubbleFor(say: Say, ctx: Ctx, who?: string): Bubble {
+  // Un philosophe cite surtout ses propres œuvres (une fois sur deux), et salue à sa manière.
+  const own = who ? quotesBy(who) : [];
+  const quote = () => (own.length && Math.random() < 0.5 ? pick(own) : pick(QUOTES));
   switch (say) {
     case 'quote':
-      return pick(QUOTES);
+      return quote();
     case 'poke':
-      return { ...pick(QUOTES), lead: pick(POKE) };
+      return { ...quote(), lead: pick(POKE) };
     case 'joke':
       return { text: pick(JOKES) };
     case 'ponder':
       return { text: pick(PONDER) };
     case 'hello':
-      return { text: pick(HELLO) };
+      return { text: pick(who && HELLO_BY[who] && Math.random() < 0.6 ? HELLO_BY[who] : HELLO) };
     case 'flex':
       return { text: pick(FLEX) };
     case 'bye':
@@ -414,6 +418,9 @@ export function Mascot({ route, workspaceId }: { route: string; workspaceId?: st
   const stayRef = useRef(stay);
   stayRef.current = stay;
   const silent = useStore((s) => !!s.settings.mascotSilent);
+  const charId = useStore((s) => s.settings.mascotCharacter ?? 'brain');
+  const charRef = useRef(charId);
+  charRef.current = charId;
   const silentRef = useRef(silent);
   silentRef.current = silent;
   const level = levelFor(docs);
@@ -561,7 +568,7 @@ export function Mascot({ route, workspaceId }: { route: string; workspaceId?: st
       if (!still && a.pose === 'stand' && s.anchor < 100) s.squash = { t0: now, dur: 220, k: -0.06 };
       // Réglage « sans bulles » : il fait ses gestes, mais ne dit rien.
       if (a.say && !silentRef.current) {
-        s.bubble = bubbleFor(a.say, ctxFor(page, s.perch, level, workspaceId));
+        s.bubble = bubbleFor(a.say, ctxFor(page, s.perch, level, workspaceId), charRef.current === 'brain' ? undefined : CHARACTERS[charRef.current].name);
         s.bubbleId++;
         s.bubbleForced = a.say === 'poke';
         s.bubbleUntil = Date.now() + Math.min(13000, 4000 + (s.bubble.text.length + (s.bubble.lead?.length ?? 0)) * 45);
@@ -973,9 +980,9 @@ export function Mascot({ route, workspaceId }: { route: string; workspaceId?: st
   const still = reduced();
   return (
     <div className="mascot-layer" aria-hidden="true">
-      <div ref={wrap} className="mascot" style={{ width: W, height: H }} onClick={poke}>
+      <div ref={wrap} className="mascot" data-character={charId} style={{ width: W, height: H }} onClick={poke}>
         <div ref={body} className="mascot-body">
-          <Sprite pose={s.pose} frame={still ? 0 : s.frame} level={level} view={s.view} facing={s.facing} halo={halo} blink={!still && s.blinkUntil > 0} />
+          <Sprite pose={s.pose} frame={still ? 0 : s.frame} level={level} view={s.view} facing={s.facing} halo={halo} blink={!still && s.blinkUntil > 0} character={CHARACTERS[charId]} />
         </div>
       </div>
       {s.bubble && (

@@ -27,6 +27,7 @@ import { machine, normKeyPart, refreshSecurity, useSecurity } from './state';
 import { Sprite } from '../mascot/Sprite';
 import { LEVEL_STEPS, MASCOT_DEFAULT, levelFor, type MascotFreq } from '../mascot/Mascot';
 import { STAY_HINT, STAY_LABELS } from '../mascot/scenes';
+import { CHARACTERS, CHARACTER_IDS, type CharId } from '../mascot/characters';
 import './security.css';
 
 const DELAYS: { v: number; label: string }[] = [
@@ -807,6 +808,22 @@ function SecurityDialog({ kind, st, where, onClose }: { kind: DialogKind; st: Se
   );
 }
 
+/** Ce qui change avec les documents, pour chaque compagnon. */
+const GROWS_TEXT: Record<CharId, string> = {
+  brain: 'plus il se muscle',
+  socrate: 'plus sa barbe pousse',
+  platon: 'plus ses épaules s’élargissent',
+  aristote: 'plus sa pile de rouleaux monte',
+  rousseau: 'plus sa perruque s’étoffe',
+};
+const TITLE_TEXT: Record<CharId, string> = {
+  brain: 'Un petit cerveau qui passe sur l’interface',
+  socrate: 'Socrate passe sur l’interface',
+  platon: 'Platon passe sur l’interface',
+  aristote: 'Aristote passe sur l’interface',
+  rousseau: 'Rousseau passe sur l’interface',
+};
+
 const MASCOT_FREQS: { v: MascotFreq; label: string }[] = [
   { v: 'off', label: 'Jamais' },
   { v: 'rare', label: 'Rarement' },
@@ -820,6 +837,7 @@ function MascotSettings() {
   const update = useStore((s) => s.updateSettings);
   const stay = useStore((s) => s.settings.mascotStay ?? 2);
   const silent = useStore((s) => !!s.settings.mascotSilent);
+  const charId: CharId = useStore((s) => s.settings.mascotCharacter ?? 'brain');
   const level = levelFor(docs);
   const next = LEVEL_STEPS[level + 1];
   const halo = document.documentElement.dataset.theme === 'dark' ? '#e9dfcc' : undefined;
@@ -831,12 +849,12 @@ function MascotSettings() {
       <ul className="set-list">
         <li className="set-row set-mascot">
           <span className="set-mascot-sprite">
-            <Sprite pose="wave" frame={0} level={level} halo={halo} title="Le compagnon" />
+            <Sprite pose="wave" frame={0} level={level} halo={halo} title="Le compagnon" character={CHARACTERS[charId]} />
           </span>
           <div className="set-body">
-            <span className="set-title">Un petit cerveau qui passe sur l’interface</span>
+            <span className="set-title">{TITLE_TEXT[charId]}</span>
             <span className="set-desc">
-              Il s’assoit au bord des encadrés, lit, réfléchit et cite parfois un philosophe. Cliquez sur lui pour une citation. Plus la bibliothèque grandit, plus il se muscle :
+              Il s’assoit au bord des encadrés, lit, réfléchit et cite parfois un philosophe. Cliquez sur lui pour une citation. Plus la bibliothèque grandit, {GROWS_TEXT[charId]} :
               niveau {level} sur 4 ({docs} document{docs > 1 ? 's' : ''}{next ? `, prochain niveau à ${next}` : ''}).
             </span>
           </div>
@@ -845,6 +863,29 @@ function MascotSettings() {
               {MASCOT_FREQS.map((f) => (
                 <button type="button" key={f.v} role="radio" aria-checked={freq === f.v} className={freq === f.v ? 'active' : ''} onClick={() => update({ mascot: f.v })}>
                   {f.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        </li>
+        <li className={`set-row sub set-who ${freq === 'off' ? 'is-off' : ''}`}>
+          <div className="set-body">
+            <span className="set-title">Choisir son compagnon</span>
+            <div className="set-who-grid" role="radiogroup" aria-label="Compagnon">
+              {CHARACTER_IDS.map((id) => (
+                <button
+                  type="button"
+                  key={id}
+                  role="radio"
+                  aria-checked={charId === id}
+                  className={`set-who-card ${charId === id ? 'active' : ''}`}
+                  disabled={freq === 'off'}
+                  onClick={() => update({ mascotCharacter: id })}
+                >
+                  <span className="set-who-sprite">
+                    <Sprite pose="stand" frame={0} level={level} halo={halo} character={CHARACTERS[id]} />
+                  </span>
+                  <span className="set-who-name">{CHARACTERS[id].name}</span>
                 </button>
               ))}
             </div>

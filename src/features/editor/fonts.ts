@@ -1,7 +1,9 @@
 // Polices disponibles pour l'éditeur : toutes les polices installées (queryLocalFonts,
 // Chromium ≥ 103 / Electron 33), regroupées par famille ; favoris et récentes mémorisés
-// localement. Repli sur une liste de base si l'API est absente, refusée ou trop lente.
+// dans les réglages de l'app (db.json). Repli sur une liste de base si l'API est absente, refusée ou trop lente.
 // Voir research/10 §1.
+
+import { useStore } from '../../lib/store';
 
 type FontData = { family: string; fullName: string; postscriptName: string; style: string };
 type QueryLocalFonts = () => Promise<FontData[]>;
@@ -105,21 +107,46 @@ export function listSystemFonts(timeoutMs = 3000): Promise<FontList> {
 
 const cmp = (a: string, b: string) => a.localeCompare(b, 'fr', { sensitivity: 'base' });
 
+// Favoris et récentes : réglages de l'app (db.json, comme les autres réglages : survivent au
+// redémarrage, aux sauvegardes et restaurations). Anciennes valeurs du localStorage reprises une fois.
+const settings = () => {
+  try {
+    const s = useStore.getState();
+    return s.ready ? s.settings : null;
+  } catch {
+    return null;
+  }
+};
+const saveSetting = (patch: { editorFavoriteFonts?: string[]; editorRecentFonts?: string[] }) => {
+  try {
+    if (useStore.getState().ready) useStore.getState().updateSettings(patch);
+  } catch {
+    /* hors de l'app (tests) : localStorage seul */
+  }
+};
+const clean = (v: unknown): string[] | null => (Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string' && !!x.trim()) : null);
+
 export function favoriteFonts(): string[] {
-  return read<string[]>(FAV_KEY) ?? [];
+  return clean(settings()?.editorFavoriteFonts) ?? clean(read<string[]>(FAV_KEY)) ?? [];
 }
 export function toggleFavoriteFont(f: string): string[] {
   const cur = favoriteFonts();
-  const next = cur.includes(f) ? cur.filter((x) => x !== f) : [...cur, f].sort(cmp);
+  const on = cur.some((x) => x.toLowerCase() === f.toLowerCase());
+  const next = on ? cur.filter((x) => x.toLowerCase() !== f.toLowerCase()) : [...cur, f].sort(cmp);
   write(FAV_KEY, next);
+  saveSetting({ editorFavoriteFonts: next });
   return next;
 }
+export function isFavoriteFont(favs: string[], f: string): boolean {
+  return favs.some((x) => x.toLowerCase() === f.toLowerCase());
+}
 export function recentFonts(): string[] {
-  return read<string[]>(RECENT_KEY) ?? [];
+  return clean(settings()?.editorRecentFonts) ?? clean(read<string[]>(RECENT_KEY)) ?? [];
 }
 export function pushRecentFont(f: string): string[] {
-  const next = [f, ...recentFonts().filter((x) => x !== f)].slice(0, 5);
+  const next = [f, ...recentFonts().filter((x) => x.toLowerCase() !== f.toLowerCase())].slice(0, 5);
   write(RECENT_KEY, next);
+  saveSetting({ editorRecentFonts: next });
   return next;
 }
 

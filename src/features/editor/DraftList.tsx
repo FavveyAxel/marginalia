@@ -1,5 +1,5 @@
 // Liste des écrits (route { name: 'write', draftId: null }).
-import { useMemo, useRef, useState, type CSSProperties, type MouseEvent as ReactMouseEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent as ReactMouseEvent } from 'react';
 import { BookOpenText, CheckSquare, ChevronDown, FileText, FolderOpen, FolderPlus, GraduationCap, MoreHorizontal, NotebookPen, Pencil, Plus, ScrollText, Trash2 } from 'lucide-react';
 import { useShallow } from 'zustand/react/shallow';
 import { useStore } from '../../lib/store';
@@ -32,6 +32,10 @@ export function NewDraftButton({ primary = true }: { primary?: boolean }) {
   const navigate = useStore((s) => s.navigate);
   const [busy, setBusy] = useState(false);
   const [font, setFont] = useState<NewDraftFont>(readNewDraftFont);
+  // réglage relu à chaque ouverture (enregistré dans les réglages de l'app)
+  useEffect(() => {
+    if (pop.isOpen) setFont(readNewDraftFont());
+  }, [pop.isOpen]);
   const create = async (key: TemplateKey) => {
     pop.close();
     setBusy(true);

@@ -562,6 +562,12 @@ export interface Settings {
   paperLook?: boolean;
   /** Éditeur : marques de mise en forme (¶, espaces, police et style des paragraphes), affichage seulement. */
   showFormatMarks?: boolean;
+  /** Éditeur : polices favorites du sélecteur de police (noms de famille). */
+  editorFavoriteFonts?: string[];
+  /** Éditeur : dernières polices choisies (5 au plus, la plus récente d'abord). */
+  editorRecentFonts?: string[];
+  /** Éditeur : police des nouveaux écrits (modèle « Vide » et écrits créés sans modèle). */
+  newDraftFont?: string;
 }
 
 export interface Database {

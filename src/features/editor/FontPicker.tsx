@@ -1,6 +1,6 @@
 // Sélecteur de police : toutes les polices du Mac (queryLocalFonts), aperçu de chaque nom
-// dans sa police, recherche, favoris et récentes ; repli sur une liste de base.
-import { useEffect, useMemo, useRef, useState } from 'react';
+// dans sa police, recherche, favoris (en tête et à leur place) et récentes ; repli sur une liste de base.
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Check, ChevronDown, Search, Star } from 'lucide-react';
 import { Popover, usePop } from './Popover';
 import {
@@ -8,6 +8,7 @@ import {
   APP_FONT,
   favoriteFonts,
   fontStack,
+  isFavoriteFont,
   isInstalled,
   listSystemFonts,
   pushRecentFont,
@@ -55,16 +56,19 @@ export function FontPicker({ value, disabled, onPick }: { value: string | null; 
       return pool.filter((f) => f.toLocaleLowerCase('fr').includes(needle)).map((family) => ({ family, group: 'Résultats' }));
     }
     const out: Row[] = [];
+    // Favoris : en tête, ET toujours à leur place habituelle (récentes, usuelles, toutes les polices) :
+    // une police mise en favori ne disparaît jamais de la liste. Un favori absent de cet ordinateur
+    // reste affiché (on peut le retirer des favoris).
+    for (const f of favs) out.push({ family: f, group: 'Favoris' });
     const seen = new Set<string>();
-    const add = (fs: string[], group: string, dedupe = true) => {
+    const add = (fs: string[], group: string) => {
       for (const f of fs) {
-        if (dedupe && seen.has(f)) continue;
+        if (seen.has(f)) continue;
         seen.add(f);
         out.push({ family: f, group });
       }
     };
-    add(favs.filter((f) => f === APP_FONT || has.has(f) || !list), 'Favoris');
-    add(recent.filter((f) => !favs.includes(f)), 'Récentes');
+    add(recent, 'Récentes');
     add([...ACADEMIC_FONTS.filter((f) => has.has(f) || list?.source !== 'system'), APP_FONT], 'Usuelles');
     out.push(...all.map((family) => ({ family, group: 'Toutes les polices' })));
     return out;
@@ -90,6 +94,15 @@ export function FontPicker({ value, disabled, onPick }: { value: string | null; 
       else if (q.trim()) pick(q.trim());
     }
   };
+  const anchor = useRef<{ key: string; top: number } | null>(null);
+  useLayoutEffect(() => {
+    const a = anchor.current;
+    const box = listRef.current;
+    anchor.current = null;
+    if (!a || !box) return;
+    const row = [...box.querySelectorAll<HTMLElement>('.ed-font-row')].find((x) => x.dataset.key === a.key);
+    if (row) box.scrollTop += row.getBoundingClientRect().top - box.getBoundingClientRect().top - a.top;
+  }, [favs]);
   useEffect(() => {
     listRef.current?.querySelector<HTMLElement>(`[data-i="${cursor}"]`)?.scrollIntoView({ block: 'nearest' });
   }, [cursor]);
@@ -142,7 +155,7 @@ export function FontPicker({ value, disabled, onPick }: { value: string | null; 
           {list &&
             rows.map((r, i) => {
               const head = i === 0 || rows[i - 1].group !== r.group;
-              const fav = favs.includes(r.family);
+              const fav = isFavoriteFont(favs, r.family);
               return (
                 <div key={`${r.group}-${r.family}`} className="ed-font-rowwrap">
                   {head && (
@@ -156,6 +169,7 @@ export function FontPicker({ value, disabled, onPick }: { value: string | null; 
                     aria-selected={value === r.family}
                     data-i={i}
                     data-font={r.family}
+                    data-key={`${r.group}-${r.family}`}
                     className={`ed-font-row ${i === cursor ? 'focused' : ''} ${value === r.family ? 'current' : ''}`}
                     onMouseDown={(e) => e.preventDefault()}
                     onMouseMove={() => setCursor(i)}
@@ -173,6 +187,10 @@ export function FontPicker({ value, disabled, onPick }: { value: string | null; 
                       onMouseDown={(e) => e.preventDefault()}
                       onClick={(e) => {
                         e.stopPropagation();
+                        // la ligne cliquée reste sous la souris (le groupe « Favoris » s'agrandit au-dessus)
+                        const row = e.currentTarget.closest<HTMLElement>('.ed-font-row');
+                        const box = listRef.current;
+                        if (row && box) anchor.current = { key: `${r.group}-${r.family}`, top: row.getBoundingClientRect().top - box.getBoundingClientRect().top };
                         setFavs(toggleFavoriteFont(r.family));
                       }}
                     >

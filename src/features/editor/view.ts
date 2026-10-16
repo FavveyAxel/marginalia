@@ -4,10 +4,11 @@
 //  - en teinte sombre, les couleurs explicites trop proches du fond (texte noir, surlignage jaune,
 //    encadrés clairs, bordures noires) sont remappées à l'écran, sans toucher au document ;
 //  - zoom d'affichage mémorisé (« Ajuster à la largeur » par défaut) ;
-//  - police des nouveaux écrits (modèle « Vide » et écrits créés sans modèle).
-// Préférences locales (localStorage, dans try/catch) : propres à cet ordinateur.
+//  - police des nouveaux écrits (modèle « Vide » et écrits créés sans modèle) : réglage de l'app (db.json).
+// Autres préférences locales (localStorage, dans try/catch) : propres à cet ordinateur.
 import { useCallback, useEffect, useState, type RefObject } from 'react';
 import { isMac } from '../../lib/keys';
+import { useStore } from '../../lib/store';
 
 // ── Préférences ──────────────────────────────────────────────
 const TINT_KEY = 'marginalia.ed.pageTint';
@@ -89,12 +90,29 @@ export const NEW_DRAFT_FONTS: { id: NewDraftFont; label: string }[] = [
   { id: 'Arial', label: 'Arial' },
   { id: 'system', label: `Police du système (${SYSTEM_DOC_FONT})` },
 ];
+// Réglage de l'app (db.json : survit au redémarrage, aux sauvegardes) ; ancienne valeur du localStorage en repli.
+const storedSettings = () => {
+  try {
+    const s = useStore.getState();
+    return s.ready ? s.settings : null;
+  } catch {
+    return null;
+  }
+};
 export function readNewDraftFont(): NewDraftFont {
-  const v = readKey(FONT_KEY) as NewDraftFont | null;
-  return v && NEW_DRAFT_FONTS.some((f) => f.id === v) ? v : 'Literata';
+  const ok = (v: unknown): v is NewDraftFont => typeof v === 'string' && NEW_DRAFT_FONTS.some((f) => f.id === v);
+  const fromSettings = storedSettings()?.newDraftFont;
+  if (ok(fromSettings)) return fromSettings;
+  const v = readKey(FONT_KEY);
+  return ok(v) ? v : 'Literata';
 }
 export function writeNewDraftFont(f: NewDraftFont): void {
   writeKey(FONT_KEY, f);
+  try {
+    if (useStore.getState().ready) useStore.getState().updateSettings({ newDraftFont: f });
+  } catch {
+    /* hors de l'app : localStorage seul */
+  }
 }
 /** Nom de police écrit dans le .docx (w:rFonts). */
 export function newDraftFontName(f: NewDraftFont = readNewDraftFont()): string {

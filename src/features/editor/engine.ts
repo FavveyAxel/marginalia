@@ -1293,6 +1293,49 @@ export async function openDocEngine(host: HTMLElement, data: ArrayBuffer, opts: 
     while (k < chars.length - 1 && WORD_CH.test(chars[k + 1].ch)) k++;
     return { from: chars[l].pos, to: chars[k].pos + 1 };
   };
+  /** Police / taille posées depuis la barre (comme Word) :
+   *  - curseur À L'INTÉRIEUR d'un mot : le mot entier change (rien ne serait enregistré sinon : une
+   *    « marque en attente » ne vit que jusqu'à la prochaine frappe ou fermeture) ;
+   *  - curseur ailleurs : le texte tapé ensuite (et la marque de paragraphe d'un paragraphe vide : SuperDoc) ;
+   *  - sélection : le texte, et la marque de paragraphe (w:pPr/w:rPr) des paragraphes vides ou sélectionnés
+   *    jusqu'au bout — sinon, après « Tout sélectionner », les paragraphes vides gardaient l'ancienne
+   *    police (barre d'outils et texte tapé ensuite), à l'écran comme à la réouverture. */
+  const applyRunFormat = (ed: Any, apply: () => void, rp: Record<string, unknown>) => {
+    const sel = ed.state.selection;
+    if (sel.empty) {
+      // (textSelClass seulement ici : sur une sélection non textuelle, il la réduirait à un curseur)
+      const TS = textSelClass(ed);
+      const w = wordAt(ed.state.doc, sel.from);
+      if (!TS || !w || !(w.from < sel.from && sel.from < w.to)) {
+        apply();
+        return;
+      }
+      const caret = sel.from;
+      oneUndoStep(ed, () => {
+        ed.view.dispatch(ed.state.tr.setSelection(TS.create(ed.state.doc, w.from, w.to)));
+        apply();
+        ed.view.dispatch(ed.state.tr.setSelection(TS.create(ed.state.doc, caret)));
+      });
+      return;
+    }
+    const { from, to } = sel;
+    oneUndoStep(ed, () => {
+      apply();
+      const tr = ed.state.tr;
+      let n = 0;
+      ed.state.doc.nodesBetween(from, to, (node: Any, pos: number) => {
+        if (node.type.name !== 'paragraph') return true;
+        const end = pos + node.nodeSize - 1;
+        if (node.content.size === 0 || end <= to) {
+          const pp = node.attrs.paragraphProperties ?? {};
+          tr.setNodeMarkup(pos, undefined, { ...node.attrs, paragraphProperties: { ...pp, runProperties: { ...(pp.runProperties ?? {}), ...rp } } });
+          n++;
+        }
+        return false;
+      });
+      if (n) ed.view.dispatch(tr);
+    });
+  };
   /** Runs du paragraphe dont la mise en forme directe répète le style `styleId` : propriétés à retirer
    *  (propriétés du run et marques du texte : SuperDoc écrit l'une ou l'autre). */
   const redundantRuns = (para: Any, paraPos: number, styleId: string | null): { from: number; to: number; inline: Record<string, null> }[] => {
@@ -1493,7 +1536,8 @@ export async function openDocEngine(host: HTMLElement, data: ArrayBuffer, opts: 
       touched = true;
       const ed = body();
       if (!ed) return;
-      ed.commands.setFontFamily(family);
+      const name = familyName(family) ?? family;
+      applyRunFormat(ed, () => ed.commands.setFontFamily(family), { fontFamily: { ascii: name, eastAsia: name, hAnsi: name, cs: name } });
       ed.view.focus();
     },
     setFontSize(pt) {
@@ -1501,7 +1545,7 @@ export async function openDocEngine(host: HTMLElement, data: ArrayBuffer, opts: 
       const ed = body();
       if (!ed) return;
       const v = Math.min(400, Math.max(1, Math.round(pt * 2) / 2));
-      ed.commands.setFontSize(`${v}pt`);
+      applyRunFormat(ed, () => ed.commands.setFontSize(`${v}pt`), { fontSize: v * 2, fontSizeCs: v * 2 });
       ed.view.focus();
     },
     stepFontSize(dir) {

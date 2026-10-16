@@ -15,7 +15,7 @@ const { CHARACTERS, CHARACTER_IDS } = await server.ssrLoadModule('/src/features/
 let n = 0;
 const svg = (props) => {
   const k = ++n;
-  return renderToStaticMarkup(React.createElement(Sprite, props)).replace(/mascot-(halo|vol)-[A-Za-z0-9_]+/g, (m) => m + 'x' + k);
+  return renderToStaticMarkup(React.createElement(Sprite, props)).replace(/mascot-(halo|vol|vol3d|volc|vols)-[A-Za-z0-9_]+/g, (m) => m + 'x' + k);
 };
 const SEAT = new Set(['sit', 'read', 'think', 'doze', 'sitwave', 'guitar', 'write', 'cigar']);
 const cell = (props, label) => {

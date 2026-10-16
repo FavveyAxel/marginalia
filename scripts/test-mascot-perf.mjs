@@ -9,6 +9,7 @@ let passed = 0, failed = 0;
 const check = (ok, name, d) => { ok ? passed++ : failed++; console.log(`${ok ? 'OK    ' : 'ÉCHEC '} ${name}${!ok && d !== undefined ? ' — ' + JSON.stringify(d).slice(0, 300) : ''}`); };
 
 await withApp(5428, async (page, errors) => {
+  if (process.env.CHAR) await page.evaluate((c) => window.__store.getState().updateSettings({ mascotCharacter: c }), process.env.CHAR);
   const cdp = await page.context().newCDPSession(page);
   await cdp.send('Performance.enable');
   const metrics = async () => Object.fromEntries((await cdp.send('Performance.getMetrics')).metrics.map((m) => [m.name, m.value]));

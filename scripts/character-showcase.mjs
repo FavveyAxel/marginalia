@@ -11,7 +11,7 @@ const { renderToStaticMarkup } = await import('react-dom/server');
 const { Sprite } = await server.ssrLoadModule('/src/features/mascot/Sprite.tsx');
 const { CHARACTERS } = await server.ssrLoadModule('/src/features/mascot/characters/index.ts');
 let n = 0;
-const svg = (p) => { const k = ++n; return renderToStaticMarkup(React.createElement(Sprite, p)).replace(/mascot-(halo|vol)-[A-Za-z0-9_]+/g, (m) => m + 'x' + k); };
+const svg = (p) => { const k = ++n; return renderToStaticMarkup(React.createElement(Sprite, p)).replace(/mascot-(halo|vol|vol3d|volc|vols)-[A-Za-z0-9_]+/g, (m) => m + 'x' + k); };
 const SEAT = new Set(['sit', 'read', 'think', 'doze', 'sitwave', 'guitar', 'write', 'cigar']);
 const cell = (p, label) => { const a = SEAT.has(p.pose) ? (p.view === 'side' ? 64 : 70) : 124; return `<div class="cell"><div class="edge" style="top:${14 + (260 * a) / 130}px"></div><div class="sp">${svg(p)}</div><small>${label}</small></div>`; };
 let html = '';

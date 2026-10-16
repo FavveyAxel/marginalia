@@ -559,6 +559,12 @@ export function Sprite({
   const flip = side && facing === -1 ? `translate(${VB_W} 0) scale(-1 1)` : undefined;
   const grad = `mascot-vol-${uid}`;
   const fid = `mascot-halo-${uid}`;
+  const vid = `mascot-vol3d-${uid}`;
+  const vol = ch ? `url(#${vid})` : undefined;
+  const vcid = `mascot-volc-${uid}`;
+  const vsid = `mascot-vols-${uid}`;
+  const volCloth = ch ? `url(#${vcid})` : undefined;
+  const castShadow = ch ? `url(#${vsid})` : undefined;
 
   /** Membre plein (philosophes) : contour d'encre, puis la couleur du vêtement ou de la peau. */
   const tubes = (ls: Limb[], width: number, color: string) => (
@@ -568,6 +574,13 @@ export function Sprite({
       ))}
       {ls.map((l, i) => (
         <path key={'i' + i} d={path(l)} stroke={color} strokeWidth={width} />
+      ))}
+      {/* modelé : ombre côté droit, reflet côté gauche */}
+      {ls.map((l, i) => (
+        <path key={'s' + i} d={path(l)} stroke="#4a2610" strokeOpacity={0.22} strokeWidth={width * 0.42} transform={`translate(${width * 0.28} ${width * 0.1})`} />
+      ))}
+      {ls.map((l, i) => (
+        <path key={'h' + i} d={path(l)} stroke="#fffaf0" strokeOpacity={0.45} strokeWidth={width * 0.26} transform={`translate(${-width * 0.24} ${-width * 0.06})`} />
       ))}
     </g>
   );
@@ -658,6 +671,55 @@ export function Sprite({
             <feMergeNode in="SourceGraphic" />
           </feMerge>
         </filter>
+        {ch && (
+          // Volume des philosophes : à l'intérieur de chaque forme (en retrait du trait d'encre), une
+          // lumière douce en haut à gauche et une ombre en bas à droite.
+          <filter id={vid} x="-5%" y="-5%" width="110%" height="110%" colorInterpolationFilters="sRGB">
+            <feMorphology in="SourceAlpha" operator="erode" radius="1.2" result="in" />
+            <feOffset in="in" dx="1.6" dy="2" result="inS" />
+            <feGaussianBlur in="inS" stdDeviation="1.3" result="inSB" />
+            <feComposite in="in" in2="inSB" operator="out" result="lightMask" />
+            <feFlood floodColor="#fffaf0" floodOpacity="0.5" />
+            <feComposite in2="lightMask" operator="in" result="light" />
+            <feOffset in="in" dx="-2.2" dy="-2.8" result="inD" />
+            <feGaussianBlur in="inD" stdDeviation="2" result="inDB" />
+            <feComposite in="in" in2="inDB" operator="out" result="shadeMask" />
+            <feFlood floodColor="#4a2610" floodOpacity="0.32" />
+            <feComposite in2="shadeMask" operator="in" result="shade" />
+            <feMerge>
+              <feMergeNode in="SourceGraphic" />
+              <feMergeNode in="shade" />
+              <feMergeNode in="light" />
+            </feMerge>
+          </filter>
+        )}
+        {ch && (
+          // Vêtements : ombrage plus marqué, qui creuse le bas et le côté droit des formes (plis, drapés).
+          <filter id={vcid} x="-5%" y="-5%" width="110%" height="110%" colorInterpolationFilters="sRGB">
+            <feMorphology in="SourceAlpha" operator="erode" radius="1.2" result="in" />
+            <feOffset in="in" dx="1.4" dy="1.6" result="inS" />
+            <feGaussianBlur in="inS" stdDeviation="1.2" result="inSB" />
+            <feComposite in="in" in2="inSB" operator="out" result="lightMask" />
+            <feFlood floodColor="#fffaf0" floodOpacity="0.42" />
+            <feComposite in2="lightMask" operator="in" result="light" />
+            <feOffset in="in" dx="-3" dy="-5.5" result="inD" />
+            <feGaussianBlur in="inD" stdDeviation="3.2" result="inDB" />
+            <feComposite in="in" in2="inDB" operator="out" result="shadeMask" />
+            <feFlood floodColor="#3d1e0a" floodOpacity="0.42" />
+            <feComposite in2="shadeMask" operator="in" result="shade" />
+            <feMerge>
+              <feMergeNode in="SourceGraphic" />
+              <feMergeNode in="shade" />
+              <feMergeNode in="light" />
+            </feMerge>
+          </filter>
+        )}
+        {ch && (
+          // Tête et bras : leur ombre portée, légère, sur le vêtement.
+          <filter id={vsid} x="-15%" y="-15%" width="130%" height="140%" colorInterpolationFilters="sRGB">
+            <feDropShadow dx="0.5" dy="1.6" stdDeviation="1.3" floodColor="#3a1d08" floodOpacity="0.3" />
+          </filter>
+        )}
         {/* volume : plus clair en haut à gauche, plus soutenu en bas à droite */}
         <radialGradient id={grad} cx="0.36" cy="0.3" r="0.8">
           <stop offset="0" stopColor="#fbe7dc" />
@@ -668,7 +730,7 @@ export function Sprite({
       <g transform={flip} filter={halo ? `url(#${fid})` : undefined}>
         {/* jambes, et le bras éloigné (profil), derrière le cerveau */}
         {r.feet !== 'none' && (
-          <g>
+          <g filter={vol}>
             {limbs(r.legs, lw)}
             {calves(r.legs)}
             {feet(r.legs)}
@@ -676,15 +738,21 @@ export function Sprite({
         )}
         <g transform={`translate(0 ${r.lift})`}>
           {(side || behind) && (
-            <g>
+            <g filter={vol}>
               {limbs(behind ? r.arms : [r.arms[0]], lw * 0.92)}
               {biceps(behind ? r.arms : [r.arms[0]])}
               {hands(behind ? r.arms : [r.arms[0]])}
             </g>
           )}
-          {ch?.body?.(args)}
+          {ch?.body && <g filter={volCloth}>{ch.body(args)}</g>}
           <g transform={ch ? `translate(${hp[0]} ${hp[1]}) scale(${HEAD_K}) translate(${-hp[0]} ${-hp[1]})` : `translate(${pivot[0]} ${pivot[1]}) scale(${k}) translate(${-pivot[0]} ${-pivot[1]})`}>
-            {brain}
+            {ch ? (
+              <g filter={castShadow}>
+                <g filter={vol}>{brain}</g>
+              </g>
+            ) : (
+              brain
+            )}
             {face}
             {ch?.overFace && v !== 'back' && ch.overFace(args)}
           </g>
@@ -692,19 +760,21 @@ export function Sprite({
           {pose === 'guitar' && side && hands([r.arms[0]])}
           {pose === 'write' && (side ? <SideNotebook frame={frame} /> : <Notebook frame={frame} />)}
           {!behind && (
-            <g>
+            <g filter={ch ? castShadow : undefined}>
+            <g filter={vol}>
               {limbs(nearArms, lw * 0.92)}
               {biceps(nearArms)}
+            </g>
             </g>
           )}
           {pose === 'read' && (side ? <SideBook frame={frame} /> : <Book frame={frame} />)}
           {pose === 'write' && <Quill nib={side ? writeNibSide(frame) : writeNib(frame)} rot={side ? -128 : -42} />}
-          {!behind && hands(nearArms)}
+          {!behind && <g filter={vol}>{hands(nearArms)}</g>}
           {pose === 'cigar' && !cigarUp(frame) && <LoweredCigar hand={r.arms[1].c} side={side} frame={frame} />}
           {pose === 'guitar' && <GuitarNotes frame={frame} side={side} />}
           {pose === 'whistle' && <WhistleNotes frame={frame} mouth={mouth} side={side} />}
           {pose === 'cigar' && <SmokeRings frame={frame} mouth={mouth} side={side} />}
-          {ch?.front?.(args)}
+          {ch?.front && <g filter={vol}>{ch.front(args)}</g>}
         </g>
         {pose === 'think' && (
           <g fill="currentColor" opacity={0.7}>

@@ -1201,8 +1201,9 @@ export async function openDocEngine(host: HTMLElement, data: ArrayBuffer, opts: 
     vertAlign: st.superscript ? 'superscript' : st.subscript ? 'subscript' : null,
     fontFamily: st.fontFamily,
     fontSize: st.fontSize,
-    color: st.color,
-    highlight: st.highlight,
+    // « auto » / « none » : pas de couleur (la couleur du texte par défaut, aucun surlignage)
+    color: isNoColor(st.color) ? null : st.color,
+    highlight: isNoColor(st.highlight) ? null : st.highlight,
   });
   /** Premier caractère de texte dans [a, b[ (position), ou null. */
   const firstTextIn = (doc: Any, a: number, b: number): number | null => {
@@ -1269,7 +1270,9 @@ export async function openDocEngine(host: HTMLElement, data: ArrayBuffer, opts: 
     return { from: chars[l].pos, to: chars[k].pos + 1 };
   };
   const CLEAR_INLINE = { bold: null, italic: null, underline: null, strike: null, color: null, fontFamily: null, fontSize: null, highlight: null, vertAlign: null, smallCaps: null, caps: null };
-  const normColor = (c: string | null) => (c ? c.replace(/^#/, '').toUpperCase() : '');
+  /** Absence de couleur : rien, « auto » (couleur du texte par défaut), « none » / transparent (sans surlignage). */
+  const isNoColor = (c: string | null | undefined) => !c || /^(auto|none|transparent|nil)$/i.test(String(c).trim());
+  const normColor = (c: string | null) => (isNoColor(c) ? '' : String(c).replace(/^#/, '').toUpperCase());
   /** Propriétés à poser explicitement pour que `base` (texte nettoyé) prenne l'aspect de `src`. */
   const inlineDiff = (src: CharFormat, base: CharFormat): Record<string, unknown> => {
     const out: Record<string, unknown> = {};
@@ -1277,8 +1280,10 @@ export async function openDocEngine(host: HTMLElement, data: ArrayBuffer, opts: 
     if (src.vertAlign !== base.vertAlign) out.vertAlign = src.vertAlign ?? 'baseline';
     if (src.fontFamily && src.fontFamily.toLowerCase() !== (base.fontFamily ?? '').toLowerCase()) out.fontFamily = src.fontFamily;
     if (src.fontSize && Math.abs(src.fontSize - (base.fontSize ?? 0)) > 0.01) out.fontSize = src.fontSize;
-    if (src.color && normColor(src.color) !== normColor(base.color)) out.color = src.color;
-    if (src.highlight && normColor(src.highlight) !== normColor(base.highlight)) out.highlight = src.highlight;
+    // Source sans couleur (automatique) sur une cible dont le style en impose une (titre bleu) : « auto » explicite,
+    // sinon la couleur du style resterait. De même pour un surlignage venu du style de la cible : « none ».
+    if (normColor(src.color) !== normColor(base.color)) out.color = isNoColor(src.color) ? 'auto' : src.color;
+    if (normColor(src.highlight) !== normColor(base.highlight)) out.highlight = isNoColor(src.highlight) ? 'none' : src.highlight;
     return out;
   };
 

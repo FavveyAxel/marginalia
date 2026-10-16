@@ -27,16 +27,24 @@ function inDocument(t: EventTarget | null): boolean {
   return !!el && typeof el.closest === 'function' && !!el.closest('.ProseMirror');
 }
 
+type Action = 'copy' | 'paste' | 'brush';
+
 export function useFormatPainter({
   engineRef,
   hostRef,
   enabled,
+  busy = false,
   notify,
   refresh,
 }: {
   engineRef: MutableRefObject<DocEngine | null>;
   hostRef: RefObject<HTMLElement | null>;
+  /** Document modifiable (lecture seule : pinceau inactif, raccourcis laissés passer). */
   enabled: boolean;
+  /** Mise en page en cours (réglage de page, modification de style, restauration) : les raccourcis et commandes
+   *  restent interceptés — sinon ⌥⌘C atteindrait le « tout effacer » de SuperDoc, Ctrl+Maj+V le collage sans
+   *  mise en forme — et sont exécutés dès la fin de la mise en page. */
+  busy?: boolean;
   notify: (message: string, tone?: 'info' | 'error' | 'success') => void;
   refresh: () => void;
 }): PainterCtl {
@@ -44,6 +52,10 @@ export function useFormatPainter({
   const modeRef = useRef<PainterMode>(null);
   const activeRef = useRef(false);
   const stored = useRef<CopiedFormat | null>(null);
+  const busyRef = useRef(busy);
+  busyRef.current = busy;
+  /** Actions reçues pendant la mise en page, exécutées dans l'ordre à sa fin. */
+  const queue = useRef<Action[]>([]);
   const setMode = useCallback((m: PainterMode) => {
     modeRef.current = m;
     activeRef.current = m !== null;
@@ -70,12 +82,59 @@ export function useFormatPainter({
     return ok;
   }, [engineRef, notify, refresh]);
 
+  const copyNotify = useCallback(
+    (fromMenu: boolean) => {
+      if (copy()) notify('Mise en forme copiée', 'info');
+      else if (fromMenu) notify('Placez le curseur dans le texte dont vous voulez copier la mise en forme.', 'info');
+    },
+    [copy, notify],
+  );
+
+  /** Pinceau armé : la sélection que l'on vient de faire (souris relâchée) reçoit la mise en forme. */
+  const brush = useCallback(() => {
+    if (!modeRef.current) return;
+    paste();
+    if (modeRef.current === 'once') setMode(null);
+  }, [paste, setMode]);
+
+  const run = useCallback(
+    (a: Action) => {
+      if (a === 'copy') copyNotify(true);
+      else if (a === 'paste') paste();
+      else brush();
+    },
+    [copyNotify, paste, brush],
+  );
+  /** Tout de suite, ou à la fin de la mise en page en cours (une seule fois chacune). */
+  const request = useCallback(
+    (a: Action) => {
+      if (!busyRef.current) {
+        run(a);
+        return;
+      }
+      if (a === 'copy' || a === 'brush') queue.current = queue.current.filter((x) => x !== a);
+      queue.current.push(a);
+    },
+    [run],
+  );
+  useEffect(() => {
+    if (busy || !enabled || !queue.current.length) return;
+    // après le rendu qui suit la mise en page (sélection et positions de nouveau valides)
+    const t = setTimeout(() => {
+      const q = queue.current.splice(0);
+      for (const a of q) run(a);
+      if (q.length) engineRef.current?.focus();
+    }, 0);
+    return () => clearTimeout(t);
+  }, [busy, enabled, run, engineRef]);
+
   const onButton = useCallback(
     (detail: number) => {
       if (!enabled) return;
       if (detail >= 2) {
-        // 2e clic d'un double-clic : le 1er a déjà copié et armé le pinceau
-        if (stored.current || copy()) setMode('sticky');
+        // 2e clic d'un double-clic : le 1er a copié la sélection et armé le pinceau (s'il l'avait désarmé :
+        // nouvelle copie, jamais une mise en forme ancienne)
+        if (modeRef.current === 'once' ? stored.current : copy()) setMode('sticky');
         return;
       }
       if (modeRef.current) {
@@ -89,6 +148,7 @@ export function useFormatPainter({
 
   useEffect(() => {
     if (!enabled && modeRef.current) setMode(null);
+    if (!enabled) queue.current = [];
   }, [enabled, setMode]);
 
   // Raccourcis : ⌥⌘C / ⌥⌘V ; Échap désarme le pinceau. Phase de capture : avant le ProseMirror de
@@ -106,11 +166,12 @@ export function useFormatPainter({
       if (matchKeys(ev, '⌥⌘C')) {
         ev.preventDefault();
         ev.stopPropagation();
-        if (copy()) notify('Mise en forme copiée', 'info');
+        if (busyRef.current) request('copy');
+        else copyNotify(false);
       } else if (matchKeys(ev, '⌥⌘V')) {
         ev.preventDefault();
         ev.stopPropagation();
-        paste();
+        request('paste');
       } else if (!isMac && ev.ctrlKey && ev.altKey && !ev.shiftKey && ev.code === 'KeyC') {
         // Windows : Ctrl+Alt+C (= AltGr+C) n'atteint pas le « tout effacer » de SuperDoc ; le caractère
         // AltGr éventuel s'écrit normalement (pas de preventDefault).
@@ -119,22 +180,19 @@ export function useFormatPainter({
     };
     window.addEventListener('keydown', onKey, true);
     return () => window.removeEventListener('keydown', onKey, true);
-  }, [enabled, copy, paste, notify, setMode]);
+  }, [enabled, copyNotify, request, setMode]);
 
   // Palette de commandes
   useEffect(() => {
     if (!enabled) return;
     const on = (ev: Event) => {
       const what = (ev as CustomEvent<PainterRequest>).detail;
-      if (what === 'copy') {
-        if (copy()) notify('Mise en forme copiée', 'info');
-        else notify('Placez le curseur dans le texte dont vous voulez copier la mise en forme.', 'info');
-      } else if (what === 'paste') paste();
-      engineRef.current?.focus();
+      if (what === 'copy' || what === 'paste') request(what);
+      if (!busyRef.current) engineRef.current?.focus();
     };
     window.addEventListener(FORMAT_PAINTER_EVENT, on);
     return () => window.removeEventListener(FORMAT_PAINTER_EVENT, on);
-  }, [enabled, copy, paste, notify, engineRef]);
+  }, [enabled, request, engineRef]);
 
   // Pinceau armé : la sélection faite à la souris dans le document reçoit la mise en forme au relâchement.
   useEffect(() => {
@@ -148,11 +206,7 @@ export function useFormatPainter({
       if (!pending) return;
       pending = false;
       // après la mise à jour de la sélection par SuperDoc (au relâchement)
-      setTimeout(() => {
-        if (!modeRef.current) return;
-        paste();
-        if (modeRef.current === 'once') setMode(null);
-      }, 0);
+      setTimeout(() => request('brush'), 0);
     };
     host.addEventListener('pointerdown', down, true);
     window.addEventListener('pointerup', up);
@@ -160,7 +214,7 @@ export function useFormatPainter({
       host.removeEventListener('pointerdown', down, true);
       window.removeEventListener('pointerup', up);
     };
-  }, [mode, hostRef, paste, setMode]);
+  }, [mode, hostRef, request]);
 
   return { mode, onButton, activeRef };
 }

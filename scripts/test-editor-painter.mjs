@@ -6,10 +6,14 @@
 // curseur) → paragraphe (curseur / paragraphe entier) ou caractères seuls (sélection partielle) → une
 // seule étape d'annulation → palette de commandes → export Word → barre sur une ligne à 1440 px →
 // Windows : Ctrl+Maj+C / Ctrl+Maj+V → capture shots/editeur/pinceau.png.
+// Document Word stylé (PART=styled) : aspect CALCULÉ source / cible (titre → corps, corps → titre, couleur
+// automatique, surlignage, source mixte, paragraphe entier, curseur seul, bouton, pinceau maintenu, mise en
+// page en cours) → captures shots/pinceau/avant.png, apres.png, corps-vers-titre.png.
 import { withApp } from './harness.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
-import { ROOT, buildEssay, checker, exportDocx, mouseSelect, newDraft, settle } from './ed-helpers.mjs';
+import { execFileSync } from 'node:child_process';
+import { ROOT, buildEssay, checker, exportDocx, installHelpers, mouseSelect, newDraft, settle } from './ed-helpers.mjs';
 
 const PORT = 5406;
 const OUT = path.join(ROOT, 'shots/editeur');
@@ -17,9 +21,11 @@ fs.mkdirSync(OUT, { recursive: true });
 const { check, finish } = checker();
 const h = (page, fn, arg) => page.evaluate(fn, arg);
 const painterOn = (page) => page.locator('.ed-toolbar [data-tb="painter"]').evaluate((b) => b.getAttribute('aria-pressed') === 'true');
+/** PART=base|styled|win : une seule partie (mise au point). */
+const part = (name) => !process.env.PART || process.env.PART === name;
 const toastText = (page) => page.evaluate(() => document.querySelector('.toasts')?.textContent ?? '');
 
-await withApp(PORT, async (page, errors) => {
+if (part('base')) await withApp(PORT, async (page, errors) => {
   try {
     await newDraft(page, 'Pinceau');
     await buildEssay(page);
@@ -254,8 +260,352 @@ await withApp(PORT, async (page, errors) => {
   }
 });
 
+// ── Document Word stylé (« Corps » Times 12, « Titre 1 » Arial 20 gras bleu centré) : on compare l'aspect
+//    CALCULÉ des pages peintes (police, taille, graisse, italique, soulignement, couleur, surlignage) entre
+//    le caractère source et la cible, sélections faites à la souris ──
+const STYLED = path.join(OUT, 'out', 'pinceau-styles.docx');
+fs.mkdirSync(path.dirname(STYLED), { recursive: true });
+execFileSync('python3', ['-I', '-c', `
+import sys, re, zipfile, shutil, docx
+from docx.shared import Pt, RGBColor
+from docx.enum.text import WD_ALIGN_PARAGRAPH, WD_COLOR_INDEX
+d = docx.Document()
+st = d.styles
+n = st['Normal']; n.font.name = 'Times New Roman'; n.font.size = Pt(12); n.paragraph_format.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
+h1 = st['Heading 1']; h1.font.name = 'Arial'; h1.font.size = Pt(20); h1.font.bold = True; h1.font.color.rgb = RGBColor(0x1F,0x4E,0x79); h1.paragraph_format.alignment = WD_ALIGN_PARAGRAPH.CENTER
+d.add_paragraph('Méditations métaphysiques', style='Heading 1')
+p = d.add_paragraph('Le doute porte sur tout, et la ')
+r = p.add_run('première vérité'); r.font.name = 'Georgia'; r.font.size = Pt(14); r.italic = True; r.font.color.rgb = RGBColor(0xC0,0,0)
+p.add_run(' tient au cogito.')
+d.add_paragraph('Pour Hume, au contraire, il ne rencontre jamais un moi stable.')
+p = d.add_paragraph('')
+r = p.add_run('Mais'); r.style = st['Strong']
+p.add_run(' cette ')
+r = p.add_run('certitude'); r.style = st['Emphasis']
+p.add_run(' nous ')
+r = p.add_run('trompe'); r.underline = True; r.font.highlight_color = WD_COLOR_INDEX.YELLOW
+p.add_run(' parfois, dit Kant dans sa critique.')
+p = d.add_paragraph('Texte gras rouge du corps.')
+for r in p.runs: r.bold = True; r.font.color.rgb = RGBColor(0xC0,0,0)
+d.add_paragraph('Dernier paragraphe ordinaire pour la conclusion.')
+d.save(sys.argv[1] + '.tmp')
+# polices de thème retirées du titre (sinon Calibri Light l'emporte sur Arial)
+zin = zipfile.ZipFile(sys.argv[1] + '.tmp'); zout = zipfile.ZipFile(sys.argv[1], 'w', zipfile.ZIP_DEFLATED)
+for it in zin.infolist():
+    data = zin.read(it.filename)
+    if it.filename == 'word/styles.xml':
+        data = re.sub(r' w:(asciiTheme|hAnsiTheme|eastAsiaTheme|cstheme)="[^"]*"', '', data.decode()).encode()
+    zout.writestr(it, data)
+zout.close()
+`, STYLED]);
+
+const VIS = () => {
+  /** Aspect calculé du caractère `off` du passage (span peint qui le contient). */
+  window.__vis = (needle, off = 1) => {
+    const r = window.__h.span(needle, off, off + 1);
+    if (!r) return 'introuvable : ' + needle;
+    const spans = [...document.querySelectorAll('.superdoc-page span[data-pm-start]')].filter((s) => !s.querySelector('[data-pm-start]'));
+    const s = spans.find((x) => +x.dataset.pmStart <= r.from && r.from < +x.dataset.pmEnd);
+    if (!s) return 'non peint : ' + needle;
+    const cs = getComputedStyle(s);
+    let bg = cs.backgroundColor;
+    let el = s;
+    for (let i = 0; i < 3 && bg === 'rgba(0, 0, 0, 0)'; i++) {
+      el = el.parentElement;
+      if (!el || el.classList.contains('superdoc-line')) break;
+      bg = getComputedStyle(el).backgroundColor;
+    }
+    return { fontFamily: cs.fontFamily.split(',')[0].replace(/"/g, ''), fontSize: cs.fontSize, fontWeight: cs.fontWeight, fontStyle: cs.fontStyle, textDecoration: cs.textDecorationLine, color: cs.color, backgroundColor: bg, caps: cs.fontVariantCaps + '/' + cs.textTransform, va: cs.verticalAlign };
+  };
+  window.__align = (needle) => {
+    const r = window.__h.span(needle, 0, 1);
+    const line = [...document.querySelectorAll('.superdoc-page .superdoc-line')].find((l) => [...l.querySelectorAll('[data-pm-start]')].some((x) => +x.dataset.pmStart <= r.from && r.from < +x.dataset.pmEnd));
+    if (!line) return null;
+    const pg = line.closest('.superdoc-page').getBoundingClientRect();
+    const box = line.getBoundingClientRect();
+    const spans = [...line.querySelectorAll('span[data-pm-start]')].map((x) => x.getBoundingClientRect()).filter((b) => b.width > 0);
+    const left = Math.min(...spans.map((b) => b.left));
+    const right = Math.max(...spans.map((b) => b.right));
+    return { gapLeft: Math.round(left - pg.left), gapRight: Math.round(pg.right - right), lineLeft: Math.round(box.left - pg.left) };
+  };
+};
+const vis = (page, n, o = 1) => page.evaluate(({ n, o }) => window.__vis(n, o), { n, o });
+const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+const diff = (a, b) => (typeof a !== 'object' || typeof b !== 'object' ? `${JSON.stringify(a)} ≠ ${JSON.stringify(b)}` : Object.keys(a).filter((k) => a[k] !== b[k]).map((k) => `${k}: ${a[k]} ≠ ${b[k]}`).join(', '));
+async function rectsOf(page, needle, a = 0, b = needle.length) {
+  const rs = await page.evaluate(({ needle, a, b }) => window.__h.rects(needle, a, b), { needle, a, b });
+  if (!rs.length) throw new Error('passage non peint : ' + needle);
+  return { a: rs[0], b: rs[rs.length - 1] };
+}
+const mid = (r) => [(r.left + r.right) / 2, (r.top + r.bottom) / 2];
+/** Clic neutre (ferme la barre de sélection flottante) puis pause : le clic suivant n'est pas compté double. */
+async function neutral(page) {
+  const r = await rectsOf(page, 'Dernier', 2, 3);
+  await page.mouse.click(...mid(r.a));
+  await settle(page, 650);
+}
+async function dbl(page, needle) {
+  const r = await rectsOf(page, needle);
+  await page.mouse.dblclick(...mid(r.a));
+  await settle(page, 300);
+}
+async function triple(page, needle) {
+  const r = await rectsOf(page, needle);
+  await page.mouse.click(...mid(r.a), { clickCount: 3 });
+  await settle(page, 300);
+}
+async function drag(page, needle, a = 0, b = needle.length) {
+  const r = await rectsOf(page, needle, a, b);
+  const y1 = (r.a.top + r.a.bottom) / 2;
+  const y2 = (r.b.top + r.b.bottom) / 2;
+  await page.mouse.move(r.a.left + 0.5, y1);
+  await page.mouse.down();
+  await page.mouse.move(r.b.right - 0.5, y2, { steps: 8 });
+  await page.mouse.up();
+  await settle(page, 400);
+}
+async function caret(page, needle, a) {
+  const r = await rectsOf(page, needle, a, a + 1);
+  await page.mouse.click(r.a.left + 0.5, (r.a.top + r.a.bottom) / 2);
+  await settle(page, 300);
+}
+const copyK = (page) => page.keyboard.press('Meta+Alt+KeyC').then(() => settle(page, 300));
+const pasteK = (page) => page.keyboard.press('Meta+Alt+KeyV').then(() => settle(page, 600));
+const SHOTS = path.join(ROOT, 'shots/pinceau');
+fs.mkdirSync(SHOTS, { recursive: true });
+
+if (part('styled')) await withApp(PORT, async (page, errors) => {
+  const b64 = fs.readFileSync(STYLED).toString('base64');
+  const fresh = async () => {
+    const id = await page.evaluate(async (b64) => {
+      const bin = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+      const before = new Set(window.__store.getState().drafts.map((d) => d.id));
+      await window.__store.getState().importFiles([{ name: 'Méditations.docx', data: bin.buffer }]);
+      return window.__store.getState().drafts.find((d) => !before.has(d.id))?.id;
+    }, b64);
+    await page.evaluate(() => window.__store.getState().navigate({ name: 'home' }));
+    await settle(page, 300);
+    await page.evaluate((id) => window.__store.getState().navigate({ name: 'write', draftId: id }), id);
+    await page.waitForFunction(() => window.__ed && window.__ed.engine() && document.querySelector('.ed-engine-in'), null, { timeout: 60000 });
+    await page.waitForSelector('.superdoc-page span[data-pm-start]', { timeout: 60000 });
+    await settle(page, 1200);
+    await installHelpers(page);
+    await page.evaluate(VIS);
+  };
+  /** Chaque caractère de `checks` doit avoir l'aspect `want`. */
+  const looks = async (name, want, checks) => {
+    const bad = [];
+    for (const [n, o] of checks) {
+      const got = await vis(page, n, o);
+      if (!same(want, got)) bad.push(`${n}+${o} → ${diff(want, got)}`);
+    }
+    check(name, !bad.length, bad.join(' | ') || JSON.stringify(want));
+  };
+  try {
+    // 1. Mot de « Titre 1 » → phrase du corps (sélections à la souris, ⌥⌘C / ⌥⌘V) ; captures avant / après
+    await fresh();
+    const H = await vis(page, 'Méditations', 2);
+    const body = await vis(page, 'Hume', 1);
+    check('document stylé : le titre et le corps diffèrent bien (police, taille, graisse, couleur)', H.fontFamily !== body.fontFamily && H.fontSize !== body.fontSize && H.fontWeight !== body.fontWeight && H.color !== body.color, JSON.stringify([H, body]));
+    await dbl(page, 'Méditations');
+    const src1 = await page.evaluate(() => window.__h.sel().text);
+    await copyK(page);
+    await neutral(page);
+    await drag(page, 'Pour Hume, au contraire');
+    const tsel = await page.evaluate(() => window.__h.sel().text);
+    check('sélections à la souris : source et cible exactes', src1 === 'Méditations' && tsel === 'Pour Hume, au contraire', JSON.stringify([src1, tsel]));
+    // capture : la barre flottante de la sélection masquerait le titre source
+    const hideBar = await page.addStyleTag({ content: '.ed-selbar { visibility: hidden !important; }' });
+    await page.screenshot({ path: path.join(SHOTS, 'avant.png') });
+    await hideBar.evaluate((el) => el.remove());
+    await pasteK(page);
+    await looks('titre → corps : la phrase cible a l’aspect du mot du titre (Arial 20, gras, bleu)', H, [['Pour Hume', 0], ['Hume', 2], ['contraire', 8]]);
+    await looks('titre → corps : le reste du paragraphe cible est intact', body, [['il ne rencontre', 3]]);
+    const para1 = await page.evaluate(() => [window.__h.styleOf('Hume'), window.__align('Hume')]);
+    check('titre → corps (sélection partielle) : le paragraphe cible reste « Corps », non centré', para1[0] === null && para1[1].gapLeft === para1[1].lineLeft, JSON.stringify(para1));
+    await neutral(page);
+    await page.screenshot({ path: path.join(SHOTS, 'apres.png') });
+    console.log('captures: shots/pinceau/avant.png, apres.png');
+    // export Word
+    const x = await exportDocx(page, path.join(OUT, 'out', 'pinceau-titre-corps.docx'));
+    const i = x.document.indexOf('Pour Hume, au contraire');
+    const run = x.document.slice(x.document.lastIndexOf('<w:r>', i) >= 0 ? Math.max(x.document.lastIndexOf('<w:r>', i), x.document.lastIndexOf('<w:r ', i)) : 0, i);
+    check('export Word : la phrase peinte porte Arial, 20 pt, gras, 1F4E79', /Arial/.test(run) && /<w:sz w:val="40"/.test(run) && /<w:b\/>|<w:b \/>|<w:b w:val="(1|true)"/.test(run) && /1F4E79/i.test(run), run.slice(0, 400));
+    // une seule étape d'annulation
+    await page.keyboard.press('Control+z');
+    await settle(page, 500);
+    await looks('⌘Z une fois : la phrase retrouve l’aspect du corps', body, [['Pour Hume', 0], ['contraire', 8]]);
+    await looks('⌘Z : le titre source est intact', H, [['Méditations', 2]]);
+
+    // 2. Mot du corps en Georgia 14 rouge italique (direct) → mot du titre : la couleur du style de titre,
+    //    sa graisse, sa police et sa taille cèdent
+    await fresh();
+    const V = await vis(page, 'vérité', 2);
+    await dbl(page, 'vérité');
+    await copyK(page);
+    await neutral(page);
+    await dbl(page, 'métaphysiques');
+    await pasteK(page);
+    await looks('corps (Georgia 14 rouge italique) → titre : le mot du titre a exactement l’aspect source', V, [['métaphysiques', 0], ['métaphysiques', 6], ['métaphysiques', 12]]);
+    await looks('corps → titre : l’autre mot du titre est intact', H, [['Méditations', 2]]);
+    await neutral(page);
+    await page.screenshot({ path: path.join(SHOTS, 'corps-vers-titre.png') });
+    console.log('capture: shots/pinceau/corps-vers-titre.png');
+    // corps ordinaire → mot du titre : redevient corps (noir, Times 12, maigre)
+    await dbl(page, 'Dernier');
+    await copyK(page);
+    await neutral(page);
+    await dbl(page, 'Méditations');
+    await pasteK(page);
+    const plainBody = await vis(page, 'Dernier', 2);
+    await looks('corps ordinaire → mot du titre : il prend l’aspect du corps (couleur automatique comprise)', plainBody, [['Méditations', 2]]);
+
+    // 3. Corps ordinaire → texte gras rouge : redevient corps ordinaire
+    await fresh();
+    await dbl(page, 'Hume');
+    await copyK(page);
+    await neutral(page);
+    await drag(page, 'Texte gras rouge du corps.');
+    await pasteK(page);
+    await looks('corps ordinaire → texte gras rouge : il redevient corps ordinaire', body, [['Texte', 0], ['rouge', 2], ['corps.', 3]]);
+
+    // 4. Souligné + surligné → corps
+    const T = await vis(page, 'trompe', 2);
+    await neutral(page);
+    await dbl(page, 'trompe');
+    await copyK(page);
+    await neutral(page);
+    await dbl(page, 'rencontre');
+    await pasteK(page);
+    await looks('souligné + surligné jaune → corps : reproduits', T, [['rencontre', 0], ['rencontre', 8]]);
+
+    // 5. Source mixte : le premier caractère l'emporte (« Mais » gras par style de caractères, « cette » ordinaire)
+    const M = await vis(page, 'Mais', 1);
+    await neutral(page);
+    await drag(page, 'Mais cette certitude');
+    await copyK(page);
+    await neutral(page);
+    await dbl(page, 'jamais');
+    await pasteK(page);
+    await looks('source mixte : aspect du premier caractère (gras du style « Strong »)', M, [['jamais', 0], ['jamais', 5]]);
+    // style de caractères en italique (Emphasis) → corps
+    const E = await vis(page, 'certitude', 2);
+    await neutral(page);
+    await dbl(page, 'certitude');
+    await copyK(page);
+    await neutral(page);
+    await dbl(page, 'stable');
+    await pasteK(page);
+    await looks('style de caractères (italique « Emphasis ») → corps : reproduit', E, [['stable', 2]]);
+
+    // 6. Paragraphe « Titre 1 » entier (centré) → paragraphe du corps : style, alignement et caractères
+    await fresh();
+    await triple(page, 'Méditations');
+    const whole = await page.evaluate(() => window.__h.sel().text);
+    await copyK(page);
+    const cp = await page.evaluate(() => window.__ed.engine().copyFormat());
+    await neutral(page);
+    await triple(page, 'Pour Hume');
+    await pasteK(page);
+    const p6 = await page.evaluate(() => [window.__h.styleOf('Hume'), window.__h.fmtAt('Hume', 0, 1).align, window.__align('Hume')]);
+    check('paragraphe « Titre 1 » entier → paragraphe du corps : style « Titre 1 » et centrage', /Méditations métaphysiques/.test(whole) && cp?.para?.styleId === 'Heading1' && p6[0] === 'Heading1' && p6[1] === 'center' && Math.abs(p6[2].gapLeft - p6[2].gapRight) < 40, JSON.stringify([whole, cp?.para, p6]));
+    await looks('paragraphe entier → paragraphe : les caractères ont l’aspect du titre', H, [['Pour Hume', 0], ['stable', 2]]);
+    await page.keyboard.press('Control+z');
+    await settle(page, 500);
+    const p6u = await page.evaluate(() => [window.__h.styleOf('Hume'), window.__h.fmtAt('Hume', 0, 1).align]);
+    check('⌘Z une fois : style de paragraphe et caractères annulés ensemble', p6u[0] === null && p6u[1] === 'justify' && same(await vis(page, 'Hume', 1), body), JSON.stringify(p6u));
+
+    // 7. Cible : simple curseur → le mot sous le curseur, et lui seul
+    await fresh();
+    await dbl(page, 'vérité');
+    await copyK(page);
+    await neutral(page);
+    await caret(page, 'contraire', 4);
+    await pasteK(page);
+    await looks('curseur seul : le mot sous le curseur prend l’aspect source', V, [['contraire', 0], ['contraire', 8]]);
+    await looks('curseur seul : les mots voisins sont intacts', body, [['au contraire', 0], ['il ne', 0]]);
+
+    // 8. Bouton (un clic) puis sélection au glisser : appliqué à la sélection FINALE, au relâchement
+    await fresh();
+    await dbl(page, 'Méditations');
+    await page.click('.ed-toolbar [data-tb="painter"]');
+    await settle(page, 250);
+    await drag(page, 'il ne rencontre jamais');
+    await settle(page, 300);
+    await looks('bouton + glisser : la sélection finale reçoit l’aspect du titre', H, [['il ne', 0], ['rencontre', 4], ['jamais', 5]]);
+    await looks('bouton + glisser : rien au-delà de la sélection', body, [['un moi', 1], ['contraire', 3]]);
+    check('bouton (un clic) : le mode s’arrête', !(await painterOn(page)));
+
+    // 9. Double-clic : trois sélections, puis Échap (la copie est celle de la sélection courante, pas l'ancienne)
+    await neutral(page);
+    await dbl(page, 'vérité');
+    await page.dblclick('.ed-toolbar [data-tb="painter"]');
+    await settle(page, 300);
+    await drag(page, 'Dernier paragraphe');
+    await dbl(page, 'critique');
+    await drag(page, 'Le doute');
+    await looks('pinceau maintenu : trois sélections reçoivent l’aspect source', V, [['Dernier', 1], ['paragraphe', 5], ['critique', 3], ['Le doute', 0], ['doute', 3]]);
+    check('pinceau maintenu : toujours actif après trois applications', await painterOn(page));
+    await page.keyboard.press('Escape');
+    await settle(page, 200);
+    await drag(page, 'conclusion');
+    check('Échap : désarmé, la sélection suivante ne reçoit rien', !(await painterOn(page)) && same(await vis(page, 'conclusion', 3), body), JSON.stringify(await vis(page, 'conclusion', 3)));
+
+    // 10. Mise en page en cours (réglage de page) : ⌥⌘C / ⌥⌘V et la commande de menu ne doivent ni tomber
+    //     dans SuperDoc (⌘⌥C = « tout effacer », style de paragraphe compris) ni être perdus : ils sont
+    //     exécutés à la fin de la mise en page
+    await fresh();
+    const busyNow = () => page.evaluate(() => !!document.querySelector('[aria-label="Mise en page en cours"]'));
+    const startLayout = async (preset) => {
+      await page.click('.ed-topbar [data-tb="page"]');
+      await page.waitForSelector('.ed-page-setup');
+      await page.evaluate((m) => document.querySelector(`.ed-page-setup [data-margins="${m}"]`).click(), preset);
+      await page.waitForFunction(() => !!document.querySelector('[aria-label="Mise en page en cours"]'), null, { timeout: 5000 });
+      await page.evaluate(() => window.__h.ed().view.focus());
+    };
+    const endLayout = async () => {
+      await page.waitForFunction(() => !document.querySelector('[aria-label="Mise en page en cours"]'), null, { timeout: 30000 });
+      await settle(page, 600);
+      await page.keyboard.press('Escape');
+      await settle(page, 200);
+    };
+    await dbl(page, 'Méditations');
+    await startLayout('narrow');
+    const b1 = await busyNow();
+    await page.keyboard.press('Meta+Alt+KeyC');
+    await endLayout();
+    const h10 = await vis(page, 'Méditations', 2);
+    check('mise en page en cours : ⌥⌘C n’efface pas la mise en forme du titre (SuperDoc n’est pas atteint)', b1 && same(h10, H) && (await page.evaluate(() => window.__h.styleOf('Méditations'))) === 'Heading1', JSON.stringify([b1, h10]));
+    await neutral(page);
+    await dbl(page, 'rencontre');
+    await startLayout('wide');
+    const b2 = await busyNow();
+    await page.keyboard.press('Meta+Alt+KeyV');
+    const early = await vis(page, 'rencontre', 3);
+    await endLayout();
+    await looks('mise en page en cours : ⌥⌘V est appliqué à la fin de la mise en page (copie faite pendant)', H, [['rencontre', 0], ['rencontre', 8]]);
+    check('mise en page en cours : rien n’est appliqué pendant (ni collage brut)', b2 && same(early, body) && (await page.evaluate(() => window.__h.ed().state.doc.textContent)).includes('il ne rencontre jamais un moi stable.'), JSON.stringify([b2, early]));
+    await neutral(page);
+    await dbl(page, 'jamais');
+    await startLayout('narrow');
+    await page.evaluate(() => window.dispatchEvent(new CustomEvent('marginalia:format-painter', { detail: 'paste' })));
+    await endLayout();
+    await looks('mise en page en cours : la commande de menu « Coller la mise en forme » est exécutée ensuite', H, [['jamais', 0], ['jamais', 5]]);
+    await page.keyboard.press('Control+z');
+    await settle(page, 500);
+    await looks('mise en page en cours : un ⌘Z annule l’application différée', body, [['jamais', 0]]);
+
+    check('document stylé : aucune erreur de page', errors.length === 0, errors.join(' | ').slice(0, 600));
+    errors.length = 0;
+  } catch (e) {
+    console.error(e);
+    check('déroulement (document stylé)', false, String(e).slice(0, 300));
+    await page.screenshot({ path: path.join(SHOTS, 'echec.png') }).catch(() => {});
+  }
+});
+
 // ── Windows : Ctrl+Maj+C / Ctrl+Maj+V ──
-await withApp(PORT, async (page, errors) => {
+if (part('win')) await withApp(PORT, async (page, errors) => {
   try {
     await page.goto(`http://localhost:${PORT}/?platform=win`);
     await page.waitForFunction(() => window.__store && window.__store.getState().ready, null, { timeout: 60000 });

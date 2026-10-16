@@ -949,7 +949,7 @@ function Editor({ draft }: { draft: Draft }) {
     const e = engineRef.current;
     if (e) setFmt(e.state());
   }, []);
-  const painter = useFormatPainter({ engineRef, hostRef, enabled: editable && !layoutBusy, notify: notesNotify, refresh: refreshFmt });
+  const painter = useFormatPainter({ engineRef, hostRef, enabled: editable, busy: layoutBusy, notify: notesNotify, refresh: refreshFmt });
   useTextDrag({ engineRef, hostRef, enabled: editable && !layoutBusy, blockedRef: painter.activeRef, onDone: refreshFmt });
 
   return (

@@ -160,10 +160,17 @@ if (part('base')) await withApp(PORT, async (page, errors) => {
     check('sélection partielle copiée : caractères seuls (paragraphe cible inchangé)', c.style === null && c.st.align !== 'center', JSON.stringify([c.style, c.st.align]));
     await page.keyboard.press('Control+z');
     await settle(page, 300);
-    // curseur : paragraphe copié aussi
+    // curseur : paragraphe copié aussi — appliqué si la cible couvre le paragraphe entier (comme Word)
     await h(page, () => window.__h.select('Kant dépasse', 3, 3));
     await page.keyboard.press('Meta+Alt+KeyC');
-    await h(page, () => window.__h.select('Conclusion', 0, 10));
+    await h(page, () => {
+      const p = window.__h.posOf('Conclusion provisoire');
+      const ed = window.__h.ed();
+      const $p = ed.state.doc.resolve(p);
+      let d = $p.depth;
+      while ($p.node(d).type.name !== 'paragraph') d--;
+      ed.commands.setTextSelection({ from: $p.start(d), to: $p.end(d) });
+    });
     await page.keyboard.press('Meta+Alt+KeyV');
     await settle(page, 400);
     c = await h(page, () => ({ st: window.__h.fmtAt('Conclusion', 2, 3), style: window.__h.styleOf('Conclusion') }));

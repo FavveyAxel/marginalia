@@ -22,6 +22,7 @@ import { countWords } from './docx';
 import {
   defaultParagraphStyle,
   effectiveStyleProps,
+  styleRunProps,
   ensureStylesXml,
   normalizeDocx,
   patchStylesXml,
@@ -535,7 +536,30 @@ export async function openDocEngine(host: HTMLElement, data: ArrayBuffer, opts: 
       tick();
     });
 
+  // Sélection faite par double-clic (un mot) : le pinceau n'y copie que les caractères, même si le mot est
+  // tout le texte du paragraphe (« Introduction ») — comme Word, où le double-clic n'inclut pas la marque ¶.
+  // Un nouveau clic (le triple-clic compris) ou une touche (hors raccourcis) annule l'indication.
+  let wordPick = false;
+  const onPickDown = () => {
+    wordPick = false;
+  };
+  const onPickDbl = () => {
+    wordPick = true;
+  };
+  const onPickKey = (e: KeyboardEvent) => {
+    if (!e.ctrlKey && !e.metaKey && !e.altKey && !/^(Shift|Control|Meta|Alt)$/.test(e.key)) wordPick = false;
+  };
+  host.addEventListener('pointerdown', onPickDown, true);
+  host.addEventListener('dblclick', onPickDbl, true);
+  document.addEventListener('keydown', onPickKey, true);
+  const dropPick = () => {
+    host.removeEventListener('pointerdown', onPickDown, true);
+    host.removeEventListener('dblclick', onPickDbl, true);
+    document.removeEventListener('keydown', onPickKey, true);
+  };
+
   let sd: Any = await create(data).catch((e) => {
+    dropPick();
     for (const ev of INPUT_EVENTS) document.removeEventListener(ev, onUserInput, true);
     throw e;
   });
@@ -1269,6 +1293,52 @@ export async function openDocEngine(host: HTMLElement, data: ArrayBuffer, opts: 
     while (k < chars.length - 1 && WORD_CH.test(chars[k + 1].ch)) k++;
     return { from: chars[l].pos, to: chars[k].pos + 1 };
   };
+  /** Runs du paragraphe dont la mise en forme directe répète le style `styleId` : propriétés à retirer
+   *  (propriétés du run et marques du texte : SuperDoc écrit l'une ou l'autre). */
+  const redundantRuns = (para: Any, paraPos: number, styleId: string | null): { from: number; to: number; inline: Record<string, null> }[] => {
+    const sp = styleRunProps(stylesXml, styleId);
+    const out: { from: number; to: number; inline: Record<string, null> }[] = [];
+    para.descendants((n: Any, p: number) => {
+      if (n.type.name !== 'run') return true;
+      const rp: Any = n.attrs.runProperties ?? {};
+      const inline: Record<string, null> = {};
+      const fams: string[] = [];
+      const sizes: number[] = [];
+      let bold = rp.bold === true;
+      let italic = rp.italic === true;
+      const colors: string[] = [];
+      if (rp.fontSize != null) sizes.push(Number(rp.fontSize) / 2);
+      const rf = rp.fontFamily;
+      if (rf) fams.push(String(typeof rf === 'string' ? rf : rf.ascii ?? rf.hAnsi ?? ''));
+      if (rp.color?.val) colors.push(String(rp.color.val));
+      n.descendants((t: Any) => {
+        if (!t.isText) return true;
+        for (const m of t.marks as Any[]) {
+          const nm = m.type.name;
+          if (nm === 'bold' && m.attrs?.value !== false) bold = true;
+          else if (nm === 'italic' && m.attrs?.value !== false) italic = true;
+          else if (nm === 'textStyle') {
+            const z = sizePt(m.attrs?.fontSize);
+            if (z != null) sizes.push(z);
+            if (m.attrs?.fontFamily) fams.push(String(familyName(m.attrs.fontFamily) ?? ''));
+            if (m.attrs?.color) colors.push(String(m.attrs.color));
+          }
+        }
+        return false;
+      });
+      if (sp.bold && bold) inline.bold = null;
+      if (sp.italic && italic) inline.italic = null;
+      if (sp.fontSize && sizes.length && sizes.every((z) => Math.abs(z - sp.fontSize!) < 0.01)) inline.fontSize = null;
+      if (sp.fontFamily && fams.length && fams.every((f) => f.toLowerCase() === sp.fontFamily!.toLowerCase())) inline.fontFamily = null;
+      if (sp.color && colors.length && colors.every((c) => c.replace(/^#/, '').toUpperCase() === sp.color)) inline.color = null;
+      if (Object.keys(inline).length && n.content.size) {
+        const from = paraPos + 1 + p + 1;
+        out.push({ from, to: from + n.content.size, inline });
+      }
+      return false;
+    });
+    return out;
+  };
   const CLEAR_INLINE = { bold: null, italic: null, underline: null, strike: null, color: null, fontFamily: null, fontSize: null, highlight: null, vertAlign: null, smallCaps: null, caps: null };
   /** Absence de couleur : rien, « auto » (couleur du texte par défaut), « none » / transparent (sans surlignage). */
   const isNoColor = (c: string | null | undefined) => !c || /^(auto|none|transparent|nil)$/i.test(String(c).trim());
@@ -1495,8 +1565,15 @@ export async function openDocEngine(host: HTMLElement, data: ArrayBuffer, opts: 
       }
       // NB : commands.setStyleById efface gras / italique du paragraphe (constaté) ;
       // on ne change donc que l'identifiant de style du ou des paragraphes sélectionnés.
+      const paras = selectedParagraphs(ed);
+      // Mise en forme directe qui ne fait que répéter l'ANCIEN style (texte tapé après Entrée sur un titre :
+      // SuperDoc y écrit gras et taille du titre en direct) : retirée, sinon « Corps » garderait l'aspect du titre.
+      const redundant = paras.flatMap(({ node, pos }) => {
+        const oldId: string | null = node.attrs.paragraphProperties?.styleId ?? null;
+        return oldId === styleId ? [] : redundantRuns(node, pos, oldId);
+      });
       let tr = ed.state.tr;
-      for (const { node: n, pos } of selectedParagraphs(ed)) {
+      for (const { node: n, pos } of paras) {
         const pp = { ...(n.attrs.paragraphProperties ?? {}) };
         if (styleId) pp.styleId = styleId;
         else delete pp.styleId;
@@ -1509,7 +1586,23 @@ export async function openDocEngine(host: HTMLElement, data: ArrayBuffer, opts: 
         if (s !== 'body' && pp.numberingProperties && s !== 'quote') delete pp.numberingProperties;
         tr = tr.setNodeMarkup(pos, undefined, { ...n.attrs, paragraphProperties: pp });
       }
-      if (tr.docChanged) ed.view.dispatch(tr);
+      const edNow = ed;
+      if (!redundant.length) {
+        if (tr.docChanged) edNow.view.dispatch(tr);
+      } else {
+        const { from, to } = edNow.state.selection;
+        closeHistory(edNow);
+        oneUndoStep(edNow, () => {
+          if (tr.docChanged) edNow.view.dispatch(tr);
+          for (const r of redundant) {
+            const target = rangeTarget(edNow, r.from, r.to);
+            if (target) edNow.doc.format.apply({ target, inline: r.inline });
+          }
+          edNow.commands.setTextSelection({ from, to });
+        });
+        closeHistory(edNow);
+        changed();
+      }
       ed.view.focus();
     },
     setAlign(a) {
@@ -2161,6 +2254,7 @@ export async function openDocEngine(host: HTMLElement, data: ArrayBuffer, opts: 
     destroy() {
       destroyed = true;
       for (const ev of INPUT_EVENTS) document.removeEventListener(ev, onUserInput, true);
+      dropPick();
       try {
         sd.destroy();
       } catch (e) {
@@ -2506,10 +2600,13 @@ export async function openDocEngine(host: HTMLElement, data: ArrayBuffer, opts: 
         const p = firstTextIn(ed.state.doc, from, to);
         st = p === null ? stateOf(ed) : stateAt(ed, p, p + 1);
       }
-      // Paragraphe : copié si la source est le curseur ou des paragraphes entiers (comme Word avec ¶).
+      // Paragraphe : copié si la source est le curseur ou des paragraphes entiers (comme Word avec ¶) ;
+      // pas pour un mot pris par double-clic, même seul dans son paragraphe (titre d'un mot).
       const paras = parasIn(ed.state.doc, from, to);
+      const w = wordPick && !empty ? wordAt(ed.state.doc, from) : null;
+      const byWord = !!w && w.from === from && w.to === to;
       let para: CopiedFormat['para'] = null;
-      if (paras.length && (empty || coversParas(paras, from, to))) {
+      if (paras.length && (empty || (!byWord && coversParas(paras, from, to)))) {
         const pp = paras[0].node.attrs.paragraphProperties ?? {};
         para = JSON.parse(JSON.stringify({ styleId: pp.styleId ?? null, justification: pp.justification, spacing: pp.spacing, indent: pp.indent }));
       }
@@ -2519,14 +2616,19 @@ export async function openDocEngine(host: HTMLElement, data: ArrayBuffer, opts: 
       const ed = body();
       if (!ed || !f) return false;
       let { from, to } = ed.state.selection;
+      // Paragraphe (style, alignement, espacements) : seulement si la source était un paragraphe (curseur ou
+      // paragraphe entier) ET que la cible couvre des paragraphes entiers (ou un paragraphe vide) — comme Word.
+      // Quelques mots, ou le mot sous le curseur : caractères seuls, le reste du paragraphe ne bouge pas.
+      let withPara = false;
       if (from === to) {
         const w = wordAt(ed.state.doc, from);
         if (w) ({ from, to } = w);
         else if (!f.para) return false;
-      }
+        else withPara = true;
+      } else withPara = !!f.para && coversParas(parasIn(ed.state.doc, from, to), from, to);
       touched = true;
       const paint = () => {
-        if (f.para) {
+        if (f.para && withPara) {
           // une transaction pour tous les paragraphes touchés (positions inchangées : attributs seulement)
           const tr = ed.state.tr;
           for (const { node, pos } of parasIn(ed.state.doc, from, to)) {

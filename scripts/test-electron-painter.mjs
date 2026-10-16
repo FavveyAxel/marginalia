@@ -187,6 +187,15 @@ const HELPERS = () => {
       if (!rs.length) return null;
       return { left: rs[0].left, top: rs[0].top, bottom: rs[0].bottom, right: rs[rs.length - 1].right, bottom2: rs[rs.length - 1].bottom, top2: rs[rs.length - 1].top };
     },
+    /** Fait défiler la page pour que le passage soit visible (hors écran : la souris ne peut pas l'atteindre). */
+    reveal(needle, nth = 0) {
+      const f = find(needle, nth);
+      if (!f) return false;
+      const r = f.line.getBoundingClientRect();
+      if (r.top >= 80 && r.bottom <= window.innerHeight - 80) return false;
+      f.line.scrollIntoView({ block: 'center' });
+      return true;
+    },
     /** Rectangle de tout le paragraphe (fragment) contenant le passage. */
     fragRect(needle) {
       const f = find(needle);
@@ -231,6 +240,7 @@ const brief = (s) => (s ? `${s.fontFamily} ${s.fontSize} w${s.fontWeight} ${s.fo
 
 // ── Souris ──
 async function dragSelect(needle, a = 0, b = needle.length, nth = 0, wait = 450) {
+  if (await pt('reveal', needle, nth)) await sleep(400);
   const r1 = await pt('rect', needle, a, a + 1, nth);
   const r2 = await pt('rect', needle, b - 1, b, nth);
   if (!r1 || !r2) throw new Error(`passage introuvable sur la page : « ${needle} »`);
@@ -244,12 +254,14 @@ async function dragSelect(needle, a = 0, b = needle.length, nth = 0, wait = 450)
   await sleep(wait);
 }
 async function dblclickWord(needle, nth = 0, wait = 400) {
+  if (await pt('reveal', needle, nth)) await sleep(400);
   const r = await pt('rect', needle, 0, needle.length, nth);
   if (!r) throw new Error(`mot introuvable : « ${needle} »`);
   await page.mouse.dblclick((r.left + r.right) / 2, (r.top + r.bottom) / 2);
   await sleep(wait);
 }
 async function caretIn(needle, i) {
+  if (await pt('reveal', needle)) await sleep(400);
   const r = await pt('rect', needle, i, i + 1);
   if (!r) throw new Error(`mot introuvable : « ${needle} »`);
   await page.mouse.click(r.left + 0.5, (r.top + r.bottom) / 2);
@@ -794,8 +806,9 @@ try {
     await setStyle('body');
     console.log('   PM après « Corps » :', await pt('pmHtml', 'Texte courant'));
     console.log('   page après « Corps » :', brief(await styleOf('courant', 2)));
-    if (/styleid="Heading/.test((await pt('pmHtml', 'Texte courant')) ?? ''))
-      console.log('   NOTE (hors pinceau) : le menu Style affiche « Corps » mais le paragraphe garde styleId=Heading2 dans le document (et dans le .docx) ; le « corps » des scénarios D est donc un texte en Titre 2.');
+    // (l'attribut DOM « styleid » du ProseMirror caché n'est jamais retiré par SuperDoc : seul le .docx fait foi, cf. D5)
+    const bodyLook = await styleOf('courant', 2);
+    check('« Corps » après Entrée sur un Titre 2 : aspect du corps (12 pt, non gras), pas celui du titre', bodyLook && bodyLook.fontSize === '16px' && Number(bodyLook.fontWeight) < 600, brief(bodyLook));
     await caretIn('autre phrase', 2);
     await setStyle('body');
     await caretIn('courant', 2);
@@ -808,17 +821,41 @@ try {
 
   await scenario('D1', 'Dissertation : mot du Titre 1 « Introduction » → phrase du corps (bouton + glisser)', async () => {
     const restBefore = await styleOf('premier argument,', 3);
+    const USER_SHOTS = '/home/claude/marginalia/shots/pinceau';
+    fs.mkdirSync(USER_SHOTS, { recursive: true });
+    await page.screenshot({ path: path.join(USER_SHOTS, 'dissertation-avant.png') });
     await dblclickWord('Introduction');
     const src = await styleOf('Introduction', 2);
     await tb('painter').click();
     await sleep(300);
     await dragSelect('Texte courant');
+    await caretIn('simple', 2);
+    await page.screenshot({ path: path.join(USER_SHOTS, 'dissertation-apres.png') });
     const d1 = diff(src, await styleOf('Texte courant', 0));
     const d2 = diff(src, await styleOf('Texte courant', 12));
     check('« Texte courant » ressemble à « Introduction »', same(d1) && same(d2), { debut: d1, fin: d2, source: brief(src), cible: brief(await styleOf('Texte courant', 0)) });
+    // (la hauteur de LIGNE peut grandir : « Texte courant », plus grand, est sur la même ligne — comme Word)
     const dRest = diff(restBefore, await styleOf('premier argument,', 3), true);
-    check('sélection partielle : le reste du paragraphe cible (« premier argument, ») est inchangé (taille, interligne…)', same(dRest), dRest);
+    delete dRest.lineHeight;
+    check('sélection partielle : le reste du paragraphe cible (« premier argument, ») est inchangé (caractères, alignement)', same(dRest), dRest);
+    await caretIn('premier argument', 3);
+    check('sélection partielle : le paragraphe cible reste « Corps »', !/Titre/.test(await styleLabel()), await styleLabel());
     console.log('   document (ProseMirror) de la cible :', await pt('pmHtml', 'Texte courant'));
+  });
+
+  await scenario('D1b', 'Dissertation : double-clic sur « Introduction » (mot = tout le paragraphe) → paragraphe entier du corps : caractères seuls', async () => {
+    const before = await styleOf('Une autre', 2);
+    await dblclickWord('Introduction');
+    const src = await styleOf('Introduction', 2);
+    await tb('painter').click();
+    await sleep(300);
+    await dragSelect('Une autre phrase qui deviendra un titre.');
+    const dst = await styleOf('Une autre', 2);
+    check('les mots ressemblent à « Introduction »', same(diff(src, dst)), diff(src, dst));
+    const html = (await pt('pmHtml', 'Une autre')) ?? '';
+    check('paragraphe inchangé : interligne et alignement du corps (1,5, justifié), pas ceux du Titre 1', /line-height: 1\.5;/.test(html) && /text-align: justify/.test(html) && dst?.align === before?.align, html.slice(0, 160));
+    await caretIn('Une autre', 3);
+    check('menu Style : toujours « Corps » (double-clic : pas de copie du paragraphe)', !/Titre/.test(await styleLabel()), await styleLabel());
   });
 
   await scenario('D2', `Dissertation : mot du Titre 2 « argument » → mot du corps (${COPY} / ${PASTE})`, async () => {
@@ -892,6 +929,8 @@ try {
     const pa = x.para('Introduction');
     const pb = x.para('Une autre');
     check('export (sc. D4) : paragraphe peint en style de « Introduction »', pa && pb && pa.style === pb.style, { source: pa, cible: pb });
+    const pc = x.para('Texte courant');
+    check('export (sc. D0/D1) : le paragraphe « Texte courant » est du corps (pas Heading2)', pc && !/Heading/i.test(String(pc.style ?? '')), pc);
   });
 
   current = 'fin';

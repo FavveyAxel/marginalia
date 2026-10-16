@@ -658,6 +658,40 @@ export function effectiveStyleProps(stylesXml: string, id: string | null): Style
   return out;
 }
 
+/** Mise en forme des caractères d'un style de paragraphe (chaîne basedOn puis docDefaults) : gras, italique,
+ *  taille (pt), police, couleur (hex sans #). Sert à reconnaître la mise en forme directe qui ne fait que
+ *  répéter le style (héritée d'un titre par Entrée, par exemple). */
+export function styleRunProps(stylesXml: string, id: string | null): { bold?: boolean; italic?: boolean; fontSize?: number; fontFamily?: string; color?: string } {
+  const out: { bold?: boolean; italic?: boolean; fontSize?: number; fontFamily?: string; color?: string } = {};
+  const onOff = (el: string | undefined) => {
+    if (!el) return undefined;
+    const v = attrsOf(el)['w:val'];
+    return !(v === '0' || v === 'false' || v === 'off');
+  };
+  const read = (rPr: string) => {
+    out.bold ??= onOff(/<w:b(?=[\s/>])[^>]*\/?>/.exec(rPr)?.[0]);
+    out.italic ??= onOff(/<w:i(?=[\s/>])[^>]*\/?>/.exec(rPr)?.[0]);
+    const sz = attrsOf(/<w:sz\b[^>]*\/?>/.exec(rPr)?.[0])['w:val'];
+    if (out.fontSize === undefined && sz) out.fontSize = Number(sz) / 2;
+    const rf = attrsOf(/<w:rFonts\b[^>]*\/?>/.exec(rPr)?.[0]);
+    out.fontFamily ??= rf['w:ascii'] || rf['w:hAnsi'] || undefined;
+    const c = attrsOf(/<w:color\b[^>]*\/?>/.exec(rPr)?.[0])['w:val'];
+    if (out.color === undefined && c) out.color = c.toUpperCase();
+  };
+  const seen = new Set<string>();
+  let cur: string | null = id ?? defaultParagraphStyle(stylesXml);
+  while (cur && !seen.has(cur)) {
+    seen.add(cur);
+    const st = new RegExp(`<w:style\\b[^>]*\\sw:styleId="${cur}"[^>]*?(?:/>|>[\\s\\S]*?</w:style>)`).exec(stylesXml)?.[0];
+    if (!st) break;
+    read(/<w:rPr>[\s\S]*?<\/w:rPr>/.exec(st)?.[0] ?? '');
+    cur = /<w:basedOn\s+w:val="([^"]+)"/.exec(st)?.[1] ?? (cur !== defaultParagraphStyle(stylesXml) ? defaultParagraphStyle(stylesXml) : null);
+  }
+  const dd = /<w:rPrDefault>[\s\S]*?<\/w:rPrDefault>/.exec(stylesXml)?.[0];
+  if (dd) read(dd);
+  return out;
+}
+
 /** Identifiant du style de paragraphe par défaut (w:default="1"), « Normal » le plus souvent. */
 export function defaultParagraphStyle(stylesXml: string): string | null {
   const m = /<w:style\b(?=[^>]*\sw:type="paragraph")(?=[^>]*\sw:default="(?:1|true|on)")[^>]*\sw:styleId="([^"]+)"/.exec(stylesXml);

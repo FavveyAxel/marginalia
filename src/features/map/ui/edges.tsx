@@ -144,8 +144,10 @@ export function RelEdge({ id, source, target, data, selected }: EdgeProps) {
   const blocked = useBlocked(source, target);
   const [src, tgt, ...sibs] = rects;
   const color = `var(${rel.cssVar})`;
-  const width = STROKE[strength] + (selected ? 0.75 : 0);
-  const marker = `url(#map-arrow-${rel.id}-${strength})`;
+  // Lien neutre : trait plein plus fin, sans flèche ni pastille (il n'affirme rien, pas même un sens).
+  const neutral = rel.id === 'lien';
+  const width = STROKE[strength] * (neutral ? 0.8 : 1) + (selected ? 0.75 : 0);
+  const marker = neutral ? undefined : `url(#map-arrow-${rel.id}-${strength})`;
 
   let path: string;
   let mid: Pt;
@@ -195,7 +197,7 @@ export function RelEdge({ id, source, target, data, selected }: EdgeProps) {
 
   return (
     <>
-      <g className={`map-edge ${selected ? 'sel' : ''} ${d.hover ? 'hover' : ''} ${d.fresh ? 'fresh' : ''}`} data-strength={strength} style={{ color } as CSSProperties}>
+      <g data-relation={rel.id} className={`map-edge ${neutral ? 'neutral' : ''} ${selected ? 'sel' : ''} ${d.hover ? 'hover' : ''} ${d.fresh ? 'fresh' : ''}`} data-strength={strength} style={{ color } as CSSProperties}>
         <path d={path} className="map-edge-halo" style={{ strokeWidth: width + 6 }} />
         <path
           d={path}
@@ -215,7 +217,7 @@ export function RelEdge({ id, source, target, data, selected }: EdgeProps) {
       <EdgeLabelRenderer>
         <button
           type="button"
-          className={`map-pill nodrag nopan ${selected ? 'sel' : ''} ${showLabel ? 'show' : ''} ${d.note ? 'has-note' : ''}`}
+          className={`map-pill nodrag nopan ${neutral ? 'neutral' : ''} ${selected ? 'sel' : ''} ${showLabel ? 'show' : ''} ${d.note ? 'has-note' : ''}`}
           data-edge={id}
           style={{ transform: `translate(-50%, -50%) translate(${mid.x}px, ${mid.y}px)`, '--c': color } as CSSProperties}
           onClick={open}
@@ -245,12 +247,12 @@ export function RelEdge({ id, source, target, data, selected }: EdgeProps) {
 
 export const edgeTypes = { rel: RelEdge };
 
-/** Pointes de flèche (une par relation et par force). */
+/** Pointes de flèche (une par relation et par force ; le lien neutre n'en a pas). */
 export function ArrowDefs() {
   return (
     <svg width="0" height="0" style={{ position: 'absolute' }} aria-hidden>
       <defs>
-        {RELATIONS.flatMap((r) =>
+        {RELATIONS.filter((r) => r.id !== 'lien').flatMap((r) =>
           ([1, 2, 3] as EdgeStrength[]).map((s) => (
             <marker
               key={`${r.id}-${s}`}

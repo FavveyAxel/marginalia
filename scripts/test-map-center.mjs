@@ -2,7 +2,7 @@
 //   modèle pur (arbre de repli, cycles, replier tout, centre ↔ idée, plan / écrit / SVG / lecture guidée,
 //   rangement radial) ; interface : carte du centre, pastille « − / +N », masquage des descendantes,
 //   persistance au rechargement, annulation, raccourcis ⌥↑ ⌥↓ ⌥⇧↑ ⌥⇧↓, ⌘A, menus, carte vide
-//   « Poser la problématique », Tab → « répond à », Ranger Arbre / Radial, thèmes clair et sombre.
+//   « Poser la problématique », Tab → lien neutre, Ranger Arbre / Radial, thèmes clair et sombre.
 // Lancer : timeout 300 node scripts/test-map-center.mjs        Captures : shots/map-center/
 import assert from 'node:assert/strict';
 import { withApp, shot } from './harness.mjs';
@@ -313,7 +313,7 @@ await withApp(
     ok('sombre : texte du centre clair', contrast > 180, String(contrast));
     await S(() => window.__store.getState().updateSettings({ theme: 'light' }));
 
-    // ═══ 7. Carte vide : poser la problématique, Tab → « répond à » ═══
+    // ═══ 7. Carte vide : poser la problématique, Tab → lien neutre ═══
     await S(() => window.__store.getState().navigate({ name: 'board', boardId: 'board-v' }));
     await page.waitForSelector('[data-testid=map-empty]');
     await tick(page, 400);
@@ -327,8 +327,8 @@ await withApp(
     await tick(page, 500);
     m = await mapOf('board-v');
     const qn = m.nodes.find((n) => n.kind === 'question');
-    const child = m.edges.find((e) => e.target === qn?.id);
-    ok('Tab : nouvelle thèse qui « répond à » la problématique', qn?.text === 'Peut-on avoir le droit de mentir ?' && !!child && child.relation === 'repond', JSON.stringify(m));
+    const child = m.edges.find((e) => e.source === qn?.id);
+    ok('Tab : nouvelle carte reliée à la problématique par un lien neutre (centre → carte)', qn?.text === 'Peut-on avoir le droit de mentir ?' && !!child && child.relation === 'lien', JSON.stringify(m));
     await page.keyboard.type('Non : la véracité est un devoir absolu');
     await page.keyboard.press('Escape');
     await tick(page, 300);

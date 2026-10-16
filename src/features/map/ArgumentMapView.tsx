@@ -37,6 +37,7 @@ import { CENTRAL_W, IDEA_COLORS, MapCtx, NODE_H, NODE_W, reducedMotion, type Ext
 import { nodeTypes } from './ui/nodes';
 import { ArrowDefs, edgeTypes } from './ui/edges';
 import { EdgeMenu, type EdgeMenuState } from './ui/EdgeMenu';
+import { reverseEdgeIn } from './ui/reverse';
 import { MapToolbar } from './ui/MapToolbar';
 import { ALIGN_ACTIONS, SelectionBar } from './ui/SelectionBar';
 import { Guides } from './ui/Guides';
@@ -57,7 +58,7 @@ import { PASSAGE_TYPE, dropPassage, isPassageDrag, usePassagePlacer } from './ui
 import { useMovementPriority } from './ui/movement/movement';
 import { useBarOverlap } from './ui/useBarOverlap';
 // Centre (problématique / sujet) et replis de branches (carte mentale).
-import { addCenter, layoutRootId, mapCenter, relationToward, setNodeCenter, type CenterKind } from './model/center';
+import { addCenter, layoutRootId, mapCenter, setNodeCenter, type CenterKind } from './model/center';
 import { foldAll, toggleFold, unfoldAll, unfoldTo } from './model/fold';
 import { CENTER_W, centerBarEntries, centerNodeEntries, poseCenterEntries } from './ui/center';
 import { FOLD_KEYS, foldAllEntries, foldNodeEntries, useFoldView } from './ui/fold';
@@ -355,7 +356,7 @@ function Inner({ source, tools }: { source: MapSource; tools?: MapToolbarItem[] 
       const h = n.highlightId ? hlById.get(n.highlightId) : null;
       const base = h ? h.text : n.text;
       const words = base.replace(/\s+/g, ' ').trim().split(' ').slice(0, 6).join(' ');
-      const cat = h ? kindLabel(h) : 'Idée';
+      const cat = h ? kindLabel(h) : n.kind === 'subject' ? 'Sujet' : n.kind === 'question' ? 'Problématique' : 'Idée';
       return `${cat} : ${words || '…'}${base.trim().split(/\s+/).length > 6 ? '…' : ''}`;
     },
     [map.nodes, hlById],
@@ -486,7 +487,7 @@ function Inner({ source, tools }: { source: MapSource; tools?: MapToolbarItem[] 
     [mutate, freePosition, reveal],
   );
 
-  /** Tab : carte « enfant » placée dessous, qui soutient la carte choisie. */
+  /** Tab : carte « enfant » placée dessous, reliée à la carte choisie par un lien neutre (carte choisie → enfant). */
   const addChild = useCallback(
     (parentId: string) => {
       const p = rf.getNode(parentId);
@@ -494,12 +495,16 @@ function Inner({ source, tools }: { source: MapSource; tools?: MapToolbarItem[] 
       const b = boxOf(p);
       const boxes = rf.getNodes().map(boxOf);
       const at = freeSpot({ x: b.x + b.w / 2 - NODE_W / 2, y: b.y + b.h + 76 }, NODE_W, 96, boxes, { x: NODE_W + 32, y: 0 });
-      newIdea(at, { to: parentId, relation: relationToward(readMap(), parentId) ?? 'soutient' });
+      newIdea(at, { to: parentId, relation: 'lien', reverse: true });
     },
-    [rf, newIdea, readMap],
+    [rf, newIdea],
   );
 
-  /** Entrée : carte « sœur » à droite, reliée au même parent par la même relation. */
+  /**
+   * Entrée : carte « sœur » à droite, reliée au même parent par la même relation. Le parent est
+   * celui d'où part le lien neutre arrivant sur la carte (Tab, tirer un lien) ; à défaut, ancien
+   * sens : la carte vers laquelle elle pointe.
+   */
   const addSibling = useCallback(
     (sibId: string) => {
       const s = rf.getNode(sibId);
@@ -507,8 +512,10 @@ function Inner({ source, tools }: { source: MapSource; tools?: MapToolbarItem[] 
       const b = boxOf(s);
       const boxes = rf.getNodes().map(boxOf);
       const at = freeSpot({ x: b.x + b.w + 40, y: b.y }, NODE_W, 96, boxes, { x: NODE_W + 32, y: 0 });
-      const up = readMap().edges.find((e) => e.source === sibId);
-      newIdea(at, up ? { to: up.target, relation: up.relation } : undefined);
+      const es = readMap().edges;
+      const down = es.find((e) => e.target === sibId && e.relation === 'lien');
+      const up = down ? undefined : es.find((e) => e.source === sibId && e.relation !== 'lien');
+      newIdea(at, down ? { to: down.source, relation: 'lien', reverse: true } : up ? { to: up.target, relation: up.relation } : undefined);
     },
     [rf, bookId, newIdea],
   );
@@ -550,23 +557,18 @@ function Inner({ source, tools }: { source: MapSource; tools?: MapToolbarItem[] 
     (c: Connection) => {
       if (!c.source || !c.target || c.source === c.target) return;
       const m = readMap();
-      const dup = m.edges.find((e) => e.source === c.source && e.target === c.target);
+      // Un lien existe déjà entre ces deux cartes (dans un sens ou dans l'autre) : on ouvre son menu.
+      const dup = m.edges.find((e) => (e.source === c.source && e.target === c.target) || (e.source === c.target && e.target === c.source));
       const id = dup?.id ?? uid();
       if (!dup) {
-        // 13. Carte libre : entre deux livres différents, le lien proposé est « s’oppose à ».
-        const bookOfNode = (nid: string) => {
-          const hid = m.nodes.find((n) => n.id === nid)?.highlightId;
-          return hid ? hlById.get(hid)?.bookId : undefined;
-        };
-        const b1 = multi ? bookOfNode(c.source) : undefined;
-        const b2 = multi ? bookOfNode(c.target) : undefined;
-        // Vers le centre : « répond à » la problématique, « se rattache à » le sujet.
-        const relation: RelationId = relationToward(m, c.target) ?? (b1 && b2 && b1 !== b2 ? 'oppose' : 'soutient');
-        mutate((mm) => ({ ...mm, edges: [...mm.edges, { id, source: c.source!, target: c.target!, relation, groupId: null }] }));
+        // Tout nouveau lien est neutre (« lien » : il n'affirme rien) et suit le geste :
+        // de la carte d'où l'on tire vers celle où l'on lâche. Sa nature se choisit ensuite.
+        separateUndoStep();
+        mutate((mm) => ({ ...mm, edges: [...mm.edges, { id, source: c.source!, target: c.target!, relation: 'lien', groupId: null }] }));
         markFresh(id);
       }
       setSelEdge(id);
-      setMenu({ edgeId: id, x: pointer.current.x, y: pointer.current.y, fresh: true });
+      setMenu({ edgeId: id, x: pointer.current.x, y: pointer.current.y, fresh: !dup });
     },
     [bookId, mutate, markFresh],
   );
@@ -577,23 +579,20 @@ function Inner({ source, tools }: { source: MapSource; tools?: MapToolbarItem[] 
       if (state.isValid || !state.fromNode) return;
       const pt = 'changedTouches' in event ? event.changedTouches[0] : event;
       if (!pt) return;
-      // Si l'on a tiré depuis une poignée d'entrée, la nouvelle carte pointe vers la carte de départ.
-      const reverse = state.fromHandle?.type === 'target';
-      // Lâché sur le corps d'une autre carte (loin de ses poignées) : on relie quand même.
+      // Lâché sur le corps d'une autre carte (loin de ses poignées) : on relie quand même, dans le sens du geste.
       const over = (document.elementFromPoint(pt.clientX, pt.clientY) as HTMLElement | null)?.closest<HTMLElement>('.react-flow__node');
       const overId = over?.dataset.id;
       if (overId && overId !== state.fromNode.id) {
-        onConnect(reverse ? { source: overId, target: state.fromNode.id, sourceHandle: null, targetHandle: null } : { source: state.fromNode.id, target: overId, sourceHandle: null, targetHandle: null });
+        onConnect({ source: state.fromNode.id, target: overId, sourceHandle: null, targetHandle: null });
         return;
       }
       if (overId) return;
       const p = rf.screenToFlowPosition({ x: pt.clientX, y: pt.clientY });
-      const toCenter = relationToward(readMap(), state.fromNode.id);
-      // Tiré depuis le centre : la nouvelle idée y répond (ou s'y rattache).
-      if (toCenter) newIdea({ x: p.x - NODE_W / 2, y: p.y - 28 }, { to: state.fromNode.id, relation: toCenter });
-      else newIdea({ x: p.x - NODE_W / 2, y: p.y - 28 }, { to: state.fromNode.id, relation: 'soutient', reverse: !reverse });
+      // Lâché dans le vide : une nouvelle idée, reliée par un lien neutre carte de départ → nouvelle carte.
+      separateUndoStep();
+      newIdea({ x: p.x - NODE_W / 2, y: p.y - 28 }, { to: state.fromNode.id, relation: 'lien', reverse: true });
     },
-    [rf, newIdea, onConnect, readMap],
+    [rf, newIdea, onConnect],
   );
 
   const onDelete = useCallback(
@@ -1362,6 +1361,10 @@ function Inner({ source, tools }: { source: MapSource; tools?: MapToolbarItem[] 
             setEditingId(null);
           }}
           onEdgeClick={(e, edge) => ctx.openEdge(edge.id, e.clientX, e.clientY)}
+          onEdgeContextMenu={(e, edge) => {
+            e.preventDefault();
+            ctx.openEdge(edge.id, e.clientX, e.clientY);
+          }}
           onEdgeMouseEnter={(_, edge) => setHoverEdge(edge.id)}
           onEdgeMouseLeave={() => setHoverEdge(null)}
           onNodeContextMenu={onNodeContextMenu}
@@ -1445,14 +1448,17 @@ function Inner({ source, tools }: { source: MapSource; tools?: MapToolbarItem[] 
         {nodeMenu && <ContextMenu x={nodeMenu.x} y={nodeMenu.y} entries={nodeMenu.entries} label={nodeMenu.label} onClose={() => setNodeMenu(null)} />}
         {!empty && !sidePanel && (
           <div className="map-legend anim-fade" aria-label="Relations">
-            {RELATIONS.filter((r) => r.id !== 'rattache' || centerNode?.kind === 'subject' || map.edges.some((e) => e.relation === 'rattache')).map((r) => (
-              <span key={r.id} style={{ '--c': `var(${r.cssVar})` } as CSSProperties}>
-                <svg width="22" height="8">
-                  <line x1="1" y1="4" x2="21" y2="4" stroke="var(--c)" strokeWidth="1.75" strokeDasharray={r.dashed ? '5 3' : undefined} strokeLinecap="round" />
-                </svg>
-                {r.label}
-              </span>
-            ))}
+            {/* « lien (neutre) » en tête, seulement si la carte en contient ; « se rattache à » avec un sujet. */}
+            {[...RELATIONS.filter((r) => r.id === 'lien'), ...RELATIONS.filter((r) => r.id !== 'lien')]
+              .filter((r) => (r.id === 'lien' ? map.edges.some((e) => e.relation === 'lien') : r.id !== 'rattache' || centerNode?.kind === 'subject' || map.edges.some((e) => e.relation === 'rattache')))
+              .map((r) => (
+                <span key={r.id} data-legend={r.id} style={{ '--c': `var(${r.cssVar})` } as CSSProperties}>
+                  <svg width="22" height="8">
+                    <line x1="1" y1="4" x2="21" y2="4" stroke="var(--c)" strokeWidth={r.id === 'lien' ? 1.4 : 1.75} strokeDasharray={r.dashed ? '5 3' : undefined} strokeLinecap="round" />
+                  </svg>
+                  {r.id === 'lien' ? 'lien (neutre)' : r.label}
+                </span>
+              ))}
           </div>
         )}
 
@@ -1547,8 +1553,19 @@ function Inner({ source, tools }: { source: MapSource; tools?: MapToolbarItem[] 
             titleOf={titleOf}
             onClose={() => setMenu(null)}
             onRelation={(r) => {
+              // Le sens du geste est gardé ; le menu reste ouvert pour montrer ce que le lien affirme
+              // (« A soutient B ») et permettre « Inverser le sens ». Une étape d'annulation par choix.
+              if (menuEdge.relation === r) return;
+              separateUndoStep();
               mutate((m) => ({ ...m, edges: m.edges.map((e) => (e.id === menu.edgeId ? { ...e, relation: r } : e)) }));
-              setMenu(null);
+              setMenu({ ...menu, fresh: false });
+            }}
+            onReverse={() => {
+              separateUndoStep();
+              mutate((m) => {
+                const r = reverseEdgeIn(m, menu.edgeId);
+                return r === m ? m : { ...r, edges: normalize(r.edges) };
+              });
             }}
             onStrength={(s: EdgeStrength) =>
               mutate((m) => ({

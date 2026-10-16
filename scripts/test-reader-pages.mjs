@@ -3,8 +3,8 @@
 //   page imprimée des extraits, sélection / copie sans les repères, offsets des surlignages inchangés ;
 // - même livre sans page-list (repères epub:type / role="doc-pagebreak" seuls) ;
 // - EPUB sans pages : pagination estimée stable quand la taille du texte change ;
-// - réglage « Marquer les pages » (pages façon papier / trait et numéro / trait seul / aucun) ;
-// - pages façon papier (défaut) : une feuille par page (textContent inchangé, folio, titre courant,
+// - réglage « Numéros de page » (trait et numéro / numéro seul / aucun) du panneau « Mise en page et affichage » ;
+// - pages façon papier (présentation « Feuilles ») : une feuille par page (textContent inchangé, folio, titre courant,
 //   page tournée au milieu d'un paragraphe, surlignage sur deux feuilles, copie sans numéro ni saut,
 //   « Aller à la page » au haut de la feuille, indicateur = feuille sous la ligne de lecture à 30 %),
 //   captures shots/papier/ (clair, milieu de paragraphe, sombre, sépia, réglages, côte à côte) ;
@@ -425,13 +425,14 @@ const chapterTexts = (page, pane = 'a') =>
   page.evaluate((pane) => [...document.querySelectorAll(`.reader-page[data-pane="${pane}"] .html-chapter-text`)].map((r) => r.textContent), pane);
 
 async function paperScenario(page, { printedId, plainId }) {
-  console.log('\n== Pages façon papier (réglage par défaut) ==');
-  await page.evaluate(() => window.__store.getState().updateSettings({ pageMarks: 'off', theme: 'light' }));
+  console.log('\n== Pages façon papier (présentation « Feuilles ») ==');
+  await page.evaluate(() => window.__store.getState().updateSettings({ readerLayout: 'scroll', pageMarks: 'off', theme: 'light' }));
   await page.waitForTimeout(300);
   const textsOff = await chapterTexts(page);
-  await page.evaluate(() => window.__store.getState().updateSettings({ pageMarks: undefined }));
+  // Panneau « Mise en page et affichage » : la présentation « Feuilles » est l'ancien rendu papier (3.8).
+  await page.evaluate(() => window.__store.getState().updateSettings({ readerLayout: 'sheets', pageMarks: undefined }));
   await page.waitForTimeout(500);
-  check(await page.evaluate(() => document.querySelector('.reader-page[data-pane="a"] .html-doc').classList.contains('pg-paper')), 'réglage par défaut : pages façon papier');
+  check(await page.evaluate(() => document.querySelector('.reader-page[data-pane="a"] .html-doc').classList.contains('pg-paper')), 'présentation « Feuilles » : pages façon papier');
   const textsPaper = await chapterTexts(page);
   check(textsOff.length === 3 && JSON.stringify(textsOff) === JSON.stringify(textsPaper), 'textContent des chapitres identique avec et sans feuilles');
   const pm = await paperMarks(page);
@@ -568,26 +569,26 @@ async function paperScenario(page, { printedId, plainId }) {
   await page.evaluate(() => window.__store.getState().updateSettings({ theme: 'light' }));
   await page.waitForTimeout(200);
 
-  // Réglages : papier, trait et numéro, trait seul, aucun.
-  await page.click('.reader-topbar button[title="Affichage"]');
-  await page.waitForSelector('[data-testid=page-marks-mode]');
+  // Réglages (panneau « Mise en page et affichage ») : feuilles, défilement + trait et numéro, numéro seul, aucun.
+  await page.click('[data-testid=reader-display-btn]');
+  await page.waitForSelector('[data-testid=layout-choice]');
   await page.waitForTimeout(400);
   const labels = await page.evaluate(() =>
-    [...document.querySelectorAll('[data-testid=page-marks-mode] .typo-choice')].map((b) => `${b.textContent}${b.getAttribute('aria-checked') === 'true' ? '*' : ''}`),
+    [...document.querySelectorAll('[data-testid=layout-choice] [role=radio]')].map((b) => `${b.textContent}${b.getAttribute('aria-checked') === 'true' ? '*' : ''}`),
   );
-  check(JSON.stringify(labels) === JSON.stringify(['Pages façon papier*', 'Trait et numéro', 'Trait seul']), 'réglages : « Pages façon papier » (choisi), « Trait et numéro », « Trait seul »', labels);
+  check(JSON.stringify(labels) === JSON.stringify(['Défilement continu', 'Feuilles*', 'Page par page']), 'réglages : « Défilement continu », « Feuilles » (choisi), « Page par page »', labels);
   await shot(page, 'shots/papier/05-reglages.png');
   const mode = () => page.evaluate(() => [...document.querySelector('.reader-page[data-pane="a"] .html-doc').classList].find((c) => /^pg-/.test(c)));
   const xDisplay = () => page.evaluate(() => getComputedStyle([...document.querySelectorAll('.reader-page[data-pane="a"] .pg-mark')].find((m) => m.dataset.pg === 'x')).display);
   const states = [];
-  for (const sel of ['.typo-choice[data-mode=numbered]', '.typo-choice[data-mode=rule]', '[data-testid=page-marks-switch]', '[data-testid=page-marks-switch]']) {
+  for (const sel of ['[data-testid=layout-choice] [data-layout=scroll]', '.typo-choice[data-mode=number]', '[data-testid=page-marks-switch]', '[data-testid=page-marks-switch]', '[data-testid=layout-choice] [data-layout=sheets]']) {
     await page.click(sel);
     await page.waitForTimeout(250);
     states.push([await mode(), await xDisplay()]);
   }
   check(
-    JSON.stringify(states) === JSON.stringify([['pg-numbered', 'inline'], ['pg-rule', 'inline'], ['pg-off', 'inline'], ['pg-paper', 'block']]),
-    'changement de façon : trait et numéro → trait seul → aucun → papier',
+    JSON.stringify(states) === JSON.stringify([['pg-numbered', 'inline'], ['pg-number', 'inline'], ['pg-off', 'inline'], ['pg-numbered', 'inline'], ['pg-paper', 'block']]),
+    'changement : défilement (trait et numéro) → numéro seul → aucun → trait et numéro → feuilles',
     states,
   );
   await page.keyboard.press('Escape');
@@ -748,13 +749,13 @@ await withApp(async (page) => {
   await page.keyboard.press('Escape');
   // Page 2 commence au premier tiers de l'écran : c'est elle qu'on lit (ligne de lecture à 30 %), pas la 1.
   check(!(await page.$('[data-testid=page-jump-input]')) && (await indicator(page)) === 'p. 2 / 7', 'Échap : champ refermé sans saut ; indicateur = page lue (p. 2)', await indicator(page));
-  await page.click('.reader-topbar button[title="Affichage"]');
+  await page.click('[data-testid=reader-display-btn]');
   await page.waitForSelector('[data-testid=page-marks-switch]');
   await shot(page, 'shots/reader-pages-settings.png');
-  await page.click('.typo-choice[data-mode=rule]');
+  await page.click('.typo-choice[data-mode=number]');
   await page.waitForTimeout(200);
   ms = await marks(page);
-  check(ms.filter((m) => !m.cls.includes('pg-start') && !m.cls.includes('pg-chap')).every((m) => m.rule && !m.num), 'réglage « trait seul » : trait sans numéro');
+  check(ms.filter((m) => !m.cls.includes('pg-start') && !m.cls.includes('pg-chap')).every((m) => !m.rule && m.num), 'réglage « numéro seul » : numéro sans trait');
   await page.click('[data-testid=page-marks-switch]');
   await page.waitForTimeout(200);
   ms = await marks(page);
@@ -765,7 +766,7 @@ await withApp(async (page) => {
   check((await indicator(page)) === 'p. 5 / 7', 'repères masqués : « Aller à la page » fonctionne toujours', await indicator(page));
   await page.click('[data-testid=page-marks-switch]');
   await page.waitForTimeout(200);
-  check(await page.evaluate(() => document.querySelector('.html-doc').classList.contains('pg-paper')), 'réactivé : pages façon papier (par défaut)');
+  check(await page.evaluate(() => document.querySelector('.html-doc').classList.contains('pg-numbered')), 'réactivé : trait et numéro');
   await page.click('.typo-choice[data-mode=numbered]');
   await page.keyboard.press('Escape');
   await page.waitForTimeout(200);

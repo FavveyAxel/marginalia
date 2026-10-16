@@ -498,6 +498,19 @@ export interface WorkspaceItem {
 
 export type ThemeId = 'system' | 'light' | 'sepia' | 'dark';
 
+/** Présentation du lecteur HTML (attribut data-layout de la racine du lecteur). */
+export type ReaderLayout = 'scroll' | 'sheets' | 'paged';
+/** Page par page : nombre de pages à l'écran. */
+export type PagedSpread = 'single' | 'double' | 'auto';
+
+/** Défauts des réglages de mise en page du lecteur (champs optionnels de Settings). */
+export const READER_DISPLAY_DEFAULTS = {
+  readerLayout: 'scroll' as ReaderLayout,
+  pagedSpread: 'auto' as PagedSpread,
+  bookLayout: false,
+  paperLook: false,
+};
+
 export interface Settings {
   theme: ThemeId;
   fontSize: number;
@@ -531,10 +544,20 @@ export interface Settings {
   /** Barre latérale repliée en rail d'icônes. */
   sidebarCollapsed?: boolean;
   /**
-   * Repères de page dans le texte (EPUB…) : pages façon papier (défaut : une feuille par page,
-   * folio en bas), trait et numéro, trait seul, ou aucun.
+   * Repères de page dans le texte (EPUB…) : trait et numéro, numéro seul (« number »), ou aucun.
+   * Valeurs anciennes : « paper » (pages façon papier, devenu readerLayout « sheets ») et « rule »
+   * (trait seul, lu comme « trait et numéro »). Lecture résolue : readerDisplay() (features/reader/display.ts).
    */
-  pageMarks?: 'paper' | 'numbered' | 'rule' | 'off';
+  pageMarks?: 'paper' | 'numbered' | 'number' | 'rule' | 'off';
+  // ── Panneau « Mise en page et affichage » (contrat commun ; défauts dans READER_DISPLAY_DEFAULTS) ──
+  /** Présentation du texte : défilement continu (défaut), feuilles (pages façon papier), page par page. */
+  readerLayout?: ReaderLayout;
+  /** Page par page : une page, deux pages en vis-à-vis, ou selon la largeur (défaut). */
+  pagedSpread?: PagedSpread;
+  /** Mise en page livre (classe .book-layout sur la racine du lecteur). Défaut : non. */
+  bookLayout?: boolean;
+  /** Aspect papier (classe .paper-look sur la racine du lecteur). Défaut : non. */
+  paperLook?: boolean;
   /** Éditeur : marques de mise en forme (¶, espaces, police et style des paragraphes), affichage seulement. */
   showFormatMarks?: boolean;
 }

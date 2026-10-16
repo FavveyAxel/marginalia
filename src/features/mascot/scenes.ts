@@ -172,23 +172,24 @@ function pickScene(page: Page): Scene {
 export const STAY = [0.4, 0.7, 1, 1.7, 3];
 export const STAY_LABELS = ['Très courte', 'Courte', 'Normale', 'Longue', 'Très longue'];
 /** Durée approximative d'une visite, pour l'affichage. */
-export const STAY_HINT = ['une quinzaine de secondes', 'environ 25 secondes', 'environ 45 secondes', 'près de 2 minutes', 'environ 3 minutes et demie'];
+export const STAY_HINT = ['environ 30 secondes', 'environ 45 secondes', 'environ une minute et demie', 'près de 4 minutes', 'environ 7 minutes'];
 const POSES_CALMES = new Set<Pose>(['sit', 'read', 'doze', 'guitar', 'write', 'cigar', 'whistle']);
 
 /** Une visite complète : arrivée, des scènes (plus ou moins selon la durée choisie), au revoir, départ. */
 export function buildVisit(page: Page, level: Level, flex: boolean, stay = 1, scenes = Math.max(1, Math.min(7, Math.round((2 + (chance(0.4) ? 1 : 0)) * stay)))): Act[] {
   const q: Act[] = [{ pose: 'puff', ms: 300 }, { pose: 'stand', ms: 450, view: 'front' }];
   if (flex) q.push({ pose: 'flex', ms: 2600, say: 'flex' });
-  else if (chance(0.45)) q.push({ pose: 'wave', ms: 1400, say: chance(0.5) ? 'hello' : undefined });
-  else q.push(look(1200));
+  // Coucou à l'arrivée (et au départ) seulement ; entre les deux, très rarement.
+  else q.push({ pose: 'wave', ms: 1500, say: chance(0.5) ? 'hello' : undefined });
   for (let i = 0; i < scenes; i++) {
     q.push(...pickScene(page).acts(level));
     if (level >= 2 && chance(0.15)) q.push({ pose: 'flex', ms: 1800 });
   }
   // Activités calmes plus ou moins longues selon la durée choisie (les gestes et la parole ne changent pas).
-  const k = Math.max(0.6, Math.min(2, stay));
+  // Activités calmes (lire, fumer, jouer, écrire, somnoler…) : longues, pour qu'on ait le temps de les voir.
+  const k = 2.5 * Math.max(0.6, Math.min(2, stay));
   for (const a of q) if (POSES_CALMES.has(a.pose) && a.ms > 2500) a.ms = Math.round(a.ms * k);
-  if (chance(0.35)) q.push({ pose: 'wave', ms: 1600, say: 'bye' });
+  q.push({ pose: 'wave', ms: 1600, say: chance(0.5) ? 'bye' : undefined });
   // Il s'en va : demi-tour, quelques pas de dos, puis un petit nuage.
   q.push({ pose: 'stand', ms: 300, view: 'back' }, { pose: 'walk', ms: 700, view: 'back' }, { pose: 'puff', ms: 300, leave: true });
   return q;

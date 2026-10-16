@@ -101,6 +101,8 @@ interface State {
   bubbleId: number;
   /** Tests : pas de gestes spontanés (coucou). */
   calm: boolean;
+  /** Un coucou spontané a déjà eu lieu pendant cette visite (au plus un). */
+  wavedMid: boolean;
   /** Saut en cours d'un encadré à un autre. */
   flight: Flight | null;
   /** Tests : accélération du temps. */
@@ -446,6 +448,7 @@ export function Mascot({ route, workspaceId }: { route: string; workspaceId?: st
     bubbleForced: false,
     bubbleId: 0,
     calm: false,
+    wavedMid: false,
     flight: null,
     speed: 1,
   });
@@ -587,6 +590,7 @@ export function Mascot({ route, workspaceId }: { route: string; workspaceId?: st
         applyScale(scaleFor(el.getBoundingClientRect().width));
         s.x = found!.x;
         s.facing = Math.random() < 0.5 ? 1 : -1;
+        s.wavedMid = false;
         s.queue = buildVisit(page, level, s.pendingFlex, STAY[stayRef.current] ?? 1);
         s.pendingFlex = false;
         s.visible = true;
@@ -627,7 +631,8 @@ export function Mascot({ route, workspaceId }: { route: string; workspaceId?: st
         changed = true;
       }
       // De temps en temps, il fait coucou depuis son perchoir, puis reprend ce qu'il faisait.
-      if (!still && !s.calm && isSeated(s.act.pose) && s.act.pose !== 'sitwave' && s.left > 2500 && Math.random() < (dt / 1000) * 0.09) {
+      if (!still && !s.calm && !s.wavedMid && isSeated(s.act.pose) && s.act.pose !== 'sitwave' && s.left > 2500 && Math.random() < (dt / 1000) * 0.004) {
+        s.wavedMid = true;
         s.queue.unshift({ ...s.act, ms: s.left });
         start(s, { pose: 'sitwave', ms: 1200 + Math.random() * 600, view: 'front', say: Math.random() < 0.25 ? 'hello' : undefined });
         return true;

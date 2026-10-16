@@ -120,6 +120,28 @@ export function TypographyPopover({ anchor, onClose }: { anchor: DOMRect; onClos
           </button>
         </div>
       </div>
+      {/* TEMPORAIRE (branche page-par-page) : bascule minimale pour essayer le mode page par page ;
+          l'interface définitive des mises en page est faite ailleurs — à remplacer à la fusion. */}
+      <div className="typo-section" data-testid="paged-temp-switch">
+        <div className="typo-title">Mise en page</div>
+        <div className="segmented typo-seg" role="radiogroup" aria-label="Mise en page">
+          <button role="radio" aria-checked={s.readerLayout !== 'paged'} className={s.readerLayout !== 'paged' ? 'active' : ''} onClick={() => set({ readerLayout: 'scroll' })}>
+            Défilement
+          </button>
+          <button role="radio" aria-checked={s.readerLayout === 'paged'} className={s.readerLayout === 'paged' ? 'active' : ''} onClick={() => set({ readerLayout: 'paged' })} data-layout="paged">
+            Page par page
+          </button>
+        </div>
+        {s.readerLayout === 'paged' && (
+          <div className="segmented typo-seg" role="radiogroup" aria-label="Pages affichées" style={{ marginTop: 6 }}>
+            {(['single', 'double', 'auto'] as const).map((v) => (
+              <button key={v} role="radio" aria-checked={(s.pagedSpread ?? 'auto') === v} className={(s.pagedSpread ?? 'auto') === v ? 'active' : ''} onClick={() => set({ pagedSpread: v })} data-spread={v}>
+                {v === 'single' ? 'Une page' : v === 'double' ? 'Deux pages' : 'Automatique'}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
       <Slider id="typo-size" label="Taille" value={s.fontSize} min={14} max={28} step={1} format={(v) => `${v} px`} onChange={(v) => set({ fontSize: v })} />
       <Slider id="typo-lh" label="Interligne" value={s.lineHeight} min={1.4} max={2.0} step={0.05} format={(v) => v.toFixed(2).replace('.', ',')} onChange={(v) => set({ lineHeight: Math.round(v * 100) / 100 })} />
       <Slider id="typo-measure" label="Largeur du texte" value={s.measure} min={52} max={84} step={2} format={(v) => `${v} ch`} onChange={(v) => set({ measure: v })} />

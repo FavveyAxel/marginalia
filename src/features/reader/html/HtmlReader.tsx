@@ -20,6 +20,8 @@ import { allIndexes, fold, isBlockEl, locate, makeAnchor, offsetOf, rangeFor, re
 import { parseBook, printedPageAt, ReaderError, type ParsedDoc } from './parse';
 import { ESTIMATED_NOTE, findPage, lastLabel, paginate, romanToInt, type Pagination, type PageStatus } from '../pages';
 import './html-reader.css';
+// Page par page (readerLayout === 'paged') : mise en page et navigation dans paged.ts / paged.css.
+import { PagedLayout } from './paged';
 
 interface HlState {
   sig: string;
@@ -180,6 +182,8 @@ export const HtmlReader = forwardRef<EngineHandle, EngineProps>(function HtmlRea
   /** Libellés des pages (dans l'ordre) et dernière page affichée, calculés une fois par ouverture. */
   const pgLabelsRef = useRef<string[]>([]);
   const pgLastRef = useRef('');
+  /** Page par page : actif tant que le réglage le demande (null en défilement). */
+  const pagedRef = useRef<PagedLayout | null>(null);
   const [loaded, setLoaded] = useState(0);
   const [selRect, setSelRect] = useState<DOMRect | null>(null);
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; point: BookmarkPoint; copy: string } | null>(null);
@@ -324,6 +328,7 @@ export const HtmlReader = forwardRef<EngineHandle, EngineProps>(function HtmlRea
   // ── Position de lecture ───────────────────────────────────
 
   const currentChapter = (): number => {
+    if (pagedRef.current) return pagedRef.current.chapter;
     const sc = scrollRef.current;
     const secs = sectionsRef.current;
     if (!sc || !secs.length) return 0;
@@ -344,6 +349,8 @@ export const HtmlReader = forwardRef<EngineHandle, EngineProps>(function HtmlRea
   const captureAnchor = (): ReadingAnchor | null => {
     const sc = scrollRef.current;
     if (!sc || !rootsRef.current.length) return null;
+    const pg = pagedRef.current;
+    if (pg?.geo) return { ...pg.anchor(), dy: 24 };
     const scRect = sc.getBoundingClientRect();
     const ch = currentChapter();
     const col = rootsRef.current[ch]?.parentElement;
@@ -367,6 +374,10 @@ export const HtmlReader = forwardRef<EngineHandle, EngineProps>(function HtmlRea
 
   const restoreAnchor = (a: ReadingAnchor | null) => {
     if (!a) return Promise.resolve();
+    if (pagedRef.current) {
+      pagedRef.current.revealOffset(a.chapter, a.offset);
+      return Promise.resolve();
+    }
     return scrollStable(() => {
       const sc = scrollRef.current;
       const rect = charRect(a.chapter, a.offset);
@@ -382,6 +393,19 @@ export const HtmlReader = forwardRef<EngineHandle, EngineProps>(function HtmlRea
     const sc = scrollRef.current;
     if (!parsed || !sc || !readyRef.current) return;
     lastReport.current = Date.now();
+    const pg = pagedRef.current;
+    if (pg?.geo) {
+      // Page par page : position = premier caractère de la page de gauche (restauré exactement).
+      const ch = pg.chapter;
+      const len = parsed.chapters[ch].text.length;
+      const off = pg.firstOffset();
+      const total = cumRef.current[cumRef.current.length - 1] || 1;
+      const progress = pg.atEnd() ? 1 : (cumRef.current[ch] + off) / total;
+      anchorRef.current = { ...pg.anchor(), dy: 24 };
+      propsRef.current.onPosition({ kind: 'html', chapter: ch, scroll: Number((len ? off / len : 0).toFixed(5)), offset: off }, Math.max(0, Math.min(1, progress)), parsed.chapters[ch].label);
+      emitPage();
+      return;
+    }
     const ch = currentChapter();
     const top = sectionTop(ch);
     const h = sectionsRef.current[ch].offsetHeight || 1;
@@ -432,6 +456,7 @@ export const HtmlReader = forwardRef<EngineHandle, EngineProps>(function HtmlRea
    * du volet (là où l'œil lit ; un repère à peine sorti du bord haut ne fait pas encore la page).
    */
   const pageAtView = (): number => {
+    if (pagedRef.current?.geo) return pagedRef.current.pageIndexAtView();
     const sc = scrollRef.current;
     const pag = pagRef.current;
     const secs = sectionsRef.current;
@@ -492,6 +517,19 @@ export const HtmlReader = forwardRef<EngineHandle, EngineProps>(function HtmlRea
     if (!r.ok) return r.message;
     const el = pgMarksRef.current[r.index];
     if (!el) return null;
+    const pg = pagedRef.current;
+    if (pg?.geo) {
+      // Page par page : la page d'écran où commence la page demandée.
+      const root = el.closest('.html-chapter-text') as HTMLElement | null;
+      const ch = root ? chapterOfRoot(root) : -1;
+      if (ch >= 0) {
+        pg.revealRect(ch, () => el.getBoundingClientRect());
+        pg.pinnedLabel = r.index;
+        pgStatusRef.current = '';
+        emitPage();
+      }
+      return null;
+    }
     smoothTo(() => {
       const sc = scrollRef.current;
       if (!sc || !el.isConnected) return null;
@@ -598,13 +636,14 @@ export const HtmlReader = forwardRef<EngineHandle, EngineProps>(function HtmlRea
       if (layer) layer.textContent = '';
     });
     const tx = texts();
+    const pg = pagedRef.current?.geo ? pagedRef.current : null;
     for (const m of propsRef.current.movements) {
       if (m.anchor.kind !== 'html') continue;
       const a = m.anchor;
       const quote = m.startText || '';
       const adj: HtmlAnchor = quote && quote.length !== a.end - a.start ? { ...a, suffix: '' } : a;
       const span = resolveAnchor(tx, adj, quote);
-      if (!span) continue;
+      if (!span || (pg && span.chapter !== pg.chapter)) continue;
       const root = rootsRef.current[span.chapter];
       const col = root.parentElement!;
       const layer = col.querySelector('.html-marks');
@@ -625,13 +664,20 @@ export const HtmlReader = forwardRef<EngineHandle, EngineProps>(function HtmlRea
       btn.append(sign, label);
       btn.style.top = `${rect.top - colRect.top + rect.height / 2}px`;
       layer.appendChild(btn);
+      if (pg) {
+        // Page par page : dans la marge gauche de la page (colonne) où commence le mouvement.
+        const g = pg.geo!;
+        btn.classList.add('compact', 'paged-pos');
+        btn.style.left = `${pg.colOfRect(span.chapter, rect) * g.w - Math.min(g.mx / 2, 26) - 11}px`;
+        continue;
+      }
       const room = colRect.left - (sectionsRef.current[span.chapter]?.getBoundingClientRect().left ?? 0);
       if (btn.offsetWidth + 22 > room) btn.classList.add('compact');
     }
     // Signets : un petit ruban dans la marge droite, à la hauteur de la ligne marquée.
     for (const b of propsRef.current.bookmarks ?? []) {
       const span = resolveBookmark(b);
-      if (!span) continue;
+      if (!span || (pg && span.chapter !== pg.chapter)) continue;
       const col = rootsRef.current[span.chapter]?.parentElement;
       const layer = col?.querySelector('.html-marks');
       const rect = charRect(span.chapter, span.start);
@@ -644,6 +690,11 @@ export const HtmlReader = forwardRef<EngineHandle, EngineProps>(function HtmlRea
       btn.title = `Signet : ${b.label}`;
       btn.style.top = `${rect.top - colRect.top + rect.height / 2}px`;
       btn.style.setProperty('--bm-c', bookmarkColor(b.color));
+      if (pg) {
+        const g = pg.geo!;
+        btn.classList.add('paged-pos');
+        btn.style.left = `${pg.colOfRect(span.chapter, rect) * g.w + g.cw + Math.min(12, g.mx / 2 - 5)}px`;
+      }
       layer.appendChild(btn);
     }
   };
@@ -726,7 +777,7 @@ export const HtmlReader = forwardRef<EngineHandle, EngineProps>(function HtmlRea
     const rect = charRect(chapter, start);
     const sec = sectionsRef.current[chapter];
     const h = sec?.offsetHeight || 1;
-    const fraction = rect && sec ? Math.max(0, Math.min(1, (rect.top - sec.getBoundingClientRect().top) / h)) : start / Math.max(1, text.length);
+    const fraction = pagedRef.current?.geo ? start / Math.max(1, text.length) : rect && sec ? Math.max(0, Math.min(1, (rect.top - sec.getBoundingClientRect().top) / h)) : start / Math.max(1, text.length);
     return {
       position: { kind: 'html', chapter, scroll: Number(fraction.toFixed(5)) },
       anchor,
@@ -742,6 +793,20 @@ export const HtmlReader = forwardRef<EngineHandle, EngineProps>(function HtmlRea
     const sc = scrollRef.current;
     const parsed = parsedRef.current;
     if (!sc || !parsed || !rootsRef.current.length) return null;
+    const pg = pagedRef.current;
+    if (pg?.geo) {
+      // Page par page : premier caractère de la page (début du paragraphe s'il commence sur la page).
+      const ch = pg.chapter;
+      const text = parsed.chapters[ch].text;
+      let start = pg.firstOffset();
+      while (start < text.length && /\s/.test(text[start])) start++;
+      const block = blockAt(ch, start);
+      if (block) {
+        const bs = offsetOf(rootsRef.current[ch], block, 0);
+        if (bs >= pg.firstOffset()) start = bs;
+      }
+      return pointFor(ch, start);
+    }
     const scRect = sc.getBoundingClientRect();
     const ch0 = currentChapter();
     const col = rootsRef.current[ch0]?.parentElement;
@@ -800,6 +865,21 @@ export const HtmlReader = forwardRef<EngineHandle, EngineProps>(function HtmlRea
     el.setAttribute('aria-hidden', 'true');
     el.style.top = `${r.top - colRect.top - 4}px`;
     el.style.height = `${r.height + 8}px`;
+    const pg = pagedRef.current;
+    if (pg?.geo) {
+      // Page par page : le voile couvre la colonne (page) du passage, pas la première.
+      const k = pg.colOfRect(span.chapter, line ?? br);
+      el.style.left = `${k * pg.geo.w - 10}px`;
+      el.style.right = 'auto';
+      el.style.width = `${pg.geo.cw + 20}px`;
+      // Paragraphe sur plusieurs pages : seulement son morceau sur la page du signet.
+      const frag = block ? [...block.getClientRects()].find((f) => (f.width || f.height) && pg.colOfRect(span.chapter, f) === k) : null;
+      if (frag) {
+        const t = line && line.top - frag.top > s.fontSize * s.lineHeight * 2.5 ? line.top : frag.top;
+        el.style.top = `${t - colRect.top - 4}px`;
+        el.style.height = `${frag.bottom - t + 8}px`;
+      }
+    }
     el.style.setProperty('--bm-c', bookmarkColor(b.color));
     col.appendChild(el);
     setTimeout(() => el.remove(), 2000);
@@ -849,6 +929,60 @@ export const HtmlReader = forwardRef<EngineHandle, EngineProps>(function HtmlRea
     });
   };
 
+  // ── Page par page ─────────────────────────────────────────
+
+  /** Active, désactive ou remet en page le mode page par page selon les réglages. */
+  const syncPaged = () => {
+    const want = propsRef.current.settings.readerLayout === 'paged';
+    const sc = scrollRef.current;
+    const doc = docRef.current;
+    if (!sc || !doc || !parsedRef.current) return;
+    if (!want) {
+      if (pagedRef.current) {
+        pagedRef.current.detach();
+        pagedRef.current = null;
+        updateEstimates();
+      }
+      return;
+    }
+    if (!pagedRef.current) {
+      const pg = new PagedLayout({
+        scroll: sc,
+        doc,
+        sections: () => sectionsRef.current,
+        roots: () => rootsRef.current,
+        texts,
+        marks: () => pgMarksRef.current,
+        firstMark: () => pgFirstRef.current,
+        labels: () => pgLabelsRef.current,
+        bookTitle: () => clipHead(propsRef.current.book.title || ''),
+        chapterTitle: (i) => clipHead(parsedRef.current?.chapters[i]?.label || ''),
+        spread: () => propsRef.current.settings.pagedSpread ?? 'auto',
+        measure: () => propsRef.current.settings.measure,
+        onShown: ({ chapterChanged, user }) => {
+          // Page tournée à la main : la sélection (sur la page quittée) et sa barre disparaissent.
+          if (user && selInfoRef.current) {
+            window.getSelection()?.removeAllRanges();
+            hideToolbar();
+          }
+          if (chapterChanged && readyRef.current) renderMarkers();
+          if (readyRef.current) scheduleReport();
+        },
+      });
+      pg.attach();
+      pagedRef.current = pg;
+    }
+    pagedRef.current.layout();
+  };
+
+  useEffect(
+    () => () => {
+      pagedRef.current?.detach();
+      pagedRef.current = null;
+    },
+    [],
+  );
+
   // ── Chargement ────────────────────────────────────────────
 
   useEffect(() => {
@@ -864,6 +998,8 @@ export const HtmlReader = forwardRef<EngineHandle, EngineProps>(function HtmlRea
     pagRef.current = null;
     pgMarksRef.current = [];
     pgFirstRef.current = [];
+    pagedRef.current?.detach();
+    pagedRef.current = null;
     setRevealed(false);
     if (docRef.current) docRef.current.textContent = '';
     parseBook(book, data)
@@ -989,8 +1125,10 @@ export const HtmlReader = forwardRef<EngineHandle, EngineProps>(function HtmlRea
       } catch {
         /* polices : on continue */
       }
+      if (!alive) return;
+      syncPaged();
       const host = sectionsRef.current[0]?.parentElement;
-      if (host && alive) {
+      if (host && alive && !pagedRef.current) {
         host.classList.add('html-warm');
         void host.offsetHeight;
         await nextFrame();
@@ -999,7 +1137,15 @@ export const HtmlReader = forwardRef<EngineHandle, EngineProps>(function HtmlRea
       }
       if (!alive) return;
       const init = propsRef.current.initialPosition;
-      if (init && init.kind === 'html' && init.chapter >= 0 && init.chapter < parsed.chapters.length && (init.chapter > 0 || init.scroll > 0 || !!init.offset)) {
+      const pg = pagedRef.current;
+      if (pg) {
+        // Page par page : la page qui contient le caractère mémorisé (sinon la fraction lue).
+        const ok = init && init.kind === 'html' && init.chapter >= 0 && init.chapter < parsed.chapters.length;
+        const len = ok ? parsed.chapters[init.chapter].text.length : 0;
+        const off = ok ? (typeof init.offset === 'number' ? Math.min(len, Math.max(0, init.offset)) : Math.round(Math.max(0, Math.min(1, init.scroll)) * len)) : 0;
+        if (ok) pg.revealOffset(init.chapter, off);
+        else pg.show(0, 0);
+      } else if (init && init.kind === 'html' && init.chapter >= 0 && init.chapter < parsed.chapters.length && (init.chapter > 0 || init.scroll > 0 || !!init.offset)) {
         const off = init.offset;
         if (typeof off === 'number' && off >= 0 && off <= parsed.chapters[init.chapter].text.length)
           await scrollStable(() => {
@@ -1033,7 +1179,8 @@ export const HtmlReader = forwardRef<EngineHandle, EngineProps>(function HtmlRea
 
   // Typographie : garder le passage lu à la même hauteur
   const pageMode = settings.pageMarks ?? 'paper';
-  const typoKey = `${settings.fontFamily}|${settings.fontSize}|${settings.lineHeight}|${settings.measure}|${pageMode}`;
+  const paged = settings.readerLayout === 'paged';
+  const typoKey = `${settings.fontFamily}|${settings.fontSize}|${settings.lineHeight}|${settings.measure}|${pageMode}|${paged ? `paged-${settings.pagedSpread ?? 'auto'}` : 'scroll'}`;
   const lastTypo = useRef(typoKey);
   const pendingAnchor = useRef<ReadingAnchor | null>(null);
   if (lastTypo.current !== typoKey) {
@@ -1046,6 +1193,8 @@ export const HtmlReader = forwardRef<EngineHandle, EngineProps>(function HtmlRea
     updateEstimates();
     const a = pendingAnchor.current;
     pendingAnchor.current = null;
+    syncPaged();
+    if (pagedRef.current && !a) pagedRef.current.show(pagedRef.current.chapter, pagedRef.current.page);
     restoreAnchor(a).then(() => {
       renderMarkers();
       report();
@@ -1091,16 +1240,27 @@ export const HtmlReader = forwardRef<EngineHandle, EngineProps>(function HtmlRea
     };
     sc.addEventListener('copy', onNativeCopy);
     let lastW = sc.clientWidth;
+    let lastH = sc.clientHeight;
     let roTimer: ReturnType<typeof setTimeout> | null = null;
     const ro = new ResizeObserver(() => {
-      if (sc.clientWidth === lastW) return;
+      // Page par page : la hauteur du volet compte aussi (taille des pages).
+      const hChanged = !!pagedRef.current && sc.clientHeight !== lastH;
+      if (sc.clientWidth === lastW && !hChanged) return;
       lastW = sc.clientWidth;
+      lastH = sc.clientHeight;
       if (!readyRef.current) return;
       const a = anchorRef.current;
       if (roTimer) clearTimeout(roTimer);
       roTimer = setTimeout(() => {
         updateEstimates();
-        restoreAnchor(a).then(renderMarkers);
+        if (pagedRef.current) {
+          pagedRef.current.layout();
+          if (!a) pagedRef.current.show(pagedRef.current.chapter, pagedRef.current.page);
+        }
+        restoreAnchor(a).then(() => {
+          renderMarkers();
+          if (pagedRef.current) report();
+        });
       }, 60);
     });
     ro.observe(sc);
@@ -1292,6 +1452,16 @@ export const HtmlReader = forwardRef<EngineHandle, EngineProps>(function HtmlRea
       return sc.scrollTop + rect.top - sc.getBoundingClientRect().top - (sc.clientHeight * ratio - rect.height / 2);
     });
 
+  /** Montre un rectangle du chapitre : page qui le contient (page par page) ou défilement. */
+  const revealAt = (chapter: number, rectOf: () => DOMRect | null, ratio: number): Promise<void> => {
+    const pg = pagedRef.current;
+    if (pg?.geo) {
+      pg.revealRect(chapter, rectOf);
+      return Promise.resolve();
+    }
+    return scrollToRect(rectOf, ratio);
+  };
+
   const goTo = (target: TocItem['target']) => {
     if (target.kind !== 'html' || !parsedRef.current) return;
     const ch = Math.max(0, Math.min(target.chapter, rootsRef.current.length - 1));
@@ -1306,6 +1476,13 @@ export const HtmlReader = forwardRef<EngineHandle, EngineProps>(function HtmlRea
           if (el) break;
         }
       }
+    }
+    const pg = pagedRef.current;
+    if (pg?.geo) {
+      const r = el?.closest('.html-chapter-text') as HTMLElement | null;
+      const c = r ? chapterOfRoot(r) : ch;
+      pg.revealRect(c >= 0 ? c : ch, () => (el ? el.getBoundingClientRect() : null));
+      return;
     }
     smoothTo(() => {
       const sc = scrollRef.current;
@@ -1387,17 +1564,18 @@ export const HtmlReader = forwardRef<EngineHandle, EngineProps>(function HtmlRea
         }
         const els = st?.els ?? [];
         if (els.length) {
-          scrollToRect(() => els[0].getBoundingClientRect(), 0.4).then(() => pulse(els));
+          const root = els[0].closest('.html-chapter-text') as HTMLElement | null;
+          revealAt(root ? chapterOfRoot(root) : h.anchor.chapter, () => els[0].getBoundingClientRect(), 0.4).then(() => pulse(els));
           return;
         }
         const span = st?.span ?? resolveAnchor(texts(), h.anchor, h.text) ?? resolveLoose(h.anchor);
-        if (span) scrollToRect(() => spanRect(span), 0.4);
+        if (span) revealAt(span.chapter, () => spanRect(span), 0.4);
         else goTo({ kind: 'html', chapter: h.anchor.chapter });
       },
       goToAnchor(anchor: Anchor) {
         if (!parsedRef.current || anchor.kind !== 'html') return;
         const span = resolveLoose(anchor);
-        if (span) scrollToRect(() => spanRect(span), 0.3);
+        if (span) revealAt(span.chapter, () => spanRect(span), 0.3);
       },
       getHighlightRect(id: string) {
         let st = hlRef.current.get(id);
@@ -1406,7 +1584,18 @@ export const HtmlReader = forwardRef<EngineHandle, EngineProps>(function HtmlRea
           st = hlRef.current.get(id);
         }
         if (!st) return null;
-        const rects = st.els.map((el) => el.getBoundingClientRect()).filter((r) => r.width || r.height);
+        let rects = st.els.map((el) => el.getBoundingClientRect()).filter((r) => r.width || r.height);
+        const pg = pagedRef.current;
+        if (pg?.geo && st.span) {
+          // Page par page : l'extrait peut courir sur deux pages ; le popover s'ancre à sa partie
+          // sur la première page visible (pas au rectangle qui engloberait toute la double page).
+          const parts = st.els.flatMap((el) => [...el.getClientRects()]).filter((r) => r.width || r.height);
+          const ch = st.span.chapter;
+          const cols = parts.map((r) => pg.colOfRect(ch, r));
+          const first = cols.find((c) => pg.isVisible(ch, c)) ?? cols[0];
+          const mine = parts.filter((_, i) => cols[i] === first);
+          if (mine.length) rects = mine;
+        }
         if (!rects.length) {
           const r = st.span && spanRect(st.span);
           return r ?? null;
@@ -1467,7 +1656,7 @@ export const HtmlReader = forwardRef<EngineHandle, EngineProps>(function HtmlRea
         }
         els.forEach((el) => el.classList.add('current'));
         currentHitRef.current = hit.id;
-        scrollToRect(() => (els[0] ? els[0].getBoundingClientRect() : spanRect(p)), 0.4);
+        revealAt(p.chapter, () => (els[0] ? els[0].getBoundingClientRect() : spanRect(p)), 0.4);
       },
       clearSearch() {
         clearSearchMarks();
@@ -1481,6 +1670,13 @@ export const HtmlReader = forwardRef<EngineHandle, EngineProps>(function HtmlRea
         const span = resolveBookmark(b);
         if (!span) {
           if (b.position.kind === 'html') goTo({ kind: 'html', chapter: b.position.chapter });
+          return;
+        }
+        const pg = pagedRef.current;
+        if (pg?.geo) {
+          pg.revealRect(span.chapter, () => charRect(span.chapter, span.start));
+          renderMarkers();
+          flashBookmark(span, b);
           return;
         }
         const lead = () => Math.max(40, (scrollRef.current?.clientHeight ?? 600) * 0.14);
@@ -1497,6 +1693,19 @@ export const HtmlReader = forwardRef<EngineHandle, EngineProps>(function HtmlRea
       bookmarkAtView(list: Bookmark[]) {
         const sc = scrollRef.current;
         if (!sc || !readyRef.current || !list.length) return null;
+        const pg = pagedRef.current;
+        if (pg?.geo) {
+          // Page par page : un signet posé sur la (double) page visible.
+          const a = pg.firstOffset();
+          const z = pg.endOffset();
+          let hit: { id: string; d: number } | null = null;
+          for (const b of list) {
+            const span = resolveBookmark(b);
+            if (!span || span.chapter !== pg.chapter || span.start < a - 1 || span.start >= z) continue;
+            if (!hit || span.start - a < hit.d) hit = { id: b.id, d: span.start - a };
+          }
+          return hit?.id ?? null;
+        }
         const top = sc.getBoundingClientRect().top;
         const s = propsRef.current.settings;
         const above = s.fontSize * s.lineHeight * 2;
@@ -1550,6 +1759,8 @@ export const HtmlReader = forwardRef<EngineHandle, EngineProps>(function HtmlRea
       propsRef.current.onHighlightClick(hl.getAttribute('data-hl-id')!, hl.getBoundingClientRect());
       return;
     }
+    // Page par page : un clic dans la marge extérieure tourne la page.
+    if (pagedRef.current?.clickTurn(e.clientX)) return;
     propsRef.current.onBackgroundClick();
   };
 
@@ -1561,9 +1772,10 @@ export const HtmlReader = forwardRef<EngineHandle, EngineProps>(function HtmlRea
   } as CSSProperties;
 
   return (
-    <div className="html-reader">
+    <div className="html-reader" data-layout={paged ? 'paged' : settings.readerLayout === 'sheets' ? 'sheets' : 'scroll'}>
       <div className="html-scroll" ref={scrollRef} onClick={onClick} onContextMenu={onContextMenu} tabIndex={-1}>
-        <div className={`html-doc html-fmt-${book.format}${revealed ? ' is-revealed' : ''} pg-${pageMode}`} ref={docRef} style={docStyle} />
+        {/* Page par page : pas de repères dessinés dans le texte (folios sur les feuilles). */}
+        <div className={`html-doc html-fmt-${book.format}${revealed ? ' is-revealed' : ''} ${paged ? 'pg-off paged-on' : `pg-${pageMode}`}`} ref={docRef} style={docStyle} />
       </div>
       {selRect && (
         <SelectionToolbar

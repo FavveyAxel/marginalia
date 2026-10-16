@@ -1,0 +1,324 @@
+/* ─────────────────────────────────────────────────────────────
+   Lecture « page par page » (readerLayout = 'paged', voir paged.ts).
+
+   Deux calques dans le volet (.html-scroll, qui ne défile plus) :
+   - .paged-desk (dessous) : la table, la ou les feuilles (.paged-page) avec titre courant
+     et folio, le pli central d'une double page, les flèches des marges ;
+   - .html-doc (dessus, transparent) : le chapitre lu, découpé en colonnes de la taille du
+     texte d'une page ; la colonne est translatée d'une page à l'autre.
+   Géométrie posée par paged.ts en variables : --pg-w/h (page), --pg-mx/mt/mb (marges),
+   --pg-cw/ch (zone de texte), --pg-n (1 ou 2 pages), --pg-left/top (coin de la double page).
+   ───────────────────────────────────────────────────────────── */
+
+.html-scroll.paged-scroll {
+  overflow: clip;
+  scrollbar-gutter: auto;
+  background: var(--paper-desk);
+}
+.reader-page:has(.html-doc.paged-on) .reader-pagejump-host {
+  background: var(--paper-desk);
+}
+
+/* ── Le texte ─────────────────────────────────────────────── */
+
+.html-doc.paged-on {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  padding: 0;
+  background: transparent;
+}
+.paged-on .html-chapter {
+  display: none;
+  position: absolute;
+  left: var(--pg-left);
+  top: var(--pg-top);
+  width: calc(var(--pg-n) * var(--pg-w));
+  height: var(--pg-h);
+  padding: 0;
+  overflow: clip;
+  content-visibility: visible;
+  contain: layout style;
+}
+.paged-on .html-chapter + .html-chapter {
+  padding-top: 0;
+}
+.paged-on .html-chapter + .html-chapter::before {
+  display: none;
+}
+/* Chapitre lu : affiché ; ses voisins : mis en page mais invisibles (passage immédiat). */
+.paged-on .html-chapter.paged-cur,
+.paged-on .html-chapter.paged-near {
+  display: block;
+}
+.paged-on .html-chapter.paged-near {
+  visibility: hidden;
+}
+
+.paged-on .html-col {
+  position: absolute;
+  left: var(--pg-mx);
+  top: var(--pg-mt);
+  box-sizing: border-box;
+  width: var(--pg-cw);
+  max-width: none;
+  height: var(--pg-ch);
+  margin: 0;
+  padding: 0;
+  column-width: var(--pg-cw);
+  column-gap: calc(2 * var(--pg-mx));
+  column-fill: auto;
+  will-change: transform;
+}
+
+/* Pas de titre ni d'image coupés en bas de page, pas de ligne isolée en haut ou en bas.
+   (La justification et l'alinéa relèvent du réglage « mise en page de livre » : .book-layout.) */
+.paged-on .html-chapter-text {
+  orphans: 2;
+  widows: 2;
+}
+.paged-on .html-chapter-text h1,
+.paged-on .html-chapter-text h2,
+.paged-on .html-chapter-text h3,
+.paged-on .html-chapter-text h4,
+.paged-on .html-chapter-text h5,
+.paged-on .html-chapter-text h6 {
+  break-after: avoid;
+  break-inside: avoid;
+}
+.paged-on .html-chapter-text img {
+  max-height: calc(var(--pg-ch) - 3.4em);
+  break-inside: avoid;
+}
+.paged-on .html-chapter-text figure,
+.paged-on .html-chapter-text pre,
+.paged-on .html-chapter-text tr,
+.paged-on .html-chapter-text li {
+  break-inside: avoid;
+}
+/* Ouverture de chapitre : le titre descend d'un cinquième de page, comme dans un livre
+   (seulement si le chapitre commence par un titre : une couverture reste en haut). */
+/* (Titre sans bloc avant lui ; un repère de page vide de l'EPUB peut le précéder.) */
+.paged-on .html-chapter-text > :is(h1, h2, h3):not(:is(p, div, section, blockquote, ul, ol, figure, img, table, hr, pre, h1, h2, h3, h4, h5, h6) ~ *),
+.paged-on .html-chapter-text > :is(div, section, header):not(:is(p, div, section, blockquote, ul, ol, figure, img, table, hr, pre, h1, h2, h3, h4, h5, h6) ~ *) > :is(h1, h2, h3):not(:is(p, div, section, blockquote, ul, ol, figure, img, table, hr, pre, h1, h2, h3, h4, h5, h6) ~ *) {
+  margin-top: calc(var(--pg-ch) * 0.2);
+}
+.paged-on .html-chapter-text h1 {
+  text-align: center;
+  margin-bottom: 1.4em;
+}
+
+/* Repères de page : invisibles (le folio en bas de la feuille les remplace). */
+.paged-on .pg-mark::before,
+.paged-on .pg-mark::after {
+  display: none;
+}
+.paged-on .pg-mark.pg-inline {
+  border-left: 0;
+  margin-right: 0;
+}
+
+/* Repères de marge (mouvements, signets) : placés en colonne par paged.ts. */
+.paged-on .html-mv.paged-pos {
+  right: auto;
+}
+.paged-on .html-bm.paged-pos {
+  left: auto;
+}
+
+/* ── Les feuilles ─────────────────────────────────────────── */
+
+.paged-desk {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  user-select: none;
+  --pg-sheet: var(--paper-sheet);
+  --pg-edge: var(--paper-edge);
+  --pg-shade: var(--paper-shade);
+  --pg-ink: var(--paper-folio);
+}
+.paged-spread {
+  position: absolute;
+  left: var(--pg-left);
+  top: var(--pg-top);
+  display: flex;
+  height: var(--pg-h);
+  filter: drop-shadow(0 1px 1.5px color-mix(in srgb, var(--ink) 10%, transparent)) drop-shadow(0 8px 16px color-mix(in srgb, var(--ink) 12%, transparent));
+}
+:root[data-theme='dark'] .paged-spread {
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.5)) drop-shadow(0 10px 20px rgba(0, 0, 0, 0.5));
+}
+
+.paged-page {
+  position: relative;
+  flex: none;
+  width: var(--pg-w);
+  height: var(--pg-h);
+  background: var(--pg-sheet);
+  box-shadow: inset 0 0 0 0.5px var(--pg-edge);
+  font-family: var(--font-read);
+  color: var(--pg-ink);
+}
+/* Tranche du livre : quelques feuillets visibles sur le bord extérieur. */
+.paged-single,
+.paged-recto {
+  border-radius: 1px 3px 3px 1px;
+}
+.paged-verso {
+  border-radius: 3px 1px 1px 3px;
+}
+.paged-single::after,
+.paged-recto::after,
+.paged-verso::after {
+  content: '';
+  position: absolute;
+  top: 3px;
+  bottom: 3px;
+  width: 4px;
+  background: repeating-linear-gradient(90deg, var(--pg-sheet) 0 1px, var(--pg-edge) 1px 2px);
+  opacity: 0.9;
+}
+.paged-single::after,
+.paged-recto::after {
+  left: 100%;
+  border-radius: 0 2px 2px 0;
+}
+.paged-verso::after {
+  right: 100%;
+  border-radius: 2px 0 0 2px;
+}
+
+/* Pli central d'une double page : ombre douce de part et d'autre de la reliure. */
+.paged-gutter {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: var(--pg-w);
+  width: 0;
+}
+.paged-gutter::before,
+.paged-gutter::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: min(64px, calc(var(--pg-mx) * 1.2));
+}
+.paged-desk {
+  --pg-fold: color-mix(in srgb, var(--ink) 15%, transparent);
+  --pg-fold-soft: color-mix(in srgb, var(--ink) 4%, transparent);
+}
+:root[data-theme='dark'] .paged-desk {
+  --pg-fold: rgba(0, 0, 0, 0.34);
+  --pg-fold-soft: rgba(0, 0, 0, 0.09);
+}
+.paged-gutter::before {
+  right: 0;
+  background: linear-gradient(to left, var(--pg-fold), var(--pg-fold-soft) 22%, transparent 75%);
+}
+.paged-gutter::after {
+  left: 0;
+  width: min(44px, calc(var(--pg-mx) * 0.8));
+  background: linear-gradient(to right, var(--pg-fold), var(--pg-fold-soft) 25%, transparent 80%);
+}
+
+/* Titre courant (haut) et folio (bas) : petites capitales discrètes. */
+.paged-head,
+.paged-folio {
+  position: absolute;
+  left: var(--pg-mx);
+  right: var(--pg-mx);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font: 400 12.5px / 1 var(--font-read);
+  font-variant-caps: all-small-caps;
+  font-variant-numeric: lining-nums tabular-nums;
+  letter-spacing: 0.08em;
+  color: var(--pg-ink);
+  text-align: center;
+}
+.paged-head {
+  top: calc(var(--pg-mt) * 0.42);
+  transform: translateY(-50%);
+}
+.paged-folio {
+  bottom: calc(var(--pg-mb) * 0.45);
+  transform: translateY(50%);
+  font-variant-caps: normal;
+  font-size: 12px;
+  letter-spacing: 0.04em;
+}
+/* Double page : folios aux coins extérieurs, comme dans un livre. */
+.paged-verso .paged-folio {
+  text-align: left;
+}
+.paged-recto .paged-folio {
+  text-align: right;
+}
+.paged-page.is-opening .paged-head,
+.paged-page.is-blank .paged-head,
+.paged-page.is-blank .paged-folio {
+  visibility: hidden;
+}
+
+/* Page tournée : une ombre légère passe sur la feuille. */
+.paged-page.turn-next::before,
+.paged-page.turn-prev::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  animation: paged-sweep 300ms cubic-bezier(0.22, 0.61, 0.36, 1) both;
+}
+.paged-page.turn-next::before {
+  background: linear-gradient(to left, color-mix(in srgb, var(--pg-shade) 90%, transparent), transparent 55%);
+}
+.paged-page.turn-prev::before {
+  background: linear-gradient(to right, color-mix(in srgb, var(--pg-shade) 90%, transparent), transparent 55%);
+}
+@keyframes paged-sweep {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .paged-page.turn-next::before,
+  .paged-page.turn-prev::before {
+    animation: none;
+    display: none;
+  }
+}
+
+/* Flèches des marges : visibles au survol de la zone de clic. */
+.paged-arrow {
+  position: absolute;
+  top: calc(var(--pg-top) + var(--pg-h) / 2);
+  width: 9px;
+  height: 9px;
+  margin-top: -5px;
+  border: solid color-mix(in srgb, var(--ink) 40%, transparent);
+  border-width: 0 1.5px 1.5px 0;
+  opacity: 0;
+  transition: opacity var(--dur) var(--ease);
+}
+.paged-arrow-prev {
+  left: max(8px, calc(var(--pg-left) - 22px));
+  transform: rotate(135deg);
+}
+.paged-arrow-next {
+  right: max(8px, calc(var(--pg-left) - 22px));
+  transform: rotate(-45deg);
+}
+.paged-scroll[data-zone='prev'] .paged-arrow-prev,
+.paged-scroll[data-zone='next'] .paged-arrow-next {
+  opacity: 1;
+}
+.paged-scroll[data-zone] .html-doc {
+  cursor: pointer;
+}

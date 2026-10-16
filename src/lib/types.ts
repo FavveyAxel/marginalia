@@ -535,6 +535,13 @@ export interface Settings {
    * folio en bas), trait et numéro, trait seul, ou aucun.
    */
   pageMarks?: 'paper' | 'numbered' | 'rule' | 'off';
+  /**
+   * Mise en page du lecteur HTML (contrat commun) : défilement continu (défaut), feuilles façon
+   * papier l'une sous l'autre, ou page par page comme un livre.
+   */
+  readerLayout?: 'scroll' | 'sheets' | 'paged';
+  /** Page par page : une page, deux pages (livre ouvert), ou selon la largeur (défaut 'auto'). */
+  pagedSpread?: 'single' | 'double' | 'auto';
   /** Éditeur : marques de mise en forme (¶, espaces, police et style des paragraphes), affichage seulement. */
   showFormatMarks?: boolean;
 }

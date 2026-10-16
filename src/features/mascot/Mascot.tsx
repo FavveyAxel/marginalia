@@ -226,21 +226,39 @@ const reduced = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
 type Box = { l: number; t: number; r: number; b: number; w: number };
 const CONTROL = 'button, a, input, textarea, select, img, svg, canvas, video, [role="button"], [contenteditable="true"]';
 
+/** Marge au-delà de laquelle un élément loin de la zone est écarté avec tout son contenu (un contenu
+ *  qui déborde de sa boîte de plus de cette marge est rare ; un élément sans taille est toujours parcouru). */
+const PRUNE = 32;
+
 function obstacles(zone: Box): Box[] {
   const out: Box[] = [];
   const hit = (q: DOMRect) => q.width > 1 && q.height > 1 && q.right > zone.l && q.left < zone.r && q.bottom > zone.t && q.top < zone.b;
-  const tw = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+  const far = (q: DOMRect) =>
+    q.width > 0 && q.height > 0 && (q.right < zone.l - PRUNE || q.left > zone.r + PRUNE || q.bottom < zone.t - PRUNE || q.top > zone.b + PRUNE);
+  // Un seul parcours, élagué : ce qui est loin de la zone (une couverture à l'autre bout de la
+  // bibliothèque) est écarté d'un coup avec tout son contenu, au lieu de mesurer chacun de ses textes.
+  const tw = document.createTreeWalker(document.body, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT, {
+    acceptNode: (n) => {
+      if (n.nodeType === Node.TEXT_NODE) return NodeFilter.FILTER_ACCEPT;
+      const el = n as Element;
+      if (el.classList.contains('mascot-layer') || far(el.getBoundingClientRect())) return NodeFilter.FILTER_REJECT;
+      return NodeFilter.FILTER_ACCEPT;
+    },
+  });
   let n: Node | null;
   const rg = document.createRange();
   while ((n = tw.nextNode())) {
-    if (!n.textContent?.trim()) continue;
-    const pe = n.parentElement;
-    if (!pe || pe.closest('.mascot-layer') || !hit(pe.getBoundingClientRect())) continue;
-    rg.selectNodeContents(n);
-    for (const q of rg.getClientRects()) if (hit(q)) out.push({ l: q.left - 3, t: q.top - 3, r: q.right + 3, b: q.bottom + 3, w: 1 });
-  }
-  for (const el of document.querySelectorAll(CONTROL)) {
-    if (el.closest('.mascot-layer') || el.closest('svg') !== el && el.closest('svg')) continue;
+    if (n.nodeType === Node.TEXT_NODE) {
+      if (!n.textContent?.trim()) continue;
+      const pe = n.parentElement;
+      if (!pe || !hit(pe.getBoundingClientRect())) continue;
+      rg.selectNodeContents(n);
+      for (const q of rg.getClientRects()) if (hit(q)) out.push({ l: q.left - 3, t: q.top - 3, r: q.right + 3, b: q.bottom + 3, w: 1 });
+      continue;
+    }
+    const el = n as Element;
+    // Contrôles (le dessin d'une icône compte en entier, pas ses morceaux).
+    if (!el.matches(CONTROL) || (el instanceof SVGElement && !(el instanceof SVGSVGElement))) continue;
     const q = el.getBoundingClientRect();
     if (!hit(q)) continue;
     const big = q.width * q.height > 30000;
@@ -524,12 +542,12 @@ export function Mascot({ route, workspaceId }: { route: string; workspaceId?: st
           changed = true;
         }
       }
-      // Clignements.
-      if (now > s.nextBlink) {
+      // Clignements (aucun en mouvement réduit : pas de rendu pour rien).
+      if (!still && now > s.nextBlink) {
         s.blinkUntil = now + 140;
         s.nextBlink = now + 2500 + Math.random() * 4000;
         changed = true;
-      } else if (s.blinkUntil && now > s.blinkUntil) {
+      } else if (!still && s.blinkUntil && now > s.blinkUntil) {
         s.blinkUntil = 0;
         changed = true;
       }

@@ -16,6 +16,7 @@ import {
   Lightbulb,
   ListTree,
   Network,
+  Paintbrush,
   Pilcrow,
   Search,
   Sigma,
@@ -30,6 +31,7 @@ import { kindColor } from '../lib/categories';
 import { Kbd } from './ui';
 import { createBoard, createBoardIn } from '../features/map/model/actions';
 import { parsePageQuery, requestGoToPage } from '../features/reader/pages';
+import { requestFormatPainter } from '../features/editor/painterEvents';
 import './command.css';
 
 const normRaw = (x: string) => x.normalize('NFD').replace(/\p{Diacritic}/gu, '').toLowerCase();
@@ -177,6 +179,15 @@ function Palette() {
               () => useStore.getState().updateSettings({ showFormatMarks: !useStore.getState().settings.showFormatMarks }),
               { hint: '⌘8', keywords: 'pied de mouche ¶ caractères invisibles espaces police taille style révéler mise en forme' },
             ),
+            // Reproduire la mise en forme (pinceau) : sur la sélection de l'écrit.
+            act('copy-format', 'Copier la mise en forme', <Paintbrush size={15} />, () => requestFormatPainter('copy'), {
+              hint: '⌥⌘C',
+              keywords: 'pinceau reproduire style police format copier',
+            }),
+            act('paste-format', 'Coller la mise en forme', <Paintbrush size={15} />, () => requestFormatPainter('paste'), {
+              hint: '⌥⌘V',
+              keywords: 'pinceau reproduire style police format appliquer coller',
+            }),
           ]
         : []),
       act(

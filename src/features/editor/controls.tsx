@@ -32,6 +32,8 @@ const MAC_KEYS = {
   body: '⌘⌥0',
   undo: '⌘Z',
   redo: '⌘⇧Z',
+  copyFormat: '⌥⌘C',
+  pasteFormat: '⌥⌘V',
 } as const;
 export const KEYS = Object.fromEntries(Object.entries(MAC_KEYS).map(([k, v]) => [k, fmtKeys(v)])) as Record<keyof typeof MAC_KEYS, string>;
 

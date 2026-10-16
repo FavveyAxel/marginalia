@@ -21,6 +21,7 @@ import {
   ListTree,
   MoreHorizontal,
   Omega,
+  Paintbrush,
   Pilcrow,
   Plus,
   Redo2,
@@ -44,6 +45,7 @@ import { ColorButton, KEYS, MenuRow, NumField, SizeControl, TbButton, keepFocus,
 import { STYLE_LABEL, STYLE_ORDER, StyleEditor } from './StyleEditor';
 import { PrivateNoteTools } from './privateNotesUi';
 import { useTypography } from './FindReplace';
+import type { PainterMode } from './painter';
 
 export type StructuralOp = (label: string, run: () => Promise<ArrayBuffer>) => Promise<void>;
 
@@ -59,6 +61,8 @@ export interface ToolbarProps {
   insertFootnote: () => void;
   undo: () => void;
   redo: () => void;
+  /** Reproduire la mise en forme (painter.tsx). */
+  painter?: { mode: PainterMode; onButton: (detail: number) => void };
   /** Marques de mise en forme (¶) affichées (marks.tsx). */
   marks?: boolean;
   toggleMarks?: () => void;
@@ -256,6 +260,25 @@ export function Toolbar(p: ToolbarProps) {
         <TbButton label="Rétablir" shortcut={KEYS.redo} disabled={!editable} onClick={p.redo} data-tb="redo">
           <Redo2 size={15} />
         </TbButton>
+        {p.painter && (
+          <TbButton
+            label={
+              p.painter.mode === 'sticky'
+                ? 'Reproduire la mise en forme : pinceau maintenu (Échap ou clic pour arrêter)'
+                : p.painter.mode
+                  ? 'Reproduire la mise en forme : sélectionnez le texte à mettre en forme (Échap pour annuler)'
+                  : 'Reproduire la mise en forme (double-clic : sur plusieurs passages)'
+            }
+            shortcut={`${KEYS.copyFormat} copier, ${KEYS.pasteFormat} coller`}
+            active={!!p.painter.mode}
+            className={p.painter.mode === 'sticky' ? 'sticky' : ''}
+            disabled={!editable}
+            onClick={(e) => p.painter?.onButton(e.detail)}
+            data-tb="painter"
+          >
+            <Paintbrush size={15} />
+          </TbButton>
+        )}
       </Group>
     ),
 

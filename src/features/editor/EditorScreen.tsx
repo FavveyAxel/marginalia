@@ -49,6 +49,8 @@ import { readZoomPref, stepZoom, usePageTint, writeZoomPref } from './view';
 import { FocusButton, useChromeAutoHide, useFocusPrefs, useParagraphDim, useTypewriter } from './focus';
 import { FormatReveal, useFormatMarks } from './marks';
 import { CommentsButton, CommentsLayer, useComments } from './comments';
+import { useFormatPainter } from './painter';
+import { useTextDrag } from './dragText';
 
 type Phase = 'loading' | 'ready' | 'error';
 type Status = 'saved' | 'dirty' | 'saving' | 'blocked' | 'error';
@@ -91,6 +93,7 @@ const EMPTY_STATE: EngineState = {
   superscript: false,
   subscript: false,
   smallCaps: false,
+  caps: false,
   fontFamily: null,
   fontSize: null,
   color: null,
@@ -941,11 +944,18 @@ function Editor({ draft }: { draft: Draft }) {
   useTypewriter(hostRef, getEngine, focusPrefs.typewriter && phase === 'ready');
   useFormatMarks(hostRef, getEngine, showMarks && phase === 'ready', fmt);
   const comments = useComments({ engineRef, hostRef, ready: phase === 'ready', editable: editable && !layoutBusy, tick: commentsTick, caret: fmt.pos, notify: toast });
+  // Reproduire la mise en forme (pinceau, ⌥⌘C / ⌥⌘V) et glisser-déposer du texte sélectionné.
+  const refreshFmt = useCallback(() => {
+    const e = engineRef.current;
+    if (e) setFmt(e.state());
+  }, []);
+  const painter = useFormatPainter({ engineRef, hostRef, enabled: editable && !layoutBusy, notify: notesNotify, refresh: refreshFmt });
+  useTextDrag({ engineRef, hostRef, enabled: editable && !layoutBusy, blockedRef: painter.activeRef, onDone: refreshFmt });
 
   return (
     <div
       ref={rootRef}
-      className={`ed-root ed-root-in ${focusMode ? 'ed-focus' : ''} ${chrome.hidden ? 'ed-chrome-off' : ''} ${dimOn ? 'ed-dim' : ''} ${focusPrefs.typewriter ? 'ed-typewriter' : ''} ${showMarks ? 'ed-marks' : ''} ${extractsOpen ? 'ed-has-extracts' : ''} ${comments.columnOn ? 'ed-cm-on' : ''} ${comments.shown ? '' : 'ed-cm-hidden'}`}
+      className={`ed-root ed-root-in ${focusMode ? 'ed-focus' : ''} ${chrome.hidden ? 'ed-chrome-off' : ''} ${dimOn ? 'ed-dim' : ''} ${focusPrefs.typewriter ? 'ed-typewriter' : ''} ${showMarks ? 'ed-marks' : ''} ${extractsOpen ? 'ed-has-extracts' : ''} ${comments.columnOn ? 'ed-cm-on' : ''} ${comments.shown ? '' : 'ed-cm-hidden'} ${painter.mode ? 'ed-painting' : ''}`}
       style={{ '--cm-col': `${comments.colW}px` } as React.CSSProperties}
     >
       <header className="topbar ed-topbar">
@@ -1079,6 +1089,7 @@ function Editor({ draft }: { draft: Draft }) {
           insertFootnote={insertFootnote}
           undo={undo}
           redo={redo}
+          painter={painter}
           marks={showMarks}
           toggleMarks={toggleMarks}
           notify={(m, t) => toast(m, t ?? 'info')}

@@ -1,0 +1,86 @@
+/* ── Repères de page en défilement continu ─────────────────────
+   Réglage par défaut du lecteur (readerLayout 'scroll') : le texte reste d'un seul tenant, chaque
+   changement de page est marqué, nettement mais sans lourdeur :
+   - un filet pointillé fin à travers le texte, prolongé jusqu'à la marge droite ;
+   - le numéro de la page qui commence dans une petite pastille arrondie en marge droite
+     (chiffres alignés, chiffres romains gardés tels quels) ;
+   - au milieu d'un paragraphe, une encoche marque le mot exact où la page commence.
+   Styles : « trait et numéro » (pg-numbered), « numéro seul » (pg-number), « trait seul »
+   (pg-rule), aucun (pg-off). Les feuilles (pg-paper, readerLayout 'sheets') ne sont pas touchées.
+   Les repères restent des <span> vides : rien n'entre dans le textContent (ancrages inchangés). */
+
+.html-doc:is(.pg-numbered, .pg-number, .pg-rule) {
+  --pg-rule: color-mix(in srgb, var(--ink) 26%, transparent);
+  --pg-tick: color-mix(in srgb, var(--ink) 62%, transparent);
+  --pg-num: color-mix(in srgb, var(--ink) 68%, transparent);
+  --pg-pill-bg: color-mix(in srgb, var(--ink) 5%, var(--bg-page));
+  --pg-pill-edge: color-mix(in srgb, var(--ink) 20%, transparent);
+  /* Distance du bord droit du texte au début de la pastille. */
+  --pg-pill-gap: 16px;
+}
+:root[data-theme='sepia'] .html-doc:is(.pg-numbered, .pg-number, .pg-rule) {
+  --pg-rule: rgba(90, 64, 30, 0.3);
+  --pg-tick: rgba(90, 64, 30, 0.68);
+  --pg-num: rgba(70, 50, 24, 0.78);
+  --pg-pill-bg: color-mix(in srgb, #6b5232 7%, var(--bg-page));
+  --pg-pill-edge: rgba(90, 64, 30, 0.2);
+}
+:root[data-theme='dark'] .html-doc:is(.pg-numbered, .pg-number, .pg-rule) {
+  --pg-rule: color-mix(in srgb, var(--ink) 22%, transparent);
+  --pg-tick: color-mix(in srgb, var(--ink) 58%, transparent);
+  --pg-num: color-mix(in srgb, var(--ink) 68%, transparent);
+  --pg-pill-bg: color-mix(in srgb, var(--ink) 6%, var(--bg-page));
+  --pg-pill-edge: color-mix(in srgb, var(--ink) 14%, transparent);
+}
+
+/* Le filet : tireté fin (3 px de trait, 2 px de vide), estompé à gauche, jusqu'à la pastille. */
+.html-doc:is(.pg-numbered, .pg-rule) .pg-mark::before {
+  right: calc(-1 * var(--pg-pill-gap));
+  background: repeating-linear-gradient(90deg, var(--pg-rule) 0 3px, transparent 3px 5px);
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 8%);
+  mask-image: linear-gradient(90deg, transparent, #000 8%);
+}
+.html-doc.pg-rule .pg-mark::before {
+  right: -6px;
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 8%, #000 92%, transparent);
+  mask-image: linear-gradient(90deg, transparent, #000 8%, #000 92%, transparent);
+}
+/* Numéro seul : pas de filet, la pastille et l'encoche suffisent. */
+.html-doc.pg-number .pg-mark::before {
+  display: none;
+}
+
+/* Le numéro : pastille arrondie dans la marge droite, au niveau du filet. */
+.html-doc:is(.pg-numbered, .pg-number) .pg-mark::after {
+  left: calc(100% + var(--pg-pill-gap));
+  box-sizing: border-box;
+  min-width: 24px;
+  padding: 3px 7px;
+  border: 1px solid var(--pg-pill-edge);
+  border-radius: 999px;
+  background: var(--pg-pill-bg);
+  font: 500 13px / 1 var(--font-ui);
+  font-variant-numeric: tabular-nums lining-nums;
+  letter-spacing: 0.02em;
+  text-align: center;
+  color: var(--pg-num);
+}
+
+/* Page qui commence au milieu d'un paragraphe : encoche plus franche, de la hauteur des capitales. */
+.html-doc:is(.pg-numbered, .pg-number, .pg-rule) .pg-mark.pg-inline {
+  border-left: 1.5px solid var(--pg-tick);
+  margin-right: -1.5px;
+  font-size: 0.78em;
+  vertical-align: 0.12em;
+}
+
+@container html-reader (max-width: 560px) {
+  .html-doc:is(.pg-numbered, .pg-number, .pg-rule) {
+    --pg-pill-gap: 6px;
+  }
+  .html-doc:is(.pg-numbered, .pg-number) .pg-mark::after {
+    min-width: 0;
+    padding: 2px 5px;
+    font-size: 11px;
+  }
+}

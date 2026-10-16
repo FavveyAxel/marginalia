@@ -531,10 +531,16 @@ export interface Settings {
   /** Barre latérale repliée en rail d'icônes. */
   sidebarCollapsed?: boolean;
   /**
-   * Repères de page dans le texte (EPUB…) : pages façon papier (défaut : une feuille par page,
-   * folio en bas), trait et numéro, trait seul, ou aucun.
+   * Repères de page dans le texte (EPUB…) en défilement continu : trait et numéro (défaut),
+   * numéro seul, trait seul, ou aucun. 'paper' : valeur de la 3.8 (pages façon papier), lue
+   * comme « trait et numéro » ; les feuilles sont désormais readerLayout === 'sheets'.
    */
-  pageMarks?: 'paper' | 'numbered' | 'rule' | 'off';
+  pageMarks?: 'paper' | 'numbered' | 'number' | 'rule' | 'off';
+  /**
+   * Mise en page du lecteur HTML : défilement continu (défaut, absent = 'scroll'), pages façon
+   * papier (une feuille par page, seulement si choisi explicitement), ou page par page.
+   */
+  readerLayout?: 'scroll' | 'sheets' | 'paged';
   /** Éditeur : marques de mise en forme (¶, espaces, police et style des paragraphes), affichage seulement. */
   showFormatMarks?: boolean;
 }

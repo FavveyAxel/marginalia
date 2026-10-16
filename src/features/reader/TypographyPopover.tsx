@@ -26,6 +26,7 @@ const PAGE_MARK_SUB: Record<NonNullable<Settings['pageMarks']>, string> = {
   paper: 'Une feuille par page, numéro en bas',
   numbered: 'Un trait discret à chaque changement de page',
   rule: 'Un trait discret à chaque changement de page',
+  number: 'Le numéro de page dans la marge', // numéro seul (num-pages)
   off: 'Aucun repère dans le texte',
 };
 

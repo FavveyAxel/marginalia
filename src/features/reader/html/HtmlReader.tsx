@@ -20,6 +20,7 @@ import { allIndexes, fold, isBlockEl, locate, makeAnchor, offsetOf, rangeFor, re
 import { parseBook, printedPageAt, ReaderError, type ParsedDoc } from './parse';
 import { ESTIMATED_NOTE, findPage, lastLabel, paginate, romanToInt, type Pagination, type PageStatus } from '../pages';
 import './html-reader.css';
+import './page-marks.css';
 
 interface HlState {
   sig: string;
@@ -1032,7 +1033,11 @@ export const HtmlReader = forwardRef<EngineHandle, EngineProps>(function HtmlRea
   }, [loaded]);
 
   // Typographie : garder le passage lu à la même hauteur
-  const pageMode = settings.pageMarks ?? 'paper';
+  // Défilement continu par défaut ; les feuilles (« Pages façon papier ») seulement si
+  // readerLayout === 'sheets'. L'ancienne valeur pageMarks 'paper' (3.8) se lit « trait et numéro ».
+  const readerLayout = settings.readerLayout ?? 'scroll';
+  const marksStyle = settings.pageMarks === 'paper' || !settings.pageMarks ? 'numbered' : settings.pageMarks;
+  const pageMode = readerLayout === 'sheets' ? 'paper' : marksStyle;
   const typoKey = `${settings.fontFamily}|${settings.fontSize}|${settings.lineHeight}|${settings.measure}|${pageMode}`;
   const lastTypo = useRef(typoKey);
   const pendingAnchor = useRef<ReadingAnchor | null>(null);
@@ -1561,7 +1566,7 @@ export const HtmlReader = forwardRef<EngineHandle, EngineProps>(function HtmlRea
   } as CSSProperties;
 
   return (
-    <div className="html-reader">
+    <div className="html-reader" data-layout={readerLayout}>
       <div className="html-scroll" ref={scrollRef} onClick={onClick} onContextMenu={onContextMenu} tabIndex={-1}>
         <div className={`html-doc html-fmt-${book.format}${revealed ? ' is-revealed' : ''} pg-${pageMode}`} ref={docRef} style={docStyle} />
       </div>

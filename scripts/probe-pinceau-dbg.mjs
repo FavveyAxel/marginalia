@@ -1,0 +1,30 @@
+import { withApp } from './harness.mjs';
+import fs from 'node:fs';
+import { installHelpers, settle } from './ed-helpers.mjs';
+import * as P from './probe-pinceau-lib.mjs';
+const { h, VIS, vis } = P;
+const b64 = fs.readFileSync(process.env.FX).toString('base64');
+await withApp(5496, async (page, errors) => {
+  const id = await h(page, async ({ b64 }) => { const bin = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0)); await window.__store.getState().importFiles([{ name: 'w.docx', data: bin.buffer }]); return window.__store.getState().drafts.at(-1).id; }, { b64 });
+  await h(page, (id) => window.__store.getState().navigate({ name: 'write', draftId: id }), id);
+  await page.waitForFunction(() => window.__ed && window.__ed.engine() && document.querySelector('.ed-engine-in'), null, { timeout: 60000 });
+  await settle(page, 1200); await installHelpers(page); await h(page, VIS);
+  await P.dbl(page, 'Hume'); await P.copyK(page);
+  const rr = await P.R(page, 'Méditations');
+  console.log('rect', JSON.stringify(rr.a), await h(page, ([x, y]) => { const e = document.elementFromPoint(x, y); return e?.outerHTML.slice(0, 200); }, P.mid(rr.a)));
+  await page.screenshot({ path: 'shots/pinceau/dbg.png' });
+  await P.dbl(page, 'Méditations');
+  const r = await h(page, () => {
+    const ed = window.__h.ed(); const out = [];
+    const dump = () => { const p = window.__h.posOf('Méditations'); const o = []; ed.state.doc.nodesBetween(p - 2, p + 12, (n, pos) => { if (n.isText) o.push([pos, n.text.slice(0, 15), n.marks.map((m) => m.type.name + JSON.stringify(m.attrs).slice(0, 120))]); if (n.type.name === 'run') o.push(['run', pos, JSON.stringify(n.attrs.runProperties)]); }); return o; };
+    out.push(['sel', JSON.stringify(ed.state.selection.toJSON())]);
+    out.push(['before', dump()]);
+    const origApply = ed.doc.format.apply;
+    ed.doc.format.apply = function (a) { const r = origApply.call(this, a); out.push(['apply', JSON.stringify(a.inline), JSON.stringify(r).slice(0, 300), JSON.stringify(ed.state.selection.toJSON())]); return r; };
+    window.__ed.engine().applyFormat({ chars: { bold: false, italic: false, underline: false, strike: false, caps: false, smallCaps: false, vertAlign: null, fontFamily: 'Times New Roman', fontSize: 12, color: null, highlight: null }, para: null });
+    ed.doc.format.apply = origApply;
+    out.push(['after', dump()]);
+    return out;
+  });
+  for (const x of r) console.log(JSON.stringify(x));
+});

@@ -1,0 +1,21 @@
+import { withApp } from './harness.mjs';
+import { buildEssay, newDraft, settle } from './ed-helpers.mjs';
+import * as P from './probe-pinceau-lib.mjs';
+const { h, VIS, vis } = P;
+await withApp(5498, async (page, errors) => {
+  await newDraft(page, 'Probe');
+  await buildEssay(page);
+  await h(page, VIS);
+  await P.dbl(page, 'cogito');
+  await P.tb(page, 'bold');
+  await P.tbFont(page, 'Georgia');
+  const st = () => h(page, () => JSON.stringify([window.__h.fmtAt('Hume', 1, 2).bold, window.__h.fmtAt('Hume', 1, 2).fontFamily, document.activeElement?.className, window.__h.sel()]));
+  await P.dbl(page, 'cogito'); await P.copyK(page);
+  await P.dbl(page, 'Hume'); await P.pasteK(page);
+  console.log('after paste', await st(), JSON.stringify(await vis(page, 'Hume', 1)));
+  await page.keyboard.press('Control+z'); await settle(page, 500);
+  console.log('after ctrl+z', await st(), JSON.stringify(await vis(page, 'Hume', 1)));
+  await page.keyboard.press('Control+z'); await settle(page, 500);
+  console.log('after ctrl+z 2', await st(), JSON.stringify(await vis(page, 'Hume', 1)));
+  console.log('cogito', JSON.stringify(await vis(page, 'cogito', 1)));
+});

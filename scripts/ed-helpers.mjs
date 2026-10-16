@@ -34,45 +34,48 @@ export async function newDraft(page, title) {
 export async function installHelpers(page) {
   await page.evaluate(() => {
     const ed = () => window.__ed.engine().debugEditor().editor;
-    const posOf = (needle, nth = 0) => {
-      let r = null;
-      let k = 0;
+    /** Caractères du texte et leur position (un passage peut s'étendre sur plusieurs runs). */
+    const textChars = () => {
+      const chars = [];
       ed().state.doc.descendants((n, p) => {
-        if (r != null) return false;
-        if (n.isText) {
-          let i = n.text.indexOf(needle);
-          while (i >= 0) {
-            if (k++ === nth) {
-              r = p + i;
-              break;
-            }
-            i = n.text.indexOf(needle, i + 1);
-          }
-        }
+        if (n.isText) for (let i = 0; i < n.text.length; i++) chars.push([n.text[i], p + i]);
         return true;
       });
-      return r;
+      return chars;
     };
+    /** Positions [from, to[ des caractères a..b du passage `needle` (nth-ième occurrence). */
+    const span = (needle, a = 0, b = needle.length, nth = 0) => {
+      const chars = textChars();
+      const txt = chars.map((c) => c[0]).join('');
+      let i = txt.indexOf(needle);
+      for (let k = 0; k < nth && i >= 0; k++) i = txt.indexOf(needle, i + 1);
+      if (i < 0) return null;
+      const from = a < needle.length ? chars[i + a][1] : chars[i + needle.length - 1][1] + 1;
+      const to = b > a ? chars[i + b - 1][1] + 1 : from;
+      return { from, to };
+    };
+    const posOf = (needle, nth = 0) => span(needle, 0, needle.length, nth)?.from ?? null;
     window.__h = {
       ed,
       posOf,
+      span,
       select(needle, a = 0, b = needle.length) {
-        const p = posOf(needle);
-        if (p == null) throw new Error('introuvable : ' + needle);
-        ed().commands.setTextSelection({ from: p + a, to: p + b });
+        const r = span(needle, a, b);
+        if (r == null) throw new Error('introuvable : ' + needle);
+        ed().commands.setTextSelection(r);
         ed().view.focus();
-        return p;
+        return posOf(needle);
       },
       /** Rectangle (fenêtre) d'un passage du texte. */
       rect(needle, a = 0, b = needle.length) {
-        const p = posOf(needle);
-        if (p == null) return null;
-        const rs = window.__ed.engine().rangeRects(p + a, p + b);
+        const r = span(needle, a, b);
+        if (r == null) return null;
+        const rs = window.__ed.engine().rangeRects(r.from, r.to);
         return rs[0] ?? null;
       },
-      rects(needle) {
-        const p = posOf(needle);
-        return p == null ? [] : window.__ed.engine().rangeRects(p, p + needle.length);
+      rects(needle, a = 0, b = needle.length) {
+        const r = span(needle, a, b);
+        return r == null ? [] : window.__ed.engine().rangeRects(r.from, r.to);
       },
       paras() {
         const a = [];
@@ -85,9 +88,10 @@ export async function installHelpers(page) {
       },
       /** État de mise en forme sur [a, b] du passage, sans changer la sélection visible ensuite. */
       fmtAt(needle, a = 0, b = 1) {
-        const p = posOf(needle);
+        const r = span(needle, a, b);
+        if (r == null) throw new Error('introuvable : ' + needle);
         const s = ed().state.selection;
-        ed().commands.setTextSelection({ from: p + a, to: p + b });
+        ed().commands.setTextSelection(r);
         const st = window.__ed.engine().state();
         ed().commands.setTextSelection({ from: s.from, to: s.to });
         return st;

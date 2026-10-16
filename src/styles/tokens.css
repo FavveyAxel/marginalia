@@ -93,6 +93,7 @@
   --rel-precise: #3d7be0;
   --rel-illustre: #8c63d9;
   --rel-rattache: #4f8f9c;
+  --rel-lien: #958c7d;
 
   color-scheme: light;
 }
@@ -108,6 +109,7 @@
   /* Surlignage simple : un ton plus soutenu pour rester lisible sur le papier sépia */
   --cat-plain: #9c8452;
   --hl-plain: rgba(176, 146, 78, 0.34);
+  --rel-lien: #8f8169;
 }
 
 :root[data-theme='dark'] {
@@ -155,6 +157,7 @@
   --rel-precise: #6b9cf5;
   --rel-illustre: #a98af0;
   --rel-rattache: #6fb7c4;
+  --rel-lien: #8f877a;
 
   color-scheme: dark;
 }

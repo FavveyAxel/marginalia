@@ -9,7 +9,10 @@
 //   la note d'un lien devient l'idée directrice de la (sous-)partie.
 //   Centre de la carte (center.ts) : la problématique devient la problématique du plan, le sujet
 //   devient le sujet (et le thème du titre) ; les thèses qui répondent au centre (ou s'y
-//   rattachent) deviennent les parties, leurs arguments les sous-parties.
+//   rattachent, ou qui en sont tirées par un lien neutre) deviennent les parties, leurs arguments
+//   les sous-parties.
+//   Liens neutres (« lien ») : la carte tirée devient une sous-partie de la carte d'où on l'a tirée
+//   (sans préfixe) ; à défaut de partie d'accueil, elle rejoint « Idées à intégrer ».
 //
 // Carte → écrit : brouillon d'explication de texte (HTML de CreateDraftOptions), dans l'ordre de
 //   la lecture guidée. Chaque extrait est cité « … » dans un <blockquote>, avec sa référence en note
@@ -100,7 +103,8 @@ export function mapToPlan(map: ArgumentMap, lk: MapLookup, opts: MapToPlanOpts =
       }
       case 'sous-argument':
       case 'exemple':
-      case 'precision': {
+      case 'precision':
+      case 'liee': {
         const parent = s.parentId ? nodeOfStep.get(s.parentId) : null;
         const prefix = s.role === 'exemple' ? 'Exemple : ' : s.role === 'precision' ? 'Précision : ' : '';
         const p = pnode(prefix + shortTitle(textOf(s)), noteOf(map, s), [item(s)]);

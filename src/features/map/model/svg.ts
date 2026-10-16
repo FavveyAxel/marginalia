@@ -3,7 +3,7 @@
 //
 // Dessine, depuis les DONNÉES de la carte : zones (cadres titrés, repliées = bandeau seul),
 // liens (courbes de Bézier fléchées, couleur et tirets de la relation, épaisseur selon la
-// force, libellé au milieu), cartes (en-tête catégorie · auteur · page, texte coupé en lignes).
+// force, libellé au milieu ; lien neutre « lien » : trait gris sans flèche ni libellé), cartes (en-tête catégorie · auteur · page, texte coupé en lignes).
 // Toujours sur fond clair (couleurs du thème clair, quel que soit le thème de l'app),
 // polices sûres (Georgia / Arial), aucune ressource externe : le fichier s'ouvre partout.
 //
@@ -40,7 +40,11 @@ export const LIGHT_COLORS: Record<string, string> = {
   '--rel-precise': '#3d7be0',
   '--rel-illustre': '#8c63d9',
   '--rel-rattache': '#4f8f9c',
+  '--rel-lien': '#958c7d',
 };
+
+/** Relations dessinées sans flèche ni libellé (le lien neutre n'affirme rien). */
+const PLAIN_RELATIONS = new Set<string>(['lien']);
 const INK = '#1d1a15';
 const MUTED = '#6f675a';
 const PAPER = '#fbf9f4';
@@ -116,6 +120,7 @@ export function mapToSvg(map: ArgumentMap, lk: MapLookup, opts: SvgOpts = {}): S
   // Flèches : un marqueur par relation (couleur de la relation).
   out.push('<defs>');
   for (const rel of Object.values(RELATION_BY_ID)) {
+    if (PLAIN_RELATIONS.has(rel.id)) continue;
     out.push(
       `<marker id="arrow-${rel.id}" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="9" markerHeight="9" markerUnits="userSpaceOnUse" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="${resolveColor(rel.cssVar)}"/></marker>`,
     );
@@ -188,6 +193,7 @@ function edgeSvg(e: MapEdge, s: Rect, t: Rect): string {
   // Milieu de la courbe (t = 0,5).
   const mx = (p0[0] + 3 * c0[0] + 3 * c1[0] + p1[0]) / 8;
   const my = (p0[1] + 3 * c0[1] + 3 * c1[1] + p1[1]) / 8;
+  const plain = PLAIN_RELATIONS.has(rel.id);
   const label = rel.label;
   const lw = label.length * 6.4 + 14;
   const noteText = e.note?.trim() ?? '';
@@ -199,6 +205,11 @@ function edgeSvg(e: MapEdge, s: Rect, t: Rect): string {
     ? `<rect class="edge-note" x="${r1(mx - nw / 2)}" y="${r1(my + 12)}" width="${r1(nw)}" height="18" rx="9" fill="${PAPER}" fill-opacity="0.92"/>` +
       `<text x="${r1(mx)}" y="${r1(my + 25)}" text-anchor="middle" font-size="11.5" font-style="italic" fill="${MUTED}">${xml(shown)}</text>`
     : '';
+  if (plain)
+    return (
+      `<g class="edge" data-id="${xml(e.id)}" data-relation="${rel.id}">${note}` +
+      `<path d="${d}" fill="none" stroke="${c}" stroke-width="${w}"${rel.dashed ? ' stroke-dasharray="7 5"' : ''}/>${noteSvg}</g>`
+    );
   return (
     `<g class="edge" data-id="${xml(e.id)}" data-relation="${rel.id}">${note}` +
     `<path d="${d}" fill="none" stroke="${c}" stroke-width="${w}"${rel.dashed ? ' stroke-dasharray="7 5"' : ''} marker-end="url(#arrow-${rel.id})"/>` +

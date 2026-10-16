@@ -8,17 +8,34 @@ import { useId, type ReactNode } from 'react';
 // un peu plus gros, puis veines rouges en relief et, aux niveaux 3 et 4, une veine qui bat.
 // Les sillons ont un léger ombrage (creux) et un reflet (bord), pour que le cerveau se lise en volume.
 
-export type Pose = 'stand' | 'walk' | 'sit' | 'read' | 'think' | 'wave' | 'sitwave' | 'doze' | 'flex' | 'puff';
+export type Pose =
+  | 'stand'
+  | 'look'
+  | 'walk'
+  | 'jump'
+  | 'sit'
+  | 'read'
+  | 'think'
+  | 'wave'
+  | 'sitwave'
+  | 'doze'
+  | 'flex'
+  | 'puff'
+  | 'guitar'
+  | 'whistle'
+  | 'write'
+  | 'cigar';
 export type View = 'front' | 'side' | 'back';
 export type Level = 0 | 1 | 2 | 3 | 4;
 
-const SEATED = new Set<Pose>(['sit', 'read', 'think', 'doze', 'sitwave']);
+const SEATED = new Set<Pose>(['sit', 'read', 'think', 'doze', 'sitwave', 'guitar', 'write', 'cigar']);
 export const isSeated = (p: Pose) => SEATED.has(p);
 /** Vue réellement dessinée : saluer et faire le costaud se font toujours de face, marcher de profil. */
 export function viewFor(p: Pose, v: View): View {
-  if (p === 'wave' || p === 'flex' || p === 'sitwave') return 'front';
+  if (p === 'wave' || p === 'flex' || p === 'sitwave' || p === 'look') return 'front';
+  if (p === 'jump') return v === 'back' ? 'front' : v;
   if (p === 'walk') return v === 'back' ? 'back' : 'side';
-  if (v === 'back' && (p === 'read' || p === 'think')) return 'front';
+  if (v === 'back' && (p === 'read' || p === 'think' || p === 'guitar' || p === 'whistle' || p === 'write' || p === 'cigar')) return 'front';
   return v;
 }
 /** Ligne d'appui (unités du viewBox) : sol pour les poses debout, bord de l'encadré pour les poses assises. */
@@ -28,7 +45,45 @@ export const VB_H = 130;
 
 type Pt = [number, number];
 type Limb = { a: Pt; b: Pt; c: Pt };
-type Rig = { arms: [Limb, Limb]; legs: [Limb, Limb]; lift: number; gaze: Pt; feet: 'stand' | 'hang' | 'flat' | 'none' };
+type Rig = {
+  arms: [Limb, Limb];
+  legs: [Limb, Limb];
+  lift: number;
+  gaze: Pt;
+  feet: 'stand' | 'hang' | 'flat' | 'none';
+  /** Bras passés derrière le cerveau (mains dans le dos, de face). */
+  armsBehind?: boolean;
+  /** Main posée au visage (cigare aux lèvres) : elle suit le grossissement du cerveau. */
+  faceHand?: 0 | 1;
+};
+
+// ── Accessoires : repères partagés entre le squelette (où vont les mains) et le dessin ──
+type GT = { x: number; y: number; r: number; sx: number; sy: number };
+/** Guitare de face : caisse sur les genoux, manche vers le haut à gauche. */
+const G_FRONT: GT = { x: 61, y: 68, r: 25, sx: 1.08, sy: 1.08 };
+/** Guitare de profil (repère du cerveau, avant levée de 8) : tenue devant lui, manche vers l'avant et le haut. */
+const G_SIDE: GT = { x: 62, y: 64, r: -24, sx: -0.95, sy: 0.85 };
+function gPt(t: GT, lx: number, ly: number): Pt {
+  const x = lx * t.sx;
+  const y = ly * t.sy;
+  const a = (t.r * Math.PI) / 180;
+  return [t.x + x * Math.cos(a) - y * Math.sin(a), t.y + x * Math.sin(a) + y * Math.cos(a)];
+}
+/** Écriture : nombre de lignes écrites sur la page de droite selon l'image (cycle de 8, la dernière tourne la page). */
+const WRITE_LINES = [0, 1, 1, 2, 3, 3, 4, 4];
+const writeRowY = (i: number, x: number) => 63 + i * 1.7 - (x - 50) * 0.16;
+/** Pointe de la plume, de face. */
+function writeNib(f: number): Pt {
+  const c = f % 8;
+  if (c === 7) return [62, 57];
+  const x = 54 + (c % 2 ? 7 : 3);
+  return [x, writeRowY(Math.min(WRITE_LINES[c], 4), x) - 0.3];
+}
+/** Plume de profil (repère du cerveau). */
+const writeNibSide = (f: number): Pt => (f % 8 === 7 ? [74, 56] : [71 + (f % 2) * 3, 61.7 - (f % 2) * 1.1]);
+/** Cigare : aux lèvres les 4 premières images d'un cycle de 12, puis il redescend et souffle des ronds. */
+const CIGAR_CYCLE = 12;
+const cigarUp = (f: number) => f % CIGAR_CYCLE < 4;
 
 const W_LIMB = [3.2, 3.8, 4.5, 5.3, 6.2];
 const BICEP = [0, 2.6, 3.6, 4.6, 5.8];
@@ -68,6 +123,22 @@ function rigFront(pose: Pose, f: number): Rig {
         gaze: [0, 0],
         feet: 'stand',
       };
+    case 'look': // il regarde autour de lui
+      return { arms: restArms, legs: standLegs, lift: f % 2 ? -0.6 : 0, gaze: [[-2, 0], [-2, 0], [0, -0.6], [2, 0], [2, 0], [0, 0.4]][f % 6] as Pt, feet: 'stand' };
+    case 'jump': // en l'air : jambes repliées, bras levés
+      return {
+        arms: [
+          { a: [21, 54], b: [10, 42], c: [12, 28] },
+          { a: [78, 54], b: [89, 42], c: [87, 28] },
+        ],
+        legs: [
+          { a: [42, 64], b: [32, 80], c: [39, 93] },
+          { a: [57, 64], b: [67, 80], c: [60, 93] },
+        ],
+        lift: 0,
+        gaze: [0, -1],
+        feet: 'stand',
+      };
     case 'wave':
       return { arms: [restArms[0], { a: [78, 54], b: [90, 44], c: f % 2 ? [94, 27] : [86, 25] }], legs: standLegs, lift: 0, gaze: [0, 0], feet: 'stand' };
     case 'flex':
@@ -103,6 +174,60 @@ function rigFront(pose: Pose, f: number): Rig {
       return { arms: [edgeArms[0], { a: [78, 54], b: [91, 46], c: f % 2 ? [95, 29] : [87, 27] }], legs: sitLegs(f % 2), lift: 0, gaze: [0, 0.4], feet: 'hang' };
     case 'doze':
       return { arms: edgeArms, legs: sitLegs(0), lift: f % 4 < 2 ? 0 : 0.6, gaze: [0, 0], feet: 'hang' };
+    case 'guitar': {
+      // gratte à chaque image, la main gauche tient le manche, un pied bat la mesure
+      const strum = f % 2;
+      const tap = Math.floor(f / 2) % 2;
+      return {
+        arms: [
+          { a: [21, 54], b: [11, 65], c: gPt(G_FRONT, -37, 0.4) },
+          { a: [78, 54], b: [84, 70], c: gPt(G_FRONT, strum ? 0 : 5, strum ? -6.5 : 3.5) },
+        ],
+        legs: [
+          { a: [42, 64], b: [40, 74], c: [38, 99] },
+          { a: [57, 64], b: [60, 74], c: tap ? [66, 93] : [64, 97] },
+        ],
+        lift: 0,
+        gaze: [0.6, 1.2],
+        feet: 'hang',
+      };
+    }
+    case 'whistle': // il sifflote, les mains dans le dos
+      return {
+        arms: [
+          { a: [21, 54], b: [11, 67], c: [27, 59] },
+          { a: [78, 54], b: [88, 67], c: [72, 59] },
+        ],
+        legs: f % 2 ? [standLegs[0], { a: [57, 64], b: [59, 93], c: [59, 120] }] : standLegs,
+        lift: f % 2 ? -0.9 : 0,
+        gaze: [1, -1.4],
+        feet: 'stand',
+        armsBehind: true,
+      };
+    case 'write': {
+      const nib = writeNib(f);
+      return {
+        arms: [
+          { a: [21, 54], b: [22, 70], c: [36, 68] },
+          { a: [78, 54], b: [84, 70], c: [nib[0] + 1.8, nib[1] - 2.6] },
+        ],
+        legs: sitLegs(0),
+        lift: 0,
+        gaze: [0.8, 2.2],
+        feet: 'hang',
+      };
+    }
+    case 'cigar': {
+      const up = cigarUp(f);
+      return {
+        arms: [edgeArms[0], up ? { a: [78, 54], b: [87, 67], c: [57.5, 53.6] } : { a: [78, 54], b: [89, 63], c: [80, 68] }],
+        legs: sitLegs(Math.floor(f / 6) % 2),
+        lift: 0,
+        gaze: [-1.2, 0.9],
+        feet: 'hang',
+        faceHand: up ? 1 : undefined,
+      };
+    }
     default:
       return { arms: restArms, legs: standLegs, lift: f % 2 ? -0.8 : 0, gaze: [0, 0], feet: 'stand' };
   }
@@ -141,11 +266,26 @@ function rigSide(pose: Pose, f: number): Rig {
       feet: 'stand',
     };
   }
+  if (pose === 'jump') {
+    return {
+      legs: [
+        { a: hip, b: [41, 74], c: [39, 90] },
+        { a: hip, b: [63, 72], c: [61, 88] },
+      ],
+      arms: [
+        { a: shFar, b: [58, 44], c: [69, 33] },
+        { a: sh, b: [62, 46], c: [74, 36] },
+      ],
+      lift: 0,
+      gaze: [1.2, -0.8],
+      feet: 'stand',
+    };
+  }
   if (isSeated(pose)) {
     // Assis de profil sur l'encadré (bord à y = 64) : le cerveau remonte de 8 pour laisser voir les
     // jambes allongées devant lui. Les bras, dans le même groupe, sont décalés d'autant vers le bas.
     const L = 8;
-    const kick = (pose === 'sit' && f % 2) || (pose === 'read' && Math.floor(f / 2) % 2) ? -3 : 0;
+    const kick = (pose === 'sit' && f % 2) || ((pose === 'read' || pose === 'guitar') && Math.floor(f / 2) % 2) ? -3 : 0;
     const legs: [Limb, Limb] = [
       { a: [46, 56], b: [52, 64], c: [79, 62] },
       { a: [52, 56], b: [58, 64 + kick / 3], c: [87, 62 + kick] },
@@ -167,7 +307,60 @@ function rigSide(pose: Pose, f: number): Rig {
         feet: 'flat',
       };
     if (pose === 'think') return { legs, arms: [restArms[0], { a: sh, b: [66, 60], c: [80, 50] }], lift: -L, gaze: [0.4, -2], feet: 'flat' };
+    if (pose === 'guitar') {
+      const strum = f % 2;
+      return {
+        legs,
+        arms: [
+          { a: shFar, b: [64, 66], c: gPt(G_SIDE, -38, 0) },
+          { a: sh, b: [50, 68], c: gPt(G_SIDE, strum ? 0 : 5, strum ? -6.5 : 3.5) },
+        ],
+        lift: -L,
+        gaze: [1, 0.8],
+        feet: 'flat',
+      };
+    }
+    if (pose === 'write') {
+      const nib = writeNibSide(f);
+      return {
+        legs,
+        arms: [
+          { a: shFar, b: [54, 64], c: [63, 63] },
+          { a: sh, b: [58, 68], c: [nib[0] + 1.6, nib[1] - 2.2] },
+        ],
+        lift: -L,
+        gaze: [0.6, 2],
+        feet: 'flat',
+      };
+    }
+    if (pose === 'cigar') {
+      const up = cigarUp(f);
+      return {
+        legs,
+        arms: [restArms[0], up ? { a: sh, b: [68, 66], c: [91.5, 43.4] } : { a: sh, b: [54, 68], c: [71, 62] }],
+        lift: -L,
+        gaze: [0.6, 0.9],
+        feet: 'flat',
+        faceHand: up ? 1 : undefined,
+      };
+    }
     return { legs, arms: restArms, lift, gaze: [1, 0.4], feet: 'flat' };
+  }
+  if (pose === 'whistle') {
+    // mains croisées dans le dos (à gauche : il regarde vers la droite), léger balancement
+    return {
+      legs: [
+        { a: hip, b: [47, 90], c: [46, 121] },
+        { a: hip, b: [52, 90], c: f % 2 ? [54, 120] : [53, 121] },
+      ],
+      arms: [
+        { a: shFar, b: [42, 68], c: [32, 63] },
+        { a: sh, b: [44, 70], c: [34, 65] },
+      ],
+      lift: f % 2 ? -0.9 : 0,
+      gaze: [0.8, -1.4],
+      feet: 'stand',
+    };
   }
   return {
     legs: [
@@ -319,14 +512,21 @@ export function Sprite({
   if (!side) r.arms = r.arms.map((l, i) => ({ ...l, a: [l.a[0] + (i ? 1 : -1) * (k - 1) * 30, l.a[1]] as Pt })) as [Limb, Limb];
   // De dos et assis : les jambes pendent de l'autre côté de l'encadré, on ne les voit pas.
   if (v === 'back' && isSeated(pose)) r.feet = 'none';
+  const pivot: Pt = side ? [52, 58] : [49, 63];
+  /** Point du visage (repère non agrandi) → position réelle, une fois le cerveau grossi. */
+  const onFace = (p: Pt): Pt => [pivot[0] + (p[0] - pivot[0]) * k, pivot[1] + (p[1] - pivot[1]) * k];
+  if (r.faceHand !== undefined) {
+    const arm = r.arms[r.faceHand];
+    r.arms[r.faceHand] = { ...arm, c: onFace(arm.c) };
+  }
+  const mouth = onFace(side ? [86, 42.5] : [48, 52]);
   const lw = W_LIMB[level];
-  const blink = pose === 'doze' || (blinkProp ?? (pose !== 'read' && frame % 17 === 16));
+  const blink = pose === 'doze' || (blinkProp ?? (pose !== 'read' && pose !== 'write' && frame % 17 === 16));
   const pulse = level >= 3 && frame % 2 === 0;
   const fill = FILL[level];
   const flip = side && facing === -1 ? `translate(${VB_W} 0) scale(-1 1)` : undefined;
   const grad = `mascot-vol-${uid}`;
   const fid = `mascot-halo-${uid}`;
-  const pivot: Pt = side ? [52, 58] : [49, 63];
 
   const limbs = (ls: Limb[], width: number) => (
     <g fill="none" stroke="currentColor" strokeWidth={width} strokeLinecap="round" strokeLinejoin="round">
@@ -372,10 +572,12 @@ export function Sprite({
   }
 
   const face = v === 'back' ? null : side ? (
-    <SideFace pose={pose} blink={blink} gaze={r.gaze} />
+    <SideFace pose={pose} blink={blink} gaze={r.gaze} frame={frame} fill={fill} />
   ) : (
-    <FrontFace pose={pose} blink={blink} gaze={r.gaze} />
+    <FrontFace pose={pose} blink={blink} gaze={r.gaze} frame={frame} fill={fill} />
   );
+  const behind = !side && !!r.armsBehind;
+  const nearArms = side ? [r.arms[1]] : r.arms;
 
   return (
     <svg className="mascot-svg" width="100%" height="100%" viewBox={`0 0 ${VB_W} ${VB_H}`} style={{ color: INK }} aria-hidden={title ? undefined : true} role={title ? 'img' : undefined}>
@@ -407,21 +609,33 @@ export function Sprite({
           </g>
         )}
         <g transform={`translate(0 ${r.lift})`}>
-          {side && (
+          {(side || behind) && (
             <g>
-              {limbs([r.arms[0]], lw * 0.92)}
-              {biceps([r.arms[0]])}
-              {hands([r.arms[0]])}
+              {limbs(behind ? r.arms : [r.arms[0]], lw * 0.92)}
+              {biceps(behind ? r.arms : [r.arms[0]])}
+              {hands(behind ? r.arms : [r.arms[0]])}
             </g>
           )}
           <g transform={`translate(${pivot[0]} ${pivot[1]}) scale(${k}) translate(${-pivot[0]} ${-pivot[1]})`}>
             {brain}
             {face}
           </g>
-          {limbs(side ? [r.arms[1]] : r.arms, lw * 0.92)}
-          {biceps(side ? [r.arms[1]] : r.arms)}
+          {pose === 'guitar' && <Guitar t={side ? G_SIDE : G_FRONT} />}
+          {pose === 'guitar' && side && hands([r.arms[0]])}
+          {pose === 'write' && (side ? <SideNotebook frame={frame} /> : <Notebook frame={frame} />)}
+          {!behind && (
+            <g>
+              {limbs(nearArms, lw * 0.92)}
+              {biceps(nearArms)}
+            </g>
+          )}
           {pose === 'read' && (side ? <SideBook frame={frame} /> : <Book frame={frame} />)}
-          {hands(side ? [r.arms[1]] : r.arms)}
+          {pose === 'write' && <Quill nib={side ? writeNibSide(frame) : writeNib(frame)} rot={side ? -128 : -42} />}
+          {!behind && hands(nearArms)}
+          {pose === 'cigar' && !cigarUp(frame) && <LoweredCigar hand={r.arms[1].c} side={side} frame={frame} />}
+          {pose === 'guitar' && <GuitarNotes frame={frame} side={side} />}
+          {pose === 'whistle' && <WhistleNotes frame={frame} mouth={mouth} side={side} />}
+          {pose === 'cigar' && <SmokeRings frame={frame} mouth={mouth} side={side} />}
         </g>
         {pose === 'think' && (
           <g fill="currentColor" opacity={0.7}>
@@ -440,13 +654,24 @@ export function Sprite({
   );
 }
 
-function FrontFace({ pose, blink, gaze }: { pose: Pose; blink: boolean; gaze: Pt }) {
+type FaceProps = { pose: Pose; blink: boolean; gaze: Pt; frame: number; fill: string };
+
+/** Yeux de face : ouverts, fermés, plissés de plaisir (guitare) ou mi-clos (cigare). */
+function FrontFace({ pose, blink, gaze, frame, fill }: FaceProps) {
+  const happy = pose === 'guitar' && frame % 12 >= 6;
+  const lidded = pose === 'cigar';
+  const cig = frame % CIGAR_CYCLE;
   return (
     <g>
       {blink ? (
         <g fill="none" stroke="currentColor" strokeWidth={1.6} strokeLinecap="round">
           <path d="M32 44 Q37 47.5 42 44" />
           <path d="M54 44 Q59 47.5 64 44" />
+        </g>
+      ) : happy ? (
+        <g fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round">
+          <path d="M32 45.5 Q37 39.5 42 45.5" />
+          <path d="M54 45.5 Q59 39.5 64 45.5" />
         </g>
       ) : (
         <g>
@@ -456,12 +681,44 @@ function FrontFace({ pose, blink, gaze }: { pose: Pose; blink: boolean; gaze: Pt
           <circle cx={58 + gaze[0]} cy={44 + gaze[1]} r={2.4} fill={INK} />
           <circle cx={38.8 + gaze[0]} cy={43 + gaze[1]} r={0.75} fill="#fffaf0" />
           <circle cx={58.8 + gaze[0]} cy={43 + gaze[1]} r={0.75} fill="#fffaf0" />
+          {lidded && (
+            <g stroke="currentColor" strokeWidth={1.3} strokeLinejoin="round">
+              <path d="M31.4 43.4 A5.6 6 0 0 1 42.6 43.4 Z" fill={fill} />
+              <path d="M53.4 43.4 A5.6 6 0 0 1 64.6 43.4 Z" fill={fill} />
+            </g>
+          )}
+        </g>
+      )}
+      {lidded && (
+        // le sourcil du philosophe : l'un haussé, l'autre posé
+        <g fill="none" stroke="currentColor" strokeWidth={1.6} strokeLinecap="round">
+          <path d="M31 34.5 Q36.5 29 43 33" />
+          <path d="M53.5 36.4 Q59 35.2 64.5 36.8" />
         </g>
       )}
       {pose === 'doze' ? (
         <ellipse cx={48} cy={52} rx={1.6} ry={1.2} fill={INK} />
       ) : pose === 'think' ? (
         <path d="M45 52.5 Q48 51 51 52.5" fill="none" stroke={INK} strokeWidth={1.3} strokeLinecap="round" />
+      ) : pose === 'whistle' ? (
+        // lèvres en « o » pour siffler
+        <ellipse cx={48.6} cy={52.6} rx={1.9} ry={2.2} fill="#5a1f1a" stroke={INK} strokeWidth={1.3} />
+      ) : pose === 'write' ? (
+        <g>
+          <path d="M44.5 51.6 Q48 53.8 51.6 51.4" fill="none" stroke={INK} strokeWidth={1.3} strokeLinecap="round" />
+          {[2, 3, 5, 6].includes(frame % 8) && <ellipse cx={51.9} cy={52.5} rx={1.3} ry={1.1} fill="#d9606a" stroke={INK} strokeWidth={0.6} transform="rotate(25 51.9 52.5)" />}
+        </g>
+      ) : pose === 'cigar' ? (
+        cigarUp(frame) ? (
+          <g>
+            <path d="M44.8 52.2 Q47.6 53.4 50.6 52.5" fill="none" stroke={INK} strokeWidth={1.3} strokeLinecap="round" />
+            <Cigar x={50.2} y={52.6} rot={14} len={13} hot={cig % 2 === 1} />
+          </g>
+        ) : [4, 6, 8].includes(cig) ? (
+          <ellipse cx={49} cy={52.4} rx={1.3} ry={1.5} fill="#5a1f1a" stroke={INK} strokeWidth={1.1} />
+        ) : (
+          <path d="M44.5 52 Q48.5 54.2 52.2 50.8" fill="none" stroke={INK} strokeWidth={1.3} strokeLinecap="round" />
+        )
       ) : (
         <g>
           <path d="M44 50 C 45.8 54.5, 50.2 54.5, 52 50 Z" fill={INK} stroke={INK} strokeWidth={1} strokeLinejoin="round" />
@@ -474,22 +731,47 @@ function FrontFace({ pose, blink, gaze }: { pose: Pose; blink: boolean; gaze: Pt
   );
 }
 
-function SideFace({ pose, blink, gaze }: { pose: Pose; blink: boolean; gaze: Pt }) {
+function SideFace({ pose, blink, gaze, frame, fill }: FaceProps) {
+  const happy = pose === 'guitar' && frame % 12 >= 6;
+  const lidded = pose === 'cigar';
+  const cig = frame % CIGAR_CYCLE;
   return (
     <g>
       {blink ? (
         <path d="M71 32 Q75 35 79 32" fill="none" stroke="currentColor" strokeWidth={1.6} strokeLinecap="round" />
+      ) : happy ? (
+        <path d="M71 32.5 Q75 27 79 32.5" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" />
       ) : (
         <g>
           <ellipse cx={75} cy={30} rx={4.4} ry={5.6} fill="#fffaf0" stroke="currentColor" strokeWidth={1.3} />
           <circle cx={76.2 + gaze[0]} cy={31 + gaze[1]} r={2.2} fill={INK} />
           <circle cx={76.9 + gaze[0]} cy={30 + gaze[1]} r={0.7} fill="#fffaf0" />
+          {lidded && <path d="M70.6 30.4 A4.4 5.6 0 0 1 79.4 30.4 Z" fill={fill} stroke="currentColor" strokeWidth={1.3} strokeLinejoin="round" />}
         </g>
       )}
+      {lidded && <path d="M70.5 21.6 Q75 17.6 80.2 20.6" fill="none" stroke="currentColor" strokeWidth={1.6} strokeLinecap="round" />}
       {pose === 'doze' ? (
         <ellipse cx={85} cy={43} rx={1.3} ry={1} fill={INK} />
       ) : pose === 'think' ? (
         <path d="M81 43 Q84 42 87 43.5" fill="none" stroke={INK} strokeWidth={1.3} strokeLinecap="round" />
+      ) : pose === 'whistle' ? (
+        <ellipse cx={87.6} cy={42.4} rx={1.5} ry={2} fill="#5a1f1a" stroke={INK} strokeWidth={1.2} />
+      ) : pose === 'write' ? (
+        <g>
+          <path d="M80.8 42.4 Q83.8 44.2 87 42" fill="none" stroke={INK} strokeWidth={1.3} strokeLinecap="round" />
+          {[2, 3, 5, 6].includes(frame % 8) && <ellipse cx={87.3} cy={42.9} rx={1.2} ry={1} fill="#d9606a" stroke={INK} strokeWidth={0.6} />}
+        </g>
+      ) : pose === 'cigar' ? (
+        cigarUp(frame) ? (
+          <g>
+            <path d="M81 42.4 Q83.8 43.6 86.6 42.6" fill="none" stroke={INK} strokeWidth={1.3} strokeLinecap="round" />
+            <Cigar x={86.2} y={42.6} rot={6} len={11} hot={cig % 2 === 1} />
+          </g>
+        ) : [4, 6, 8].includes(cig) ? (
+          <ellipse cx={86.6} cy={42.4} rx={1.2} ry={1.5} fill="#5a1f1a" stroke={INK} strokeWidth={1.1} />
+        ) : (
+          <path d="M81 42.2 Q84.5 44.4 87.6 41.4" fill="none" stroke={INK} strokeWidth={1.3} strokeLinecap="round" />
+        )
       ) : (
         <path d="M80 41 C 81.5 45.5, 86 45.5, 88 40.5 Z" fill={INK} stroke={INK} strokeWidth={1} strokeLinejoin="round" />
       )}
@@ -523,6 +805,260 @@ function SideBook({ frame }: { frame: number }) {
       <path d="M68 49 L76 53 L76 40 Z" fill="#fbf6ea" stroke="currentColor" strokeWidth={0.9} />
       <path d="M76 53 L86 43 L79 37 L76 40 Z" fill="#fbf6ea" stroke="currentColor" strokeWidth={0.9} />
       {turning && <path d="M76 52 L74 36 L70 40 Z" fill="#fffdf6" stroke="currentColor" strokeWidth={0.8} />}
+    </g>
+  );
+}
+
+// ── Accessoires ─────────────────────────────────────────────
+
+/** Guitare folk, dessinée caisse à droite et manche vers la gauche, puis placée par `t`. */
+function Guitar({ t }: { t: GT }) {
+  const body =
+    'M-13.8 0 C -13.8 -5, -10.5 -7, -7 -7 C -4.2 -7, -3 -5.4, -1.4 -5.4 C 0.2 -5.4, 1 -9.2, 5.2 -9.2 C 10.8 -9.2, 14.2 -5, 14.2 0 C 14.2 5, 10.8 9.2, 5.2 9.2 C 1 9.2, 0.2 5.4, -1.4 5.4 C -3 5.4, -4.2 7, -7 7 C -10.5 7, -13.8 5, -13.8 0 Z';
+  return (
+    <g transform={`translate(${t.x} ${t.y}) rotate(${t.r}) scale(${t.sx} ${t.sy})`} strokeLinejoin="round">
+      <path d="M-12 -1.9 L-45 -1.5 L-45 1.5 L-12 1.9 Z" fill="#6b4325" stroke={INK} strokeWidth={1.2} />
+      <g stroke="#ecdcb8" strokeWidth={0.5} opacity={0.85}>
+        {[-17, -22, -27, -32, -37, -41.5].map((x) => (
+          <path key={x} d={`M${x} -1.5 L${x} 1.5`} />
+        ))}
+      </g>
+      <path d="M-45 -2.3 L-53.5 -3.4 Q-55 0 -53.5 3.4 L-45 2.3 Z" fill="#5a3820" stroke={INK} strokeWidth={1.2} />
+      <g fill="#ecdcb8" stroke={INK} strokeWidth={0.45}>
+        <circle cx={-48} cy={-3.6} r={1} />
+        <circle cx={-51.5} cy={-4.1} r={1} />
+        <circle cx={-48} cy={3.6} r={1} />
+        <circle cx={-51.5} cy={4.1} r={1} />
+      </g>
+      <path d={body} fill="#c98a4b" stroke={INK} strokeWidth={1.5} />
+      <ellipse cx={6} cy={-4} rx={5} ry={2.4} fill="#e3ad72" opacity={0.75} />
+      <circle cx={-3} cy={0} r={4.1} fill="none" stroke="#8a5a2e" strokeWidth={0.7} />
+      <circle cx={-3} cy={0} r={3} fill="#3a2614" stroke={INK} strokeWidth={0.8} />
+      <rect x={6.6} y={-3.6} width={2.2} height={7.2} rx={0.7} fill={INK} />
+      <g stroke="#f6edd6" strokeWidth={0.4}>
+        <path d="M7.6 -1.1 L-45 -0.8" />
+        <path d="M7.6 1.1 L-45 0.8" />
+      </g>
+    </g>
+  );
+}
+
+/** Note de musique (croche, ou deux croches liées), cernée de clair pour se lire sur le cerveau. */
+function Note({ x, y, s, o, two }: { x: number; y: number; s: number; o: number; two?: boolean }) {
+  const glyph = (
+    <g>
+      <ellipse cx={0} cy={0} rx={2.3} ry={1.7} transform="rotate(-22)" />
+      <path d="M1.9 -0.6 L1.9 -8.2" fill="none" />
+      {two ? (
+        <g>
+          <ellipse cx={5.4} cy={-1.4} rx={2.3} ry={1.7} transform="rotate(-22 5.4 -1.4)" />
+          <path d="M7.3 -2 L7.3 -9.6" fill="none" />
+          <path d="M1.9 -8.2 L7.3 -9.6" fill="none" strokeWidth={1.8} />
+        </g>
+      ) : (
+        <path d="M1.9 -8.2 C 4.6 -7.2, 5.6 -5.2, 4.2 -2.8" fill="none" />
+      )}
+    </g>
+  );
+  return (
+    <g transform={`translate(${x} ${y}) scale(${s})`} opacity={o} strokeLinecap="round" strokeLinejoin="round">
+      <g fill="#fffaf0" stroke="#fffaf0" strokeWidth={2.6} opacity={0.85}>
+        {glyph}
+      </g>
+      <g fill="currentColor" stroke="currentColor" strokeWidth={1.1}>
+        {glyph}
+      </g>
+    </g>
+  );
+}
+
+/** Guitare : trois notes s'élèvent tour à tour au-dessus de lui (cycle de 6 images). */
+function GuitarNotes({ frame, side }: { frame: number; side: boolean }) {
+  return (
+    <g>
+      {[0, 1, 2].map((i) => {
+        const age = (((frame - 2 * i) % 6) + 6) % 6;
+        if (age > 3) return null;
+        const x = (side ? [88, 94, 91] : [83, 90, 86])[i] + age * (side ? -0.6 : 1);
+        const y = (side ? 34 : 32) - age * 7;
+        return <Note key={i} x={x} y={y} s={0.85 + age * 0.08} o={1 - age * 0.2} two={i === 1} />;
+      })}
+    </g>
+  );
+}
+
+/** Sifflet : deux notes sortent de la bouche et montent en s'écartant (cycle de 6 images). */
+function WhistleNotes({ frame, mouth, side }: { frame: number; mouth: Pt; side: boolean }) {
+  const PATH: Pt[] = side
+    ? [
+        [5, -1],
+        [7, -7],
+        [7, -13],
+        [5, -19],
+      ]
+    : [
+        [9, 0],
+        [17, -4],
+        [23, -11],
+        [27, -19],
+      ];
+  return (
+    <g>
+      {[0, 3].map((b, i) => {
+        const age = (((frame - b) % 6) + 6) % 6;
+        if (age > 3) return null;
+        const s = 0.7 + age * 0.1;
+        const x = Math.min(mouth[0] + PATH[age][0], 99 - 5 * s);
+        return <Note key={i} x={x} y={mouth[1] + PATH[age][1]} s={s} o={1 - age * 0.18} two={i === 1 && age > 0} />;
+      })}
+    </g>
+  );
+}
+
+/** Cigare : bout de bouche à x = 0, braise et cendre à x = len. */
+function Cigar({ x, y, rot, len = 12, hot }: { x: number; y: number; rot: number; len?: number; hot?: boolean }) {
+  return (
+    <g transform={`translate(${x} ${y}) rotate(${rot})`} strokeLinejoin="round">
+      {hot && <circle cx={len - 1.4} cy={0} r={2.8} fill="#ffb070" opacity={0.4} />}
+      <rect x={0} y={-1.3} width={len - 2.4} height={2.6} rx={1.1} fill="#7a4a2a" stroke={INK} strokeWidth={0.7} />
+      <rect x={2.2} y={-1.3} width={1.4} height={2.6} fill="#d9a441" stroke={INK} strokeWidth={0.4} />
+      <rect x={len - 2.8} y={-1.15} width={1.3} height={2.3} fill={hot ? '#ffa060' : '#e8795f'} />
+      <rect x={len - 1.6} y={-1.2} width={1.7} height={2.4} rx={0.8} fill="#a39d94" stroke={INK} strokeWidth={0.5} />
+    </g>
+  );
+}
+
+/** Cigare tenu bas, à la main : un filet de fumée monte de la braise. */
+function LoweredCigar({ hand, side, frame }: { hand: Pt; side: boolean; frame: number }) {
+  const rot = side ? -24 : -14;
+  const len = 12;
+  const x = hand[0] - (side ? 2 : 3);
+  const y = hand[1] + 0.4;
+  const a = (rot * Math.PI) / 180;
+  const tx = x + len * Math.cos(a);
+  const ty = y + len * Math.sin(a);
+  const w = frame % 2 ? 1 : -1;
+  return (
+    <g>
+      <path
+        d={`M${tx} ${ty - 1.5} C ${tx - 2.5 * w} ${ty - 4.5}, ${tx + 2.5 * w} ${ty - 7}, ${tx} ${ty - 10} S ${tx - 2 * w} ${ty - 14}, ${tx + 0.6 * w} ${ty - 17}`}
+        fill="none"
+        stroke="#8a847b"
+        strokeWidth={0.9}
+        strokeLinecap="round"
+        opacity={0.55}
+      />
+      <Cigar x={x} y={y} rot={rot} len={len} />
+    </g>
+  );
+}
+
+/** Ronds de fumée : soufflés aux images 4, 6 et 8 du cycle, ils montent en s'élargissant puis s'effacent. */
+function SmokeRings({ frame, mouth, side }: { frame: number; mouth: Pt; side: boolean }) {
+  const c = frame % CIGAR_CYCLE;
+  const PATH: Pt[] = side
+    ? [
+        [6, -3],
+        [8, -7],
+        [9, -11],
+        [9, -16],
+        [8, -21],
+        [7, -26],
+        [6, -31],
+        [5, -36],
+      ]
+    : [
+        [9, 1],
+        [15, -1],
+        [20, -5],
+        [25, -10],
+        [29, -17],
+        [32, -25],
+        [34, -34],
+        [35, -43],
+      ];
+  return (
+    <g fill="none">
+      {[4, 6, 8].map((b) => {
+        const age = (c - b + CIGAR_CYCLE) % CIGAR_CYCLE;
+        if (age > 7) return null;
+        const rx = 2.2 + age * 0.75;
+        const ry = rx * 0.55;
+        const x = Math.min(mouth[0] + PATH[age][0], 99.5 - rx);
+        const y = mouth[1] + PATH[age][1];
+        const o = 0.95 - age * 0.1;
+        return (
+          <g key={b}>
+            <ellipse cx={x} cy={y} rx={rx} ry={ry} stroke="#fffaf0" strokeWidth={2.8} opacity={0.6 * o} />
+            <ellipse cx={x} cy={y} rx={rx} ry={ry} stroke="#77716a" strokeWidth={1.3} opacity={o} />
+          </g>
+        );
+      })}
+    </g>
+  );
+}
+
+/** Ligne manuscrite (petit zigzag d'encre) le long d'une rangée du carnet. */
+function scribble(x0: number, x1: number, row: (x: number) => number) {
+  let d = `M${x0} ${row(x0)}`;
+  let j = 0;
+  for (let x = x0 + 1.1; x < x1; x += 1.1, j++) d += ` L${x.toFixed(1)} ${(row(x) + (j % 2 ? 0.45 : -0.45)).toFixed(2)}`;
+  return d;
+}
+const notebookRow = (i: number) => (x: number) => 64.8 + i * 1.75 - Math.abs(x - 50) * 0.17;
+
+/** Carnet ouvert sur ses genoux, de face : la page de droite se remplit, puis on tourne la page. */
+function Notebook({ frame }: { frame: number }) {
+  const c = frame % 8;
+  const n = WRITE_LINES[c];
+  const nib = writeNib(frame);
+  return (
+    <g strokeLinejoin="round">
+      <path d="M50.6 75 L51.6 82 L50.4 80.6 L49.2 82 L49.4 75 Z" fill="#c9553a" stroke={INK} strokeWidth={0.6} />
+      <path d="M32 61 L50 64 L68 61 L68 74.5 L50 77.5 L32 74.5 Z" fill="#6b4a35" stroke="currentColor" strokeWidth={1.2} />
+      <path d="M34 60 Q42 59.5 50 63 L50 75.5 Q42 72.5 34 73.5 Z" fill="#fbf6ea" stroke="currentColor" strokeWidth={0.9} />
+      <path d="M66 60 Q58 59.5 50 63 L50 75.5 Q58 72.5 66 73.5 Z" fill="#fbf6ea" stroke="currentColor" strokeWidth={0.9} />
+      <g fill="none" stroke="currentColor" strokeWidth={0.55} opacity={0.72} strokeLinecap="round">
+        {[0, 1, 2, 3].map((i) => (
+          <path key={'l' + i} d={scribble(37, i === 3 ? 43 : 47.5, notebookRow(i))} />
+        ))}
+        {Array.from({ length: n }, (_, i) => (
+          <path key={'r' + i} d={scribble(52.5, i % 2 ? 61 : 63, notebookRow(i))} />
+        ))}
+        {c < 7 && n < 5 && nib[0] > 53.5 && <path d={scribble(52.5, nib[0], notebookRow(n))} />}
+      </g>
+      {c === 7 && <path d="M50 63 Q56 51.5 63.5 54.5 Q57 58 50 70.5 Z" fill="#fffdf6" stroke="currentColor" strokeWidth={0.9} />}
+    </g>
+  );
+}
+
+/** Carnet de profil, posé à plat sur les cuisses (repère du cerveau). */
+function SideNotebook({ frame }: { frame: number }) {
+  const c = frame % 8;
+  const n = WRITE_LINES[c];
+  return (
+    <g strokeLinejoin="round">
+      <path d="M81.6 63.6 L82.8 69.6 L81.6 68.6 L80.6 69.8 L80.4 63.8 Z" fill="#c9553a" stroke={INK} strokeWidth={0.5} />
+      <path d="M57.5 65.6 L83 63.2 L83.6 64.8 L58 67.2 Z" fill="#6b4a35" stroke="currentColor" strokeWidth={0.8} />
+      <path d="M58 65.2 L70 63.6 L82.6 63 L80.6 58.4 L70 62.2 L60 59.2 Z" fill="#fbf6ea" stroke="currentColor" strokeWidth={0.8} />
+      <g stroke="currentColor" strokeWidth={0.5} opacity={0.7} strokeLinecap="round">
+        {Array.from({ length: n }, (_, i) => (
+          <path key={i} d={`M${71.5 + i * 2.2} ${62 - i * 0.85} L${73 + i * 2.2} ${61.6 - i * 0.85}`} />
+        ))}
+      </g>
+      {c === 7 && <path d="M70 62.6 L66.5 54.5 L72.5 55.4 Z" fill="#fffdf6" stroke="currentColor" strokeWidth={0.8} />}
+    </g>
+  );
+}
+
+/** Plume d'oie : pointe en `nib`, barbes vers `rot` degrés. */
+function Quill({ nib, rot }: { nib: Pt; rot: number }) {
+  return (
+    <g transform={`translate(${nib[0]} ${nib[1]}) rotate(${rot})`} strokeLinejoin="round" strokeLinecap="round">
+      <path d="M6 0 C 8 -3.8, 15 -4.8, 21.5 -1.3 C 22.6 -0.3, 22.6 0.4, 21.6 0.9 C 15 3.6, 9 3.1, 6 0 Z" fill="#fbf6ea" stroke={INK} strokeWidth={0.85} />
+      <path d="M10 -0.3 L12.4 -3 M14 -0.3 L16.4 -3.3 M10 0.3 L12 2.5 M14 0.3 L16.2 2.7" stroke={INK} strokeWidth={0.4} opacity={0.6} />
+      <path d="M2.5 0 L21 0" stroke={INK} strokeWidth={0.8} />
+      <path d="M0 0 L3 -0.9 L3 0.9 Z" fill={INK} stroke={INK} strokeWidth={0.4} />
     </g>
   );
 }

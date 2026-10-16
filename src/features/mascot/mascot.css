@@ -13,6 +13,7 @@
   visibility: hidden;
   pointer-events: auto;
   cursor: default;
+  will-change: transform;
   filter: drop-shadow(0 1px 1px rgba(40, 28, 10, 0.12));
 }
 .mascot-body {
@@ -30,6 +31,7 @@
 /* Bulle : une note de marge (papier, filet rouge de la marge, texte de lecture en italique). */
 .mascot-bubble {
   position: absolute;
+  will-change: transform;
   left: 0;
   top: 0;
   visibility: hidden;
@@ -77,6 +79,12 @@
 .mascot-bubble p {
   margin: 0;
   font-style: italic;
+}
+.mascot-bubble .mascot-lead {
+  font-style: normal;
+  font-family: var(--font-ui);
+  font-size: 12.5px;
+  margin-bottom: 4px;
 }
 .mascot-cite {
   display: block;

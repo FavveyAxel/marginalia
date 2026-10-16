@@ -11,7 +11,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { useStore } from '../../lib/store';
 import { Sprite, anchorOf, isSeated, VB_H, VB_W, type Level, type Pose, type View } from './Sprite';
-import { MUTTER, QUOTES, pick } from './quotes';
+import { CONTEXT, FLEX, HELLO, JOKES, PONDER, POKE, BYE, QUOTES, pick, type Ctx } from './lines';
+import { ALL_PERCHES, PERCHES, buildVisit, sceneActs, type Act, type Hop, type Page, type Say } from './scenes';
 import './mascot.css';
 
 export type MascotFreq = 'off' | 'rare' | 'sometimes' | 'often';
@@ -23,8 +24,9 @@ const H = VB_H * SCALE;
 /** Vitesse de marche (px/s). */
 const SPEED = 42;
 /** Rythme des poses (images par seconde). */
-const FPS: Record<Pose, number> = { walk: 8, wave: 8, sitwave: 8, flex: 6, puff: 10, stand: 2, sit: 4, read: 4, think: 3, doze: 2 };
-const PERCHES = '.home-card, .lib-card-cover, .ws-card, .set-list';
+const FPS: Partial<Record<Pose, number>> = { walk: 8, jump: 8, wave: 8, sitwave: 8, flex: 6, puff: 10, stand: 2, look: 2, sit: 4, read: 4, think: 3, doze: 2, guitar: 6, whistle: 4, write: 4, cigar: 3 };
+/** Rythme d'une pose (une pose nouvelle sans rythme déclaré : 3 images par seconde). */
+const fps = (p: Pose) => FPS[p] ?? 3;
 /** Vues où il peut se montrer (jamais dans le lecteur, l'éditeur ni les tableaux). */
 const ROUTES = new Set(['home', 'library', 'workspace', 'settings', 'revision', 'plans', 'extracts', 'concepts', 'arguments', 'maps', 'history', 'trash', 'help']);
 
@@ -48,9 +50,9 @@ export function levelFor(n: number): Level {
 }
 export const LEVEL_STEPS = [0, 5, 15, 40, 100];
 
-type Bubble = { text: string; author?: string; source?: string };
-type Say = 'quote' | 'hello' | 'flex' | 'poke';
-type Act = { pose: Pose; ms: number; walkTo?: number; say?: Say; leave?: boolean; view?: View; facing?: 1 | -1; turned?: boolean };
+/** Bulle : une phrase, ou une citation (auteur, œuvre) avec éventuellement une petite phrase avant. */
+type Bubble = { text: string; author?: string; source?: string; lead?: string };
+type Flight = { from: HTMLElement; fx: number; to: HTMLElement; tx: number; t0: number; dur: number };
 type Side = 'top' | 'left' | 'right';
 
 interface State {
@@ -80,8 +82,14 @@ interface State {
   bubblePos: { l: number; t: number; side: Side; tail: number; w: number; h: number; key: string; at: number; ml: number; mt: number; wait: boolean } | null;
   /** Bulle demandée (clic) : affichée même sans place libre. */
   bubbleForced: boolean;
+  /** Numéro de la phrase en cours : la bulle affichée porte ce numéro une fois que React l'a dessinée. */
+  bubbleId: number;
   /** Tests : pas de gestes spontanés (coucou). */
   calm: boolean;
+  /** Saut en cours d'un encadré à un autre. */
+  flight: Flight | null;
+  /** Tests : accélération du temps. */
+  speed: number;
 }
 
 function edgeOk(el: HTMLElement, strict: boolean) {
@@ -94,49 +102,95 @@ function edgeOk(el: HTMLElement, strict: boolean) {
   return !!hit && el.contains(hit);
 }
 
-function findPerch(avoid: HTMLElement | null) {
-  const all = [...document.querySelectorAll<HTMLElement>(PERCHES)].filter((el) => el !== avoid && edgeOk(el, true));
+const pageOf = (route: string): Page => (route === 'home' || route === 'library' || route === 'workspace' ? route : 'other');
+
+/** Encadrés visibles où se poser sur cette page. */
+function perches(page: Page, avoid: HTMLElement | null = null) {
+  const sel = PERCHES[page].join(', ');
+  const found = [...document.querySelectorAll<HTMLElement>(sel)].filter((el) => el !== avoid && edgeOk(el, true));
+  return found.length || page === 'other' ? found : [...document.querySelectorAll<HTMLElement>(ALL_PERCHES)].filter((el) => el !== avoid && edgeOk(el, true));
+}
+
+function findPerch(page: Page) {
+  const all = perches(page);
   return all.length ? all[randInt(all.length)] : null;
 }
 
-/** Vue d'une pose assise : de face le plus souvent, parfois de profil, ou de dos (il regarde le contenu). */
-function seatView(pose: Pose): Pick<Act, 'view' | 'facing'> {
-  const r = Math.random();
-  const facing = Math.random() < 0.5 ? 1 : -1;
-  if (pose === 'sit' || pose === 'doze') return r < 0.45 ? { view: 'front' } : r < 0.8 ? { view: 'side', facing } : { view: 'back' };
-  return r < 0.6 ? { view: 'front' } : { view: 'side', facing };
-}
-
-function plan(level: Level, flex: boolean): Act[] {
-  const q: Act[] = [{ pose: 'puff', ms: 300 }, { pose: 'stand', ms: 500, view: 'front' }];
-  if (flex) q.push({ pose: 'flex', ms: 2600, say: 'flex' });
-  else if (Math.random() < 0.5) q.push({ pose: 'wave', ms: 1400, say: Math.random() < 0.35 ? 'hello' : undefined });
-  const n = 2 + randInt(3);
-  let quoted = false;
-  const seat = (a: Act) => q.push({ ...a, ...seatView(a.pose) });
-  for (let i = 0; i < n; i++) {
-    if (Math.random() < 0.65) q.push({ pose: 'walk', ms: 0, walkTo: Math.random() }, { pose: 'stand', ms: 400, view: 'front' });
-    const r = Math.random();
-    if (r < 0.22) seat({ pose: 'sit', ms: sec(6, 14) });
-    else if (r < 0.47) seat({ pose: 'read', ms: sec(12, 28) });
-    else if (r < 0.67) {
-      q.push({ pose: 'think', ms: 4000, say: 'quote', view: 'front' }, { pose: 'sit', ms: 4500, view: 'front' });
-      quoted = true;
-    } else if (r < 0.8) seat({ pose: 'doze', ms: sec(8, 18) });
-    else if (r < 0.92 || level < 2) {
-      q.push({ pose: 'stand', ms: 5500, say: 'quote', view: 'front' });
-      quoted = true;
-    } else q.push({ pose: 'flex', ms: 1800 });
+/** Cible d'un saut : un encadré précis, ou le plus proche (au hasard parmi les trois plus proches). */
+function hopTarget(page: Page, from: HTMLElement, h: Hop): HTMLElement | null {
+  if (h.sel) {
+    const el = [...document.querySelectorAll<HTMLElement>(h.sel)].find((e) => edgeOk(e, true)) ?? null;
+    return el === from ? null : el;
   }
-  if (!quoted && Math.random() < 0.7) q.push({ pose: 'think', ms: 4000, say: 'quote', view: 'front' }, { pose: 'sit', ms: 4500, view: 'front' });
-  // Il s'en va : demi-tour, quelques pas de dos, puis un petit nuage.
-  q.push({ pose: 'stand', ms: 300, view: 'back' }, { pose: 'walk', ms: 700, view: 'back' }, { pose: 'puff', ms: 300, leave: true });
-  return q;
+  const fr = from.getBoundingClientRect();
+  const c = (q: DOMRect) => [q.left + q.width / 2, q.top] as const;
+  const [fx, fy] = c(fr);
+  const all = perches(page, from)
+    .map((el) => {
+      const [x, y] = c(el.getBoundingClientRect());
+      return { el, d: Math.hypot(x - fx, (y - fy) * 1.4) };
+    })
+    .sort((a, b) => a.d - b.d);
+  if (!all.length) return null;
+  const pool = h.near ? all.slice(0, 3).filter((o) => o.d < 900) : all;
+  return (pool.length ? pool : all)[randInt(Math.min(pool.length || all.length, 3))].el;
 }
 
-function bubbleFor(say: Say): Bubble {
-  if (say === 'quote' || say === 'poke') return pick(QUOTES);
-  return { text: pick(MUTTER[say]) };
+/** Contexte de la phrase : la page, l'heure, la bibliothèque, et ce sur quoi il est assis. */
+function ctxFor(page: Page, perch: HTMLElement | null, level: Level, workspaceId?: string): Ctx {
+  const st = useStore.getState();
+  const frac = (p: number) => Math.max(0, Math.min(1, !p ? 0 : p > 1 ? p / 100 : p));
+  const c: Ctx = { page, hour: new Date().getHours(), books: st.books.length, drafts: st.drafts.length, level };
+  const byTitle = (t?: string | null) => (t ? st.books.find((b) => b.title === t.trim()) : undefined);
+  let book = undefined as (typeof st.books)[number] | undefined;
+  if (perch) {
+    const lib = perch.closest<HTMLElement>('.lib-card, .lib-row');
+    if (lib?.dataset.selId) book = st.books.find((b) => b.id === lib.dataset.selId);
+    if (!book && perch.matches('.home-resume-card')) book = byTitle(perch.querySelector('.home-resume-title')?.textContent);
+    if (!book && perch.matches('.ws-card')) book = byTitle(perch.querySelector('.ws-card-title')?.textContent);
+    const sp = perch.closest('.home-space');
+    const spName = sp?.querySelector('.home-space-name')?.textContent;
+    if (spName) c.space = { name: spName, items: Number(/(\d+)\s*élément/.exec(sp!.textContent ?? '')?.[1] ?? 0) };
+  }
+  if (!book && page === 'home') {
+    const t = document.querySelector('.home-resume-card:not(.home-resume-empty) .home-resume-title')?.textContent;
+    book = byTitle(t);
+  }
+  if (book) c.book = { title: book.title, author: book.author || '', progress: frac(book.progress) };
+  if (!c.space && page === 'workspace' && workspaceId) {
+    const ws = st.workspaces.find((w) => w.id === workspaceId);
+    if (ws) c.space = { name: ws.name, items: st.wsItems.filter((i) => i.workspaceId === workspaceId).length };
+  }
+  const due = document.querySelector('.home-review-n')?.textContent;
+  if (due != null && /^\d+$/.test(due.trim())) c.due = Number(due);
+  return c;
+}
+
+function bubbleFor(say: Say, ctx: Ctx): Bubble {
+  switch (say) {
+    case 'quote':
+      return pick(QUOTES);
+    case 'poke':
+      return { ...pick(QUOTES), lead: pick(POKE) };
+    case 'joke':
+      return { text: pick(JOKES) };
+    case 'ponder':
+      return { text: pick(PONDER) };
+    case 'hello':
+      return { text: pick(HELLO) };
+    case 'flex':
+      return { text: pick(FLEX) };
+    case 'bye':
+      return { text: pick(BYE) };
+    case 'context': {
+      const fns = [...CONTEXT].sort(() => Math.random() - 0.5);
+      for (const f of fns) {
+        const t = f(ctx);
+        if (t) return { text: t };
+      }
+      return { text: pick(JOKES) };
+    }
+  }
 }
 
 const reduced = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -172,6 +226,21 @@ function obstacles(zone: Box): Box[] {
   return out;
 }
 
+// Les obstacles sont relevés pour une zone élargie et gardés 700 ms (ou jusqu'au prochain défilement) :
+// pendant qu'il marche, la bulle se replace sans reparcourir la page à chaque image.
+let obsCache: { zone: Box; obs: Box[]; at: number } | null = null;
+export const forgetObstacles = () => {
+  obsCache = null;
+};
+function nearObstacles(zone: Box): Box[] {
+  const now = performance.now();
+  const c = obsCache;
+  if (c && now - c.at < 700 && c.zone.l <= zone.l && c.zone.t <= zone.t && c.zone.r >= zone.r && c.zone.b >= zone.b) return c.obs;
+  const big = { l: zone.l - 160, t: zone.t - 80, r: zone.r + 160, b: zone.b + 80, w: 0 };
+  obsCache = { zone: big, obs: obstacles(big), at: now };
+  return obsCache.obs;
+}
+
 /** Surface recouverte (pondérée) par un rectangle de bulle. */
 function cover(obs: Box[], l: number, t: number, w: number, h: number) {
   if (l < 6 || t < 52 || l + w > innerWidth - 6 || t + h > innerHeight - 6) return 1e9;
@@ -191,7 +260,7 @@ const BUBBLE_WIDTHS = [260, 340, 210];
  *  hauteurs, en glissant de gauche à droite), puis à sa droite et à sa gauche. */
 function placeBubble(left: number, top: number, headTop: number, bw: number, bh: number): Spot & { covered: number; cost: number } {
   const cx = left + W / 2;
-  const obs = obstacles({ l: left - bw - 40, t: headTop - bh - 200, r: left + W + bw + 40, b: top + H + 40, w: 0 });
+  const obs = nearObstacles({ l: left - bw - 40, t: headTop - bh - 200, r: left + W + bw + 40, b: top + H + 40, w: 0 });
   const cands: (Spot & { dist: number })[] = [];
   for (const lift of [8, 30, 56, 86, 120, 160]) {
     const t = headTop - bh - lift;
@@ -221,10 +290,22 @@ function placeBubble(left: number, top: number, headTop: number, bw: number, bh:
 /** Ce que recouvre un emplacement déjà choisi (pour savoir s'il faut en changer). */
 function coverAt(left: number, top: number, bw: number, bh: number, l: number, t: number) {
   const headTop = top + 4 * SCALE;
-  return cover(obstacles({ l: left - bw - 40, t: headTop - bh - 200, r: left + W + bw + 40, b: top + H + 40, w: 0 }), l, t, bw, bh);
+  return cover(nearObstacles({ l: left - bw - 40, t: headTop - bh - 200, r: left + W + bw + 40, b: top + H + 40, w: 0 }), l, t, bw, bh);
 }
 
-export function Mascot({ route }: { route: string }) {
+// Dernières valeurs écrites dans les styles : on n'écrit que ce qui change (une écriture identique peut
+// quand même invalider le style).
+const written = new WeakMap<HTMLElement, Record<string, string>>();
+function put(el: HTMLElement, k: string, v: string) {
+  let m = written.get(el);
+  if (!m) written.set(el, (m = {}));
+  if (m[k] === v) return;
+  m[k] = v;
+  if (k.startsWith('--')) el.style.setProperty(k, v);
+  else (el.style as any)[k] = v;
+}
+
+export function Mascot({ route, workspaceId }: { route: string; workspaceId?: string }) {
   const freq: MascotFreq = useStore((s) => s.settings.mascot ?? MASCOT_DEFAULT);
   const docs = useStore((s) => s.books.length + s.drafts.length);
   const level = levelFor(docs);
@@ -233,6 +314,7 @@ export function Mascot({ route }: { route: string }) {
   const body = useRef<HTMLDivElement>(null);
   const bub = useRef<HTMLDivElement>(null);
   const prevLevel = useRef(level);
+  const wakeRef = useRef<() => void>(() => {});
   const st = useRef<State>({
     visible: false,
     perch: null,
@@ -256,9 +338,13 @@ export function Mascot({ route }: { route: string }) {
     nextBlink: 0,
     bubblePos: null,
     bubbleForced: false,
+    bubbleId: 0,
     calm: false,
+    flight: null,
+    speed: 1,
   });
   const live = freq !== 'off' && ROUTES.has(route);
+  const page = pageOf(route);
 
   const vanish = (s: State, gap: number) => {
     s.visible = false;
@@ -267,6 +353,7 @@ export function Mascot({ route }: { route: string }) {
     s.queue = [];
     s.bubble = null;
     s.bubblePos = null;
+    s.flight = null;
     s.next = Date.now() + gap;
   };
 
@@ -275,6 +362,7 @@ export function Mascot({ route }: { route: string }) {
     if (freq === 'off') return vanish(st.current, 0);
     vanish(st.current, between(FIRST[freq]));
     setTick((t) => t + 1);
+    wakeRef.current();
   }, [route, freq]);
 
   // Il gagne un niveau : il vient le montrer.
@@ -288,6 +376,7 @@ export function Mascot({ route }: { route: string }) {
         s.pendingFlex = true;
         s.next = Math.min(s.next, Date.now() + 4000);
       }
+      wakeRef.current();
     }
     prevLevel.current = level;
   }, [level]);
@@ -303,6 +392,28 @@ export function Mascot({ route }: { route: string }) {
 
     const start = (s: State, a: Act | undefined) => {
       if (!a) return vanish(s, between(GAP[freq as Exclude<MascotFreq, 'off'>]));
+      // Saut : on choisit l'encadré d'arrivée ; s'il n'y en a pas (ou qu'il y est déjà), on passe.
+      if (a.hop) {
+        const to = s.perch ? hopTarget(page, s.perch, a.hop) : null;
+        if (!to || !s.perch) return start(s, s.queue.shift());
+        const tr = to.getBoundingClientRect();
+        const fr = s.perch.getBoundingClientRect();
+        const tx = 6 + Math.random() * Math.max(0, tr.width - W - 12);
+        const dx = tr.left + tx - (fr.left + s.x);
+        const dy = tr.top - fr.top;
+        const dist = Math.hypot(dx, dy);
+        const now0 = performance.now();
+        if (still) {
+          s.perch = to;
+          s.x = tx;
+          return start(s, s.queue.shift());
+        }
+        s.flight = { from: s.perch, fx: s.x, to, tx, t0: now0 + 160, dur: Math.min(950, 380 + dist * 0.45) / s.speed };
+        s.squash = { t0: now0, dur: 180, k: 0.14 };
+        s.bubble = null;
+        s.bubblePos = null;
+        a = { ...a, view: Math.abs(dx) > 40 ? 'side' : 'front', facing: dx >= 0 ? 1 : -1 };
+      }
       if (a.walkTo != null && s.perch) {
         const max = Math.max(0, s.perch.getBoundingClientRect().width - W - 12);
         s.target = 6 + a.walkTo * max;
@@ -314,6 +425,11 @@ export function Mascot({ route }: { route: string }) {
           a = { pose: 'stand', ms: 260, view: 'side', facing: dir };
         } else s.facing = dir;
       }
+      // Encadré mince (ligne de liste) : assis de face, ses jambes cacheraient la ligne ; il s'assoit de
+      // profil, jambes allongées sur le bord.
+      if (isSeated(a.pose) && s.perch && s.perch.getBoundingClientRect().height < 70 && a.pose !== 'sitwave' && (a.view ?? 'front') !== 'side')
+        a = { ...a, view: 'side', facing: a.facing ?? (Math.random() < 0.5 ? 1 : -1) };
+      if (a.pose === 'sitwave' && s.perch && s.perch.getBoundingClientRect().height < 70) a = { ...a, pose: 'wave' };
       const wasSeated = isSeated(s.pose);
       s.act = a;
       s.pose = a.pose;
@@ -326,9 +442,10 @@ export function Mascot({ route }: { route: string }) {
       if (!still && isSeated(a.pose) && !wasSeated) s.squash = { t0: now, dur: 260, k: 0.1 };
       if (!still && a.pose === 'stand' && s.anchor < 100) s.squash = { t0: now, dur: 220, k: -0.06 };
       if (a.say) {
-        s.bubble = bubbleFor(a.say);
+        s.bubble = bubbleFor(a.say, ctxFor(page, s.perch, level, workspaceId));
+        s.bubbleId++;
         s.bubbleForced = a.say === 'poke';
-        s.bubbleUntil = Date.now() + Math.min(12000, 4000 + s.bubble.text.length * 45);
+        s.bubbleUntil = Date.now() + Math.min(13000, 4000 + (s.bubble.text.length + (s.bubble.lead?.length ?? 0)) * 45);
         s.bubblePos = null;
       }
     };
@@ -344,7 +461,7 @@ export function Mascot({ route }: { route: string }) {
         if (now - lastCheck < 400) return changed;
         lastCheck = now;
         if (document.hidden || Date.now() < s.next) return changed;
-        const el = findPerch(null);
+        const el = findPerch(page);
         if (!el) {
           s.next = Date.now() + 8000;
           return changed;
@@ -352,7 +469,7 @@ export function Mascot({ route }: { route: string }) {
         s.perch = el;
         s.x = 6 + Math.random() * Math.max(0, el.getBoundingClientRect().width - W - 12);
         s.facing = Math.random() < 0.5 ? 1 : -1;
-        s.queue = plan(level, s.pendingFlex);
+        s.queue = buildVisit(page, level, s.pendingFlex);
         s.pendingFlex = false;
         s.visible = true;
         s.pose = 'puff';
@@ -375,7 +492,7 @@ export function Mascot({ route }: { route: string }) {
       // Rythme propre à la pose.
       if (!still) {
         s.frameAcc += dt;
-        const step = 1000 / FPS[s.pose];
+        const step = 1000 / fps(s.pose);
         while (s.frameAcc >= step) {
           s.frameAcc -= step;
           s.frame++;
@@ -398,7 +515,15 @@ export function Mascot({ route }: { route: string }) {
         return true;
       }
       let done = false;
-      if (s.act.walkTo != null) {
+      if (s.flight) {
+        if (now >= s.flight.t0 + s.flight.dur) {
+          s.perch = s.flight.to;
+          s.x = s.flight.tx;
+          s.flight = null;
+          s.squash = { t0: now, dur: 280, k: 0.13 };
+          done = true;
+        }
+      } else if (s.act.walkTo != null) {
         const dx = s.target - s.x;
         const stepPx = (SPEED * dt) / 1000;
         if (Math.abs(dx) <= stepPx) {
@@ -417,18 +542,55 @@ export function Mascot({ route }: { route: string }) {
       return changed;
     };
 
+    // Hauteurs de la bulle : mesurées une fois par forme et par phrase.
+    let heights: { bubble: Bubble; el: HTMLElement; h: Map<number, number> } | null = null;
+    const lastPerch = { el: null as HTMLElement | null, top: 0, left: 0 };
+    let burstUntil = 0;
+    const bubbleHeight = (b: HTMLElement, bubble: Bubble, w: number) => {
+      if (!heights || heights.bubble !== bubble || heights.el !== b) heights = { bubble, el: b, h: new Map() };
+      let h = heights.h.get(w);
+      if (h == null) {
+        put(b, 'width', `${w}px`);
+        h = b.offsetHeight;
+        heights.h.set(w, h);
+      }
+      return h;
+    };
+
     const place = (s: State, dt: number, now: number) => {
       const w = wrap.current;
       if (!w || !s.visible || !s.perch) return;
       const r = s.perch.getBoundingClientRect();
+      // L'encadré bouge (cartes qui arrivent en glissant, mise en page qui change) : on le suit image
+      // par image le temps qu'il se stabilise, au lieu d'attendre le prochain réveil.
+      if (lastPerch.el === s.perch && (Math.abs(r.top - lastPerch.top) > 0.5 || Math.abs(r.left - lastPerch.left) > 0.5)) burstUntil = Math.max(burstUntil, now + 300);
+      lastPerch.el = s.perch;
+      lastPerch.top = r.top;
+      lastPerch.left = r.left;
       const target = anchorOf(s.pose, s.view);
       s.anchor = still ? target : s.anchor + (target - s.anchor) * Math.min(1, dt / 70);
       if (Math.abs(target - s.anchor) < 0.3) s.anchor = target;
-      const left = r.left + s.x;
-      const top = r.top - s.anchor * SCALE;
-      const hidden = r.top < 70 || r.top > innerHeight;
-      w.style.transform = `translate(${left.toFixed(1)}px, ${top.toFixed(1)}px)`;
-      w.style.visibility = hidden ? 'hidden' : 'visible';
+      let left = r.left + s.x;
+      let top = r.top - s.anchor * SCALE;
+      let hidden = r.top < 70 || r.top > innerHeight;
+      // En plein saut : une parabole entre les deux bords (ils peuvent bouger si la page défile).
+      const f = s.flight;
+      if (f) {
+        const a = f.from.getBoundingClientRect();
+        const b = f.to.getBoundingClientRect();
+        const t = Math.max(0, Math.min(1, (now - f.t0) / f.dur));
+        const x0 = a.left + f.fx;
+        const y0 = a.top;
+        const x1 = b.left + f.tx;
+        const y1 = b.top;
+        const apex = 34 + Math.hypot(x1 - x0, y1 - y0) * 0.18 + Math.max(0, y0 - y1) * 0.3;
+        left = x0 + (x1 - x0) * t;
+        top = y0 + (y1 - y0) * t - apex * 4 * t * (1 - t) - 124 * SCALE;
+        s.anchor = 124;
+        hidden = Math.min(a.top, b.top) < 70 && t < 0.02;
+      }
+      put(w, 'transform', `translate(${left.toFixed(1)}px, ${top.toFixed(1)}px)`);
+      put(w, 'visibility', hidden ? 'hidden' : 'visible');
       // Tassement : écrasé puis rebond, depuis la ligne d'appui.
       const bd = body.current;
       if (bd) {
@@ -443,70 +605,157 @@ export function Mascot({ route }: { route: string }) {
             sx = 1 + e * 0.6;
           }
         }
-        bd.style.transformOrigin = `50% ${((target / VB_H) * 100).toFixed(1)}%`;
-        bd.style.transform = sx === 1 && sy === 1 ? '' : `scale(${sx.toFixed(3)}, ${sy.toFixed(3)})`;
+        put(bd, 'transformOrigin', `50% ${((target / VB_H) * 100).toFixed(1)}%`);
+        put(bd, 'transform', sx === 1 && sy === 1 ? '' : `scale(${sx.toFixed(3)}, ${sy.toFixed(3)})`);
       }
       const b = bub.current;
       if (!b) return;
-      const headTop = top + 4 * SCALE;
-      const key = `${Math.round(left / 6)},${Math.round(top / 6)},${s.bubble?.text.length ?? 0}`;
+      if (!s.bubble) {
+        // Phrase finie : la bulle reste dans le DOM jusqu'au prochain rendu de React ; on la cache tout de suite.
+        put(b, 'visibility', 'hidden');
+        return;
+      }
+      // React n'a pas encore dessiné la nouvelle phrase : la bulle montre encore l'ancienne (ou rien) ;
+      // on ne la mesure ni ne l'affiche avant (la boucle reste active tant que la bulle n'est pas placée).
+      if (b.dataset.id !== String(s.bubbleId)) {
+        put(b, 'visibility', 'hidden');
+        return;
+      }
+      // La bulle se place par rapport à sa position de repos (assis ou debout), pas à la hauteur de
+      // passage pendant qu'il s'assoit ou se relève : sinon, placée trop haut, elle descend avec lui
+      // sur ce qu'elle devait éviter.
+      const rest = f ? top : r.top - target * SCALE;
+      const headTop = rest + 4 * SCALE;
+      const key = `${Math.round(left / 6)},${Math.round(rest / 6)},${s.bubble?.text.length ?? 0}`;
       let p = s.bubblePos;
       // La bulle suit le personnage ; on revérifie ce qu'elle cache quand il bouge ou que la page défile
       // (au plus tous les 100 ms ; toutes les 500 ms tant qu'elle attend une place libre).
       if (p) {
         p.l += left - p.ml;
-        p.t += top - p.mt;
+        p.t += rest - p.mt;
         p.ml = left;
-        p.mt = top;
+        p.mt = rest;
       }
-      if (!p || (p.key !== key && now - p.at > 100) || (p.wait && now - p.at > 500)) {
+      // Il a bougé : revérification au plus tous les 100 ms, ou tout de suite si, en le suivant, la bulle
+      // se met à cacher quelque chose (calcul rapide sur les obstacles déjà relevés).
+      const moved = !!p && p.key !== key;
+      if (!p || (moved && (now - p.at > 100 || (!p.wait && coverAt(left, rest, p.w, p.h, p.l, p.t) > 0))) || now - p.at > (p.wait ? 500 : 800)) {
         // Trois formes possibles (normale, large et basse, étroite et haute) : on garde la meilleure.
         let best: (ReturnType<typeof placeBubble> & { w: number; h: number }) | null = null;
         for (const w of BUBBLE_WIDTHS) {
-          b.style.width = `${w}px`;
-          const h = b.offsetHeight;
-          const c = placeBubble(left, top, headTop, w, h);
+          const h = bubbleHeight(b, s.bubble, w);
+          const c = placeBubble(left, rest, headTop, w, h);
           if (!best || c.cost < best.cost) best = { ...c, w, h };
           if (c.covered === 0 && w === BUBBLE_WIDTHS[0]) break;
         }
-        const keepCover = p && !p.wait ? coverAt(left, top, p.w, p.h, p.l, p.t) : Infinity;
+        const keepCover = p && !p.wait ? coverAt(left, rest, p.w, p.h, p.l, p.t) : Infinity;
         if (!p || keepCover > best!.covered) {
           // Rien de libre : une citation dite de lui-même attend une meilleure place (il bouge, la page
           // défile) ; une réponse à un clic s'affiche quand même, au moins mauvais endroit.
           const wait = best!.covered > 0 && !s.bubbleForced;
-          p = s.bubblePos = { l: best!.l, t: best!.t, side: best!.side, tail: best!.tail, w: best!.w, h: best!.h, key, at: now, ml: left, mt: top, wait };
+          p = s.bubblePos = { l: best!.l, t: best!.t, side: best!.side, tail: best!.tail, w: best!.w, h: best!.h, key, at: now, ml: left, mt: rest, wait };
         } else {
           p.key = key;
           p.at = now;
           // L'emplacement gardé cache désormais quelque chose (il a bougé) : même règle d'attente.
           p.wait = keepCover > 0 && !s.bubbleForced;
         }
-        b.style.width = `${p.w}px`;
+        put(b, 'width', `${p.w}px`);
       }
       const q = s.bubblePos!;
-      b.dataset.side = q.side;
-      b.style.transform = `translate(${q.l.toFixed(1)}px, ${q.t.toFixed(1)}px)`;
-      b.style.setProperty('--tail', `${Math.round(Math.max(14, Math.min((q.side === 'top' ? q.w : q.h) - 14, q.tail)))}px`);
-      b.style.visibility = hidden || q.wait ? 'hidden' : 'visible';
+      if (b.dataset.side !== q.side) b.dataset.side = q.side;
+      put(b, 'transform', `translate(${q.l.toFixed(1)}px, ${q.t.toFixed(1)}px)`);
+      put(b, '--tail', `${Math.round(Math.max(14, Math.min((q.side === 'top' ? q.w : q.h) - 14, q.tail)))}px`);
+      put(b, 'visibility', hidden || q.wait ? 'hidden' : 'visible');
     };
 
-    const loop = (now: number) => {
-      raf = requestAnimationFrame(loop);
-      const dt = Math.min(100, now - last);
-      last = now;
+    // Ordonnancement économe : rien quand la fenêtre est cachée ; une vérification par seconde entre
+    // deux visites ; au repos (assis, lecture, sieste), un réveil au rythme de la pose (au plus toutes
+    // les 250 ms) et à chaque défilement ; 60 images par seconde seulement quand il bouge (marche, saut,
+    // atterrissage, changement de hauteur).
+    let timer = 0;
+    const busy = (s: State, now: number) =>
+      !!s.flight || s.act?.walkTo != null || !!s.squash || Math.abs(s.anchor - anchorOf(s.pose, s.view)) > 0.3 || now < burstUntil || (!!s.bubble && !s.bubblePos);
+    const step = (now: number) => {
       const s = st.current;
+      const dt = Math.min(1000, now - last) * s.speed;
+      last = now;
       if (logic(s, dt, now)) redraw();
       place(s, dt, now);
     };
-    raf = requestAnimationFrame(loop);
-    return () => cancelAnimationFrame(raf);
+    const schedule = (now: number) => {
+      const s = st.current;
+      clearTimeout(timer);
+      if (document.hidden) return; // reprise sur visibilitychange
+      if (!s.visible) {
+        timer = window.setTimeout(() => frame(performance.now()), 1000);
+        return;
+      }
+      if (busy(s, now)) {
+        raf = requestAnimationFrame(frame);
+        return;
+      }
+      const toFrame = 1000 / fps(s.pose) / s.speed - s.frameAcc / s.speed;
+      const wait = Math.max(16, Math.min(250, toFrame, s.blinkUntil ? s.blinkUntil - now : 250));
+      timer = window.setTimeout(() => frame(performance.now()), wait);
+    };
+    const frame = (now: number) => {
+      raf = 0;
+      step(now);
+      schedule(now);
+    };
+    const kick = () => {
+      burstUntil = performance.now() + 350;
+      forgetObstacles();
+      if (!raf && st.current.visible && !document.hidden) {
+        clearTimeout(timer);
+        raf = requestAnimationFrame(frame);
+      }
+    };
+    const onVisibility = () => {
+      // Une image demandée avant de passer en arrière-plan reste en attente : on l'annule, sinon deux
+      // boucles tourneraient en parallèle (et l'une survivrait au démontage).
+      cancelAnimationFrame(raf);
+      raf = 0;
+      clearTimeout(timer);
+      if (!document.hidden) {
+        last = performance.now();
+        frame(last);
+      }
+    };
+    window.addEventListener('scroll', kick, { capture: true, passive: true });
+    window.addEventListener('resize', kick, { passive: true });
+    document.addEventListener('visibilitychange', onVisibility);
+    // Les tests et le clic peuvent changer la file d'actions : on se réveille tout de suite.
+    wakeRef.current = () => {
+      if (!raf && !document.hidden) {
+        clearTimeout(timer);
+        raf = requestAnimationFrame(frame);
+      }
+    };
+    raf = requestAnimationFrame(frame);
+    return () => {
+      cancelAnimationFrame(raf);
+      clearTimeout(timer);
+      window.removeEventListener('scroll', kick, { capture: true });
+      window.removeEventListener('resize', kick);
+      document.removeEventListener('visibilitychange', onVisibility);
+      wakeRef.current = () => {};
+    };
   }, [live, freq, level]);
 
   // Accès de test.
   useEffect(() => {
     if (!(import.meta.env.DEV || new URLSearchParams(location.search).has('e2e'))) return;
     (window as any).__mascot = {
-      state: () => ({ ...st.current, perch: st.current.perch?.className ?? null, perchEl: undefined, level }),
+      state: () => {
+        const s = st.current;
+        const anchorUnits = anchorOf(s.pose, s.view);
+        return { ...s, perch: s.perch?.className ?? null, flight: !!s.flight, level, anchorUnits, vbH: VB_H, settled: !s.flight && s.pose !== 'puff' && Math.abs(s.anchor - anchorUnits) < 0.5 };
+      },
+      speed: (k = 1) => {
+        st.current.speed = k;
+      },
       perchEl: () => st.current.perch,
       calm: (on = true) => {
         st.current.calm = on;
@@ -523,26 +772,40 @@ export function Mascot({ route }: { route: string }) {
       hush: () => {
         st.current.bubble = null;
         st.current.bubblePos = null;
+        const b = document.querySelector<HTMLElement>('.mascot-bubble');
+        if (b) put(b, 'visibility', 'hidden');
+        wakeRef.current();
       },
       appear: () => {
         st.current.next = 0;
         if (st.current.visible) vanish(st.current, 0);
+        wakeRef.current();
       },
       /** Pose une action en tête de file (durée en ms) ; marche : vers walkTo (0..1) ou au hasard. */
       act: (pose: Pose, ms = 10000, say?: Say, view?: View, facing?: 1 | -1, walkTo?: number) => {
         const s = st.current;
         s.queue.unshift({ pose, ms, say, view, facing, walkTo: pose === 'walk' && view !== 'back' ? (walkTo ?? Math.random()) : undefined });
         s.act = null;
+        wakeRef.current();
       },
+      /** Joue une scène de la page (index), puis reprend la visite. */
+      scene: (index: number) => {
+        const s = st.current;
+        s.queue.unshift(...sceneActs(pageOf(route), index, level));
+        s.act = null;
+        wakeRef.current();
+      },
+      page: () => pageOf(route),
       /** Place le personnage sur un encadré donné, à une abscisse donnée (px depuis le bord gauche). */
       perchOn: (el: HTMLElement, x: number) => {
         const s = st.current;
         s.perch = el;
         s.x = x;
         s.bubblePos = null;
+        wakeRef.current();
       },
     };
-  }, [level]);
+  }, [level, route]);
 
   const s = st.current;
   if (!live || !s.visible) return null;
@@ -551,6 +814,7 @@ export function Mascot({ route }: { route: string }) {
     if (s.act?.pose === 'puff') return;
     s.queue.unshift({ pose: isSeated(s.pose) ? 'sitwave' : 'wave', ms: 1500, say: 'poke', view: 'front' });
     if (s.act?.walkTo == null) s.act = null;
+    wakeRef.current();
   };
   const still = reduced();
   return (
@@ -561,7 +825,8 @@ export function Mascot({ route }: { route: string }) {
         </div>
       </div>
       {s.bubble && (
-        <div ref={bub} className="mascot-bubble">
+        <div ref={bub} className="mascot-bubble" data-id={s.bubbleId}>
+          {s.bubble.lead && <p className="mascot-lead">{s.bubble.lead}</p>}
           <p>{s.bubble.author ? `« ${s.bubble.text} »` : s.bubble.text}</p>
           {s.bubble.author && (
             <span className="mascot-cite">

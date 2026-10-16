@@ -588,7 +588,7 @@ export function App() {
           </main>
         </div>
       )}
-      <Mascot route={route.name} />
+      <Mascot route={route.name} workspaceId={route.name === 'workspace' ? route.workspaceId : undefined} />
       <CommandPalette />
       <ImportProgress />
       <DropOverlay />

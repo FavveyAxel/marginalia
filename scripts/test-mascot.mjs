@@ -46,6 +46,8 @@ await withApp(5421, async (page, errors) => {
   check(/home-card/.test(g.perch ?? ''), 'il se pose sur une carte de l’accueil', g.perch);
   check(g.level === 0, 'niveau 0 avec 3 documents', g.level);
 
+  // l'encadré du test doit être assez haut pour qu'il s'y assoie de face (sur une ligne mince, il s'assoit de profil)
+  await page.evaluate(() => { const el = [...document.querySelectorAll('.home-card')].find((c) => c.getBoundingClientRect().height >= 70 && c.getBoundingClientRect().top > 90); window.__mascot.perchOn(el, 10); });
   for (const [pose, view, units, label] of [['stand', 'front', 124, 'debout de face : pieds sur le bord'], ['stand', 'side', 124, 'debout de profil : pieds sur le bord'], ['read', 'front', 70, 'lit de face : assise sur le bord'], ['sit', 'side', 64, 'assis de profil : assise sur le bord'], ['sit', 'back', 70, 'assis de dos : assise sur le bord']]) {
     await hold(page, pose, view); await sleep(500);
     const a = await anchor(page, units);

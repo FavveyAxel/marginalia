@@ -88,9 +88,14 @@ const cigarUp = (f: number) => f % CIGAR_CYCLE < 4;
 
 const W_LIMB = [3.2, 3.8, 4.5, 5.3, 6.2];
 // Philosophes : tête réduite (facteur, point fixe en haut du crâne), épaules sur le torse.
-const HEAD_K = 0.64;
-const HEAD_PIVOT_FRONT: Pt = [49, 4];
-const HEAD_PIVOT_SIDE: Pt = [52, 2];
+// (tête plus grosse : × 0,75 ; le point fixe est placé au-dessus du crâne pour que la tête grandisse
+// surtout vers le haut, le menton ne descendant que de quelques unités sur le col)
+const HEAD_K = 0.75;
+const HEAD_PIVOT_FRONT: Pt = [49, -10];
+const HEAD_PIVOT_SIDE: Pt = [52, -12];
+/** Bras des philosophes un peu raccourcis dans les poses où les mains ne tiennent rien. */
+const ARM_SHORT = 0.86;
+const FREE_HANDS = new Set<Pose>(['stand', 'walk', 'look', 'jump', 'sit', 'doze']);
 const CH_SHOULDERS_FRONT: [Pt, Pt] = [[37, 47], [61, 47]];
 const CH_SHOULDERS_SIDE: [Pt, Pt] = [[47, 47], [52, 47]];
 const BICEP = [0, 2.6, 3.6, 4.6, 5.8];
@@ -536,6 +541,11 @@ export function Sprite({
     const sh = side ? CH_SHOULDERS_SIDE : CH_SHOULDERS_FRONT;
     r.arms = r.arms.map((l, i) => ({ ...l, a: sh[i] })) as [Limb, Limb];
     if (pose === 'think') r.arms[1] = { ...r.arms[1], c: onFace(r.arms[1].c), b: side ? [62, 54] : [70, 54] };
+    if (FREE_HANDS.has(pose))
+      r.arms = r.arms.map((l) => {
+        const sc = (p: Pt): Pt => [l.a[0] + (p[0] - l.a[0]) * ARM_SHORT, l.a[1] + (p[1] - l.a[1]) * ARM_SHORT];
+        return { a: l.a, b: sc(l.b), c: sc(l.c) };
+      }) as [Limb, Limb];
   }
   if (r.faceHand !== undefined) {
     const arm = r.arms[r.faceHand];

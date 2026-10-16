@@ -30,10 +30,15 @@ function applyScale(k: number) {
   W = VB_W * k;
   H = VB_H * k;
 }
+/** Les philosophes, dont tout le corps tient dans le cadre, sont dessinés un peu plus grands que le cerveau. */
+let CHAR_BOOST = 1;
+export const setCharBoost = (k: number) => {
+  CHAR_BOOST = k;
+};
 /** Échelle pour la fenêtre actuelle et la largeur de l'encadré où il se pose. */
 export function scaleFor(perchWidth?: number) {
   const vw = innerWidth;
-  const base = vw < 1100 ? 0.6 : vw < 1500 ? 0.7 : vw < 2000 ? 0.78 : 0.86;
+  const base = (vw < 1100 ? 0.6 : vw < 1500 ? 0.7 : vw < 2000 ? 0.78 : 0.86) * CHAR_BOOST;
   const fit = perchWidth ? (perchWidth - 12) / VB_W : base;
   return Math.max(MIN_SCALE, Math.min(base, fit));
 }
@@ -421,6 +426,7 @@ export function Mascot({ route, workspaceId }: { route: string; workspaceId?: st
   const charId = useStore((s) => s.settings.mascotCharacter ?? 'brain');
   const charRef = useRef(charId);
   charRef.current = charId;
+  setCharBoost(charId === 'brain' ? 1 : 1.06);
   const silentRef = useRef(silent);
   silentRef.current = silent;
   const level = levelFor(docs);

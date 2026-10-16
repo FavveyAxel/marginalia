@@ -76,6 +76,12 @@ const api = {
     return () => ipcRenderer.removeListener('marginalia:menu', handler);
   },
   popupMenu: () => ipcRenderer.invoke('marginalia:popupMenu'),
+  /** Commandes de l'éditeur depuis le menu Édition : 'copy-format' | 'paste-format' (pinceau). */
+  onEditorCommand: (cb) => {
+    const handler = (_event, cmd) => cb(String(cmd));
+    ipcRenderer.on('marginalia:editor-command', handler);
+    return () => ipcRenderer.removeListener('marginalia:editor-command', handler);
+  },
 
   onOpenFiles: (cb) => {
     const handler = (_event, files) => cb(files.map(toFile));

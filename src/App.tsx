@@ -12,6 +12,7 @@ import { LibraryView } from './features/library/LibraryView';
 import { useDueCount } from './features/revision/useDueCount';
 import { WorkspaceTree } from './features/workspaces/WorkspaceTree';
 import { CommandPalette } from './components/CommandPalette';
+import { bindPainterMenu } from './features/editor/painterMenu';
 import { isTextEditingTarget } from './features/history/keys';
 import { useAppleBooksSync } from './features/library/appleBooks';
 import { useResizeDiagnostics } from './lib/diagnostics';
@@ -108,7 +109,13 @@ function useNativeMenu() {
       if (cmd === 'import') void importViaDialog();
       else if (cmd === 'help') useStore.getState().navigate({ name: 'help' });
     });
-    if (isMac || !host.popupMenu) return offMenu;
+    // Édition › Copier / Coller la mise en forme (⌥⌘C / ⌥⌘V, Ctrl+Maj+C / V) → pinceau de l'éditeur.
+    const offPainter = bindPainterMenu();
+    if (isMac || !host.popupMenu)
+      return () => {
+        offMenu?.();
+        offPainter();
+      };
     let altAlone = false;
     // Bouton de souris enfoncé : Alt modifie le geste en cours (glisser-déposer : Alt = copier), pas de menu.
     let pressed = false;
@@ -142,6 +149,7 @@ function useNativeMenu() {
     window.addEventListener('pointerup', pUp, true);
     return () => {
       offMenu?.();
+      offPainter();
       window.removeEventListener('keydown', down, true);
       window.removeEventListener('keyup', up, true);
       window.removeEventListener('mousedown', reset, true);

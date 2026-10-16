@@ -177,6 +177,12 @@ export interface HostApi {
   printToPdf(html: string): Promise<ArrayBuffer>;
   /** Commandes des menus natifs (Windows : 'import', 'help'). */
   onMenuCommand?(cb: (cmd: string) => void): () => void;
+  /**
+   * Commandes de l'éditeur venues du menu Édition natif : 'copy-format' (⌥⌘C / Ctrl+Maj+C) et
+   * 'paste-format' (⌥⌘V / Ctrl+Maj+V). Relais du clavier quand la page n'a pas pris la touche ;
+   * branché sur le pinceau par src/features/editor/painterMenu.ts.
+   */
+  onEditorCommand?(cb: (cmd: string) => void): () => void;
   /** Windows : ouvre la barre de menus (cachée) sous forme de menu contextuel (Alt seul, F10). */
   popupMenu?(): Promise<void>;
   /** Fichiers ouverts depuis le Finder / le Dock (ou l'Explorateur de Windows) pendant que l'app tourne. */

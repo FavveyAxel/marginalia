@@ -7,7 +7,7 @@
 // Réglage « Compagnon » (désactivé, rarement, parfois, souvent) ; mouvement réduit : pas de marche.
 import { useEffect, useRef, useState } from 'react';
 import { useStore } from '../../lib/store';
-import { Sprite, anchorOf, VB_H, VB_W, type Level, type Pose } from './Sprite';
+import { Sprite, anchorOf, isSeated, VB_H, VB_W, type Level, type Pose, type View } from './Sprite';
 import { MUTTER, QUOTES, pick } from './quotes';
 import './mascot.css';
 
@@ -43,7 +43,7 @@ export const LEVEL_STEPS = [0, 5, 15, 40, 100];
 
 type Bubble = { text: string; author?: string; source?: string };
 type Say = 'quote' | 'hello' | 'flex' | 'poke';
-type Act = { pose: Pose; frames: number; walkTo?: number; say?: Say; leave?: boolean };
+type Act = { pose: Pose; frames: number; walkTo?: number; say?: Say; leave?: boolean; view?: View; facing?: 1 | -1 };
 
 interface State {
   visible: boolean;
@@ -51,6 +51,7 @@ interface State {
   x: number;
   target: number;
   pose: Pose;
+  view: View;
   frame: number;
   facing: 1 | -1;
   act: Act | null;
@@ -77,28 +78,38 @@ function findPerch(avoid: HTMLElement | null) {
   return all.length ? all[randInt(all.length)] : null;
 }
 
+/** Vue d'une pose assise : de face le plus souvent, parfois de profil, ou de dos (il regarde le contenu). */
+function seatView(pose: Pose): Pick<Act, 'view' | 'facing'> {
+  const r = Math.random();
+  const facing = Math.random() < 0.5 ? 1 : -1;
+  if (pose === 'sit' || pose === 'doze') return r < 0.45 ? { view: 'front' } : r < 0.8 ? { view: 'side', facing } : { view: 'back' };
+  return r < 0.6 ? { view: 'front' } : { view: 'side', facing };
+}
+
 function plan(level: Level, flex: boolean): Act[] {
-  const q: Act[] = [{ pose: 'puff', frames: 2 }, { pose: 'stand', frames: 2 }];
+  const q: Act[] = [{ pose: 'puff', frames: 2 }, { pose: 'stand', frames: 2, view: 'front' }];
   if (flex) q.push({ pose: 'flex', frames: 9, say: 'flex' });
   else if (Math.random() < 0.5) q.push({ pose: 'wave', frames: 5, say: Math.random() < 0.35 ? 'hello' : undefined });
   const n = 2 + randInt(3);
   let quoted = false;
+  const seat = (a: Act) => q.push({ ...a, ...seatView(a.pose) });
   for (let i = 0; i < n; i++) {
-    if (Math.random() < 0.6) q.push({ pose: 'walk', frames: 0, walkTo: Math.random() });
+    if (Math.random() < 0.65) q.push({ pose: 'walk', frames: 0, walkTo: Math.random(), view: 'side' }, { pose: 'stand', frames: 1, view: 'front' });
     const r = Math.random();
-    if (r < 0.22) q.push({ pose: 'sit', frames: 18 + randInt(24) });
-    else if (r < 0.47) q.push({ pose: 'read', frames: 36 + randInt(48) });
+    if (r < 0.22) seat({ pose: 'sit', frames: 18 + randInt(24) });
+    else if (r < 0.47) seat({ pose: 'read', frames: 36 + randInt(48) });
     else if (r < 0.67) {
-      q.push({ pose: 'think', frames: 12, say: 'quote' }, { pose: 'sit', frames: 14 });
+      q.push({ pose: 'think', frames: 12, say: 'quote', view: 'front' }, { pose: 'sit', frames: 14, view: 'front' });
       quoted = true;
-    } else if (r < 0.8) q.push({ pose: 'doze', frames: 24 + randInt(30) });
+    } else if (r < 0.8) seat({ pose: 'doze', frames: 24 + randInt(30) });
     else if (r < 0.92 || level < 2) {
-      q.push({ pose: 'stand', frames: 16, say: 'quote' });
+      q.push({ pose: 'stand', frames: 16, say: 'quote', view: 'front' });
       quoted = true;
     } else q.push({ pose: 'flex', frames: 6 });
   }
-  if (!quoted && Math.random() < 0.7) q.push({ pose: 'think', frames: 12, say: 'quote' }, { pose: 'sit', frames: 14 });
-  q.push({ pose: 'stand', frames: 2 }, { pose: 'puff', frames: 3, leave: true });
+  if (!quoted && Math.random() < 0.7) q.push({ pose: 'think', frames: 12, say: 'quote', view: 'front' }, { pose: 'sit', frames: 14, view: 'front' });
+  // Il s'en va : demi-tour, quelques pas de dos, puis un petit nuage.
+  q.push({ pose: 'stand', frames: 1, view: 'back' }, { pose: 'walk', frames: 3, view: 'back' }, { pose: 'puff', frames: 3, leave: true });
   return q;
 }
 
@@ -123,6 +134,7 @@ export function Mascot({ route }: { route: string }) {
     x: 0,
     target: 0,
     pose: 'stand',
+    view: 'front',
     frame: 0,
     facing: 1,
     act: null,
@@ -174,11 +186,14 @@ export function Mascot({ route }: { route: string }) {
       if (!a) return vanish(s, between(GAP[freq as Exclude<MascotFreq, 'off'>]));
       s.act = a;
       s.pose = a.pose;
+      s.view = a.view ?? (a.pose === 'walk' ? 'side' : 'front');
+      if (a.facing) s.facing = a.facing;
       s.frame = 0;
       s.left = a.frames;
       if (a.walkTo != null && s.perch) {
         const max = Math.max(0, s.perch.getBoundingClientRect().width - W - 12);
         s.target = 6 + a.walkTo * max;
+        s.facing = s.target >= s.x ? 1 : -1;
         if (still) s.x = s.target;
       }
       if (a.say) {
@@ -218,6 +233,13 @@ export function Mascot({ route }: { route: string }) {
         return;
       }
       s.frame++;
+      // De temps en temps, il fait coucou depuis son perchoir, puis reprend ce qu'il faisait.
+      if (!still && isSeated(s.act.pose) && s.act.pose !== 'sitwave' && s.left > 6 && Math.random() < 0.03) {
+        s.queue.unshift({ ...s.act, frames: s.left });
+        start(s, { pose: 'sitwave', frames: 4 + randInt(3), view: 'front', say: Math.random() < 0.25 ? 'hello' : undefined });
+        setTick((t) => t + 1);
+        return;
+      }
       let done = false;
       if (s.act.walkTo != null) {
         const dx = s.target - s.x;
@@ -250,7 +272,7 @@ export function Mascot({ route }: { route: string }) {
       if (!w || !s.visible || !s.perch) return;
       const r = s.perch.getBoundingClientRect();
       const left = Math.round(r.left + s.x);
-      const top = Math.round(r.top - anchorOf(s.pose) * SCALE);
+      const top = Math.round(r.top - anchorOf(s.pose, s.view) * SCALE);
       const hidden = r.top < 70 || r.top > innerHeight;
       w.style.transform = `translate(${left}px, ${top}px)`;
       w.style.visibility = hidden ? 'hidden' : 'visible';
@@ -273,13 +295,16 @@ export function Mascot({ route }: { route: string }) {
     if (!(import.meta.env.DEV || new URLSearchParams(location.search).has('e2e'))) return;
     (window as any).__mascot = {
       state: () => ({ ...st.current, perch: st.current.perch?.className ?? null, level }),
+      hush: () => {
+        st.current.bubble = null;
+      },
       appear: () => {
         st.current.next = 0;
         if (st.current.visible) vanish(st.current, 0);
       },
-      act: (pose: Pose, frames = 30, say?: Say) => {
+      act: (pose: Pose, frames = 30, say?: Say, view?: View, facing?: 1 | -1) => {
         const s = st.current;
-        s.queue.unshift({ pose, frames, say });
+        s.queue.unshift({ pose, frames, say, view, facing, walkTo: pose === 'walk' && !view ? Math.random() : undefined });
         s.act = null;
       },
     };
@@ -290,13 +315,13 @@ export function Mascot({ route }: { route: string }) {
   const halo = document.documentElement.dataset.theme === 'dark' ? '#e9dfcc' : undefined;
   const poke = () => {
     if (s.act?.pose === 'puff') return;
-    s.queue.unshift({ pose: 'wave', frames: 5, say: 'quote' });
+    s.queue.unshift({ pose: isSeated(s.pose) ? 'sitwave' : 'wave', frames: 5, say: 'quote', view: 'front' });
     if (s.act?.walkTo == null) s.act = null;
   };
   return (
     <div className="mascot-layer" aria-hidden="true">
       <div ref={wrap} className="mascot" style={{ width: W, height: VB_H * SCALE }} onClick={poke}>
-        <Sprite pose={s.pose} frame={reduced() ? 0 : s.frame} level={level} facing={s.facing} halo={halo} />
+        <Sprite pose={s.pose} frame={reduced() ? 0 : s.frame} level={level} view={s.view} facing={s.facing} halo={halo} />
       </div>
       {s.bubble && (
         <div ref={bub} className="mascot-bubble">

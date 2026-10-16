@@ -8,17 +8,24 @@ const server = await createServer({ root: ROOT, server: { middlewareMode: true }
 const React = (await import('react')).default;
 const { renderToStaticMarkup } = await import('react-dom/server');
 const { Sprite } = await server.ssrLoadModule('/src/features/mascot/Sprite.tsx');
-const poses = ['stand', 'walk', 'walk', 'wave', 'sit', 'read', 'read', 'think', 'doze', 'flex', 'puff'];
-const frames = [0, 0, 1, 0, 0, 0, 11, 2, 0, 0, 1];
+const cells = [
+  ['stand', 0, 'front'], ['walk', 0, 'side'], ['walk', 1, 'side'], ['walk', 2, 'side'], ['walk', 3, 'side'], ['stand', 0, 'side'], ['stand', 0, 'back'], ['walk', 1, 'back'],
+  ['wave', 0, 'front'], ['flex', 0, 'front'], ['sit', 0, 'front'], ['sitwave', 0, 'front'], ['read', 0, 'front'], ['read', 2, 'front'], ['think', 2, 'front'], ['doze', 0, 'front'],
+  ['sit', 0, 'side'], ['read', 0, 'side'], ['read', 11, 'side'], ['think', 2, 'side'], ['doze', 0, 'side'], ['sit', 0, 'back'], ['puff', 1, 'front'],
+];
 let html = '';
 let n = 0;
 for (const theme of ['light', 'dark']) {
   html += `<div class="theme ${theme}">`;
-  for (const level of theme === 'dark' ? [0, 4] : [0, 1, 2, 3, 4]) {
+  for (const level of theme === 'dark' ? [4] : [0, 2, 4]) {
     html += `<div class="row"><span class="lab">niveau ${level}</span>`;
-    poses.forEach((p, i) => {
-      const seat = ['sit', 'read', 'think', 'doze'].includes(p);
-      html += `<div class="cell"><div class="edge ${seat ? 'seat' : 'ground'}"></div><div class="sp">${renderToStaticMarkup(React.createElement(Sprite, { pose: p, frame: frames[i], level, halo: theme === 'dark' ? '#e9dfcc' : undefined })).replaceAll('mascot-halo-R0', 'mh' + ++n)}</div><small>${p}${frames[i] ? ' ' + frames[i] : ''}</small></div>`;
+    cells.forEach(([p, f, v], i) => {
+      if (i === 8 || i === 16) html += `</div><div class="row"><span class="lab"></span>`;
+      const seat = ['sit', 'read', 'think', 'doze', 'sitwave'].includes(p);
+      const anchor = seat ? (v === 'side' && !['sitwave'].includes(p) ? 64 : 70) : 124;
+      ++n;
+      const svg = renderToStaticMarkup(React.createElement(Sprite, { pose: p, frame: f, level, view: v, halo: theme === 'dark' ? '#e9dfcc' : undefined })).replaceAll(/mascot-(halo|vol)-R0/g, (m) => m + 'x' + n);
+      html += `<div class="cell"><div class="edge" style="top:${16 + (109 * anchor) / 130}px;bottom:${seat ? 16 : 14}px"></div><div class="sp">${svg}</div><small>${p} ${v}${f ? ' ' + f : ''}</small></div>`;
     });
     html += '</div>';
   }

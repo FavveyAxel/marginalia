@@ -546,7 +546,8 @@ export interface Settings {
   /**
    * Repères de page dans le texte (EPUB…) : trait et numéro, numéro seul (« number »), ou aucun.
    * Valeurs anciennes « paper » (pages façon papier de la 3.8) et « rule » (trait seul) : lues comme
-   * « trait et numéro » en défilement continu ; les feuilles sont désormais readerLayout « sheets ». Lecture résolue : readerDisplay() (features/reader/display.ts).
+   * « trait et numéro » en défilement continu ; les feuilles sont désormais readerLayout « sheets ».
+   * Lecture résolue : readerDisplay() (features/reader/display.ts).
    */
   pageMarks?: 'paper' | 'numbered' | 'number' | 'rule' | 'off';
   // ── Panneau « Mise en page et affichage » (contrat commun ; défauts dans READER_DISPLAY_DEFAULTS) ──
@@ -554,7 +555,8 @@ export interface Settings {
   readerLayout?: ReaderLayout;
   /** Page par page : une page, deux pages en vis-à-vis, ou selon la largeur (défaut). */
   pagedSpread?: PagedSpread;
-  /** Mise en page livre (classe .book-layout sur la racine du lecteur). Défaut : non. */
+  /** Mise en page livre (EPUB, DOCX, MD, TXT) : justifié, césure, alinéas sans blanc entre paragraphes,
+   *  titres de livre (classe .book-layout sur la racine du lecteur, book-layout.css). Défaut : non. */
   bookLayout?: boolean;
   /** Aspect papier (classe .paper-look sur la racine du lecteur). Défaut : non. */
   paperLook?: boolean;

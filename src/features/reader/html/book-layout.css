@@ -1,0 +1,223 @@
+/* ─────────────────────────────────────────────────────────────
+   Mise en page livre (réglage bookLayout → .book-layout sur .html-reader).
+
+   Un livre français bien composé : texte justifié et coupé (césure dans la langue du livre :
+   attribut lang de .html-doc, tiré des métadonnées ; à défaut le fr du document de l'app),
+   alinéas en retrait de première ligne et aucun blanc entre paragraphes, sauf après un titre,
+   un blanc, une citation, une liste, des vers ; justification plus serrée ; mesure plus étroite
+   et marges plus amples ; titres centrés, sous-titres en petites capitales ; chiffres elzéviriens ;
+   veuves et orphelines.
+
+   Tout est en CSS (plus deux attributs posés par parse.ts : data-verse, data-blank) : le
+   textContent des chapitres, donc les ancrages des surlignages, ne change pas. Marche en défilement
+   comme en feuilles (data-layout='sheets', document .pg-paper) et en page par page.
+   ───────────────────────────────────────────────────────────── */
+
+.book-layout .html-doc {
+  --book-indent: 1.5em;
+  /* ~64 signes par ligne en Literata (un « ch » est plus large qu'une lettre moyenne). */
+  --book-measure: 53ch;
+  --html-gutter: clamp(48px, 11cqi, 128px);
+  font-variant-numeric: oldstyle-nums proportional-nums;
+  hyphens: auto;
+  -webkit-hyphens: auto;
+  /* Mot d'au moins 6 lettres, au moins 3 avant et 2 après la coupure (usage français). */
+  hyphenate-limit-chars: 6 3 2;
+  /* Espaces un peu plus serrées : plus de mots par ligne, des lignes justifiées moins lâches. */
+  word-spacing: -0.012em;
+}
+
+.book-layout .html-col {
+  max-width: min(var(--html-measure, 66ch), var(--book-measure));
+}
+
+/* ── Paragraphes : alinéas, justification ─────────────────── */
+
+.book-layout .html-chapter-text p {
+  margin: 0;
+  text-align: justify;
+  text-indent: 0;
+  text-wrap: pretty;
+  orphans: 2;
+  widows: 2;
+}
+/* Alinéa : seulement d'un paragraphe à l'autre (pas après un titre, un blanc, une citation, une
+   liste, des vers, ni en tête de chapitre). Un repère de page source vide (pagebreak) ou une ancre
+   vide entre deux paragraphes ne compte pas. */
+.book-layout .html-chapter-text p:not([data-blank], [data-verse], [data-verse] p, :has(> br ~ br)) + p:not([data-verse], [data-verse] p, :has(> br ~ br)),
+.book-layout .html-chapter-text p:not([data-blank], [data-verse], [data-verse] p, :has(> br ~ br)) + :is(span, a):empty + p:not([data-verse], [data-verse] p, :has(> br ~ br)) {
+  text-indent: var(--book-indent);
+}
+/* Blanc typographique (paragraphe vide ou d'espaces insécables). */
+.book-layout .html-chapter-text p[data-blank],
+.book-layout .html-chapter-text p:empty {
+  min-height: 1lh;
+}
+
+/* ── Blocs gardés espacés ─────────────────────────────────── */
+
+.book-layout .html-chapter-text blockquote {
+  margin: 1em 0 1em var(--book-indent);
+  padding: 0;
+  border: 0;
+  font-size: 0.94em;
+  color: var(--ink-2);
+}
+.book-layout .html-chapter-text :is(ul, ol) {
+  margin: 0.8em 0;
+}
+.book-layout .html-chapter-text li > p,
+.book-layout .html-chapter-text :is(td, th, figcaption) p {
+  text-align: left;
+}
+.book-layout .html-chapter-text :is(table, pre, code) {
+  font-variant-numeric: lining-nums tabular-nums;
+}
+.book-layout .html-chapter-text figure {
+  margin: 1.4em 0;
+}
+
+/* Séparateur de section : un astérisme centré plutôt qu'un filet (contenu généré : ni copié, ni
+   compté dans les ancrages). */
+.book-layout .html-chapter-text hr {
+  width: auto;
+  height: auto;
+  margin: 1.1em 0;
+  background: none;
+  text-align: center;
+  overflow: visible;
+}
+.book-layout .html-chapter-text hr::before {
+  content: '*\2002*\2002*';
+  display: block;
+  line-height: 1;
+  color: var(--ink-2);
+  letter-spacing: 0.1em;
+}
+
+/* ── Vers ─────────────────────────────────────────────────────
+   Strophe = paragraphe ou bloc à plusieurs retours à la ligne forcés, ou élément marqué poème /
+   strophe / vers à la source. Lignes au fer à gauche, bloc centré dans la colonne, sans césure. */
+.book-layout .html-chapter-text :is(p, div):has(> br ~ br),
+.book-layout .html-chapter-text [data-verse] {
+  text-align: left;
+  text-indent: 0;
+  hyphens: manual;
+  -webkit-hyphens: manual;
+  text-wrap: wrap;
+  word-spacing: normal;
+}
+.book-layout .html-chapter-text :is(p, div):has(> br ~ br),
+.book-layout .html-chapter-text [data-verse]:not([data-verse] [data-verse]) {
+  width: fit-content;
+  max-width: 100%;
+  margin: 1em auto;
+}
+.book-layout .html-chapter-text [data-verse] p {
+  margin: 0;
+  text-align: left;
+  text-indent: 0;
+}
+.book-layout .html-chapter-text [data-verse] [data-verse] + [data-verse] {
+  margin-top: 1lh;
+}
+
+/* ── Titres ───────────────────────────────────────────────── */
+
+.book-layout .html-chapter-text :is(h1, h2, h3, h4, h5, h6) {
+  text-align: center;
+  text-indent: 0;
+  hyphens: manual;
+  -webkit-hyphens: manual;
+  font-variant-numeric: lining-nums proportional-nums;
+}
+/* Titre de chapitre : centré, descendu, plus mesuré qu'en lecture d'écran. */
+.book-layout .html-chapter-text h1 {
+  font-size: 1.8em;
+  line-height: 1.15;
+  margin: 2.4em 0 1.6em;
+}
+.book-layout .html-chapter-text h2 {
+  font-size: 1.4em;
+  line-height: 1.2;
+  margin: 1.8em 0 0.9em;
+}
+/* Sous-titres et intertitres de rang 3 : petites capitales espacées. */
+.book-layout .html-chapter-text h3,
+.book-layout .html-chapter-text h1 + h2 {
+  font-family: var(--font-read);
+  font-size: 1em;
+  line-height: 1.4;
+  font-variant-caps: all-small-caps;
+  letter-spacing: 0.08em;
+  margin: 2em 0 1em;
+}
+.book-layout .html-chapter-text h1 + h2 {
+  margin-top: -0.6em;
+  margin-bottom: 2.4em;
+  color: var(--ink-2);
+}
+.book-layout .html-chapter-text :is(h4, h5, h6) {
+  font-weight: 400;
+  font-style: italic;
+  margin: 1.8em 0 0.8em;
+}
+/* Première ligne en petites capitales aussi sous un titre suivi d'un sous-titre (voir html-reader.css). */
+.book-layout .html-chapter-text h1 + h2 + p::first-line {
+  font-variant-caps: small-caps;
+  letter-spacing: 0.02em;
+}
+/* Ouverture de chapitre (premier titre de la section) : plus de blanc au-dessus. Le repère de page
+   de tête de chapitre (span vide) peut précéder le titre. */
+.book-layout:not([data-layout='sheets']) .html-doc .html-chapter-text > :is(h1, h2):first-child,
+.book-layout:not([data-layout='sheets']) .html-doc .html-chapter-text > :is(span, a):empty:first-child + :is(h1, h2) {
+  margin-top: 1.6em;
+}
+.book-layout[data-layout='sheets'] .html-chapter-text > :is(h1, h2):first-child,
+.book-layout[data-layout='sheets'] .html-chapter-text > :is(span, a):empty:first-child + :is(h1, h2) {
+  margin-top: 0.4em;
+}
+
+/* ── Repères de page ──────────────────────────────────────────
+   Plus de blanc entre paragraphes : le trait d'un changement de page entre deux paragraphes se
+   pose au haut de la ligne, et non au milieu d'un interligne qui n'existe plus. */
+.book-layout:not([data-layout='sheets']) .html-doc .pg-mark.pg-block::before,
+.book-layout:not([data-layout='sheets']) .html-doc .pg-mark.pg-block::after {
+  margin-top: 0;
+}
+.book-layout .pg-mark::after {
+  font-variant-numeric: tabular-nums lining-nums;
+}
+
+/* ── Feuilles (data-layout='sheets') ───────────────────────────────────── */
+
+.book-layout[data-layout='sheets'] .html-doc {
+  /* Marges de feuille plus amples, comme un livre de poche soigné. */
+  --sheet-px: clamp(32px, 8.5cqi, 104px);
+  --sheet-pt: calc(var(--html-fs, 19px) * 3.8);
+  --sheet-pb: calc(var(--html-fs, 19px) * 4);
+}
+.book-layout[data-layout='sheets'] .html-col {
+  max-width: calc(min(var(--html-measure, 66ch), var(--book-measure)) + 2 * var(--sheet-px));
+}
+/* Feuille qui commence entre deux paragraphes : le repère (premier enfant du paragraphe) n'a plus
+   de marge de paragraphe à absorber (voir html-reader.css), et il devient un flottant pleine largeur
+   plutôt qu'un bloc. En bloc, il ferait du texte qui le suit un bloc anonyme, dont la première ligne
+   ne prend pas l'alinéa ; flottant, il pousse la première ligne du paragraphe sous lui, et celle-ci
+   garde son retrait. (Au milieu d'un paragraphe, .pg-inline reste un bloc : la phrase reprend en
+   haut de la feuille suivante sans retrait, comme il se doit.) */
+.book-layout[data-layout='sheets'] .pg-mark.pg-block:not(.pg-chap):not(.pg-start) {
+  float: left;
+  width: 100%;
+  margin-top: 0;
+}
+
+@container html-reader (max-width: 560px) {
+  .book-layout .html-doc {
+    --html-gutter: 26px;
+    --book-indent: 1.2em;
+  }
+  .book-layout .html-chapter-text h1 {
+    font-size: 1.55em;
+  }
+}

@@ -42,6 +42,8 @@ export const DRM_MESSAGE =
 export const TXT_PART = 40000;
 
 const XHTML_NS = 'http://www.w3.org/1999/xhtml';
+/** Classes / epub:type des vers (mise en page livre : alignés à gauche, sans alinéa). */
+const VERSE_RE = /(^|[\s:_-])(poem|poetry|poesie|poésie|verse|vers|stanza|strophe|linegroup|line-group|lg)($|[\s_-])/i;
 const OPS_NS = 'http://www.idpf.org/2007/ops';
 
 // ── Utilitaires ──────────────────────────────────────────────
@@ -165,6 +167,8 @@ function prepareSource(root: Element, ctx: PrepareCtx) {
     el.removeAttribute('id');
     const epubType = el.getAttributeNS(OPS_NS, 'type') ?? el.getAttribute('epub:type');
     if ((epubType && /\bpagebreak\b/.test(epubType)) || /\bdoc-pagebreak\b/.test(el.getAttribute('role') ?? '')) el.setAttribute('data-pagebreak', pagebreakLabel(el, id));
+    // Mise en page livre : poèmes et strophes repérés à la source (DOMPurify retire les classes).
+    if (VERSE_RE.test(`${el.getAttribute('class') ?? ''} ${epubType ?? ''}`)) el.setAttribute('data-verse', '');
     if (el.localName === 'a') {
       const href = el.getAttribute('href');
       el.removeAttribute('href');
@@ -277,6 +281,11 @@ function makeChapterEl(content: Node[] | DocumentFragment): HTMLElement {
   if (content instanceof DocumentFragment) el.appendChild(content);
   else for (const c of content) el.appendChild(c);
   canonicalize(el);
+  // Mise en page livre : paragraphe vide (ou d'espaces insécables) = blanc typographique,
+  // pas d'alinéa après. Un attribut seulement : le textContent ne change pas.
+  el.querySelectorAll('p').forEach((p) => {
+    if (!/[^\s\u00a0]/.test(p.textContent ?? '') && !p.querySelector('img, svg, table, hr')) p.setAttribute('data-blank', '');
+  });
   return el;
 }
 

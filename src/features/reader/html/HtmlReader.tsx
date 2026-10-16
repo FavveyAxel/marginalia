@@ -22,6 +22,7 @@ import { ESTIMATED_NOTE, findPage, lastLabel, paginate, romanToInt, type Paginat
 import { readerDisplay } from '../display';
 import './html-reader.css';
 import './page-marks.css';
+import './book-layout.css'; // mise en page livre (réglage bookLayout)
 
 interface HlState {
   sig: string;

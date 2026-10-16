@@ -23,6 +23,7 @@ import { readerDisplay } from '../display';
 import './html-reader.css';
 import './page-marks.css';
 import './book-layout.css'; // mise en page livre (réglage bookLayout)
+import './paper-look.css'; // Aspect papier (réglage paperLook)
 
 interface HlState {
   sig: string;

@@ -11,16 +11,31 @@
 import { useEffect, useRef, useState } from 'react';
 import { useStore } from '../../lib/store';
 import { Sprite, anchorOf, isSeated, VB_H, VB_W, type Level, type Pose, type View } from './Sprite';
-import { CONTEXT, FLEX, HELLO, JOKES, PONDER, POKE, BYE, QUOTES, pick, type Ctx } from './lines';
-import { ALL_PERCHES, PERCHES, buildVisit, sceneActs, type Act, type Hop, type Page, type Say } from './scenes';
+import { CONTEXT, FLEX, HELLO, JOKES, PONDER, POKE, BYE, QUOTES, GUITAR, WHISTLE, WRITE, CIGAR, pick, type Ctx } from './lines';
+import { ALL_PERCHES, PERCHES, buildVisit, sceneActs, sceneCount, type Act, type Hop, type Page, type Say } from './scenes';
 import './mascot.css';
 
 export type MascotFreq = 'off' | 'rare' | 'sometimes' | 'often';
 export const MASCOT_DEFAULT: MascotFreq = 'sometimes';
 
-const SCALE = 0.7;
-const W = VB_W * SCALE;
-const H = VB_H * SCALE;
+// Taille : proportionnelle à la fenêtre (plus petit sur un petit écran, plus grand sur un grand), et
+// réduite au besoin pour tenir sur un encadré étroit. Une seule instance : l'échelle est un état du module.
+let SCALE = 0.7;
+let W = VB_W * SCALE;
+let H = VB_H * SCALE;
+const MIN_SCALE = 0.5;
+function applyScale(k: number) {
+  SCALE = k;
+  W = VB_W * k;
+  H = VB_H * k;
+}
+/** Échelle pour la fenêtre actuelle et la largeur de l'encadré où il se pose. */
+export function scaleFor(perchWidth?: number) {
+  const vw = innerWidth;
+  const base = vw < 1100 ? 0.6 : vw < 1500 ? 0.7 : vw < 2000 ? 0.78 : 0.86;
+  const fit = perchWidth ? (perchWidth - 12) / VB_W : base;
+  return Math.max(MIN_SCALE, Math.min(base, fit));
+}
 /** Vitesse de marche (px/s). */
 const SPEED = 42;
 /** Rythme des poses (images par seconde). */
@@ -94,7 +109,7 @@ interface State {
 
 function edgeOk(el: HTMLElement, strict: boolean) {
   const r = el.getBoundingClientRect();
-  if (r.width < W + 12 || r.height < 24) return false;
+  if (r.width < VB_W * MIN_SCALE + 12 || r.height < 24) return false;
   if (r.top < 90 || r.top > innerHeight - 40 || r.left < 0 || r.right > innerWidth) return false;
   if (!strict) return true;
   // Pas sous une fenêtre ou un menu : le haut de l'encadré doit être visible à l'écran.
@@ -182,6 +197,14 @@ function bubbleFor(say: Say, ctx: Ctx): Bubble {
       return { text: pick(FLEX) };
     case 'bye':
       return { text: pick(BYE) };
+    case 'guitar':
+      return { text: pick(GUITAR) };
+    case 'whistle':
+      return { text: pick(WHISTLE) };
+    case 'write':
+      return { text: pick(WRITE) };
+    case 'cigar':
+      return { text: pick(CIGAR) };
     case 'context': {
       const fns = [...CONTEXT].sort(() => Math.random() - 0.5);
       for (const f of fns) {
@@ -398,7 +421,8 @@ export function Mascot({ route, workspaceId }: { route: string; workspaceId?: st
         if (!to || !s.perch) return start(s, s.queue.shift());
         const tr = to.getBoundingClientRect();
         const fr = s.perch.getBoundingClientRect();
-        const tx = 6 + Math.random() * Math.max(0, tr.width - W - 12);
+        const tw = VB_W * scaleFor(tr.width);
+        const tx = 6 + Math.random() * Math.max(0, tr.width - tw - 12);
         const dx = tr.left + tx - (fr.left + s.x);
         const dy = tr.top - fr.top;
         const dist = Math.hypot(dx, dy);
@@ -467,6 +491,7 @@ export function Mascot({ route, workspaceId }: { route: string; workspaceId?: st
           return changed;
         }
         s.perch = el;
+        applyScale(scaleFor(el.getBoundingClientRect().width));
         s.x = 6 + Math.random() * Math.max(0, el.getBoundingClientRect().width - W - 12);
         s.facing = Math.random() < 0.5 ? 1 : -1;
         s.queue = buildVisit(page, level, s.pendingFlex);
@@ -518,7 +543,9 @@ export function Mascot({ route, workspaceId }: { route: string; workspaceId?: st
       if (s.flight) {
         if (now >= s.flight.t0 + s.flight.dur) {
           s.perch = s.flight.to;
-          s.x = s.flight.tx;
+          const tw = s.perch.getBoundingClientRect().width;
+          applyScale(scaleFor(tw));
+          s.x = Math.max(6, Math.min(s.flight.tx, tw - W - 6));
           s.flight = null;
           s.squash = { t0: now, dur: 280, k: 0.13 };
           done = true;
@@ -704,9 +731,20 @@ export function Mascot({ route, workspaceId }: { route: string; workspaceId?: st
       step(now);
       schedule(now);
     };
-    const kick = () => {
+    const kick = (e?: Event) => {
       burstUntil = performance.now() + 350;
       forgetObstacles();
+      const s0 = st.current;
+      if (e?.type === 'resize' && s0.visible && s0.perch && !s0.flight) {
+        const pw = s0.perch.getBoundingClientRect().width;
+        const k = scaleFor(pw);
+        if (k !== SCALE) {
+          applyScale(k);
+          s0.x = Math.max(6, Math.min(s0.x, pw - W - 6));
+          s0.bubblePos = null;
+          redraw();
+        }
+      }
       if (!raf && st.current.visible && !document.hidden) {
         clearTimeout(timer);
         raf = requestAnimationFrame(frame);
@@ -751,7 +789,7 @@ export function Mascot({ route, workspaceId }: { route: string; workspaceId?: st
       state: () => {
         const s = st.current;
         const anchorUnits = anchorOf(s.pose, s.view);
-        return { ...s, perch: s.perch?.className ?? null, flight: !!s.flight, level, anchorUnits, vbH: VB_H, settled: !s.flight && s.pose !== 'puff' && Math.abs(s.anchor - anchorUnits) < 0.5 };
+        return { ...s, perch: s.perch?.className ?? null, flight: !!s.flight, level, anchorUnits, vbH: VB_H, scale: SCALE, settled: !s.flight && s.pose !== 'puff' && Math.abs(s.anchor - anchorUnits) < 0.5 };
       },
       speed: (k = 1) => {
         st.current.speed = k;
@@ -796,6 +834,7 @@ export function Mascot({ route, workspaceId }: { route: string; workspaceId?: st
         wakeRef.current();
       },
       page: () => pageOf(route),
+      sceneCount: () => sceneCount(pageOf(route)),
       /** Place le personnage sur un encadré donné, à une abscisse donnée (px depuis le bord gauche). */
       perchOn: (el: HTMLElement, x: number) => {
         const s = st.current;

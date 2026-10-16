@@ -294,4 +294,59 @@ export const BYE: string[] = [
   'À plus tard. Ne souligne pas tout sans moi.',
 ];
 
+/** Il joue de la guitare. */
+export const GUITAR: string[] = [
+  'Nietzsche aimait la musique. Il n’a jamais entendu la mienne, c’est plus prudent.',
+  'Pythagore entendait l’harmonie des sphères. Moi, surtout ma corde de mi.',
+  'Un do majeur, une dialectique mineure. Le reste, c’est de l’improvisation.',
+  'Schopenhauer dit que la musique exprime la volonté. La mienne veut un accord.',
+  'On est rarement d’accord en philosophie. À la guitare non plus, apparemment.',
+  'Je joue d’oreille. Le problème, c’est que je n’en ai pas.',
+  'Thèse, antithèse, synthé. Ah non, pardon, c’est une guitare.',
+  'Mes accords sont comme mes arguments : un peu faux, mais très sincères.',
+  'Pythagore a trouvé l’octave. Moi, je cherche encore le la.',
+  'Nietzsche composait aussi, et mal. Je suis donc en excellente compagnie.',
+];
+
+/** Il sifflote. */
+export const WHISTLE: string[] = [
+  'Ataraxie : absence de trouble. Et présence d’un petit air sifflé.',
+  'Rousseau rêvait en se promenant seul. Moi, je siffle. C’est plus bruyant.',
+  'Je flâne, je siffle, je ne pense à rien. Enfin, presque à rien.',
+  'Épicure parlait de plaisir en repos. Je siffle en repos, c’est pareil.',
+  'Pas de souci, pas de thèse à défendre. Juste un air à finir.',
+  'Je siffle pour garder mes pensées en forme. Elles suivent le rythme.',
+  'Rêveries du promeneur solitaire, première promenade. En sifflant.',
+  'Siffler en marchant : la seule dialectique qui ne contredit personne.',
+  'Pardon, je sifflotais. Mes neurones avaient besoin d’un petit air.',
+  'Si tu reconnais l’air, ne dis rien. Moi, je l’ai oublié en route.',
+];
+
+/** Il écrit un livre. */
+export const WRITE: string[] = [
+  'Mon prochain livre : « Critique de la raison pure laine ». Ça va gratter.',
+  'Titre de travail : « Traité des circonvolutions ». Il y aura des détours.',
+  'Page blanche. Je pense, donc je suis… bloqué.',
+  'Quarante notes de bas de page pour une seule phrase. Je tiens un style.',
+  'Titre provisoire : « Ainsi parlait mon cervelet ». Tu en penses quoi ?',
+  'Chapitre douze sur trois prévus. Le plan est devenu un système.',
+  'J’écris un essai. Montaigne aussi a commencé comme ça, je me rassure.',
+  'Tome II : « Le Monde comme volonté et comme sieste ».',
+  'Le syndrome de la page blanche ? Moi, c’est la marge blanche. Plus grave.',
+  'J’ai fini la préface. Il ne reste plus que le livre.',
+];
+
+/** Il fume un cigare en penseur de fauteuil. */
+export const CIGAR: string[] = [
+  'Parfois, disait à peu près Freud, un cigare n’est qu’un cigare. Ouf.',
+  'Mes ronds de fumée sont comme mes arguments : ils tournent en rond.',
+  'Ne fais pas comme moi : je suis un dessin.',
+  'Penseur de fauteuil, c’est un métier. Surtout la partie fauteuil.',
+  'Un rond, deux ronds, trois ronds. Voilà un raisonnement circulaire.',
+  'Je médite sur le Tout. En prenant mon temps, comme le Tout.',
+  'Descartes méditait près d’un poêle. Moi, avec un cigare. Même chaleur.',
+  'Ce cigare est-il un symbole ? Je laisse la question au psychanalyste.',
+  'Mes idées partent en fumée. Heureusement, j’en ai d’autres en réserve.',
+];
+
 export const pick = <T,>(a: readonly T[]): T => a[Math.floor(Math.random() * a.length)];

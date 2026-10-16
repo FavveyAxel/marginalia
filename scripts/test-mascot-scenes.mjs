@@ -95,6 +95,8 @@ const snapshot = (fnSrc) => {
   return out;
 };
 
+const allPoses = new Set();
+const scaleBase = (w) => (w < 1100 ? 0.6 : w < 1500 ? 0.7 : w < 2000 ? 0.78 : 0.86);
 await withApp(PORT, async (page, errors) => {
   await page.evaluate((L) => window.__store.getState().updateSettings({ mascot: 'often', theme: L === 'dark' ? 'dark' : 'light', sidebarCollapsed: L === 'collapsed' }), LAYOUT);
   console.log(`disposition : ${LAYOUT}`);
@@ -118,7 +120,10 @@ await withApp(PORT, async (page, errors) => {
       const shown = await page.evaluate(() => window.__mascot.state().visible);
       check(shown, `${w}×${h} ${pg} : il apparaît`);
       if (!shown) continue;
-      const n = await page.evaluate(() => ({ home: 5, library: 4, workspace: 4 })[window.__mascot.page()]);
+      const sc = await page.evaluate(() => ({ k: window.__mascot.state().scale, pw: window.__mascot.perchEl().getBoundingClientRect().width }));
+      const want = Math.max(0.5, Math.min(scaleBase(w), (sc.pw - 12) / 100));
+      check(Math.abs(sc.k - want) < 0.001, `${LAYOUT} ${w}×${h} ${pg} : taille adaptée (échelle ${sc.k.toFixed(2)}, encadré ${Math.round(sc.pw)} px)`, { sc, want });
+      const n = await page.evaluate(() => window.__mascot.sceneCount());
       await page.evaluate((k) => { window.__mascot.calm(); window.__mascot.speed(k); }, SPEED);
       if (w === 1440 || LAYOUT === 'list') await shot(page, `${OUT}/${LAYOUT}-${pg}-${w}.png`);
       for (let i = 0; i < n; i++) {
@@ -132,6 +137,7 @@ await withApp(PORT, async (page, errors) => {
         while (Date.now() - s0 < 60000) {
           const snap = await page.evaluate(snapshot, src);
           poses.add(snap.pose + (snap.pose === 'read' || snap.pose === 'sit' ? '/' + snap.view : ''));
+          allPoses.add(snap.pose);
           if (snap.bubble) bubbles.add(snap.bubble);
           for (const p of snap.problems) if (problems.length < 4) problems.push(p);
           if (!shotDone && snap.bubble && snap.bubble !== '(attend)' && w === 1440) {
@@ -153,6 +159,7 @@ await withApp(PORT, async (page, errors) => {
     }
   }
   check(errors.length === 0, 'aucune erreur de page', errors.slice(0, 3));
+  if (LAYOUT !== 'list') for (const p of ['guitar', 'whistle', 'write', 'cigar', 'jump', 'read', 'doze', 'think']) check(allPoses.has(p), `on l’a vu : ${p}`, [...allPoses]);
 
   if (LAYOUT !== 'open') return;
   // ── Croissance du cerveau selon le nombre de documents ──

@@ -7,7 +7,7 @@ import type { Level, Pose, View } from './Sprite';
 import type { Ctx } from './lines';
 
 export type Page = Ctx['page'];
-export type Say = 'quote' | 'joke' | 'ponder' | 'context' | 'hello' | 'flex' | 'poke' | 'bye';
+export type Say = 'quote' | 'joke' | 'ponder' | 'context' | 'hello' | 'flex' | 'poke' | 'bye' | 'guitar' | 'whistle' | 'write' | 'cigar';
 /** Saut vers un autre encadré : le plus proche, un encadré précis (sélecteur), ou n'importe lequel. */
 export type Hop = { near?: boolean; sel?: string };
 export type Act = {
@@ -65,6 +65,41 @@ const read = (comment: boolean): Act[] => {
   if (chance(0.4)) out.push({ pose: 'think', ms: 3800, say: chance(0.5) ? 'ponder' : 'quote', view: 'front' });
   return out;
 };
+// Passe-temps : guitare, sifflet, écriture d'un livre, cigare de penseur.
+const guitar = (): Act[] => {
+  const v: View = chance(0.6) ? 'front' : 'side';
+  const f = facing();
+  return [
+    { pose: 'guitar', ms: sec(3, 4), view: v, facing: f },
+    { pose: 'guitar', ms: sec(5, 9), view: v, facing: f, say: 'guitar' },
+    { pose: 'guitar', ms: sec(3, 6), view: v, facing: f },
+  ];
+};
+const whistle = (): Act[] => [
+  { pose: 'whistle', ms: sec(3, 5), view: chance(0.6) ? 'front' : 'side', facing: facing(), say: chance(0.5) ? 'whistle' : undefined },
+  ...stroll(),
+  { pose: 'whistle', ms: sec(2, 4), view: 'front' },
+];
+const write = (): Act[] => {
+  const v: View = chance(0.6) ? 'front' : 'side';
+  const f = facing();
+  return [
+    { pose: 'write', ms: sec(4, 6), view: v, facing: f, say: 'write' },
+    { pose: 'write', ms: sec(8, 14), view: v, facing: f },
+    ...(chance(0.5) ? [{ pose: 'think' as Pose, ms: 3500, view: 'front' as View, say: 'ponder' as Say }] : []),
+  ];
+};
+const cigar = (): Act[] => {
+  const v: View = chance(0.65) ? 'front' : 'side';
+  const f = facing();
+  return [
+    { pose: 'cigar', ms: sec(4, 6), view: v, facing: f },
+    { pose: 'cigar', ms: sec(5, 8), view: v, facing: f, say: chance(0.6) ? 'cigar' : 'quote' },
+    { pose: 'cigar', ms: sec(3, 5), view: v, facing: f },
+  ];
+};
+const pastime = (): Act[] => oneOf([guitar, whistle, write, cigar])();
+
 const hop = (h: Hop): Act[] => [{ pose: 'jump', ms: 0, hop: h }, { pose: 'stand', ms: 300, view: 'front' }];
 const quip = (): Act => ({ pose: 'stand', ms: 4800, say: oneOf<Say>(['joke', 'joke', 'ponder', 'context']), view: 'front' });
 
@@ -82,6 +117,10 @@ const SCENES: Record<Page, Scene[]> = {
     { w: 2, acts: () => [...stroll(0.92), look(), ...stroll(0.08), quip()] },
     { w: 2, acts: () => [sitDown('sit', sec(3, 5)), ...think()] },
     { w: 1, acts: () => [...hop({ near: true }), look(), ...(chance(0.5) ? nap() : [quip()])] },
+    // Passe-temps : il écrit son livre sur la carte des écrits, gratte la guitare sur un espace…
+    { w: 2, acts: () => [...hop({ sel: '.home-resume-card ~ .home-resume-card' }), ...stroll(0.2 + r() * 0.6), ...write()] },
+    { w: 2, acts: () => [...hop({ sel: '.home-space' }), ...stroll(), ...guitar()] },
+    { w: 1, acts: () => [...stroll(), ...(chance(0.5) ? cigar() : whistle())] },
   ],
   library: [
     // Il cherche quoi lire : saute de couverture en couverture, regarde, puis s'installe et lit.
@@ -97,6 +136,10 @@ const SCENES: Record<Page, Scene[]> = {
     { w: 2, acts: () => [{ pose: 'sit', ms: 3500, view: 'front', say: 'context' }, ...nap()] },
     { w: 2, acts: () => read(true) },
     { w: 1, acts: () => [...hop({ near: true }), quip(), ...hop({ near: true }), sitDown('sit', sec(4, 7))] },
+    // Un cigare sur une pile de livres, de la guitare entre deux rayons, un air sifflé en flânant.
+    { w: 2, acts: () => [...hop({ near: true }), ...cigar()] },
+    { w: 1, acts: () => [...hop({ near: true }), ...guitar()] },
+    { w: 1, acts: () => [...whistle(), ...hop({ near: true }), look()] },
   ],
   workspace: [
     // Il s'installe sur un document de l'espace et réagit à l'espace.
@@ -105,11 +148,15 @@ const SCENES: Record<Page, Scene[]> = {
     { w: 2, acts: () => [look(1200), ...hop({ near: true }), look(1200), { pose: 'think', ms: 4200, view: 'front', say: 'ponder' }, { pose: 'sit', ms: sec(3, 6), view: 'front' }] },
     { w: 2, acts: () => [sitDown('sit', sec(3, 5)), ...think()] },
     { w: 1, acts: () => nap() },
+    // Il écrit dans l'espace, ou réfléchit au cigare.
+    { w: 2, acts: () => [...stroll(), ...write()] },
+    { w: 1, acts: () => [...hop({ near: true }), ...(chance(0.5) ? cigar() : guitar())] },
   ],
   other: [
     { w: 2, acts: () => [...stroll(), quip()] },
     { w: 2, acts: () => [sitDown('sit', sec(3, 5)), ...think()] },
     { w: 1, acts: () => nap() },
+    { w: 1, acts: () => pastime() },
   ],
 };
 

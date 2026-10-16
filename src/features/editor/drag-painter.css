@@ -1,0 +1,126 @@
+/* ── Reproduire la mise en forme (painter.tsx) ── */
+.ed-tb-btn[data-tb='painter'] {
+  position: relative;
+}
+.ed-tb-btn[data-tb='painter'].active {
+  color: var(--focus);
+  background: color-mix(in srgb, var(--focus) 14%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--focus) 40%, transparent);
+}
+/* pinceau maintenu (double-clic) : point sous l'icône */
+.ed-tb-btn[data-tb='painter'].sticky::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  bottom: 2px;
+  width: 4px;
+  height: 4px;
+  margin-left: -2px;
+  border-radius: 50%;
+  background: var(--focus);
+}
+/* Curseur « pinceau » sur les pages : barre d'insertion et pinceau, comme Word. */
+.ed-painting .ed-engine-in .superdoc-page,
+.ed-painting .ed-engine-in .superdoc-page * {
+  cursor:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='32' height='32' viewBox='0 0 28 28' fill='none' stroke-linecap='round' stroke-linejoin='round'%3E%3Cg stroke='%23fff' stroke-width='4'%3E%3Cpath d='M3 4h5M5.5 4v16M3 20h5'/%3E%3Cg transform='translate(9.5 1) scale(0.74)'%3E%3Cpath d='m14.622 17.897-10.68-2.913'/%3E%3Cpath d='M18.376 2.622a1 1 0 1 1 3.002 3.002L17.36 9.643a.5.5 0 0 0 0 .707l.944.944a2.41 2.41 0 0 1 0 3.408l-.944.944a.5.5 0 0 1-.707 0L8.354 7.348a.5.5 0 0 1 0-.707l.944-.944a2.41 2.41 0 0 1 3.408 0l.944.944a.5.5 0 0 0 .707 0z'/%3E%3Cpath d='M9 8c-1.804 2.71-3.97 3.46-6.583 3.948a.507.507 0 0 0-.302.819l7.32 8.883a1 1 0 0 0 1.185.204C12.735 20.405 16 16.792 16 15'/%3E%3C/g%3E%3C/g%3E%3Cg stroke='%231d1a15' stroke-width='1.6'%3E%3Cpath d='M3 4h5M5.5 4v16M3 20h5'/%3E%3Cg transform='translate(9.5 1) scale(0.74)' stroke-width='2.2'%3E%3Cpath d='m14.622 17.897-10.68-2.913'/%3E%3Cpath d='M18.376 2.622a1 1 0 1 1 3.002 3.002L17.36 9.643a.5.5 0 0 0 0 .707l.944.944a2.41 2.41 0 0 1 0 3.408l-.944.944a.5.5 0 0 1-.707 0L8.354 7.348a.5.5 0 0 1 0-.707l.944-.944a2.41 2.41 0 0 1 3.408 0l.944.944a.5.5 0 0 0 .707 0z' fill='%233d6fe0'/%3E%3Cpath d='M9 8c-1.804 2.71-3.97 3.46-6.583 3.948a.507.507 0 0 0-.302.819l7.32 8.883a1 1 0 0 0 1.185.204C12.735 20.405 16 16.792 16 15'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E")
+      6 14,
+    text;
+}
+
+/* ── Glisser-déposer du texte (dragText.tsx) ── */
+html.ed-text-dragging,
+html.ed-text-dragging * {
+  cursor: default !important;
+  user-select: none !important;
+}
+html.ed-text-dragging.ed-text-drag-copy,
+html.ed-text-dragging.ed-text-drag-copy * {
+  cursor: copy !important;
+}
+.ed-drag-ghost {
+  position: fixed;
+  left: 0;
+  top: 0;
+  z-index: 10000;
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  max-width: 280px;
+  padding: 5px 9px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-panel);
+  border: 1px solid var(--border-strong);
+  box-shadow: var(--shadow-md);
+  color: var(--ink-2);
+  font: 12.5px/1.4 var(--font-read);
+  opacity: 0.94;
+  pointer-events: none;
+  will-change: transform;
+}
+.ed-drag-ghost-text {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  min-width: 0;
+}
+.ed-drag-ghost-plus {
+  display: none;
+  flex: none;
+  width: 16px;
+  height: 16px;
+  margin-top: 1px;
+  border-radius: 50%;
+  background: var(--focus);
+  color: #fff;
+  font: 600 13px/16px var(--font-ui);
+  text-align: center;
+}
+.ed-drag-ghost.copy .ed-drag-ghost-plus {
+  display: block;
+}
+.ed-drop-caret {
+  position: fixed;
+  left: 0;
+  top: 0;
+  z-index: 9999;
+  width: 2px;
+  margin-left: -1px;
+  border-radius: 1px;
+  background: var(--focus);
+  pointer-events: none;
+  will-change: transform;
+}
+/* petits empattements en haut et en bas (trait d'insertion) */
+.ed-drop-caret::before,
+.ed-drop-caret::after {
+  content: '';
+  position: absolute;
+  left: -2px;
+  width: 6px;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--focus);
+}
+.ed-drop-caret::before {
+  top: 0;
+}
+.ed-drop-caret::after {
+  bottom: 0;
+}
+/* paragraphes entiers : trait horizontal entre deux paragraphes, pastille à gauche */
+.ed-drop-caret.block {
+  height: 2px;
+  margin-left: 0;
+}
+.ed-drop-caret.block::before {
+  top: -3px;
+  left: -4px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+.ed-drop-caret.block::after {
+  display: none;
+}

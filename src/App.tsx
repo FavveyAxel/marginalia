@@ -110,8 +110,10 @@ function useNativeMenu() {
     });
     if (isMac || !host.popupMenu) return offMenu;
     let altAlone = false;
+    // Bouton de souris enfoncé : Alt modifie le geste en cours (glisser-déposer : Alt = copier), pas de menu.
+    let pressed = false;
     const down = (e: KeyboardEvent) => {
-      altAlone = e.key === 'Alt' && !e.ctrlKey && !e.shiftKey && !e.metaKey;
+      altAlone = e.key === 'Alt' && !e.ctrlKey && !e.shiftKey && !e.metaKey && !pressed;
       if (e.key === 'F10' && !e.ctrlKey && !e.altKey && !e.shiftKey) {
         e.preventDefault();
         void host.popupMenu?.();
@@ -125,14 +127,26 @@ function useNativeMenu() {
       altAlone = false;
     };
     const reset = () => (altAlone = false);
+    const pDown = () => {
+      pressed = true;
+      altAlone = false;
+    };
+    const pUp = () => {
+      pressed = false;
+      altAlone = false;
+    };
     window.addEventListener('keydown', down, true);
     window.addEventListener('keyup', up, true);
     window.addEventListener('mousedown', reset, true);
+    window.addEventListener('pointerdown', pDown, true);
+    window.addEventListener('pointerup', pUp, true);
     return () => {
       offMenu?.();
       window.removeEventListener('keydown', down, true);
       window.removeEventListener('keyup', up, true);
       window.removeEventListener('mousedown', reset, true);
+      window.removeEventListener('pointerdown', pDown, true);
+      window.removeEventListener('pointerup', pUp, true);
     };
   }, []);
 }

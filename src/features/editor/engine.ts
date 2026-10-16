@@ -56,6 +56,8 @@ export interface EngineState {
   superscript: boolean;
   subscript: boolean;
   smallCaps: boolean;
+  /** Toutes capitales (w:caps). */
+  caps: boolean;
   /** Police du texte sélectionné (famille), null si inconnue. */
   fontFamily: string | null;
   /** Taille en points. */
@@ -274,6 +276,58 @@ export interface DocEngine {
   rangeRects(from: number, to: number): { left: number; top: number; right: number; bottom: number }[];
   /** Place le curseur dans le passage (sans défiler). */
   caretTo(pos: number): void;
+  // ── Reproduire la mise en forme (painter.tsx) ──
+  /** Mise en forme de la sélection (ou du curseur) : caractères, et paragraphe si curseur ou paragraphe entier. */
+  copyFormat(): CopiedFormat | null;
+  /** Applique à la sélection (curseur : mot sous le curseur), en une étape d'annulation. */
+  applyFormat(f: CopiedFormat): boolean;
+  // ── Glisser-déposer du texte sélectionné (dragText.tsx) ──
+  /** Position du document sous un point de la fenêtre (pages peintes), ou null. */
+  posAtPoint(x: number, y: number): number | null;
+  /** Rectangles (fenêtre) de la sélection courante. */
+  selectionRects(): { left: number; top: number; right: number; bottom: number }[];
+  /** Passage à déplacer : la sélection courante (étendue aux signets et commentaires qui la bordent). */
+  dragSource(): DragSource | null;
+  /** Point de dépôt pour `pos` (paragraphes entiers : entre deux paragraphes) ; null = dans le passage lui-même. */
+  dropTarget(src: DragSource, pos: number): DropTarget | null;
+  /** Déplace (ou copie) le passage au point de dépôt, en une étape d'annulation ; le texte déposé est sélectionné. */
+  moveText(src: DragSource, target: DropTarget, copy: boolean): boolean;
+}
+
+/** Mise en forme des caractères copiée (valeurs effectives : styles compris). */
+export interface CharFormat {
+  bold: boolean;
+  italic: boolean;
+  underline: boolean;
+  strike: boolean;
+  caps: boolean;
+  smallCaps: boolean;
+  vertAlign: 'superscript' | 'subscript' | null;
+  fontFamily: string | null;
+  fontSize: number | null;
+  color: string | null;
+  highlight: string | null;
+}
+/** « Reproduire la mise en forme » : caractères, et paragraphe (style, alignement, interligne, espacements, retraits) si copié. */
+export interface CopiedFormat {
+  chars: CharFormat;
+  para: { styleId: string | null; justification?: unknown; spacing?: unknown; indent?: unknown } | null;
+}
+/** Passage glissé : [from, to] ; `block` = paragraphes entiers (déplacés avec leur style). */
+export interface DragSource {
+  from: number;
+  to: number;
+  block: boolean;
+  text: string;
+  /** Document au moment de la prise (le dépôt est refusé s'il a changé entre-temps). */
+  doc: unknown;
+}
+/** Point de dépôt : position, et pour des paragraphes entiers, bord du paragraphe visé (indicateur horizontal). */
+export interface DropTarget {
+  pos: number;
+  block: boolean;
+  /** Rectangle (fenêtre) de l'indicateur : trait vertical (texte) ou horizontal (paragraphes). */
+  rect: { left: number; top: number; width: number; height: number } | null;
 }
 
 /** Commentaire Word (w:comment) : racine d'un fil (passage commenté) ou réponse. */
@@ -991,6 +1045,7 @@ export async function openDocEngine(host: HTMLElement, data: ArrayBuffer, opts: 
       superscript: false,
       subscript: false,
       smallCaps: false,
+      caps: false,
       fontFamily: null,
       fontSize: null,
       color: null,
@@ -1030,6 +1085,7 @@ export async function openDocEngine(host: HTMLElement, data: ArrayBuffer, opts: 
     st.superscript = va === 'superscript';
     st.subscript = va === 'subscript';
     st.smallCaps = !!rp.smallCaps;
+    st.caps = !!rp.caps;
     st.fontFamily = familyName(get('fontFamily')?.fontFamily);
     const fs = get('fontSize')?.fontSize;
     st.fontSize = fs ? parseFloat(String(fs)) || null : null;
@@ -1077,16 +1133,226 @@ export async function openDocEngine(host: HTMLElement, data: ArrayBuffer, opts: 
     for (let k = selection.$from.depth; k > 0; k--) if (selection.$from.node(k).type.name === 'table') st.inTable = true;
     return st;
   };
+  /** Classe TextSelection de ProseMirror (la build IIFE de SuperDoc ne l'exporte pas : prise sur une sélection). */
+  let TextSel: Any = null;
+  const textSelClass = (ed: Any): Any => {
+    if (TextSel) return TextSel;
+    const sel = ed.state.selection;
+    if (sel.toJSON?.().type === 'text') return (TextSel = sel.constructor);
+    const { from } = sel;
+    ed.commands.setTextSelection({ from, to: from });
+    if (ed.state.selection.toJSON?.().type === 'text') TextSel = ed.state.selection.constructor;
+    return TextSel;
+  };
   /** État de mise en forme pour la sélection [a, b], sans toucher à la sélection réelle. */
   const stateAt = (ed: Any, a: number, b: number): EngineState => {
-    const sel = ed.state.selection.constructor.create(ed.state.doc, a, b);
-    const st = ed.state.apply(ed.state.tr.setSelection(sel));
+    const TS = textSelClass(ed);
+    const st = ed.state.apply(ed.state.tr.setSelection(TS.create(ed.state.doc, a, b)));
+    return stateOf(Object.create(ed, { state: { value: st } }));
+  };
+
+  // ── Reproduire la mise en forme ──
+  /** Ferme le groupe d'annulation courant : l'opération suivante forme sa propre étape (prosemirror-history). */
+  const closeHistory = (ed: Any) => {
     try {
-      return stateOf(Object.create(ed, { state: { value: st } }));
+      ed.view.dispatch(ed.state.tr.setMeta('closeHistory$', true));
     } catch {
-      return stateOf(ed);
+      /* sans effet */
     }
   };
+  /** Toutes les transactions de `fn` (les nôtres et celles de l'API documentaire) en une étape d'annulation :
+   *  les suivantes sont marquées « ajoutées » à la première (prosemirror-history les fusionne alors). */
+  const oneUndoStep = (ed: Any, fn: () => void) => {
+    let first: Any = null;
+    const tag = (tr: Any) => {
+      // l'API documentaire ferme le groupe d'annulation avant et après chaque opération : neutralisé ici
+      if (tr?.getMeta?.('closeHistory$')) tr.setMeta('closeHistory$', false);
+      if (!tr?.docChanged) return;
+      if (first && first !== tr) tr.setMeta('appendedTransaction', first);
+      else first = tr;
+    };
+    // l'API documentaire passe par editor.dispatch (→ #dispatchTransaction), nos transactions par view.dispatch
+    const restore: (() => void)[] = [];
+    for (const obj of [ed, ed.view]) {
+      const own = Object.prototype.hasOwnProperty.call(obj, 'dispatch');
+      const orig = obj.dispatch;
+      obj.dispatch = function (tr: Any) {
+        tag(tr);
+        return orig.call(obj, tr);
+      };
+      restore.push(() => {
+        if (own) obj.dispatch = orig;
+        else delete obj.dispatch;
+      });
+    }
+    try {
+      fn();
+    } finally {
+      for (const r of restore) r();
+    }
+  };
+  const charsOf = (st: EngineState): CharFormat => ({
+    bold: st.bold,
+    italic: st.italic,
+    underline: st.underline,
+    strike: st.strike,
+    caps: st.caps,
+    smallCaps: st.smallCaps,
+    vertAlign: st.superscript ? 'superscript' : st.subscript ? 'subscript' : null,
+    fontFamily: st.fontFamily,
+    fontSize: st.fontSize,
+    color: st.color,
+    highlight: st.highlight,
+  });
+  /** Premier caractère de texte dans [a, b[ (position), ou null. */
+  const firstTextIn = (doc: Any, a: number, b: number): number | null => {
+    let p: number | null = null;
+    doc.nodesBetween(a, b, (n: Any, pos: number) => {
+      if (p !== null) return false;
+      if (n.isText) {
+        const s = Math.max(a, pos);
+        if (s < pos + n.nodeSize && s < b) p = s;
+        return false;
+      }
+      return true;
+    });
+    return p;
+  };
+  /** Paragraphes touchés par [a, b] (au moins celui de a). */
+  const parasIn = (doc: Any, a: number, b: number): { node: Any; pos: number }[] => {
+    const out: { node: Any; pos: number }[] = [];
+    doc.nodesBetween(a, Math.max(a, b), (n: Any, pos: number) => {
+      if (n.type.name === 'paragraph') {
+        out.push({ node: n, pos });
+        return false;
+      }
+      return true;
+    });
+    if (!out.length) {
+      const $a = doc.resolve(a);
+      const d = paraDepth($a);
+      if (d > 0) out.push({ node: $a.node(d), pos: $a.before(d) });
+    }
+    return out;
+  };
+  /** La sélection [a, b] couvre-t-elle tout le contenu des paragraphes touchés ? */
+  const coversParas = (paras: { node: Any; pos: number }[], a: number, b: number): boolean => {
+    if (!paras.length) return false;
+    const first = paraFormatAt(paras[0].node, paras[0].pos);
+    const last = paraFormatAt(paras[paras.length - 1].node, paras[paras.length - 1].pos);
+    if (first.empty && paras.length === 1) return false;
+    return a <= first.firstStart && b >= last.lastEnd;
+  };
+  const WORD_CH = /[\p{L}\p{N}_'’]/u;
+  /** Mot sous le curseur (comme Word : le mot qui contient le curseur, ou celui qui le touche). */
+  const wordAt = (doc: Any, pos: number): { from: number; to: number } | null => {
+    const $p = doc.resolve(pos);
+    const d = paraDepth($p);
+    if (d < 0) return null;
+    const start = $p.start(d);
+    const chars: { ch: string; pos: number }[] = [];
+    $p.node(d).descendants((n: Any, p: number) => {
+      if (n.isText) {
+        for (let i = 0; i < n.text.length; i++) chars.push({ ch: n.text[i], pos: start + p + i });
+        return false;
+      }
+      return true;
+    });
+    let after = chars.findIndex((c) => c.pos >= pos);
+    if (after < 0) after = chars.length;
+    const before = after - 1;
+    let k = after < chars.length && WORD_CH.test(chars[after].ch) ? after : before >= 0 && WORD_CH.test(chars[before].ch) ? before : -1;
+    if (k < 0) return null;
+    let l = k;
+    while (l > 0 && WORD_CH.test(chars[l - 1].ch)) l--;
+    while (k < chars.length - 1 && WORD_CH.test(chars[k + 1].ch)) k++;
+    return { from: chars[l].pos, to: chars[k].pos + 1 };
+  };
+  const CLEAR_INLINE = { bold: null, italic: null, underline: null, strike: null, color: null, fontFamily: null, fontSize: null, highlight: null, vertAlign: null, smallCaps: null, caps: null };
+  const normColor = (c: string | null) => (c ? c.replace(/^#/, '').toUpperCase() : '');
+  /** Propriétés à poser explicitement pour que `base` (texte nettoyé) prenne l'aspect de `src`. */
+  const inlineDiff = (src: CharFormat, base: CharFormat): Record<string, unknown> => {
+    const out: Record<string, unknown> = {};
+    for (const k of ['bold', 'italic', 'underline', 'strike', 'caps', 'smallCaps'] as const) if (src[k] !== base[k]) out[k] = src[k];
+    if (src.vertAlign !== base.vertAlign) out.vertAlign = src.vertAlign ?? 'baseline';
+    if (src.fontFamily && src.fontFamily.toLowerCase() !== (base.fontFamily ?? '').toLowerCase()) out.fontFamily = src.fontFamily;
+    if (src.fontSize && Math.abs(src.fontSize - (base.fontSize ?? 0)) > 0.01) out.fontSize = src.fontSize;
+    if (src.color && normColor(src.color) !== normColor(base.color)) out.color = src.color;
+    if (src.highlight && normColor(src.highlight) !== normColor(base.highlight)) out.highlight = src.highlight;
+    return out;
+  };
+
+  // ── Glisser-déposer du texte ──
+  const MARK_START = /^(bookmarkStart|commentRangeStart)$/;
+  const MARK_END = /^(bookmarkEnd|commentRangeEnd)$/;
+  const markerId = (n: Any) => String(n.attrs?.id ?? n.attrs?.['w:id'] ?? n.attrs?.commentId ?? '');
+  /** Signets et bornes de commentaires dont l'autre extrémité est hors de [a, b]. */
+  const unmatchedMarkers = (doc: Any, a: number, b: number): number => {
+    const open = new Map<string, number>();
+    doc.nodesBetween(a, b, (n: Any, pos: number) => {
+      if (pos < a || pos + n.nodeSize > b) return true;
+      const name = n.type.name;
+      if (MARK_START.test(name) || MARK_END.test(name)) {
+        const k = `${name.replace(/Start|End/, '')}:${markerId(n)}`;
+        open.set(k, (open.get(k) ?? 0) + (MARK_START.test(name) ? 1 : -1));
+        return false;
+      }
+      return true;
+    });
+    let n = 0;
+    for (const v of open.values()) if (v !== 0) n++;
+    return n;
+  };
+  /** Copie : sans signets, bornes et marques de commentaires, ni appels de note (identifiants uniques). */
+  const stripForCopy = (slice: Any): Any => {
+    const Frag = slice.content.constructor;
+    const strip = (frag: Any): Any => {
+      const out: Any[] = [];
+      frag.forEach((n: Any) => {
+        const name = n.type.name;
+        if (MARK_START.test(name) || MARK_END.test(name) || name === 'footnoteReference' || name === 'endnoteReference') return;
+        if (n.isText) {
+          out.push(n.mark(n.marks.filter((m: Any) => m.type.name !== 'commentMark')));
+          return;
+        }
+        if (n.isLeaf) {
+          out.push(n);
+          return;
+        }
+        const inner = strip(n.content);
+        if (!inner.size && n.content.size && name === 'run') return; // run qui ne portait qu'un appel de note
+        out.push(n.copy(inner));
+      });
+      return Frag.fromArray(out);
+    };
+    return new slice.constructor(strip(slice.content), slice.openStart, slice.openEnd);
+  };
+  /** Caractère du paragraphe juste avant / après `pos` et sa position (espaces autour d'un passage
+   *  déposé) ; un élément en ligne (appel de note, tabulation…) compte pour U+FFFC ; null en bord de paragraphe. */
+  const charNear = (doc: Any, pos: number, dir: -1 | 1): { ch: string; pos: number } | null => {
+    const $p = doc.resolve(pos);
+    const d = paraDepth($p);
+    if (d < 0) return null;
+    const a = dir < 0 ? $p.start(d) : pos;
+    const b = dir < 0 ? pos : $p.end(d);
+    let best: { ch: string; pos: number } | null = null;
+    doc.nodesBetween(a, b, (n: Any, np: number) => {
+      if (dir > 0 && best) return false;
+      if (n.isText) {
+        const s = Math.max(a, np);
+        const e = Math.min(b, np + n.nodeSize);
+        if (e > s) best = dir < 0 ? { ch: n.text[e - 1 - np], pos: e - 1 } : { ch: n.text[s - np], pos: s };
+        return false;
+      }
+      if (n.isInline && n.isLeaf && np >= a && np < b) {
+        best = { ch: '￼', pos: np };
+        return false;
+      }
+      return true;
+    });
+    return best;
+  };
+  const LETTER = /[\p{L}\p{N}]/u;
 
   const engine: DocEngine = {
     exportDocx,
@@ -2221,6 +2487,249 @@ export async function openDocEngine(host: HTMLElement, data: ArrayBuffer, opts: 
         ed.commands.setTextSelection({ from: p, to: p });
       } catch {
         /* position hors texte */
+      }
+    },
+
+    // ── Reproduire la mise en forme ──
+    copyFormat() {
+      const ed = body();
+      if (!ed) return null;
+      const { from, to, empty } = ed.state.selection;
+      let st: EngineState;
+      if (empty) st = stateOf(ed);
+      else {
+        const p = firstTextIn(ed.state.doc, from, to);
+        st = p === null ? stateOf(ed) : stateAt(ed, p, p + 1);
+      }
+      // Paragraphe : copié si la source est le curseur ou des paragraphes entiers (comme Word avec ¶).
+      const paras = parasIn(ed.state.doc, from, to);
+      let para: CopiedFormat['para'] = null;
+      if (paras.length && (empty || coversParas(paras, from, to))) {
+        const pp = paras[0].node.attrs.paragraphProperties ?? {};
+        para = JSON.parse(JSON.stringify({ styleId: pp.styleId ?? null, justification: pp.justification, spacing: pp.spacing, indent: pp.indent }));
+      }
+      return { chars: charsOf(st), para };
+    },
+    applyFormat(f) {
+      const ed = body();
+      if (!ed || !f) return false;
+      let { from, to } = ed.state.selection;
+      if (from === to) {
+        const w = wordAt(ed.state.doc, from);
+        if (w) ({ from, to } = w);
+        else if (!f.para) return false;
+      }
+      touched = true;
+      const paint = () => {
+        if (f.para) {
+          // une transaction pour tous les paragraphes touchés (positions inchangées : attributs seulement)
+          const tr = ed.state.tr;
+          for (const { node, pos } of parasIn(ed.state.doc, from, to)) {
+            const pp: Any = { ...(node.attrs.paragraphProperties ?? {}) };
+            if (f.para.styleId) pp.styleId = f.para.styleId;
+            else delete pp.styleId;
+            for (const k of ['justification', 'spacing', 'indent'] as const) {
+              if (f.para[k] === undefined) delete pp[k];
+              else pp[k] = JSON.parse(JSON.stringify(f.para[k]));
+            }
+            tr.setNodeMarkup(pos, undefined, { ...node.attrs, paragraphProperties: pp });
+          }
+          if (tr.docChanged) ed.view.dispatch(tr);
+        }
+        if (to <= from) return;
+        // Caractères : d'abord nettoyés (la mise en forme de la cible est remplacée), puis seules les
+        // différences avec l'aspect nettoyé (style du paragraphe) sont posées : peu de mise en forme directe.
+        let target = rangeTarget(ed, from, to);
+        if (!target) return;
+        ed.doc.format.apply({ target, inline: CLEAR_INLINE });
+        const sel = ed.state.selection;
+        const p = firstTextIn(ed.state.doc, sel.from, sel.to);
+        const base = charsOf(p === null ? stateOf(ed) : stateAt(ed, p, p + 1));
+        const inline = inlineDiff(f.chars, base);
+        target = selectionTarget(ed);
+        if (target && Object.keys(inline).length) ed.doc.format.apply({ target, inline });
+      };
+      closeHistory(ed);
+      try {
+        oneUndoStep(ed, paint);
+      } catch (e) {
+        console.error('reproduire la mise en forme', e);
+        closeHistory(ed);
+        return false;
+      }
+      closeHistory(ed);
+      changed();
+      ed.view.focus();
+      return true;
+    },
+
+    // ── Glisser-déposer du texte ──
+    posAtPoint(x, y) {
+      const ed = body();
+      if (!ed) return null;
+      try {
+        const h: Any = pres()?.hitTest?.(x, y);
+        if (!h || !Number.isFinite(h.pos)) return null;
+        return Math.max(1, Math.min(h.pos, ed.state.doc.content.size - 1));
+      } catch {
+        return null;
+      }
+    },
+    selectionRects() {
+      const ed = body();
+      if (!ed || ed.state.selection.empty) return [];
+      try {
+        const rects: Any[] = pres()?.getSelectionRects?.() ?? [];
+        return rects.filter((r) => Number.isFinite(r?.top)).map((r) => ({ left: r.left, top: r.top, right: r.right, bottom: r.bottom }));
+      } catch {
+        return [];
+      }
+    },
+    dragSource() {
+      const ed = body();
+      if (!ed) return null;
+      // note de bas de page ou en-tête en cours d'édition : pas de glisser (sélection d'un autre éditeur)
+      const active: Any = (pres() as Any)?.getActiveEditor?.();
+      if (active && active !== ed) return null;
+      const { doc, selection: sel } = ed.state;
+      if (sel.empty || sel.toJSON?.().type !== 'text') return null;
+      const $f = sel.$from;
+      const $t = sel.$to;
+      const df = paraDepth($f);
+      const dt = paraDepth($t);
+      // même conteneur (corps, ou même cellule) : pas de passage à cheval sur un tableau
+      if (df < 1 || dt < 1 || $f.node(df - 1) !== $t.node(dt - 1)) return null;
+      const paras = parasIn(doc, sel.from, sel.to);
+      const text = doc.textBetween(sel.from, sel.to, '\n', ' ');
+      if (coversParas(paras, sel.from, sel.to)) return { from: $f.before(df), to: $t.after(dt), block: true, text, doc };
+      // Signets (lien citation → extrait) et bornes de commentaires collés au passage : emportés avec lui
+      // s'ils y ont leur autre extrémité (jamais une moitié de paire).
+      let a = sel.from;
+      let b = sel.to;
+      const $a0 = doc.resolve(a);
+      if ($a0.parent.type.name === 'run' && $a0.parentOffset === 0) a = $a0.before();
+      for (let $a = doc.resolve(a); $a.nodeBefore && MARK_START.test($a.nodeBefore.type.name); $a = doc.resolve(a)) a -= $a.nodeBefore.nodeSize;
+      const $b0 = doc.resolve(b);
+      if ($b0.parent.type.name === 'run' && $b0.parentOffset === $b0.parent.content.size) b = $b0.after();
+      for (let $b = doc.resolve(b); $b.nodeAfter && MARK_END.test($b.nodeAfter.type.name); $b = doc.resolve(b)) b += $b.nodeAfter.nodeSize;
+      const base = unmatchedMarkers(doc, sel.from, sel.to);
+      if (unmatchedMarkers(doc, a, sel.to) > base) a = sel.from;
+      if (unmatchedMarkers(doc, a, b) > unmatchedMarkers(doc, a, sel.to)) b = sel.to;
+      return { from: a, to: b, block: false, text, doc };
+    },
+    dropTarget(src, pos) {
+      const ed = body();
+      const pe: Any = pres();
+      if (!ed || !pe) return null;
+      const doc = ed.state.doc;
+      if (doc !== src.doc || pos < 0 || pos > doc.content.size) return null;
+      if (!src.block) {
+        if (pos >= src.from && pos <= src.to) return null;
+        const $p = doc.resolve(pos);
+        if (!$p.parent.inlineContent) return null;
+        let rect: DropTarget['rect'] = null;
+        try {
+          const c = pe.coordsAtPos(pos);
+          if (c && Number.isFinite(c.top)) rect = { left: c.left, top: c.top, width: 0, height: Math.max(8, c.bottom - c.top) };
+        } catch {
+          /* hors des pages peintes */
+        }
+        return { pos, block: false, rect };
+      }
+      // Paragraphes entiers : avant ou après le paragraphe visé (le bord le plus proche dans le texte).
+      const $p = doc.resolve(pos);
+      const d = paraDepth($p);
+      if (d < 1) return null;
+      const node = $p.node(d);
+      const start = $p.before(d);
+      const f = paraFormatAt(node, start);
+      const before = f.empty || pos - f.firstStart <= f.lastEnd - pos;
+      const at = before ? start : start + node.nodeSize;
+      if (at >= src.from && at <= src.to) return null;
+      let rect: DropTarget['rect'] = null;
+      try {
+        const rs = engine.rangeRects(f.firstStart, f.lastEnd);
+        const line = rs.length ? (before ? rs.filter((r) => Math.abs(r.top - rs[0].top) < 2) : rs.filter((r) => Math.abs(r.top - rs[rs.length - 1].top) < 2)) : [];
+        if (line.length) {
+          const top = before ? Math.min(...line.map((r) => r.top)) : Math.max(...line.map((r) => r.bottom));
+          // largeur : celle de la page (zone de texte), à défaut celle de la ligne
+          const page = (document.elementFromPoint(line[0].left + 1, (line[0].top + line[0].bottom) / 2) as HTMLElement | null)?.closest('.superdoc-fragment') as HTMLElement | null;
+          const pr = page?.getBoundingClientRect();
+          const left = pr ? pr.left : Math.min(...line.map((r) => r.left));
+          const right = pr ? pr.right : Math.max(...line.map((r) => r.right));
+          rect = { left, top: before ? top - 2 : top + 1, width: Math.max(24, right - left), height: 0 };
+        } else {
+          const c = pe.coordsAtPos(f.firstStart);
+          if (c && Number.isFinite(c.top)) rect = { left: c.left, top: before ? c.top - 2 : c.bottom + 1, width: 240, height: 0 };
+        }
+      } catch {
+        /* hors des pages peintes */
+      }
+      return { pos: at, block: true, rect };
+    },
+    moveText(src, target, copy) {
+      const ed = body();
+      if (!ed || ed.state.doc !== src.doc) return false;
+      const TS = textSelClass(ed);
+      closeHistory(ed);
+      const { state } = ed;
+      try {
+        let slice = state.doc.slice(src.from, src.to);
+        if (copy) slice = stripForCopy(slice);
+        if (!slice.content.size) return false;
+        touched = true;
+        const tr = state.tr;
+        let at = target.pos;
+        if (!copy) {
+          tr.delete(src.from, src.to);
+          if (!src.block) {
+            // Espaces à la source (comme Word) : pas de double espace, ni d'espace avant la ponctuation basse.
+            const p = tr.mapping.map(src.from, -1);
+            const b = charNear(tr.doc, p, -1);
+            const a = charNear(tr.doc, p, 1);
+            if (b?.ch === ' ' && (!a || a.ch === ' ' || /^[.,)\]…]/.test(a.ch))) tr.delete(b.pos, b.pos + 1);
+            else if (!b && a?.ch === ' ') tr.delete(a.pos, a.pos + 1);
+          }
+          at = tr.mapping.map(target.pos, src.block ? 1 : -1);
+        }
+        const nSteps = tr.steps.length;
+        if (src.block) tr.insert(at, slice.content);
+        else tr.replaceRange(at, at, slice);
+        // passage déposé : d'après la carte de l'étape d'insertion
+        let s = at;
+        let e = at;
+        if (tr.steps.length > nSteps) {
+          tr.steps[nSteps].getMap().forEach((_os: number, _oe: number, ns: number, ne: number) => {
+            s = ns;
+            e = ne;
+          });
+          for (let i = nSteps + 1; i < tr.steps.length; i++) {
+            s = tr.steps[i].getMap().map(s, -1);
+            e = tr.steps[i].getMap().map(e, 1);
+          }
+        }
+        if (!src.block) {
+          // Espaces à l'arrivée : un mot déposé contre un autre en reçoit une (l'appel de note final ne compte pas).
+          const txt = slice.content.textBetween(0, slice.content.size, '\n', '￼').replace(/￼+$/, '');
+          const b = charNear(tr.doc, s, -1);
+          if (txt && LETTER.test(txt[0]) && b && LETTER.test(b.ch)) {
+            tr.insertText(' ', b.pos + 1);
+            s += 1;
+            e += 1;
+          }
+          const a = charNear(tr.doc, e, 1);
+          if (txt && LETTER.test(txt[txt.length - 1]) && a && LETTER.test(a.ch)) tr.insertText(' ', a.pos);
+        }
+        tr.setSelection(TS.between(tr.doc.resolve(Math.min(s, tr.doc.content.size)), tr.doc.resolve(Math.min(e, tr.doc.content.size))));
+        tr.setMeta('uiEvent', 'drop');
+        ed.view.dispatch(tr);
+        closeHistory(ed);
+        changed();
+        ed.view.focus();
+        return true;
+      } catch (err) {
+        console.error('glisser-déposer', err);
+        return false;
       }
     },
   };

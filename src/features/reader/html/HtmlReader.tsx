@@ -20,6 +20,7 @@ import { allIndexes, fold, isBlockEl, locate, makeAnchor, offsetOf, rangeFor, re
 import { parseBook, printedPageAt, ReaderError, type ParsedDoc } from './parse';
 import { ESTIMATED_NOTE, findPage, lastLabel, paginate, romanToInt, type Pagination, type PageStatus } from '../pages';
 import './html-reader.css';
+import './book-layout.css'; // mise en page livre (réglage bookLayout)
 
 interface HlState {
   sig: string;
@@ -1033,7 +1034,8 @@ export const HtmlReader = forwardRef<EngineHandle, EngineProps>(function HtmlRea
 
   // Typographie : garder le passage lu à la même hauteur
   const pageMode = settings.pageMarks ?? 'paper';
-  const typoKey = `${settings.fontFamily}|${settings.fontSize}|${settings.lineHeight}|${settings.measure}|${pageMode}`;
+  const bookLayout = !!settings.bookLayout;
+  const typoKey = `${settings.fontFamily}|${settings.fontSize}|${settings.lineHeight}|${settings.measure}|${pageMode}|${bookLayout}`;
   const lastTypo = useRef(typoKey);
   const pendingAnchor = useRef<ReadingAnchor | null>(null);
   if (lastTypo.current !== typoKey) {
@@ -1561,7 +1563,7 @@ export const HtmlReader = forwardRef<EngineHandle, EngineProps>(function HtmlRea
   } as CSSProperties;
 
   return (
-    <div className="html-reader">
+    <div className={`html-reader${bookLayout ? ' book-layout' : ''}`}>
       <div className="html-scroll" ref={scrollRef} onClick={onClick} onContextMenu={onContextMenu} tabIndex={-1}>
         <div className={`html-doc html-fmt-${book.format}${revealed ? ' is-revealed' : ''} pg-${pageMode}`} ref={docRef} style={docStyle} />
       </div>

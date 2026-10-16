@@ -138,6 +138,23 @@ export function TypographyPopover({ anchor, onClose }: { anchor: DOMRect; onClos
           <span />
         </button>
       </label>
+      {/* Mise en page livre — bascule provisoire (l'interface définitive vient avec le panneau de réglages). */}
+      <label className="typo-switch-row">
+        <span>
+          <span className="typo-switch-title">Mise en page livre</span>
+          <span className="typo-switch-sub">Justifié, césure, alinéas</span>
+        </span>
+        <button
+          type="button"
+          role="switch"
+          aria-checked={!!s.bookLayout}
+          className={`typo-switch ${s.bookLayout ? 'on' : ''}`}
+          onClick={() => set({ bookLayout: !s.bookLayout })}
+          data-testid="book-layout-switch"
+        >
+          <span />
+        </button>
+      </label>
       <label className="typo-switch-row">
         <span>
           <span className="typo-switch-title">Marquer les pages</span>

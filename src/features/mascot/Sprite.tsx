@@ -625,7 +625,9 @@ export function Sprite({
     );
   }
 
-  const face = v === 'back' ? null : side ? (
+  const face = v === 'back' ? null : ch?.face ? (
+    ch.face({ ...args, expr: exprFor(pose, frame, blink, r.gaze) })
+  ) : side ? (
     <SideFace pose={pose} blink={blink} gaze={r.gaze} frame={frame} fill={fill} />
   ) : (
     <FrontFace pose={pose} blink={blink} gaze={r.gaze} frame={frame} fill={fill} />
@@ -712,6 +714,46 @@ export function Sprite({
 }
 
 type FaceProps = { pose: Pose; blink: boolean; gaze: Pt; frame: number; fill: string };
+
+/** Expression du moment, pour les visages des philosophes (chacun la dessine avec ses traits). */
+export type Expr = {
+  /** Yeux : ouverts, fermés (clignement, sieste), plissés de plaisir (guitare), mi-clos (cigare). */
+  eyes: 'open' | 'closed' | 'happy' | 'lidded';
+  /** Bouche : sourire, neutre (réfléchir), « o » (siffler), endormie, concentrée (langue au coin,
+   *  écriture), cigare aux lèvres, rond de fumée soufflé, sourire en coin. */
+  mouth: 'smile' | 'flat' | 'o' | 'sleep' | 'tongue' | 'cigar' | 'puff' | 'smirk';
+  /** Direction du regard (décalage des pupilles, en unités du repère de la tête). */
+  gaze: [number, number];
+  /** Cigare aux lèvres : bout incandescent plus vif sur cette image. */
+  hot: boolean;
+  /** Sourcil haussé (cigare : air de penseur). */
+  browUp: boolean;
+};
+
+export function exprFor(pose: Pose, frame: number, blink: boolean, gaze: Pt): Expr {
+  const cig = frame % CIGAR_CYCLE;
+  const eyes: Expr['eyes'] = blink ? 'closed' : pose === 'guitar' && frame % 12 >= 6 ? 'happy' : pose === 'cigar' ? 'lidded' : 'open';
+  const mouth: Expr['mouth'] =
+    pose === 'doze'
+      ? 'sleep'
+      : pose === 'think'
+        ? 'flat'
+        : pose === 'whistle'
+          ? 'o'
+          : pose === 'write'
+            ? [2, 3, 5, 6].includes(frame % 8)
+              ? 'tongue'
+              : 'flat'
+            : pose === 'cigar'
+              ? cigarUp(frame)
+                ? 'cigar'
+                : [4, 6, 8].includes(cig)
+                  ? 'puff'
+                  : 'smirk'
+              : 'smile';
+  return { eyes, mouth, gaze: [gaze[0], gaze[1]], hot: cig % 2 === 1, browUp: pose === 'cigar' };
+}
+export { Cigar };
 
 /** Yeux de face : ouverts, fermés, plissés de plaisir (guitare) ou mi-clos (cigare). */
 function FrontFace({ pose, blink, gaze, frame, fill }: FaceProps) {

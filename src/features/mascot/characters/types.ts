@@ -24,7 +24,7 @@
 //  - assis de profil, Sprite remonte tout le haut du corps de 8 unités (les jambes allongées restent
 //    sur le bord) : le vêtement et la tête sont dans ce même groupe, rien à faire de plus.
 import type { ReactNode } from 'react';
-import type { Level, Pose, View } from '../Sprite';
+import type { Expr, Level, Pose, View } from '../Sprite';
 
 export type CharId = 'brain' | 'socrate' | 'platon' | 'aristote' | 'rousseau';
 
@@ -51,6 +51,13 @@ export interface CharacterDef {
   body?: (a: DrawArgs) => ReactNode;
   /** Tête (sans les yeux ni la bouche, ajoutés par-dessus). */
   head: (a: DrawArgs) => ReactNode;
+  /** Visage propre au philosophe (yeux, sourcils, nez, bouche), dessiné dans le repère de la TÊTE à la
+   *  place des grands yeux ronds du cerveau. Il suit l'expression du moment (`expr`) : yeux ouverts,
+   *  fermés, plissés ou mi-clos, bouche souriante, neutre, en « o », endormie, cigare aux lèvres
+   *  (composant Cigar exporté par Sprite), etc. De face, yeux vers (37, 43) et (59, 43), bouche vers
+   *  (48, 52) ; de profil, œil vers (75, 30), bouche vers (84, 42) : ces repères servent aux notes de
+   *  musique et aux ronds de fumée, qui sortent de la bouche. */
+  face?: (a: DrawArgs & { expr: Expr }) => ReactNode;
   /** Ce qui se dessine par-dessus le visage (sourcils, nez, barbe autour de la bouche…). */
   overFace?: (a: DrawArgs) => ReactNode;
   /** Accessoire devant tout (après les bras) : rouleaux sous le bras, etc. */

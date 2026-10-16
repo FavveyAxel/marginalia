@@ -484,3 +484,197 @@
     font-size: 9.5px;
   }
 }
+
+/* ── Pages façon papier (réglage par défaut) ──────────────────
+   Chaque page devient une feuille posée sur un fond plus sombre, comme la page d'un livre ou
+   la mise en page d'impression d'un traitement de texte, l'une sous l'autre (défilement continu).
+   Le DOM du texte ne change pas :
+   - la colonne d'un chapitre (.html-col) est un long ruban de papier (fond, liseré, ombre) ;
+     ses marges intérieures sont les marges de la feuille ;
+   - chaque repère de page (span vide) devient un bloc d'espacement de la hauteur
+     « marge basse + intervalle + marge haute » ; son ::before peint l'intervalle (le fond de
+     table, plus large que la feuille pour couper aussi son ombre latérale) avec le bord bas de la
+     feuille qui finit (liseré, ombre portée) et le bord haut de la suivante ; son ::after écrit le
+     folio de la feuille qui finit (centré en bas) et le titre courant de la suivante (centré en haut,
+     petites capitales, titre du livre au verso, du chapitre au recto) ;
+   - une page qui commence au milieu d'un paragraphe le coupe : la fin de la ligne reste en bas de
+     la feuille, la phrase reprend en haut de la suivante, comme en tournant la page ;
+   - chaque chapitre commence sur une nouvelle feuille ; le folio de sa dernière feuille est le
+     ::after de la colonne (data-pg-end).
+   Tout est en CSS (aucun calcul au défilement) ; textContent, ancrages et sélection inchangés.
+   ───────────────────────────────────────────────────────────── */
+
+.html-doc.pg-paper {
+  /* Géométrie de la feuille (en fonction de la taille du texte pour garder les proportions). */
+  --sheet-px: clamp(28px, 7cqi, 84px);
+  --sheet-pt: calc(var(--html-fs, 19px) * 3.4);
+  --sheet-pb: calc(var(--html-fs, 19px) * 3.6);
+  --sheet-gap: 30px;
+  --sheet-sink: calc(var(--html-fs, 19px) * 2.4); /* ouverture de chapitre : texte plus bas */
+  --folio-off: calc(var(--html-fs, 19px) * 1.55); /* centre du folio, depuis le bas de la feuille */
+  --rh-off: calc(var(--html-fs, 19px) * 1.55); /* centre du titre courant, depuis le haut */
+  --sheet-bleed: 26px; /* l'intervalle déborde de la feuille pour couper son ombre latérale */
+  --paper-gutter: clamp(14px, 5cqi, 72px);
+  --desk: var(--paper-desk);
+  --paper: var(--paper-sheet);
+  --sheet-edge: var(--paper-edge);
+  --sheet-shade: var(--paper-shade);
+  --sheet-shadow: var(--paper-shadow);
+  --folio: var(--paper-folio);
+  padding-top: 40px;
+  background: var(--desk);
+}
+/* Couleurs, par thème (au niveau racine : le pied du volet de lecture prend aussi le fond de table). */
+:root {
+  /* Clair : feuille presque blanche sur un fond de table gris chaud. */
+  --paper-desk: color-mix(in srgb, var(--ink) 8%, var(--bg-panel));
+  --paper-sheet: var(--bg-page);
+  --paper-edge: color-mix(in srgb, var(--ink) 12%, transparent);
+  --paper-shade: color-mix(in srgb, var(--ink) 8%, transparent);
+  --paper-shadow:
+    0 0 0 0.5px var(--paper-edge),
+    0 1px 2px color-mix(in srgb, var(--ink) 7%, transparent),
+    0 8px 22px -12px color-mix(in srgb, var(--ink) 26%, transparent);
+  --paper-folio: color-mix(in srgb, var(--ink) 50%, transparent);
+}
+:root[data-theme='sepia'] {
+  /* Sépia : papier crème, table d'un brun clair. */
+  --paper-desk: color-mix(in srgb, #6b5232 14%, var(--bg-page));
+  --paper-sheet: color-mix(in srgb, #fff 32%, var(--bg-page));
+  --paper-edge: rgba(90, 64, 30, 0.16);
+  --paper-shade: rgba(90, 64, 30, 0.1);
+  --paper-shadow:
+    0 0 0 0.5px var(--paper-edge),
+    0 1px 2px rgba(90, 64, 30, 0.08),
+    0 8px 22px -12px rgba(90, 64, 30, 0.32);
+}
+:root[data-theme='dark'] {
+  /* Sombre : feuille gris chaud à peine plus claire que la page, table presque noire. */
+  --paper-desk: color-mix(in srgb, #000 42%, var(--bg-page));
+  --paper-sheet: color-mix(in srgb, var(--ink) 3.5%, var(--bg-page));
+  --paper-edge: rgba(255, 245, 225, 0.075);
+  --paper-shade: rgba(0, 0, 0, 0.32);
+  --paper-shadow:
+    0 0 0 0.5px var(--paper-edge),
+    0 1px 2px rgba(0, 0, 0, 0.45),
+    0 10px 24px -12px rgba(0, 0, 0, 0.75);
+  --paper-folio: color-mix(in srgb, var(--ink) 46%, transparent);
+}
+.html-scroll:has(> .html-doc.pg-paper),
+.reader-page:has(.html-doc.pg-paper) .reader-pagejump-host {
+  background: var(--paper-desk);
+}
+
+/* Un chapitre = une pile de feuilles ; pas de filet entre chapitres, l'intervalle suffit. */
+.pg-paper .html-chapter {
+  padding: calc(var(--sheet-gap) / 2) var(--paper-gutter);
+}
+.pg-paper .html-chapter + .html-chapter {
+  padding-top: calc(var(--sheet-gap) / 2);
+}
+.pg-paper .html-chapter + .html-chapter::before {
+  display: none;
+}
+
+/* Le ruban de papier : la colonne, élargie des marges de la feuille. */
+.pg-paper .html-col {
+  box-sizing: border-box;
+  max-width: calc(var(--html-measure, 66ch) + 2 * var(--sheet-px));
+  padding: calc(var(--sheet-pt) + var(--sheet-sink)) var(--sheet-px) var(--sheet-pb);
+  background: var(--paper);
+  box-shadow: var(--sheet-shadow);
+}
+.pg-paper .html-chapter-text > :last-child,
+.pg-paper .html-chapter-text > :last-child > :last-child {
+  margin-bottom: 0;
+}
+/* Folio de la dernière feuille du chapitre. */
+.pg-paper .html-col[data-pg-end]::after {
+  content: attr(data-pg-end);
+  position: absolute;
+  left: var(--sheet-px);
+  right: var(--sheet-px);
+  bottom: 0;
+  text-align: center;
+  font: 400 12.5px / calc(var(--folio-off) * 2) var(--font-read);
+  font-variant-caps: small-caps;
+  font-variant-numeric: lining-nums tabular-nums;
+  letter-spacing: 0.06em;
+  color: var(--folio);
+  pointer-events: none;
+}
+
+/* La coupure entre deux feuilles. */
+.pg-paper .pg-mark:not(.pg-chap):not(.pg-start) {
+  display: block;
+  height: calc(var(--sheet-pb) + var(--sheet-gap));
+  padding: 0 0 var(--sheet-pt);
+  margin: 0;
+  border: 0;
+  font-size: inherit;
+  vertical-align: baseline;
+  box-sizing: content-box;
+}
+/* Entre deux paragraphes : la marge du paragraphe précédent est absorbée par la marge basse
+   de la feuille (marges fusionnées), pour que toutes les feuilles aient le même pied. */
+.pg-paper .pg-mark.pg-block:not(.pg-chap):not(.pg-start) {
+  margin-top: -1em;
+}
+/* L'intervalle : fond de table sur toute la largeur, bords des deux feuilles, ombre portée. */
+.pg-paper .pg-mark:not(.pg-chap):not(.pg-start)::before {
+  --w: calc(100% - 2 * var(--sheet-bleed));
+  content: '';
+  position: absolute;
+  left: calc(-1 * var(--sheet-bleed));
+  right: calc(-1 * var(--sheet-bleed));
+  height: var(--sheet-gap);
+  margin-top: var(--sheet-pb);
+  background:
+    linear-gradient(var(--sheet-edge), var(--sheet-edge)) var(--sheet-bleed) 0 / var(--w) 1px no-repeat,
+    linear-gradient(var(--sheet-shade), transparent) var(--sheet-bleed) 1px / var(--w) 11px no-repeat,
+    linear-gradient(color-mix(in srgb, var(--sheet-shade) 45%, transparent), transparent) var(--sheet-bleed) 1px / var(--w) 4px no-repeat,
+    linear-gradient(transparent, color-mix(in srgb, var(--sheet-shade) 40%, transparent)) var(--sheet-bleed) calc(100% - 1px) / var(--w) 3px no-repeat,
+    linear-gradient(var(--sheet-edge), var(--sheet-edge)) var(--sheet-bleed) 100% / var(--w) 1px no-repeat,
+    var(--desk);
+  pointer-events: none;
+}
+/* Folio (bas de la feuille qui finit) et titre courant (haut de la suivante) : deux lignes d'un
+   même pseudo-élément, espacées d'une hauteur de ligne qui enjambe l'intervalle. */
+.pg-paper .pg-mark:not(.pg-chap):not(.pg-start)::after {
+  --lh: calc(var(--folio-off) + var(--sheet-gap) + var(--rh-off));
+  content: attr(data-pg-prev) '\A' attr(data-rh);
+  position: absolute;
+  left: var(--sheet-px);
+  right: var(--sheet-px);
+  height: calc(var(--lh) * 2);
+  margin-top: calc(var(--sheet-pb) - var(--folio-off) - var(--lh) / 2);
+  transform: none;
+  overflow: hidden;
+  white-space: pre;
+  text-overflow: ellipsis;
+  text-align: center;
+  font: 400 12.5px / var(--lh) var(--font-read);
+  font-variant-caps: small-caps;
+  font-variant-numeric: lining-nums tabular-nums;
+  letter-spacing: 0.06em;
+  color: var(--folio);
+  pointer-events: none;
+}
+.pg-paper .pg-mark.pg-chap::after,
+.pg-paper .pg-mark.pg-start::after {
+  display: none;
+}
+
+@container html-reader (max-width: 560px) {
+  .html-doc.pg-paper {
+    --sheet-px: clamp(20px, 6cqi, 34px);
+    --sheet-gap: 22px;
+    --paper-gutter: 12px;
+    --sheet-bleed: 14px;
+    padding-top: 24px;
+  }
+  .pg-paper .pg-mark:not(.pg-chap):not(.pg-start)::after,
+  .pg-paper .html-col[data-pg-end]::after {
+    font-size: 11.5px;
+  }
+}

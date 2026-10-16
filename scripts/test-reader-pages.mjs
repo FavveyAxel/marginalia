@@ -3,7 +3,11 @@
 //   page imprimée des extraits, sélection / copie sans les repères, offsets des surlignages inchangés ;
 // - même livre sans page-list (repères epub:type / role="doc-pagebreak" seuls) ;
 // - EPUB sans pages : pagination estimée stable quand la taille du texte change ;
-// - réglage « Marquer les pages » (trait et numéro / trait seul / aucun) ;
+// - réglage « Marquer les pages » (pages façon papier / trait et numéro / trait seul / aucun) ;
+// - pages façon papier (défaut) : une feuille par page (textContent inchangé, folio, titre courant,
+//   page tournée au milieu d'un paragraphe, surlignage sur deux feuilles, copie sans numéro ni saut,
+//   « Aller à la page » au haut de la feuille, indicateur = feuille sous la ligne de lecture à 30 %),
+//   captures shots/papier/ (clair, milieu de paragraphe, sombre, sépia, réglages, côte à côte) ;
 // - aller à la page : indicateur, raccourci ⌘⌥G (Ctrl+Maj+G sous Windows), palette ⌘K (« page 3 », « p x », « 45 »),
 //   page inexistante, pastille de retour, position sauvegardée ; PDF à libellés de page (i, ii, 1, 2…) ;
 // - captures clair / sombre / côte à côte.
@@ -368,10 +372,256 @@ const verifyHighlights = (page, bookId) =>
       });
   }, bookId);
 
+// ── Pages façon papier ───────────────────────────────────────
+
+/** Repères en mode papier : géométrie et attributs (folio, titre courant). */
+const paperMarks = (page, pane = 'a') =>
+  page.evaluate((pane) => {
+    const pg = document.querySelector(`.reader-page[data-pane="${pane}"]`);
+    return [...pg.querySelectorAll('.pg-mark')].map((el) => {
+      const cs = getComputedStyle(el);
+      const r = el.getBoundingClientRect();
+      const b = getComputedStyle(el, '::before');
+      return {
+        label: el.dataset.pg,
+        cls: el.className,
+        display: cs.display,
+        h: Math.round(r.height),
+        prev: el.dataset.pgPrev,
+        rh: el.dataset.rh,
+        gap: b.display !== 'none' ? b.height : null,
+      };
+    });
+  }, pane);
+
+/** Haut de la feuille d'une page, relatif au haut du volet. */
+const sheetTopOf = (page, label, pane = 'a') =>
+  page.evaluate(
+    ({ label, pane }) => {
+      const sc = document.querySelector(`.reader-page[data-pane="${pane}"] .html-scroll`);
+      const el = [...sc.querySelectorAll('.pg-mark')].find((m) => m.dataset.pg === label);
+      const r = el.getBoundingClientRect();
+      const top = /pg-chap|pg-start/.test(el.className) ? el.closest('.html-col').getBoundingClientRect().top : r.bottom - parseFloat(getComputedStyle(el).paddingBottom);
+      return Math.round(top - sc.getBoundingClientRect().top);
+    },
+    { label, pane },
+  );
+
+/** Page attendue d'après le DOM : la feuille sous la ligne de lecture (30 % de la hauteur du volet). */
+const pageUnderLine = (page, pane = 'a') =>
+  page.evaluate((pane) => {
+    const sc = document.querySelector(`.reader-page[data-pane="${pane}"] .html-scroll`);
+    const y = sc.getBoundingClientRect().top + sc.clientHeight * 0.3;
+    let label = '';
+    for (const el of sc.querySelectorAll('.pg-mark')) {
+      const r = el.getBoundingClientRect();
+      const edge = /pg-chap|pg-start/.test(el.className) ? r.top : r.top + r.height / 2;
+      if (edge <= y) label = el.dataset.pg;
+    }
+    return label;
+  }, pane);
+
+const chapterTexts = (page, pane = 'a') =>
+  page.evaluate((pane) => [...document.querySelectorAll(`.reader-page[data-pane="${pane}"] .html-chapter-text`)].map((r) => r.textContent), pane);
+
+async function paperScenario(page, { printedId, plainId }) {
+  console.log('\n== Pages façon papier (réglage par défaut) ==');
+  await page.evaluate(() => window.__store.getState().updateSettings({ pageMarks: 'off', theme: 'light' }));
+  await page.waitForTimeout(300);
+  const textsOff = await chapterTexts(page);
+  await page.evaluate(() => window.__store.getState().updateSettings({ pageMarks: undefined }));
+  await page.waitForTimeout(500);
+  check(await page.evaluate(() => document.querySelector('.reader-page[data-pane="a"] .html-doc').classList.contains('pg-paper')), 'réglage par défaut : pages façon papier');
+  const textsPaper = await chapterTexts(page);
+  check(textsOff.length === 3 && JSON.stringify(textsOff) === JSON.stringify(textsPaper), 'textContent des chapitres identique avec et sans feuilles');
+  const pm = await paperMarks(page);
+  const P = Object.fromEntries(pm.map((m) => [m.label, m]));
+  const breaks = ['x', 'xi', '2', '3', '4', '6', '7'];
+  check(
+    breaks.every((l) => P[l]?.display === 'block' && P[l].h > 100 && P[l].gap === '30px'),
+    'chaque changement de page (entre deux paragraphes ou au milieu) sépare deux feuilles, intervalle de 30 px',
+    pm.map((m) => [m.label, m.display, m.h, m.gap]),
+  );
+  check(['ix', '1', '5'].every((l) => P[l]?.display !== 'block'), 'début de livre ou de chapitre : la feuille du chapitre suffit (pas de coupure)', pm.map((m) => [m.label, m.display]));
+  check(P.x?.prev === 'ix' && P.xi?.prev === 'x' && P['2']?.prev === '1' && P['6']?.prev === '5', 'folio en bas de la feuille qui finit : la page précédente (romains compris)', pm.map((m) => [m.label, m.prev]));
+  check(
+    P.x?.rh === 'Méditations paginées' && P.xi?.rh === 'Préface' && P['2']?.rh === 'Méditations paginées' && P['3']?.rh === 'Chapitre premier',
+    'titre courant : livre au verso, chapitre au recto',
+    pm.map((m) => [m.label, m.rh]),
+  );
+  const ends = await page.evaluate(() => [...document.querySelectorAll('.reader-page[data-pane="a"] .html-col')].map((c) => c.dataset.pgEnd));
+  check(JSON.stringify(ends) === JSON.stringify(['xi', '4', '7']), 'folio de la dernière feuille de chaque chapitre', ends);
+  const colors = await page.evaluate(() => ({
+    sheet: getComputedStyle(document.querySelector('.html-col')).backgroundColor,
+    desk: getComputedStyle(document.querySelector('.html-scroll')).backgroundColor,
+    shadow: getComputedStyle(document.querySelector('.html-col')).boxShadow,
+  }));
+  check(colors.sheet !== colors.desk && colors.shadow !== 'none', 'feuille distincte du fond (couleur, liseré, ombre)', colors);
+
+  // Page tournée au milieu d'un paragraphe : la phrase reprend en haut de la feuille suivante.
+  const turn = await page.evaluate(() => {
+    const el = [...document.querySelectorAll('.reader-page[data-pane="a"] .pg-mark')].find((m) => m.dataset.pg === 'x');
+    el.scrollIntoView({ block: 'center' });
+    const rect = (node, a, b) => {
+      const r = document.createRange();
+      r.setStart(node, a);
+      r.setEnd(node, b);
+      return r.getBoundingClientRect();
+    };
+    // Nœuds texte voisins (le surlignage créé plus haut enveloppe le texte de part et d'autre).
+    const w = document.createTreeWalker(el.closest('.html-chapter-text'), NodeFilter.SHOW_TEXT);
+    w.currentNode = el;
+    const before = w.previousNode();
+    w.currentNode = el;
+    const after = w.nextNode();
+    const ok = !!el.closest('p') && before?.parentElement.closest('p') === el.closest('p') && after?.parentElement.closest('p') === el.closest('p');
+    if (!ok) return { ok };
+    const rb = rect(before, before.data.length - 2, before.data.length - 1);
+    const ra = rect(after, 0, 1);
+    const m = el.getBoundingClientRect();
+    return { ok, beforeBottom: rb.bottom, markTop: m.top, markBottom: m.bottom, afterTop: ra.top };
+  });
+  check(turn.ok && turn.beforeBottom <= turn.markTop + 1 && turn.afterTop >= turn.markBottom - 1, 'milieu de paragraphe : fin de la ligne en bas de la feuille, suite en haut de la suivante', turn);
+
+  // Le surlignage (créé plus haut) qui traverse le repère « x » se dessine sur les deux feuilles.
+  let hv = await verifyHighlights(page, printedId);
+  check(hv.length === 3 && hv.every((h) => h.ok), 'feuilles : surlignages exacts (texte, offsets)', hv);
+  const across = await page.evaluate(() => {
+    const el = [...document.querySelectorAll('.reader-page[data-pane="a"] .pg-mark')].find((m) => m.dataset.pg === 'x');
+    const m = el.getBoundingClientRect();
+    const h = window.__store.getState().highlights.find((x) => x.category === 'these');
+    const rects = [...document.querySelectorAll(`[data-hl-id="${h.id}"]`)].flatMap((e) => [...e.getClientRects()]).filter((r) => r.width > 0);
+    return { above: rects.filter((r) => r.bottom <= m.top + 1).length, below: rects.filter((r) => r.top >= m.bottom - 1).length };
+  });
+  check(across.above > 0 && across.below > 0, 'surlignage à cheval sur deux feuilles : visible sur l’une et l’autre', across);
+
+  // Sélection et copie (⌘C) à travers une coupure de feuille : texte exact, sans numéro ni saut ajouté.
+  const sel = await selectAroundMark(page, 'x', 40, 30);
+  await page.waitForTimeout(150);
+  await page.keyboard.press('Control+c');
+  await page.waitForTimeout(150);
+  const clip = await page.evaluate(() => navigator.clipboard.readText().catch((e) => 'ERR ' + e.message));
+  check(sel.crosses && clip === sel.expected && !/\n/.test(clip), 'copie à travers la coupure : texte exact (ni numéro, ni saut de ligne)', { clip, exp: sel.expected });
+  await page.evaluate(() => getSelection().removeAllRanges());
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(150);
+
+  // Aller à la page : la feuille entière, son bord haut juste sous le haut du volet.
+  for (const l of ['4', 'xi', '5', '2']) {
+    await jumpViaIndicator(page, l);
+    const top = await sheetTopOf(page, l);
+    const ind = await indicator(page);
+    check(top >= 4 && top <= 26 && ind === `p. ${l} / 7`, `aller à la page ${l} : haut de la feuille en haut du volet, « p. ${l} / 7 »`, { top, ind });
+  }
+
+  // Indicateur pendant le défilement (molette) : toujours la feuille sous la ligne de lecture.
+  await jumpViaIndicator(page, 'ix');
+  let agree = 0;
+  const seen = new Set();
+  const misses = [];
+  const steps = 26;
+  for (let i = 0; i < steps; i++) {
+    await page.mouse.move(700, 450);
+    await page.mouse.wheel(0, 260);
+    await page.waitForTimeout(380);
+    const want = await pageUnderLine(page);
+    const got = await indicator(page);
+    seen.add(want);
+    if (got === `p. ${want} / 7`) agree++;
+    else misses.push([want, got]);
+  }
+  check(agree === steps && seen.size >= 6, `défilement : indicateur = feuille sous la ligne de lecture (${agree}/${steps}, ${seen.size} pages vues)`, misses);
+  // Cas signalé : la feuille suivante occupe déjà le premier tiers de l'écran → c'est elle.
+  await page.evaluate(() => {
+    const sc = document.querySelector('.reader-page[data-pane="a"] .html-scroll');
+    const el = [...sc.querySelectorAll('.pg-mark')].find((m) => m.dataset.pg === '3');
+    const r = el.getBoundingClientRect();
+    sc.scrollTop += r.bottom - sc.getBoundingClientRect().top - sc.clientHeight * 0.22;
+  });
+  await page.waitForTimeout(450);
+  check((await indicator(page)) === 'p. 3 / 7', 'feuille 3 commencée au premier quart de l’écran : « p. 3 / 7 »', await indicator(page));
+
+  // Captures.
+  const centerMark = (label, frac) =>
+    page.evaluate(
+      ({ label, frac }) => {
+        const sc = document.querySelector('.reader-page[data-pane="a"] .html-scroll');
+        const el = [...sc.querySelectorAll('.pg-mark')].find((m) => m.dataset.pg === label);
+        const r = el.getBoundingClientRect();
+        sc.scrollTop += r.top + r.height / 2 - sc.getBoundingClientRect().top - sc.clientHeight * frac;
+      },
+      { label, frac },
+    );
+  await centerMark('3', 0.42);
+  await shot(page, 'shots/papier/01-clair.png');
+  await centerMark('x', 0.5); // le surlignage « Thèse » passe d'une feuille à l'autre
+  await shot(page, 'shots/papier/02-milieu-paragraphe.png');
+  await page.evaluate(() => window.__store.getState().updateSettings({ theme: 'dark' }));
+  await page.waitForTimeout(300);
+  await centerMark('3', 0.42);
+  const dark = await page.evaluate(() => ({ sheet: getComputedStyle(document.querySelector('.html-col')).backgroundColor, desk: getComputedStyle(document.querySelector('.html-scroll')).backgroundColor }));
+  check(dark.sheet !== dark.desk, 'thème sombre : feuille distincte du fond', dark);
+  await shot(page, 'shots/papier/03-sombre.png');
+  await page.evaluate(() => window.__store.getState().updateSettings({ theme: 'sepia' }));
+  await page.waitForTimeout(300);
+  await shot(page, 'shots/papier/04-sepia.png');
+  await page.evaluate(() => window.__store.getState().updateSettings({ theme: 'light' }));
+  await page.waitForTimeout(200);
+
+  // Réglages : papier, trait et numéro, trait seul, aucun.
+  await page.click('.reader-topbar button[title="Affichage"]');
+  await page.waitForSelector('[data-testid=page-marks-mode]');
+  await page.waitForTimeout(400);
+  const labels = await page.evaluate(() =>
+    [...document.querySelectorAll('[data-testid=page-marks-mode] .typo-choice')].map((b) => `${b.textContent}${b.getAttribute('aria-checked') === 'true' ? '*' : ''}`),
+  );
+  check(JSON.stringify(labels) === JSON.stringify(['Pages façon papier*', 'Trait et numéro', 'Trait seul']), 'réglages : « Pages façon papier » (choisi), « Trait et numéro », « Trait seul »', labels);
+  await shot(page, 'shots/papier/05-reglages.png');
+  const mode = () => page.evaluate(() => [...document.querySelector('.reader-page[data-pane="a"] .html-doc').classList].find((c) => /^pg-/.test(c)));
+  const xDisplay = () => page.evaluate(() => getComputedStyle([...document.querySelectorAll('.reader-page[data-pane="a"] .pg-mark')].find((m) => m.dataset.pg === 'x')).display);
+  const states = [];
+  for (const sel of ['.typo-choice[data-mode=numbered]', '.typo-choice[data-mode=rule]', '[data-testid=page-marks-switch]', '[data-testid=page-marks-switch]']) {
+    await page.click(sel);
+    await page.waitForTimeout(250);
+    states.push([await mode(), await xDisplay()]);
+  }
+  check(
+    JSON.stringify(states) === JSON.stringify([['pg-numbered', 'inline'], ['pg-rule', 'inline'], ['pg-off', 'inline'], ['pg-paper', 'block']]),
+    'changement de façon : trait et numéro → trait seul → aucun → papier',
+    states,
+  );
+  await page.keyboard.press('Escape');
+  check(JSON.stringify(await chapterTexts(page)) === JSON.stringify(textsOff), 'après les changements de façon : textContent inchangé');
+  hv = await verifyHighlights(page, printedId);
+  check(hv.every((h) => h.ok), 'après les changements de façon : surlignages exacts', hv);
+
+  // Côte à côte : deux piles de feuilles, chacune son indicateur.
+  await page.evaluate(({ a, b }) => window.__store.getState().navigate({ name: 'reader', bookId: a, tab: 'lecture', splitBookId: b }), { a: printedId, b: plainId });
+  await waitHtml(page);
+  await waitHtml(page, 'b');
+  const pb = await paperMarks(page, 'b');
+  check(pb.length > 20 && pb.filter((m) => m.display === 'block').length >= pb.length - 4, 'côte à côte : feuilles dans le second volet (pagination estimée)', pb.length);
+  await jumpViaIndicator(page, '3', 'a');
+  await page.evaluate(() => {
+    document.querySelector('.reader-page[data-pane="b"] .html-scroll').scrollTop = 2100;
+  });
+  await page.waitForTimeout(450);
+  const wantB = await pageUnderLine(page, 'b');
+  const inds = [await indicator(page, 'a'), await indicator(page, 'b')];
+  check(inds[0] === 'p. 3 / 7' && inds[1] === `p. ${wantB} / ${pb.length}`, 'côte à côte : chaque volet indique sa feuille', { inds, wantB });
+  await page.evaluate(() => {
+    document.querySelector('.reader-page[data-pane="a"] .html-scroll').scrollTop -= 260;
+  });
+  await shot(page, 'shots/papier/06-scinde.png');
+  await page.evaluate((a) => window.__store.getState().navigate({ name: 'reader', bookId: a, tab: 'lecture', splitBookId: null }), printedId);
+  await page.waitForTimeout(300);
+}
+
 // ── Scénario ─────────────────────────────────────────────────
 
 await withApp(async (page) => {
-  await page.evaluate(() => window.__store.getState().updateSettings({ showToc: true, showExtracts: true, theme: 'light' }));
+  // Les premières sections vérifient l'ancien rendu (« Trait et numéro ») ; le mode papier, par défaut, a la sienne plus bas.
+  await page.evaluate(() => window.__store.getState().updateSettings({ showToc: true, showExtracts: true, theme: 'light', pageMarks: 'numbered' }));
 
   console.log('\n== EPUB 3 à pages imprimées (page-list) ==');
   const printedId = await importBuffer(page, 'meditations-paginees.epub', await epubPrinted());
@@ -496,11 +746,12 @@ await withApp(async (page) => {
     console.log('capture: shots/reader-pages-goto.png');
   }
   await page.keyboard.press('Escape');
-  check(!(await page.$('[data-testid=page-jump-input]')) && (await indicator(page)) === 'p. 1 / 7', 'Échap : champ refermé sans saut', await indicator(page));
+  // Page 2 commence au premier tiers de l'écran : c'est elle qu'on lit (ligne de lecture à 30 %), pas la 1.
+  check(!(await page.$('[data-testid=page-jump-input]')) && (await indicator(page)) === 'p. 2 / 7', 'Échap : champ refermé sans saut ; indicateur = page lue (p. 2)', await indicator(page));
   await page.click('.reader-topbar button[title="Affichage"]');
   await page.waitForSelector('[data-testid=page-marks-switch]');
   await shot(page, 'shots/reader-pages-settings.png');
-  await page.click('.typo-seg-sub button:has-text("Trait seul")');
+  await page.click('.typo-choice[data-mode=rule]');
   await page.waitForTimeout(200);
   ms = await marks(page);
   check(ms.filter((m) => !m.cls.includes('pg-start') && !m.cls.includes('pg-chap')).every((m) => m.rule && !m.num), 'réglage « trait seul » : trait sans numéro');
@@ -513,10 +764,13 @@ await withApp(async (page) => {
   await jumpViaPalette(page, 'page 5');
   check((await indicator(page)) === 'p. 5 / 7', 'repères masqués : « Aller à la page » fonctionne toujours', await indicator(page));
   await page.click('[data-testid=page-marks-switch]');
+  await page.waitForTimeout(200);
+  check(await page.evaluate(() => document.querySelector('.html-doc').classList.contains('pg-paper')), 'réactivé : pages façon papier (par défaut)');
+  await page.click('.typo-choice[data-mode=numbered]');
   await page.keyboard.press('Escape');
   await page.waitForTimeout(200);
   ms = await marks(page);
-  check(ms.find((m) => m.label === '6')?.num === '"6"', 'réactivé : trait et numéro');
+  check(ms.find((m) => m.label === '6')?.num === '"6"', '« Trait et numéro » : trait et numéro');
 
   // Rechargement : surlignages identiques.
   await page.waitForTimeout(900);
@@ -616,6 +870,8 @@ await withApp(async (page) => {
   check((await indicator(page, 'a')) === 'p. 3 / 7' && (await indicator(page, 'b')) === `p. 5 / ${last}`, 'côte à côte : chaque volet a sa page', [await indicator(page, 'a'), await indicator(page, 'b')]);
   await shot(page, 'shots/reader-pages-split.png');
   await page.evaluate((a) => window.__store.getState().navigate({ name: 'reader', bookId: a, tab: 'lecture', splitBookId: null }), printedId);
+  await waitHtml(page);
+  await paperScenario(page, { printedId, plainId });
 
   console.log('\n== PDF à libellés de page (i, ii, 1, 2, 3) ==');
   const pdfId = await importBuffer(page, 'libelles.pdf', pdfWithLabels());

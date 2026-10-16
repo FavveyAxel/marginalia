@@ -13,6 +13,22 @@ const THEMES: { id: ThemeId; label: string }[] = [
   { id: 'dark', label: 'Sombre' },
 ];
 
+type PageMarkMode = Exclude<NonNullable<Settings['pageMarks']>, 'off'>;
+
+/** Façons de marquer les pages (livres EPUB…) ; la première est le réglage par défaut. */
+const PAGE_MARK_MODES: { id: PageMarkMode; label: string }[] = [
+  { id: 'paper', label: 'Pages façon papier' },
+  { id: 'numbered', label: 'Trait et numéro' },
+  { id: 'rule', label: 'Trait seul' },
+];
+
+const PAGE_MARK_SUB: Record<NonNullable<Settings['pageMarks']>, string> = {
+  paper: 'Une feuille par page, numéro en bas',
+  numbered: 'Un trait discret à chaque changement de page',
+  rule: 'Un trait discret à chaque changement de page',
+  off: 'Aucun repère dans le texte',
+};
+
 function Slider({
   label,
   value,
@@ -70,7 +86,7 @@ export function TypographyPopover({ anchor, onClose }: { anchor: DOMRect; onClos
   }, []);
 
   const set = (patch: Partial<Settings>) => update(patch);
-  const pageMarks = s.pageMarks ?? 'numbered';
+  const pageMarks = s.pageMarks ?? 'paper';
 
   return createPortal(
     <div
@@ -125,27 +141,38 @@ export function TypographyPopover({ anchor, onClose }: { anchor: DOMRect; onClos
       <label className="typo-switch-row">
         <span>
           <span className="typo-switch-title">Marquer les pages</span>
-          <span className="typo-switch-sub">Un trait discret à chaque changement de page</span>
+          <span className="typo-switch-sub">{PAGE_MARK_SUB[pageMarks]}</span>
         </span>
         <button
           type="button"
           role="switch"
           aria-checked={pageMarks !== 'off'}
           className={`typo-switch ${pageMarks !== 'off' ? 'on' : ''}`}
-          onClick={() => set({ pageMarks: pageMarks === 'off' ? 'numbered' : 'off' })}
+          onClick={() => set({ pageMarks: pageMarks === 'off' ? 'paper' : 'off' })}
           data-testid="page-marks-switch"
         >
           <span />
         </button>
       </label>
       {pageMarks !== 'off' && (
-        <div className="segmented typo-seg typo-seg-sub" role="radiogroup" aria-label="Repères de page">
-          <button role="radio" aria-checked={pageMarks === 'numbered'} className={pageMarks === 'numbered' ? 'active' : ''} onClick={() => set({ pageMarks: 'numbered' })}>
-            Trait et numéro
-          </button>
-          <button role="radio" aria-checked={pageMarks === 'rule'} className={pageMarks === 'rule' ? 'active' : ''} onClick={() => set({ pageMarks: 'rule' })}>
-            Trait seul
-          </button>
+        <div className="typo-choices" role="radiogroup" aria-label="Repères de page" data-testid="page-marks-mode">
+          {PAGE_MARK_MODES.map((m) => (
+            <button
+              key={m.id}
+              type="button"
+              role="radio"
+              aria-checked={pageMarks === m.id}
+              className={`typo-choice ${pageMarks === m.id ? 'active' : ''}`}
+              onClick={() => set({ pageMarks: m.id })}
+              data-mode={m.id}
+            >
+              <span className={`typo-choice-icon pm-${m.id}`} aria-hidden="true">
+                <i />
+                <i />
+              </span>
+              <span className="typo-choice-label">{m.label}</span>
+            </button>
+          ))}
         </div>
       )}
       <div

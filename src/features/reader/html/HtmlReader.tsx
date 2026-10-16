@@ -18,7 +18,7 @@ import type { BookmarkPoint, EngineHandle, EngineProps, SearchHit } from '../eng
 import { bookmarkColor, clipWords, proposeLabel, sentenceAt } from '../bookmarks/bookmarks';
 import { allIndexes, fold, isBlockEl, locate, makeAnchor, offsetOf, rangeFor, resolveAnchor, unwrapAll, wrapOffsets, type Folded, type TextSpan } from './anchoring';
 import { parseBook, printedPageAt, ReaderError, type ParsedDoc } from './parse';
-import { ESTIMATED_NOTE, findPage, lastLabel, paginate, type Pagination, type PageStatus } from '../pages';
+import { ESTIMATED_NOTE, findPage, lastLabel, paginate, romanToInt, type Pagination, type PageStatus } from '../pages';
 import './html-reader.css';
 
 interface HlState {
@@ -42,6 +42,7 @@ interface SelInfo {
 const POSITION_INTERVAL = 250; // ≤ 4 notifications par seconde
 const MAX_HITS = 1000;
 const SMOOTH_MS = 380; // glissé vers un extrait, un titre, un résultat
+const SHEET_LEAD = 14; // « Aller à la page » en mode papier : un peu de fond au-dessus de la feuille
 
 const sigOf = (h: Highlight) => {
   const a = h.anchor as HtmlAnchor;
@@ -60,18 +61,41 @@ function connectorRegex(): RegExp {
 
 const nextFrame = () => new Promise<void>((r) => requestAnimationFrame(() => r()));
 
+/** Longueur maximale d'un titre courant (haut de feuille, mode papier). */
+const RUNNING_HEAD_MAX = 64;
+const clipHead = (s: string) => {
+  const t = s.replace(/\s+/g, ' ').trim();
+  return t.length > RUNNING_HEAD_MAX ? t.slice(0, RUNNING_HEAD_MAX - 1).trimEnd() + '…' : t;
+};
+
+/** Page paire (verso : titre du livre en tête) ou impaire (recto : titre du chapitre), comme un livre. */
+function isVerso(label: string, index: number): boolean {
+  const n = /^[0-9]+$/.test(label.trim()) ? Number(label) : romanToInt(label.trim());
+  return (n ?? index + 1) % 2 === 0;
+}
+
+interface PageEntryAt {
+  index: number;
+  offset: number;
+  label: string;
+  /** Libellé de la page précédente (folio imprimé en bas de la feuille qui se termine). */
+  prev: string;
+}
+
 /**
  * Repères de page dans un chapitre (encore détaché du document) : un <span> VIDE par page,
- * posé à la première lettre de la page. Le trait et le numéro sont dessinés en CSS
- * (pseudo-éléments) : rien n'entre dans le textContent (offsets des surlignages inchangés),
- * rien ne se sélectionne ni ne se copie. Un seul parcours des nœuds texte par chapitre.
+ * posé à la première lettre de la page. Le trait et le numéro (ou, en mode papier, la coupure
+ * entre deux feuilles, le folio et le titre courant) sont dessinés en CSS à partir d'attributs
+ * data-* : rien n'entre dans le textContent (offsets des surlignages inchangés), rien ne se
+ * sélectionne ni ne se copie. Un seul parcours des nœuds texte par chapitre.
  */
 function insertPageMarks(
   root: HTMLElement,
   chapter: number,
   text: string,
-  entries: { index: number; offset: number; label: string }[],
+  entries: PageEntryAt[],
   estimated: boolean,
+  heads: { book: string; chapter: string },
 ): HTMLElement[] {
   const nodes: Text[] = [];
   const starts: number[] = [];
@@ -93,6 +117,9 @@ function insertPageMarks(
     el.className = 'pg-mark';
     el.setAttribute('data-pg', e.label);
     el.setAttribute('data-pg-index', String(e.index));
+    // Mode papier : folio de la feuille qui s'achève et titre courant de la suivante.
+    el.setAttribute('data-pg-prev', e.prev);
+    el.setAttribute('data-rh', isVerso(e.label, e.index) ? heads.book : heads.chapter);
     el.setAttribute('aria-hidden', 'true');
     el.title = estimated ? `Page ${e.label} — ${ESTIMATED_NOTE}` : `Page ${e.label}`;
     const blockStart = eff === 0 || text[eff - 1] === '\n';
@@ -375,14 +402,43 @@ export const HtmlReader = forwardRef<EngineHandle, EngineProps>(function HtmlRea
     return Math.round(s.fontSize * s.lineHeight * 1.2 + 10);
   };
 
-  /** Page lue : dernier repère passé au-dessus de la ligne de lecture (haut de la fenêtre). */
+  const paperOn = () => !!docRef.current?.classList.contains('pg-paper');
+  /** Repère qui coupe deux feuilles (mode papier) ; un début de chapitre ou de livre ouvre déjà la sienne. */
+  const isSheetBreak = (el: HTMLElement) => !el.classList.contains('pg-chap') && !el.classList.contains('pg-start');
+
+  /**
+   * Ordonnée où commence la page d'un repère. Mode papier : la coupure entre deux feuilles est
+   * le repère lui-même (bloc vide : marge basse de la feuille, intervalle, marge haute de la
+   * suivante) ; la page commence au milieu de l'intervalle. Sinon : la ligne du repère.
+   */
+  const pageEdge = (el: HTMLElement, paper: boolean) => {
+    const r = el.getBoundingClientRect();
+    return paper && isSheetBreak(el) ? r.top + r.height / 2 : r.top;
+  };
+
+  /**
+   * Haut de la feuille d'une page (mode papier), pour « Aller à la page » : bas du repère moins
+   * la marge haute de la feuille (padding-bottom du repère), ou haut de la colonne en début de chapitre.
+   */
+  const sheetTop = (el: HTMLElement): number => {
+    const r = el.getBoundingClientRect();
+    if (isSheetBreak(el)) return r.bottom - (parseFloat(getComputedStyle(el).paddingBottom) || 0);
+    const col = el.closest('.html-col');
+    return col ? col.getBoundingClientRect().top : r.top;
+  };
+
+  /**
+   * Page lue : dernier début de page passé au-dessus de la ligne de lecture, à 30 % de la hauteur
+   * du volet (là où l'œil lit ; un repère à peine sorti du bord haut ne fait pas encore la page).
+   */
   const pageAtView = (): number => {
     const sc = scrollRef.current;
     const pag = pagRef.current;
     const secs = sectionsRef.current;
     if (!sc || !pag || !pag.pages.length || !secs.length) return -1;
     const scRect = sc.getBoundingClientRect();
-    const y = scRect.top + Math.max(pageLead() + 12, Math.min(sc.clientHeight * 0.2, 160));
+    const paper = paperOn();
+    const y = scRect.top + sc.clientHeight * 0.3;
     let lo = 0;
     let hi = secs.length - 1;
     let ch = 0;
@@ -400,7 +456,7 @@ export const HtmlReader = forwardRef<EngineHandle, EngineProps>(function HtmlRea
     let ans = first[ch] - 1;
     while (a <= b) {
       const mid = (a + b) >> 1;
-      if (marks[mid].getBoundingClientRect().top <= y) {
+      if (pageEdge(marks[mid], paper) <= y) {
         ans = mid;
         a = mid + 1;
       } else b = mid - 1;
@@ -439,6 +495,8 @@ export const HtmlReader = forwardRef<EngineHandle, EngineProps>(function HtmlRea
     smoothTo(() => {
       const sc = scrollRef.current;
       if (!sc || !el.isConnected) return null;
+      // Mode papier : la feuille entière, son bord haut juste sous le haut du volet.
+      if (paperOn()) return sheetTop(el) - sc.getBoundingClientRect().top + sc.scrollTop - SHEET_LEAD;
       return el.getBoundingClientRect().top - sc.getBoundingClientRect().top + sc.scrollTop - pageLead();
     });
     return null;
@@ -820,15 +878,22 @@ export const HtmlReader = forwardRef<EngineHandle, EngineProps>(function HtmlRea
         const sections: HTMLElement[] = [];
         // Pages (une fois par livre ouvert) : repères posés dans les chapitres encore détachés.
         const pag = paginate(parsed.pages, parsed.chapters.map((c) => c.text));
-        const perChapter: { index: number; offset: number; label: string }[][] = parsed.chapters.map(() => []);
-        pag.pages.forEach((p, index) => perChapter[p.chapter]?.push({ index, offset: p.offset, label: p.label }));
+        const perChapter: PageEntryAt[][] = parsed.chapters.map(() => []);
+        pag.pages.forEach((p, index) => perChapter[p.chapter]?.push({ index, offset: p.offset, label: p.label, prev: pag.pages[index - 1]?.label ?? '' }));
         const marks: HTMLElement[] = [];
         const first: number[] = [];
+        /** Page en cours à la fin de chaque chapitre : folio de sa dernière feuille (mode papier). */
+        const endLabel: string[] = [];
         let seen = 0;
+        let cur = '';
+        const bookHead = clipHead(book.title || '');
         parsed.chapters.forEach((c, i) => {
           first.push(seen);
           seen += perChapter[i].length;
-          marks.push(...insertPageMarks(c.el, i, c.text, perChapter[i], pag.kind === 'estimated'));
+          const chHead = clipHead(c.label || '') || bookHead;
+          marks.push(...insertPageMarks(c.el, i, c.text, perChapter[i], pag.kind === 'estimated', { book: bookHead || chHead, chapter: chHead }));
+          if (perChapter[i].length) cur = perChapter[i][perChapter[i].length - 1].label;
+          endLabel.push(cur);
         });
         first.push(seen);
         pagRef.current = pag;
@@ -843,6 +908,7 @@ export const HtmlReader = forwardRef<EngineHandle, EngineProps>(function HtmlRea
           sec.setAttribute('data-chapter', String(i));
           const col = document.createElement('div');
           col.className = 'html-col';
+          if (endLabel[i]) col.setAttribute('data-pg-end', endLabel[i]);
           c.el.setAttribute('data-chapter', String(i));
           const marks = document.createElement('div');
           marks.className = 'html-marks';
@@ -966,7 +1032,8 @@ export const HtmlReader = forwardRef<EngineHandle, EngineProps>(function HtmlRea
   }, [loaded]);
 
   // Typographie : garder le passage lu à la même hauteur
-  const typoKey = `${settings.fontFamily}|${settings.fontSize}|${settings.lineHeight}|${settings.measure}`;
+  const pageMode = settings.pageMarks ?? 'paper';
+  const typoKey = `${settings.fontFamily}|${settings.fontSize}|${settings.lineHeight}|${settings.measure}|${pageMode}`;
   const lastTypo = useRef(typoKey);
   const pendingAnchor = useRef<ReadingAnchor | null>(null);
   if (lastTypo.current !== typoKey) {
@@ -1006,6 +1073,23 @@ export const HtmlReader = forwardRef<EngineHandle, EngineProps>(function HtmlRea
     sc.addEventListener('wheel', interrupt, { passive: true });
     sc.addEventListener('touchstart', interrupt, { passive: true });
     sc.addEventListener('keydown', onKey);
+    // Copie native (⌘C) en mode papier : une coupure de feuille au milieu d'un paragraphe est un
+    // bloc, et Chromium copierait un saut de ligne à cet endroit. On copie alors le texte canonique
+    // (textContent : celui des ancrages), sans saut ajouté.
+    const onNativeCopy = (e: ClipboardEvent) => {
+      if (!paperOn() || !e.clipboardData) return;
+      const s = window.getSelection();
+      if (!s || s.isCollapsed || !s.rangeCount) return;
+      const r = s.getRangeAt(0);
+      const host = r.commonAncestorContainer;
+      const root = (host.nodeType === 1 ? (host as Element) : host.parentElement)?.closest('.html-chapter-text');
+      if (!root || !sc.contains(root)) return;
+      const crosses = [...root.querySelectorAll('.pg-mark.pg-inline')].some((m) => r.intersectsNode(m));
+      if (!crosses) return;
+      e.clipboardData.setData('text/plain', r.toString());
+      e.preventDefault();
+    };
+    sc.addEventListener('copy', onNativeCopy);
     let lastW = sc.clientWidth;
     let roTimer: ReturnType<typeof setTimeout> | null = null;
     const ro = new ResizeObserver(() => {
@@ -1025,6 +1109,7 @@ export const HtmlReader = forwardRef<EngineHandle, EngineProps>(function HtmlRea
       sc.removeEventListener('wheel', interrupt);
       sc.removeEventListener('touchstart', interrupt);
       sc.removeEventListener('keydown', onKey);
+      sc.removeEventListener('copy', onNativeCopy);
       ro.disconnect();
       cancelAnimationFrame(raf);
       if (roTimer) clearTimeout(roTimer);
@@ -1478,7 +1563,7 @@ export const HtmlReader = forwardRef<EngineHandle, EngineProps>(function HtmlRea
   return (
     <div className="html-reader">
       <div className="html-scroll" ref={scrollRef} onClick={onClick} onContextMenu={onContextMenu} tabIndex={-1}>
-        <div className={`html-doc html-fmt-${book.format}${revealed ? ' is-revealed' : ''} pg-${settings.pageMarks ?? 'numbered'}`} ref={docRef} style={docStyle} />
+        <div className={`html-doc html-fmt-${book.format}${revealed ? ' is-revealed' : ''} pg-${pageMode}`} ref={docRef} style={docStyle} />
       </div>
       {selRect && (
         <SelectionToolbar

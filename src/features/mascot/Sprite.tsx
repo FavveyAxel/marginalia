@@ -1,4 +1,5 @@
 import { useId, type ReactNode } from 'react';
+import type { CharacterDef, DrawArgs } from './characters/types';
 
 // Le compagnon : un petit cerveau sur pattes, dessiné à l'encre. Trois vues : de face, de profil (il
 // marche de profil, peut s'asseoir de profil, jambes allongées sur l'encadré) et de dos (il s'en va,
@@ -492,6 +493,7 @@ export function Sprite({
   title,
   halo,
   blink: blinkProp,
+  character,
 }: {
   pose: Pose;
   frame: number;
@@ -502,13 +504,18 @@ export function Sprite({
   halo?: string;
   /** Clignement imposé (l'animation le déclenche) ; à défaut, de temps en temps selon l'image. */
   blink?: boolean;
+  /** Un philosophe à la place du cerveau (même corps, mêmes poses ; seul son attribut grandit). */
+  character?: CharacterDef;
 }) {
   const uid = useId().replace(/:/g, '');
   if (pose === 'puff') return <Puff frame={frame} />;
   const v = viewFor(pose, view);
   const side = v === 'side';
   const r = side ? rigSide(pose, frame) : rigFront(pose, frame);
-  const k = BRAIN_K[level];
+  const ch = character && character.id !== 'brain' ? character : undefined;
+  // Philosophes : la tête ne grossit pas et les membres ne se musclent pas ; c'est leur attribut qui grandit.
+  const k = ch ? 1 : BRAIN_K[level];
+  const muscle: Level = ch ? 0 : level;
   if (!side) r.arms = r.arms.map((l, i) => ({ ...l, a: [l.a[0] + (i ? 1 : -1) * (k - 1) * 30, l.a[1]] as Pt })) as [Limb, Limb];
   // De dos et assis : les jambes pendent de l'autre côté de l'encadré, on ne les voit pas.
   if (v === 'back' && isSeated(pose)) r.feet = 'none';
@@ -520,10 +527,10 @@ export function Sprite({
     r.arms[r.faceHand] = { ...arm, c: onFace(arm.c) };
   }
   const mouth = onFace(side ? [86, 42.5] : [48, 52]);
-  const lw = W_LIMB[level];
+  const lw = W_LIMB[muscle];
   const blink = pose === 'doze' || (blinkProp ?? (pose !== 'read' && pose !== 'write' && frame % 17 === 16));
   const pulse = level >= 3 && frame % 2 === 0;
-  const fill = FILL[level];
+  const fill = ch?.skin ?? FILL[level];
   const flip = side && facing === -1 ? `translate(${VB_W} 0) scale(-1 1)` : undefined;
   const grad = `mascot-vol-${uid}`;
   const fid = `mascot-halo-${uid}`;
@@ -544,12 +551,20 @@ export function Sprite({
       const out = i === 0 ? -1 : 1;
       return <path key={i} d={`M${x - (out < 0 ? 8 : 1)} ${y + 3} Q${x + out * 3} ${y - 3} ${x + (out < 0 ? 1 : 8)} ${y + 3} Z`} fill="currentColor" stroke="currentColor" strokeWidth={2} strokeLinejoin="round" />;
     });
-  const hands = (ls: Limb[]) => ls.map((l, i) => <circle key={i} cx={l.c[0]} cy={l.c[1]} r={2.6 + level * 0.25} fill="currentColor" />);
-  const biceps = (ls: Limb[]) => ls.map((l, i) => <Bulge key={i} p={l.a} q={l.b} r={BICEP[level]} t={0.55} />);
-  const calves = (ls: Limb[]) => ls.map((l, i) => <Bulge key={i} p={l.b} q={l.c} r={CALF[level]} t={r.feet === 'stand' ? 0.3 : 0.35} />);
+  const hands = (ls: Limb[]) => ls.map((l, i) => <circle key={i} cx={l.c[0]} cy={l.c[1]} r={2.6 + muscle * 0.25} fill="currentColor" />);
+  const biceps = (ls: Limb[]) => ls.map((l, i) => <Bulge key={i} p={l.a} q={l.b} r={BICEP[muscle]} t={0.55} />);
+  const calves = (ls: Limb[]) => ls.map((l, i) => <Bulge key={i} p={l.b} q={l.c} r={CALF[muscle]} t={r.feet === 'stand' ? 0.3 : 0.35} />);
 
+  const args: DrawArgs = { view: v, level, frame, pose, seated: isSeated(pose), uid };
   let brain: ReactNode;
-  if (side) {
+  if (ch) {
+    brain = (
+      <g>
+        {ch.body?.(args)}
+        {ch.head(args)}
+      </g>
+    );
+  } else if (side) {
     brain = (
       <g>
         <path d={CEREBELLUM} fill={fill} stroke="currentColor" strokeWidth={2.2} strokeLinejoin="round" />
@@ -619,6 +634,7 @@ export function Sprite({
           <g transform={`translate(${pivot[0]} ${pivot[1]}) scale(${k}) translate(${-pivot[0]} ${-pivot[1]})`}>
             {brain}
             {face}
+            {ch?.overFace && v !== 'back' && ch.overFace(args)}
           </g>
           {pose === 'guitar' && <Guitar t={side ? G_SIDE : G_FRONT} />}
           {pose === 'guitar' && side && hands([r.arms[0]])}
@@ -636,6 +652,7 @@ export function Sprite({
           {pose === 'guitar' && <GuitarNotes frame={frame} side={side} />}
           {pose === 'whistle' && <WhistleNotes frame={frame} mouth={mouth} side={side} />}
           {pose === 'cigar' && <SmokeRings frame={frame} mouth={mouth} side={side} />}
+          {ch?.front?.(args)}
         </g>
         {pose === 'think' && (
           <g fill="currentColor" opacity={0.7}>

@@ -8,6 +8,9 @@
 //     mouvement) ou des livres cités (carte libre) qui ont une catégorie mais ne sont pas sur la carte ;
 //   - cartes isolées : cartes sans aucun lien (seulement quand la carte en compte au moins deux ;
 //     les cartes « Problème », qui n'ont pas de relation propre, ne comptent pas).
+// Un lien neutre (« lien ») n'appuie ni ne répond à rien : il ne compte ni comme argument ni comme
+// réponse, mais une carte qu'il relie n'est pas isolée. Les liens neutres ne sont pas signalés : ce
+// sont les liens par défaut, à préciser si l'on veut.
 //
 // API :
 //   mapGaps(map, lk)        → MapGaps

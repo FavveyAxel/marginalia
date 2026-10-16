@@ -10,6 +10,11 @@
 //   → objections (« objecte à » une carte déjà présentée), chacune suivie de ses réponses
 //   → idées restantes (non reliées à ce qui précède), dans l'ordre de lecture (haut → bas, gauche → droite).
 //
+// Liens neutres (« lien », qui n'affirment rien) : la carte tirée (cible) est présentée juste après
+// la carte d'où on l'a tirée (source), comme « idée liée » (récursif), après ses sous-arguments,
+// précisions et exemples. Depuis le centre, les cartes liées sont présentées comme les thèses qui y
+// répondent (ou s'y rattachent), avec la légende « liée à ».
+//
 // API :
 //   guidedReading(map, lk) → GuidedStep[]
 //     GuidedStep = { nodeId, role, edgesToHighlight, caption, depth, parentId, label }
@@ -20,7 +25,7 @@ import type { ArgumentMap, MapEdge, MapNode, RelationId } from '../../../lib/typ
 import { nodeCategory, nodeText, type MapLookup } from './core';
 import { mapCenter } from './center';
 
-export type GuidedRole = 'problematique' | 'sujet' | 'probleme' | 'these' | 'argument' | 'sous-argument' | 'exemple' | 'precision' | 'opposition' | 'objection' | 'reponse' | 'reste';
+export type GuidedRole = 'problematique' | 'sujet' | 'probleme' | 'these' | 'argument' | 'sous-argument' | 'exemple' | 'precision' | 'liee' | 'opposition' | 'objection' | 'reponse' | 'reste';
 
 export const GUIDED_ROLE_LABEL: Record<GuidedRole, string> = {
   problematique: 'Problématique',
@@ -31,6 +36,7 @@ export const GUIDED_ROLE_LABEL: Record<GuidedRole, string> = {
   'sous-argument': 'Sous-argument',
   exemple: 'Exemple',
   precision: 'Précision',
+  liee: 'Idée liée',
   opposition: 'Thèse opposée',
   objection: 'Objection',
   reponse: 'Réponse',
@@ -75,6 +81,8 @@ export function guidedReading(map: ArgumentMap, lk: MapLookup): GuidedStep[] {
       .sort(byPos)
       .map((n) => n.id);
   const into = (id: string, rels: RelationId[]) => sorted(map.edges.filter((e) => e.target === id && rels.includes(e.relation)).map((e) => e.source));
+  /** Cartes tirées de `id` par un lien neutre (cibles des liens « lien » qui en partent). */
+  const linkedFrom = (id: string) => sorted(map.edges.filter((e) => e.source === id && e.relation === 'lien').map((e) => e.target));
   const edgeBetween = (id: string): string[] =>
     map.edges.filter((e) => (e.source === id && seen.has(e.target)) || (e.target === id && seen.has(e.source))).map((e) => e.id);
 
@@ -96,6 +104,8 @@ export function guidedReading(map: ArgumentMap, lk: MapLookup): GuidedStep[] {
         return `l’exemple ${n}`;
       case 'precision':
         return `la précision ${n}`;
+      case 'liee':
+        return `l’idée liée ${n}`;
       case 'opposition':
         return n > 1 ? `la thèse opposée ${n}` : 'la thèse opposée';
       case 'objection':
@@ -114,6 +124,8 @@ export function guidedReading(map: ArgumentMap, lk: MapLookup): GuidedStep[] {
   const ref = (id: string | null) => (id ? (labels.get(id) ?? short(id)) : '');
 
   const center = mapCenter(map);
+  /** Liens neutres du centre vers ses thèses (légende « liée à » plutôt que « répond à »). */
+  const neutralFromCenter = new Set<string>();
   const visit = (id: string, role: GuidedRole, parentId: string | null, depth: number, rel?: RelationId) => {
     if (seen.has(id) || !nodes.has(id)) return false;
     const k = (counters[role] = (counters[role] ?? 0) + 1);
@@ -136,7 +148,7 @@ export function guidedReading(map: ArgumentMap, lk: MapLookup): GuidedStep[] {
       case 'these':
         caption =
           parentId && center?.id === parentId
-            ? `Thèse ${k} : ${center.kind === 'question' ? 'répond à' : 'se rattache à'} ${parent}`
+            ? `Thèse ${k} : ${neutralFromCenter.has(id) ? 'liée à' : center.kind === 'question' ? 'répond à' : 'se rattache à'} ${parent}`
             : k > 1
               ? `Thèse ${k} : une autre affirmation de l’auteur`
               : 'La thèse : ce que l’auteur affirme';
@@ -153,6 +165,9 @@ export function guidedReading(map: ArgumentMap, lk: MapLookup): GuidedStep[] {
       case 'precision':
         caption = `Précision : précise ${parent}`;
         break;
+      case 'liee':
+        caption = `Idée liée à ${parent}`;
+        break;
       case 'opposition':
         caption = `Thèse opposée : s’oppose à ${parent}`;
         break;
@@ -165,23 +180,31 @@ export function guidedReading(map: ArgumentMap, lk: MapLookup): GuidedStep[] {
       default:
         caption = rel && parentId ? `Idée restante, liée à ${parent}` : 'Idée restante, hors de l’enchaînement principal';
     }
+    // « à le sujet » → « au sujet », « à le problème » → « au problème »…
+    caption = caption.replace(/(^|\s)à le /g, '$1au ');
     steps.push({ nodeId: id, role, edgesToHighlight: edges, caption, depth, parentId, label });
     return true;
   };
 
-  /** Sous-arguments, précisions et exemples d'une carte (récursif). */
+  /** Idées liées à une carte par un lien neutre (récursif). */
+  const expandLinked = (id: string, depth: number) => {
+    for (const c of linkedFrom(id)) if (visit(c, 'liee', id, depth + 1, 'lien')) expandSupport(c, depth + 1);
+  };
+  /** Sous-arguments, précisions et exemples d'une carte, puis ses idées liées (récursif). */
   const expandSupport = (id: string, depth: number) => {
     for (const rel of ['precise', 'illustre', 'soutient'] as RelationId[]) {
       for (const c of into(id, [rel])) {
         if (visit(c, CHILD_ROLE[rel]!, id, depth + 1, rel)) expandSupport(c, depth + 1);
       }
     }
+    expandLinked(id, depth);
   };
-  /** Thèse : précisions et exemples directs, puis arguments (chacun développé). */
+  /** Thèse : précisions et exemples directs, puis arguments (chacun développé), puis idées liées. */
   const expandThesis = (id: string, depth: number) => {
     for (const rel of ['precise', 'illustre'] as RelationId[])
       for (const c of into(id, [rel])) if (visit(c, CHILD_ROLE[rel]!, id, depth + 1, rel)) expandSupport(c, depth + 1);
     for (const a of into(id, ['soutient'])) if (visit(a, 'argument', id, depth + 1)) expandSupport(a, depth + 1);
+    expandLinked(id, depth);
   };
   const opposedTo = (id: string) =>
     sorted(map.edges.filter((e) => e.relation === 'oppose' && (e.source === id || e.target === id)).map((e) => (e.source === id ? e.target : e.source)));
@@ -189,6 +212,12 @@ export function guidedReading(map: ArgumentMap, lk: MapLookup): GuidedStep[] {
   // 0. Le centre (problématique ou sujet) ouvre la lecture ; ce qui y répond (ou s'y rattache)
   //    est présenté ensuite comme autant de thèses.
   const centerTheses = center ? into(center.id, ['repond', 'rattache', 'soutient']) : [];
+  if (center) {
+    // Cartes tirées du centre par un lien neutre (ou reliées à lui par un lien neutre dans l'autre sens).
+    const linkedToCenter = sorted([...linkedFrom(center.id), ...into(center.id, ['lien'])]).filter((id) => !centerTheses.includes(id));
+    for (const id of linkedToCenter) neutralFromCenter.add(id);
+    centerTheses.push(...linkedToCenter);
+  }
   if (center) visit(center.id, center.kind === 'question' ? 'problematique' : 'sujet', null, 0);
 
   // 1. Problèmes.

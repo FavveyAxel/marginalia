@@ -5,6 +5,10 @@
 //   - un lien A → B (« A soutient / précise / illustre / objecte à / répond à / se rattache à B »)
 //     fait de A un ENFANT de B ; « s’oppose à » (symétrique, entre deux thèses) ne crée pas de
 //     filiation ;
+//   - un lien neutre A → B (« lien », qui n'affirme rien) suit le geste : on a tiré B DEPUIS A, donc B
+//     est un ENFANT de A (sens inverse des relations d'argument). S'il ne peut pas s'appliquer (B déjà
+//     placé, par exemple le centre), le lien vaut dans l'autre sens : A devient enfant de B. Parmi les
+//     enfants d'une carte, ceux des liens d'argument passent avant ceux des liens neutres ;
 //   - chaque carte n'a qu'UN parent : on parcourt la carte en largeur depuis les racines, et la
 //     première racine qui atteint une carte la garde (le chemin le plus court vers le centre).
 //     Racines, dans l'ordre : le centre (problématique / sujet), la thèse centrale, puis les cartes
@@ -16,7 +20,8 @@
 // L'état est rangé dans la carte : il survit au rechargement et passe par l'annulation du store.
 //
 // API :
-//   FOLD_RELATIONS                       relations qui créent une filiation
+//   FOLD_RELATIONS                       relations « enfant → parent » qui créent une filiation
+//   FOLD_NEUTRAL                         'lien' : relation « parent → enfant » (le sens du geste)
 //   foldTree(map, rootId?)               → { parent, children, roots, depth }
 //   descendants(tree, id)                → string[]  (sans la carte elle-même)
 //   foldHiddenIds(map, rootId?)          → Set<string>  cartes masquées par des branches repliées
@@ -33,6 +38,8 @@ import { isCenter } from './center';
 /** Relations « enfant → parent » (ordre de préférence des enfants). */
 export const FOLD_RELATIONS: RelationId[] = ['repond', 'rattache', 'soutient', 'precise', 'illustre', 'objecte'];
 const REL_RANK = new Map(FOLD_RELATIONS.map((r, i) => [r, i]));
+/** Lien neutre : la cible est l'enfant de la source (on a tiré la cible depuis la source). */
+export const FOLD_NEUTRAL: RelationId = 'lien';
 
 export interface FoldTree {
   parent: Map<string, string>;
@@ -49,14 +56,30 @@ export function foldTree(map: MapLike, rootId?: string | null): FoldTree {
   const ids = new Set(map.nodes.map((n) => n.id));
   const pos = new Map(map.nodes.map((n) => [n.id, n]));
   const into = new Map<string, { id: string; rel: RelationId }[]>();
+  // Liens neutres : enfants « dans le sens du geste » (cibles), puis, à défaut, dans l'autre sens.
+  const linkOut = new Map<string, string[]>();
+  const linkIn = new Map<string, string[]>();
   const hasOut = new Set<string>();
+  const valid = (e: { source: string; target: string }) => e.source !== e.target && ids.has(e.source) && ids.has(e.target);
   for (const e of map.edges) {
-    if (!REL_RANK.has(e.relation) || e.source === e.target || !ids.has(e.source) || !ids.has(e.target)) continue;
+    if (!valid(e)) continue;
+    if (e.relation === FOLD_NEUTRAL) {
+      linkOut.set(e.source, [...(linkOut.get(e.source) ?? []), e.target]);
+      linkIn.set(e.target, [...(linkIn.get(e.target) ?? []), e.source]);
+      // La cible a un parent (la source) : ce n'est pas un sommet.
+      hasOut.add(e.target);
+      continue;
+    }
+    if (!REL_RANK.has(e.relation)) continue;
     into.set(e.target, [...(into.get(e.target) ?? []), { id: e.source, rel: e.relation }]);
     hasOut.add(e.source);
   }
   for (const list of into.values())
     list.sort((a, b) => REL_RANK.get(a.rel)! - REL_RANK.get(b.rel)! || byPos(pos.get(a.id)!, pos.get(b.id)!));
+  const byPosId = (a: string, b: string) => byPos(pos.get(a)!, pos.get(b)!);
+  for (const list of linkOut.values()) list.sort(byPosId);
+  for (const list of linkIn.values()) list.sort(byPosId);
+  const kids = (x: string): string[] => [...(into.get(x) ?? []).map((c) => c.id), ...(linkOut.get(x) ?? []), ...(linkIn.get(x) ?? [])];
 
   const sorted = [...map.nodes].sort(byPos).map((n) => n.id);
   const first: string[] = [];
@@ -79,12 +102,12 @@ export function foldTree(map: MapLike, rootId?: string | null): FoldTree {
     const queue = [r];
     while (queue.length) {
       const x = queue.shift()!;
-      for (const c of into.get(x) ?? []) {
-        if (depth.has(c.id)) continue;
-        depth.set(c.id, depth.get(x)! + 1);
-        parent.set(c.id, x);
-        children.set(x, [...(children.get(x) ?? []), c.id]);
-        queue.push(c.id);
+      for (const c of kids(x)) {
+        if (depth.has(c)) continue;
+        depth.set(c, depth.get(x)! + 1);
+        parent.set(c, x);
+        children.set(x, [...(children.get(x) ?? []), c]);
+        queue.push(c);
       }
     }
   };

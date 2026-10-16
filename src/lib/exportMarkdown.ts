@@ -125,7 +125,8 @@ function mapSection(bookId: string, db: Database): string {
     const s = byId.get(e.source);
     const t = byId.get(e.target);
     if (!s || !t) continue;
-    const rel = RELATION_BY_ID[e.relation]?.label ?? e.relation;
+    // Lien neutre : « est lié à » (le libellé court « lien » ne se lit pas entre deux cartes).
+    const rel = e.relation === 'lien' ? 'est lié à' : (RELATION_BY_ID[e.relation]?.label ?? e.relation);
     let group: MapEdge[] = [e];
     if (e.groupId) group = map.edges.filter((x) => x.groupId === e.groupId && x.target === e.target && x.relation === e.relation);
     group.forEach((g) => done.add(g.id));

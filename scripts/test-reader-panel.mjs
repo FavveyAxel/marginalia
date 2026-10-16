@@ -364,13 +364,21 @@ try {
   await page.evaluate(() => window.__store.getState().updateSettings({ readerLayout: undefined, pageMarks: 'paper', bookLayout: false, paperLook: false }));
   await page.waitForTimeout(300);
   st = await rootState(page);
-  check(st.layout === 'sheets' && st.pg === 'pg-paper', 'pageMarks « paper » sans présentation choisie : lu comme « Feuilles »', st);
+  // Décision d'intégration (« je préfère quand tout était à la suite ») : l'ancien « pages façon papier »
+  // se lit défilement continu + trait et numéro tant qu'aucune présentation n'est choisie.
+  check(st.layout === 'scroll' && st.pg === 'pg-numbered', 'pageMarks « paper » sans présentation choisie : défilement continu, trait et numéro', st);
   await page.click('[data-testid=reader-display-btn]');
   await page.waitForSelector('[data-testid=reader-panel]');
+  check(
+    (await page.getAttribute('[data-testid=layout-choice] [data-layout=scroll]', 'aria-checked')) === 'true' &&
+      (await page.getAttribute('[data-testid=page-marks-switch]', 'aria-checked')) === 'true' &&
+      (await page.getAttribute('.typo-choice[data-mode=numbered]', 'aria-checked')) === 'true',
+    'pageMarks « paper » : le panneau montre « Défilement continu » et « Trait et numéro »',
+  );
   await page.click('[data-testid=page-marks-switch]');
   await page.waitForTimeout(200);
   st = await rootState(page);
-  check(st.layout === 'sheets' && st.s.readerLayout === 'sheets' && st.s.pageMarks === 'off', 'changer les numéros garde la présentation « Feuilles » (figée)', st);
+  check(st.layout === 'scroll' && st.pg === 'pg-off' && st.s.pageMarks === 'off', 'changer les numéros : toujours en défilement continu', st);
   await page.keyboard.press('Escape');
 
   const textsAfter = await page.evaluate(() => [...document.querySelectorAll('.html-chapter-text')].map((r) => r.textContent));

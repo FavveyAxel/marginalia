@@ -4,7 +4,10 @@
 // - même livre sans page-list (repères epub:type / role="doc-pagebreak" seuls) ;
 // - EPUB sans pages : pagination estimée stable quand la taille du texte change ;
 // - réglage « Numéros de page » (trait et numéro / numéro seul / aucun) du panneau « Mise en page et affichage » ;
-// - pages façon papier (présentation « Feuilles ») : une feuille par page (textContent inchangé, folio, titre courant,
+// - défilement continu (défaut, readerLayout absent ou 'scroll') : filet tireté, numéro en pastille
+//   dans la marge droite, encoche au milieu d'un paragraphe ; ancien pageMarks 'paper' lu « trait et
+//   numéro » ; captures shots/num-pages/ (clair, sombre, sépia, milieu de paragraphe) ;
+// - pages façon papier (seulement readerLayout 'sheets') : une feuille par page (textContent inchangé, folio, titre courant,
 //   page tournée au milieu d'un paragraphe, surlignage sur deux feuilles, copie sans numéro ni saut,
 //   « Aller à la page » au haut de la feuille, indicateur = feuille sous la ligne de lecture à 30 %),
 //   captures shots/papier/ (clair, milieu de paragraphe, sombre, sépia, réglages, côte à côte) ;
@@ -19,7 +22,7 @@ import path from 'node:path';
 import JSZip from 'jszip';
 
 const ROOT = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..');
-const PORT = 5405;
+const PORT = Number(process.env.PAGES_TEST_PORT) || 5405;
 
 let failures = 0;
 let passes = 0;
@@ -424,15 +427,105 @@ const pageUnderLine = (page, pane = 'a') =>
 const chapterTexts = (page, pane = 'a') =>
   page.evaluate((pane) => [...document.querySelectorAll(`.reader-page[data-pane="${pane}"] .html-chapter-text`)].map((r) => r.textContent), pane);
 
+async function continuousScenario(page) {
+  console.log('\n== Défilement continu (réglage par défaut) ==');
+  // Réglages d'un utilisateur de la 3.8 qui n'a rien choisi, puis d'un qui avait « Pages façon papier ».
+  for (const pm of [undefined, 'paper']) {
+    await page.evaluate((pm) => window.__store.getState().updateSettings({ readerLayout: undefined, pageMarks: pm, theme: 'light' }), pm);
+    await page.waitForTimeout(300);
+    const st = await page.evaluate(() => {
+      const d = document.querySelector('.reader-page[data-pane="a"] .html-doc');
+      return { cls: [...d.classList].find((c) => /^pg-/.test(c)), layout: d.closest('.html-reader').dataset.layout };
+    });
+    check(st.cls === 'pg-numbered' && st.layout === 'scroll', `continu par défaut (pageMarks ${pm ?? 'absent'}) : trait et numéro, data-layout="scroll"`, st);
+  }
+  const look = (label) =>
+    page.evaluate((label) => {
+      const el = [...document.querySelectorAll('.reader-page[data-pane="a"] .pg-mark')].find((m) => m.dataset.pg === label);
+      const col = el.closest('.html-col').getBoundingClientRect();
+      const a = getComputedStyle(el, '::after');
+      const b = getComputedStyle(el, '::before');
+      const alpha = (c) => Number((/\/\s*([0-9.]+)\)$/.exec(c) ?? /rgba\([^)]*,\s*([0-9.]+)\)$/.exec(c) ?? [0, 1])[1]);
+      return {
+        num: a.display !== 'none' ? a.content : null,
+        size: parseFloat(a.fontSize),
+        numAlpha: alpha(a.color),
+        radius: parseFloat(a.borderTopLeftRadius),
+        pillBg: a.backgroundColor,
+        rule: b.display !== 'none',
+        ruleImg: b.backgroundImage,
+        tick: getComputedStyle(el).borderLeftWidth,
+        tickColor: getComputedStyle(el).borderLeftColor,
+        colRight: col.right,
+        elDisplay: getComputedStyle(el).display,
+      };
+    }, label);
+  const L = await look('x');
+  check(L.num === '"x"' && L.size >= 12 && L.size <= 13 && L.numAlpha >= 0.6 && L.numAlpha <= 0.75, 'numéro lisible : 12–13 px, ~65 % d’encre, chiffres romains gardés', L);
+  check(L.radius > 8 && !/rgba\(0, 0, 0, 0\)/.test(L.pillBg), 'numéro dans une pastille arrondie', L);
+  check(L.rule && /repeating-linear-gradient/.test(L.ruleImg) && /0\.26\)/.test(L.ruleImg), 'filet tireté à 26 % d’encre', L.ruleImg);
+  // 1,5 px en CSS : Chromium arrondit au pixel physique (1 px à 1×, 3 px sur écran Retina).
+  check(parseFloat(L.tick) >= 1 && /\/ 0\.6\d*\)$/.test(L.tickColor) && L.elDisplay === 'inline', 'milieu de paragraphe : encoche visible (~60 % d’encre)', L);
+  const pos = await page.evaluate(() => {
+    const el = [...document.querySelectorAll('.reader-page[data-pane="a"] .pg-mark')].find((m) => m.dataset.pg === '6');
+    el.scrollIntoView({ block: 'center' });
+    const col = el.closest('.html-col').getBoundingClientRect();
+    // Position de la pastille : le ::after est absolu dans la colonne, à droite du texte.
+    const a = getComputedStyle(el, '::after');
+    return { left: a.left, colW: col.width };
+  });
+  check(parseFloat(pos.left) >= pos.colW + 10, 'pastille dans la marge droite', pos);
+  await page.evaluate(() => window.__store.getState().updateSettings({ pageMarks: 'number' }));
+  await page.waitForTimeout(250);
+  const N = await look('6');
+  check(N.num === '"6"' && !N.rule, '« numéro seul » : la pastille sans filet', N);
+  await page.evaluate(() => window.__store.getState().updateSettings({ pageMarks: undefined }));
+  await page.waitForTimeout(250);
+
+  const toMark = (label, frac) =>
+    page.evaluate(
+      ({ label, frac }) => {
+        const sc = document.querySelector('.reader-page[data-pane="a"] .html-scroll');
+        const el = [...sc.querySelectorAll('.pg-mark')].find((m) => m.dataset.pg === label);
+        sc.scrollTop += el.getBoundingClientRect().top - sc.getBoundingClientRect().top - sc.clientHeight * frac;
+      },
+      { label, frac },
+    );
+  await toMark('xi', 0.34);
+  await shot(page, 'shots/num-pages/01-continu-clair.png');
+  for (const [t, f] of [['dark', '02-continu-sombre'], ['sepia', '03-continu-sepia']]) {
+    await page.evaluate((t) => window.__store.getState().updateSettings({ theme: t }), t);
+    await page.waitForTimeout(300);
+    const c = await look('xi');
+    check(c.num === '"xi"' && c.numAlpha >= 0.6 && !/rgba\(0, 0, 0, 0\)/.test(c.pillBg), `thème ${t} : numéro et pastille lisibles`, c);
+    await shot(page, `shots/num-pages/${f}.png`);
+  }
+  await page.evaluate(() => window.__store.getState().updateSettings({ theme: 'light' }));
+  await page.waitForTimeout(250);
+  await toMark('4', 0.45);
+  await shot(page, 'shots/num-pages/04-milieu-paragraphe.png');
+}
+
 async function paperScenario(page, { printedId, plainId }) {
-  console.log('\n== Pages façon papier (présentation « Feuilles ») ==');
-  await page.evaluate(() => window.__store.getState().updateSettings({ readerLayout: 'scroll', pageMarks: 'off', theme: 'light' }));
+  console.log('\n== Pages façon papier (readerLayout « sheets » seulement) ==');
+  await page.evaluate(() => window.__store.getState().updateSettings({ pageMarks: 'off', theme: 'light', readerLayout: undefined }));
   await page.waitForTimeout(300);
   const textsOff = await chapterTexts(page);
-  // Panneau « Mise en page et affichage » : la présentation « Feuilles » est l'ancien rendu papier (3.8).
-  await page.evaluate(() => window.__store.getState().updateSettings({ readerLayout: 'sheets', pageMarks: undefined }));
+  await page.evaluate(() => window.__store.getState().updateSettings({ pageMarks: undefined }));
+  await page.waitForTimeout(300);
+  check(
+    await page.evaluate(() => !document.querySelector('.reader-page[data-pane="a"] .html-doc').classList.contains('pg-paper')),
+    'sans readerLayout : pas de feuilles (défilement continu)',
+  );
+  await page.evaluate(() => window.__store.getState().updateSettings({ readerLayout: 'sheets' }));
   await page.waitForTimeout(500);
-  check(await page.evaluate(() => document.querySelector('.reader-page[data-pane="a"] .html-doc').classList.contains('pg-paper')), 'présentation « Feuilles » : pages façon papier');
+  check(
+    await page.evaluate(() => {
+      const d = document.querySelector('.reader-page[data-pane="a"] .html-doc');
+      return d.classList.contains('pg-paper') && d.closest('.html-reader').dataset.layout === 'sheets';
+    }),
+    'readerLayout « sheets » : pages façon papier (data-layout="sheets")',
+  );
   const textsPaper = await chapterTexts(page);
   check(textsOff.length === 3 && JSON.stringify(textsOff) === JSON.stringify(textsPaper), 'textContent des chapitres identique avec et sans feuilles');
   const pm = await paperMarks(page);
@@ -591,7 +684,6 @@ async function paperScenario(page, { printedId, plainId }) {
     'changement : défilement (trait et numéro) → numéro seul → aucun → trait et numéro → feuilles',
     states,
   );
-  await page.keyboard.press('Escape');
   check(JSON.stringify(await chapterTexts(page)) === JSON.stringify(textsOff), 'après les changements de façon : textContent inchangé');
   hv = await verifyHighlights(page, printedId);
   check(hv.every((h) => h.ok), 'après les changements de façon : surlignages exacts', hv);
@@ -615,13 +707,15 @@ async function paperScenario(page, { printedId, plainId }) {
   });
   await shot(page, 'shots/papier/06-scinde.png');
   await page.evaluate((a) => window.__store.getState().navigate({ name: 'reader', bookId: a, tab: 'lecture', splitBookId: null }), printedId);
+  await page.evaluate(() => window.__store.getState().updateSettings({ readerLayout: undefined, pageMarks: undefined }));
   await page.waitForTimeout(300);
 }
 
 // ── Scénario ─────────────────────────────────────────────────
 
 await withApp(async (page) => {
-  // Les premières sections vérifient l'ancien rendu (« Trait et numéro ») ; le mode papier, par défaut, a la sienne plus bas.
+  // Les premières sections vérifient le défilement continu (« Trait et numéro ») ; les feuilles
+  // (readerLayout « sheets ») ont la leur plus bas.
   await page.evaluate(() => window.__store.getState().updateSettings({ showToc: true, showExtracts: true, theme: 'light', pageMarks: 'numbered' }));
 
   console.log('\n== EPUB 3 à pages imprimées (page-list) ==');
@@ -766,7 +860,7 @@ await withApp(async (page) => {
   check((await indicator(page)) === 'p. 5 / 7', 'repères masqués : « Aller à la page » fonctionne toujours', await indicator(page));
   await page.click('[data-testid=page-marks-switch]');
   await page.waitForTimeout(200);
-  check(await page.evaluate(() => document.querySelector('.html-doc').classList.contains('pg-numbered')), 'réactivé : trait et numéro');
+  check(await page.evaluate(() => document.querySelector('.html-doc').classList.contains('pg-numbered')), 'réactivé : défilement continu, trait et numéro (pas de feuilles)');
   await page.click('.typo-choice[data-mode=numbered]');
   await page.keyboard.press('Escape');
   await page.waitForTimeout(200);
@@ -872,6 +966,7 @@ await withApp(async (page) => {
   await shot(page, 'shots/reader-pages-split.png');
   await page.evaluate((a) => window.__store.getState().navigate({ name: 'reader', bookId: a, tab: 'lecture', splitBookId: null }), printedId);
   await waitHtml(page);
+  await continuousScenario(page);
   await paperScenario(page, { printedId, plainId });
 
   console.log('\n== PDF à libellés de page (i, ii, 1, 2, 3) ==');

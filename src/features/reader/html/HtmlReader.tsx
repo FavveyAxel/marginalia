@@ -21,6 +21,7 @@ import { parseBook, printedPageAt, ReaderError, type ParsedDoc } from './parse';
 import { ESTIMATED_NOTE, findPage, lastLabel, paginate, romanToInt, type Pagination, type PageStatus } from '../pages';
 import { readerDisplay } from '../display';
 import './html-reader.css';
+import './page-marks.css';
 
 interface HlState {
   sig: string;

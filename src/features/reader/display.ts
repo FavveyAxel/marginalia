@@ -1,6 +1,7 @@
 // Réglages de mise en page du lecteur, résolus (défauts + anciennes valeurs).
-// Une seule lecture pour le panneau « Mise en page et affichage » (TypographyPopover) et le
-// lecteur HTML (racine : data-layout, .book-layout, .paper-look ; classe pg-* du document).
+// Source unique de vérité : le panneau « Mise en page et affichage » (TypographyPopover) et le
+// lecteur HTML (racine : data-layout, data-spread, data-page-marks, .book-layout, .paper-look ;
+// classe pg-* du document) lisent tous deux readerDisplay().
 import { READER_DISPLAY_DEFAULTS, type PagedSpread, type ReaderLayout, type Settings } from '../../lib/types';
 
 /** Façon de marquer les pages dans le texte (hors feuilles) : trait et numéro, numéro seul, aucun. */
@@ -13,15 +14,20 @@ export interface ReaderDisplay {
   paperLook: boolean;
   /** Repères de page demandés (indépendamment de la présentation). */
   marks: PageMarkStyle;
-  /** Classe pg-* du document HTML : « paper » = rendu des feuilles (3.8), sinon le style des repères. */
-  pgClass: 'paper' | PageMarkStyle;
+  /**
+   * Classe pg-* du document HTML : « paper » = rendu des feuilles, « paged » = page par page
+   * (folio en bas de chaque page), sinon le style des repères du défilement continu.
+   */
+  pgClass: 'paper' | 'paged' | PageMarkStyle;
 }
 
 export function readerDisplay(s: Settings): ReaderDisplay {
-  // Ancien réglage « Pages façon papier » choisi explicitement (pageMarks: 'paper') : on garde les
-  // feuilles tant que la présentation n'a pas été choisie dans le nouveau panneau.
-  const layout: ReaderLayout = s.readerLayout ?? (s.pageMarks === 'paper' ? 'sheets' : READER_DISPLAY_DEFAULTS.readerLayout);
+  // Défilement continu par défaut, y compris pour qui avait l'ancien réglage « Pages façon papier »
+  // (pageMarks 'paper', 3.8) : tant qu'aucune présentation n'est choisie dans le panneau, on lit
+  // le texte d'un seul tenant avec « trait et numéro ». Les feuilles = readerLayout 'sheets' seulement.
+  const layout: ReaderLayout = s.readerLayout ?? READER_DISPLAY_DEFAULTS.readerLayout;
   const pm = s.pageMarks;
+  // Anciennes valeurs : 'paper' et 'rule' (trait seul) se lisent « trait et numéro ».
   const marks: PageMarkStyle = pm === 'off' ? 'off' : pm === 'number' ? 'number' : 'numbered';
   return {
     layout,
@@ -29,8 +35,6 @@ export function readerDisplay(s: Settings): ReaderDisplay {
     bookLayout: s.bookLayout ?? READER_DISPLAY_DEFAULTS.bookLayout,
     paperLook: s.paperLook ?? READER_DISPLAY_DEFAULTS.paperLook,
     marks,
-    // Provisoire (contrat) : « Feuilles » = rendu « pages façon papier » existant ; « Page par page »
-    // garde pour l'instant les repères du défilement (l'agent « paged » y branchera son rendu).
     pgClass: layout === 'sheets' ? 'paper' : marks,
   };
 }

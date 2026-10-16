@@ -323,9 +323,8 @@ export function TypographyPopover({ anchor, onClose }: { anchor: DOMRect; onClos
   }, [style]);
 
   const d = readerDisplay(s);
-  // Toute modification fige la présentation courante : un ancien réglage « pages façon papier »
-  // (pageMarks: 'paper') reste en feuilles même si l'on change ensuite les numéros de page.
-  const set = (patch: Partial<Settings>) => update(s.readerLayout ? patch : { readerLayout: d.layout, ...patch });
+  // Lecture résolue (display.ts) : défilement continu tant qu'aucune présentation n'est choisie.
+  const set = (patch: Partial<Settings>) => update(patch);
   const toggle = (id: SectionId) =>
     setCollapsed((c) => {
       const next = c.includes(id) ? c.filter((x) => x !== id) : [...c, id];

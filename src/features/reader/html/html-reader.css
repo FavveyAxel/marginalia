@@ -478,14 +478,7 @@
   border-left: 0;
   margin-right: 0;
 }
-/* Panneau de mise en page, « Numéro seul » : le folio dans la marge, sans trait ni encoche. */
-.pg-number .pg-mark::before {
-  display: none;
-}
-.pg-number .pg-mark.pg-inline {
-  border-left: 0;
-  margin-right: 0;
-}
+/* « Numéro seul » (pg-number) : voir page-marks.css (la pastille et l'encoche, sans filet). */
 @container html-reader (max-width: 560px) {
   .pg-mark::after {
     left: calc(100% + 6px);

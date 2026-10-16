@@ -545,8 +545,8 @@ export interface Settings {
   sidebarCollapsed?: boolean;
   /**
    * Repères de page dans le texte (EPUB…) : trait et numéro, numéro seul (« number »), ou aucun.
-   * Valeurs anciennes : « paper » (pages façon papier, devenu readerLayout « sheets ») et « rule »
-   * (trait seul, lu comme « trait et numéro »). Lecture résolue : readerDisplay() (features/reader/display.ts).
+   * Valeurs anciennes « paper » (pages façon papier de la 3.8) et « rule » (trait seul) : lues comme
+   * « trait et numéro » en défilement continu ; les feuilles sont désormais readerLayout « sheets ». Lecture résolue : readerDisplay() (features/reader/display.ts).
    */
   pageMarks?: 'paper' | 'numbered' | 'number' | 'rule' | 'off';
   // ── Panneau « Mise en page et affichage » (contrat commun ; défauts dans READER_DISPLAY_DEFAULTS) ──

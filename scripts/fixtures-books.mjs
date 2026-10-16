@@ -143,6 +143,57 @@ export async function epubFrench({ title = 'Méditations métaphysiques' } = {})
   return zipEpub(title, { 'avert.xhtml': avert, 'med1.xhtml': med1, 'med2.xhtml': med2, 'notes.xhtml': notes }, nav);
 }
 
+/**
+ * Long EPUB 3 « réaliste » (≈ 320 pages imprimées, page-list) : 24 chapitres de prose française
+ * (intertitres, citations, mots longs, une adresse web insécable), repères de page tous les ~1 900
+ * signes, un sur deux au milieu d'un paragraphe. Sert aux vérifications de débordement du texte.
+ */
+export async function epubLong({ title = 'Le Traité des passions', chapters = 24, paras = 26, shy = false } = {}) {
+  // shy : césures conditionnelles (U+00AD) dans les mots longs, pour simuler la césure automatique
+  // de macOS (Chromium sous Linux n'a pas de dictionnaires de césure).
+  const soft = (html) => (shy ? html.replace(/(>|^)([^<]*)/g, (m, a, t) => a + t.replace(/[A-Za-zÀ-ÿœ]{7,}/g, (w) => w.slice(0, 3) + w.slice(3, -2).replace(/(..)/g, '$1\u00ad') + w.slice(-2))) : html);
+  const files = {};
+  const plist = [];
+  const toc = [];
+  let page = 1;
+  let acc = 0;
+  for (let c = 1; c <= chapters; c++) {
+    const file = `ch${c}.xhtml`;
+    plist.push([`${file}#page_${page}`, String(page)]);
+    let body = `${pbk('page_' + page, String(page))}<h1>Chapitre ${c}</h1><h2>Des passions de l’âme, article ${c}</h2>`;
+    page++;
+    acc = 0;
+    for (let k = 0; k < paras; k++) {
+      if (k === 8) body += `<h3>Article ${c}.${k}</h3>`;
+      if (k === 12) body += `<blockquote><p>${prose(260, c + k)}</p></blockquote>`;
+      let lead = '';
+      if (k === 5) lead = 'Le mot « anticonstitutionnellement » et l’adresse https://www.exemple-de-bibliotheque-numerique.fr/collections/philosophie/descartes/passions-de-l-ame/article-premier-version-integrale.html ne se coupent pas toujours.';
+      if (k === 15) lead = 'Le mot « hippopotomonstrosesquippedaliophobie » est long, et « intercompréhensibilités » aussi.';
+      if (k === 18) lead = 'Le mot\u00a0«\u202fWiederkehr\u202f» (<i>ewige Wiederkehr</i>)<sup><a href="#n' + c + '">' + c + '</a></sup> et l’« éternel retour » de Nietzsche\u00a0;';
+      if (k === 20) body += '<p>Strophe première,<br/>vers second du poème,<br/>vers troisième et dernier.</p><ol><li>premier point de la liste ;</li><li>second point, un peu plus long que le premier, pour aller à la ligne.</li></ol><table><tr><td>1647</td><td>Méditations, traduction du duc de Luynes</td></tr><tr><td>1649</td><td>Les Passions de l’âme</td></tr></table>';
+      const n = 1100 + ((c * 37 + k * 53) % 600);
+      acc += n;
+      if (acc > 1900) {
+        acc -= 1900;
+        plist.push([`${file}#page_${page}`, String(page)]);
+        if (k % 2) body += midPara(n, c + k, String(page), 0.5, lead);
+        else if (k % 4 === 2) body += `<p>${pbk('page_' + page, String(page))}${prose(n, c + k, lead)}</p>`;
+        else body += pbk('page_' + page, String(page)) + `<p>${prose(n, c + k, lead)}</p>`;
+        page++;
+      } else body += `<p>${prose(n, c + k, lead)}</p>`;
+    }
+    body += `<aside epub:type="footnote" id="n${c}"><p>${c}. Le mot « Wiederkehr » signifie retour ; voir l’adresse https://www.exemple-de-bibliotheque-numerique.fr/notes/nietzsche/ewige-wiederkehr-und-das-schwerste-gewicht.html pour le texte allemand.</p></aside>`;
+    files[file] = xhtml(`Chapitre ${c}`, soft(body));
+    toc.push(`<li><a href="${file}">Chapitre ${c}</a></li>`);
+  }
+  const nav = xhtml(
+    'Sommaire',
+    `<nav epub:type="toc"><ol>${toc.join('')}</ol></nav>` +
+      `<nav epub:type="page-list" hidden="hidden"><ol>${plist.map(([h, l]) => `<li><a href="${h}">${l}</a></li>`).join('')}</ol></nav>`,
+  );
+  return zipEpub(title, files, nav);
+}
+
 // ── Fixtures de scripts/test-reader-pages.mjs (copie) ────────
 
 /**

@@ -36,6 +36,8 @@ export interface PagedHost {
   measure(): number;
   /** Appelé après chaque page montrée (position, indicateur, repères de marge). */
   onShown(info: { chapterChanged: boolean; user: boolean }): void;
+  /** Remise en page faite par le moteur lui-même (police arrivée après coup) : repères à replacer. */
+  onRelaid?(): void;
 }
 
 interface Geo {
@@ -50,6 +52,14 @@ interface Geo {
   mb: number;
   cw: number;
   ch: number;
+  /**
+   * Pas d'une colonne à la suivante, MESURÉ sur la colonne rendue (largeur réelle de la boîte +
+   * intervalle réel) : c'est de lui que dépendent la translation des pages et le calcul de la
+   * colonne d'un caractère. Vaut w quand la feuille de styles fait ce qu'on lui demande.
+   */
+  step: number;
+  /** Intervalle réel entre deux colonnes. */
+  gap: number;
   left: number;
   top: number;
   lineH: number;
@@ -136,6 +146,18 @@ export class PagedLayout {
     const onWheel = (e: WheelEvent) => this.onWheel(e);
     const onMove = (e: MouseEvent) => this.onMove(e);
     const onLeave = () => this.setZone('');
+    // Une police (ou une de ses graisses, italiques, petites capitales) qui arrive après la mise en
+    // page change la largeur et la hauteur des lignes : on repagine en gardant le passage lu.
+    let fontsRaf = 0;
+    const onFonts = () => {
+      cancelAnimationFrame(fontsRaf);
+      fontsRaf = requestAnimationFrame(() => this.relayout());
+    };
+    document.fonts?.addEventListener?.('loadingdone', onFonts);
+    this.cleanup.push(() => {
+      cancelAnimationFrame(fontsRaf);
+      document.fonts?.removeEventListener?.('loadingdone', onFonts);
+    });
     window.addEventListener('keydown', onKey);
     scroll.addEventListener('wheel', onWheel, { passive: true });
     scroll.addEventListener('mousemove', onMove, { passive: true });
@@ -192,12 +214,16 @@ export class PagedLayout {
     const h = Math.floor(Math.min(availH, w / MIN_RATIO));
     // Largeur du texte : le réglage (en ch de la police de lecture), sans réduire les marges
     // sous un minimum ; les marges absorbent le reste (la page garde sa taille).
+    // Mise en page livre : mesure plus étroite (--book-measure, book-layout.css) et marges plus
+    // amples, comme en défilement ; le calcul passe par la cascade (variable lue sur le document).
+    const book = !!doc.closest('.book-layout');
+    const m = this.host.measure();
     const probe = document.createElement('span');
-    probe.style.cssText = `position:absolute;visibility:hidden;width:${this.host.measure()}ch`;
+    probe.style.cssText = `position:absolute;visibility:hidden;width:min(${m}ch, var(--book-measure, ${m}ch))`;
     doc.appendChild(probe);
-    const measurePx = probe.getBoundingClientRect().width || this.host.measure() * fs * 0.5;
+    const measurePx = probe.getBoundingClientRect().width || m * fs * 0.5;
     probe.remove();
-    const mxMin = Math.max(narrow ? 20 : 30, w * (narrow ? 0.07 : 0.085));
+    const mxMin = Math.max(narrow ? 20 : 30, w * (narrow ? 0.07 : book ? 0.1 : 0.085));
     const cw0 = Math.floor(Math.min(w - 2 * mxMin, measurePx));
     const mx = Math.floor((w - cw0) / 2);
     const cw = w - 2 * mx;
@@ -208,7 +234,8 @@ export class PagedLayout {
     const left = Math.round((W - n * w) / 2);
     // Un peu plus de table sous la page que dessus : son ombre portée n'est pas coupée.
     const top = Math.max(0, Math.round((H - h) / 2 - Math.min(8, padY / 3)));
-    this.geo = { W, H, n, w, h, mx, mt, mb, cw, ch, left, top, lineH };
+    this.geo = { W, H, n, w, h, mx, mt, mb, cw, ch, step: w, gap: 2 * mx, left, top, lineH };
+    this.measured = false;
     const st = doc.style;
     st.setProperty('--pg-w', `${w}px`);
     st.setProperty('--pg-h', `${h}px`);
@@ -246,6 +273,52 @@ export class PagedLayout {
       }
     }
     this.invalidate();
+    this.measure();
+  }
+
+  private measured = false;
+
+  /**
+   * Relit la géométrie réelle des colonnes (chapitre affiché) : largeur de la boîte de texte et
+   * intervalle tels que calculés APRÈS toutes les feuilles de styles (mise en page livre comprise).
+   * Si une règle venait à rétrécir la colonne ou à changer l'intervalle, le pas des pages suit la
+   * réalité au lieu de la supposer : aucune colonne voisine ne glisse alors dans la page.
+   */
+  private measure() {
+    const g = this.geo;
+    if (!g || this.measured) return;
+    const col = this.colEl(this.chapter);
+    if (!col || !col.isConnected || !col.parentElement?.classList.contains('paged-cur')) return;
+    const cs = getComputedStyle(col);
+    const width = col.offsetWidth;
+    const gap = parseFloat(cs.columnGap);
+    if (!width) return;
+    this.measured = true;
+    const cw = Math.min(width, g.cw);
+    const gp = Number.isFinite(gap) ? gap : g.gap;
+    // Colonnes réelles : Chromium en loge autant que la boîte en contient ; une boîte de largeur
+    // cw n'en a qu'une, et la suivante commence à cw + intervalle.
+    const step = cw + gp;
+    if (Math.abs(step - g.w) > 0.5 || Math.abs(width - g.cw) > 0.5) {
+      console.warn('[paged] géométrie des colonnes inattendue', { width, gap: gp, cw: g.cw, w: g.w });
+      g.cw = cw;
+      g.gap = gp;
+      g.step = step;
+      this.invalidate();
+    }
+  }
+
+  /** Repagine (géométrie remesurée) en gardant à l'écran le passage lu. */
+  relayout() {
+    if (!this.geo || !this.host.scroll.isConnected) return;
+    const a = this.anchor();
+    this.layout();
+    if (!this.geo) return;
+    const keep = this.keep;
+    this.revealOffset(a.chapter, a.offset);
+    // Le passage visé reste celui d'avant (null : le début de la page, qui suivra la lecture).
+    this.keep = keep;
+    this.host.onRelaid?.();
   }
 
   /** Mise en page du texte changée (police, surlignages qui coupent des nœuds…) : caches à refaire. */
@@ -302,7 +375,7 @@ export class PagedLayout {
 
   private colOfX(dx: number) {
     const g = this.geo!;
-    return Math.max(0, Math.floor((dx + g.mx) / g.w));
+    return Math.max(0, Math.floor((dx + g.gap / 2) / g.step));
   }
 
   /** Colonne (page d'écran) d'un rectangle du chapitre affiché. */
@@ -441,6 +514,7 @@ export class PagedLayout {
     ch = clamp(ch, 0, secs.length - 1);
     const changed = ch !== this.chapter || !secs[ch].classList.contains('paged-cur');
     if (changed) this.setChapter(ch);
+    this.measure();
     const cnt = this.count(ch);
     k = clamp(k, 0, cnt - 1);
     k = Math.floor(k / g.n) * g.n;
@@ -449,7 +523,7 @@ export class PagedLayout {
     this.firstOff = null;
     const col = this.colEl(ch);
     if (col) {
-      const x = -k * g.w;
+      const x = -k * g.step;
       col.getAnimations?.().forEach((a) => a.cancel());
       col.style.transform = `translateX(${x}px)`;
       if (dir && moved && !reduceMotion()) {
@@ -699,7 +773,7 @@ export class PagedLayout {
       pill.dataset.col = String(p.col);
       pill.style.top = `${Math.round(p.y)}px`;
       // Centre de la marge extérieure de la page d'écran p.col (repère : bord gauche de la colonne 0).
-      const x = left ? p.col * g.w - g.mx / 2 : p.col * g.w + g.cw + g.mx / 2;
+      const x = left ? p.col * g.step - g.mx / 2 : p.col * g.step + g.cw + g.mx / 2;
       pill.style.left = `${Math.round(x)}px`;
       layer.appendChild(pill);
     }

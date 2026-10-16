@@ -672,7 +672,7 @@ export const HtmlReader = forwardRef<EngineHandle, EngineProps>(function HtmlRea
         // Page par page : dans la marge gauche de la page (colonne) où commence le mouvement.
         const g = pg.geo!;
         btn.classList.add('compact', 'paged-pos');
-        btn.style.left = `${pg.colOfRect(span.chapter, rect) * g.w - Math.min(g.mx / 2, 26) - 11}px`;
+        btn.style.left = `${pg.colOfRect(span.chapter, rect) * g.step - Math.min(g.mx / 2, 26) - 11}px`;
         continue;
       }
       const room = colRect.left - (sectionsRef.current[span.chapter]?.getBoundingClientRect().left ?? 0);
@@ -697,7 +697,7 @@ export const HtmlReader = forwardRef<EngineHandle, EngineProps>(function HtmlRea
       if (pg) {
         const g = pg.geo!;
         btn.classList.add('paged-pos');
-        btn.style.left = `${pg.colOfRect(span.chapter, rect) * g.w + g.cw + Math.min(12, g.mx / 2 - 5)}px`;
+        btn.style.left = `${pg.colOfRect(span.chapter, rect) * g.step + g.cw + Math.min(12, g.mx / 2 - 5)}px`;
       }
       layer.appendChild(btn);
     }
@@ -873,7 +873,7 @@ export const HtmlReader = forwardRef<EngineHandle, EngineProps>(function HtmlRea
     if (pg?.geo) {
       // Page par page : le voile couvre la colonne (page) du passage, pas la première.
       const k = pg.colOfRect(span.chapter, line ?? br);
-      el.style.left = `${k * pg.geo.w - 10}px`;
+      el.style.left = `${k * pg.geo.step - 10}px`;
       el.style.right = 'auto';
       el.style.width = `${pg.geo.cw + 20}px`;
       // Paragraphe sur plusieurs pages : seulement son morceau sur la page du signet.
@@ -971,6 +971,9 @@ export const HtmlReader = forwardRef<EngineHandle, EngineProps>(function HtmlRea
           }
           if (chapterChanged && readyRef.current) renderMarkers();
           if (readyRef.current) scheduleReport();
+        },
+        onRelaid: () => {
+          if (readyRef.current) renderMarkers();
         },
       });
       pg.attach();

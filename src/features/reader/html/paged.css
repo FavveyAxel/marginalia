@@ -27,6 +27,13 @@
   z-index: 1;
   padding: 0;
   background: transparent;
+  /* Découpe au cadre de la page ou de la double page : rien du texte ne se peint hors des feuilles,
+     quoi qu'il arrive aux colonnes (voisine décalée, ligne en débordement, calque composité qui
+     échapperait à l'overflow du chapitre). Deuxième découpe, indépendante de celle du chapitre. */
+  clip-path: inset(
+    var(--pg-top, 0px) calc(100% - var(--pg-left, 0px) - var(--pg-n, 1) * var(--pg-w, 100%)) calc(100% - var(--pg-top, 0px) - var(--pg-h, 100%))
+      var(--pg-left, 0px)
+  );
 }
 .paged-on .html-chapter {
   display: none;
@@ -37,6 +44,10 @@
   height: var(--pg-h);
   padding: 0;
   overflow: clip;
+  /* overflow: clip ne découpe que le contenu « en flux » de la boîte ; clip-path découpe aussi ce
+     que le compositeur peint à part (colonne translatée, will-change) : la colonne voisine ne
+     déborde jamais du cadre. */
+  clip-path: inset(0);
   content-visibility: visible;
   contain: layout style;
 }
@@ -55,16 +66,18 @@
   visibility: hidden;
 }
 
-.paged-on .html-col {
+.html-doc.paged-on .html-chapter > .html-col {
   position: absolute;
   left: var(--pg-mx);
   top: var(--pg-mt);
   box-sizing: border-box;
   width: var(--pg-cw);
+  min-width: 0;
   max-width: none;
   height: var(--pg-ch);
   margin: 0;
   padding: 0;
+  border: 0;
   column-width: var(--pg-cw);
   column-gap: calc(2 * var(--pg-mx));
   column-fill: auto;
@@ -76,6 +89,19 @@
 .paged-on .html-chapter-text {
   orphans: 2;
   widows: 2;
+  /* Chaîne insécable plus large que la page (adresse, mot composé) : coupée plutôt que débordante. */
+  overflow-wrap: anywhere;
+}
+.paged-on .html-chapter-text pre {
+  white-space: pre-wrap;
+}
+.paged-on .html-chapter-text :is(img, svg, video, table) {
+  max-width: 100%;
+}
+/* Un tableau court ne se coupe pas : coupé entre deux rangées, Chromium peut laisser la dernière
+   rangée d'une colonne déborder sous le bas de la page. */
+.paged-on .html-chapter-text table {
+  break-inside: avoid;
 }
 .paged-on .html-chapter-text h1,
 .paged-on .html-chapter-text h2,

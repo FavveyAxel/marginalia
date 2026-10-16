@@ -11,7 +11,12 @@
 // - aller à la page (imprimée, romaine, estimée), recherche, sommaire ;
 // - surlignage dans une page et à cheval sur les deux pages d'une double page (texte et offsets exacts) ;
 // - signet ; position restaurée (réouverture, rechargement, changement de taille du texte) ;
-// - côte à côte (volets indépendants) ; thèmes ; aucune erreur dans la console.
+// - côte à côte (volets indépendants) ; thèmes ; aucune erreur dans la console ;
+// - débordement (livre long, ≈ 470 pages) : aucune ligne du chapitre lu visible hors de la page ou
+//   de la double page (rectangles des lignes, et au pixel près sur une capture), chaque ligne dans sa
+//   case de colonne, pas des colonnes mesuré = largeur de page ; mise en page livre oui/non × serif/sans
+//   × une/deux pages × panneau « Aa » ouvert/fermé, après bascule de la mise en page livre et après
+//   redimensionnement (passage lu gardé) ; découpe du document même si celle du chapitre manquait.
 // Captures : /home/claude/marginalia/shots/pages/ (01-une-page … 06-scinde).
 // Lancer : timeout 400 node scripts/test-reader-paged.mjs
 import { createServer } from 'vite';
@@ -19,6 +24,7 @@ import { chromium } from 'playwright-core';
 import fs from 'node:fs';
 import path from 'node:path';
 import JSZip from 'jszip';
+import { epubLong } from './fixtures-books.mjs';
 
 const ROOT = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..');
 const SHOTS = '/home/claude/marginalia/shots/pages';
@@ -915,6 +921,345 @@ await withApp(async (page, errors) => {
   check(!st.paged && st.layout === 'scroll' && !(await page.$('.paged-desk')), 'retour au défilement : plus de feuilles, le volet défile', st);
   check(JSON.stringify(await chapterTexts(page)) === JSON.stringify(textsScroll), 'textContent inchangé après retour au défilement');
   void errors;
+});
+
+
+// ── Débordement : rien du texte hors du cadre de la page ─────
+//
+// Régression « des mots sortent du cadre » (page par page + mise en page livre) : une ligne de la
+// page suivante peinte à droite de la feuille, hors du cadre. Contrôles, sur un livre long :
+// - chaque ligne du chapitre lu tient dans sa case de colonne (largeur et hauteur de la zone de texte) ;
+// - le pas des colonnes mesuré (largeur réelle de la boîte + intervalle réel) vaut la largeur de page ;
+// - aucun rectangle de ligne n'est visible (découpes des ancêtres comprises) hors de la (double) page ;
+// - au pixel : aucune encre dans le volet hors des feuilles (capture d'écran) ;
+// - découpe de secours : même sans la découpe du chapitre, et colonnes décalées d'une demi-page,
+//   le document ne peint rien hors des feuilles.
+
+/** Audit géométrique du chapitre lu (volet a). */
+const overflowAudit = (page) =>
+  page.evaluate(() => {
+    const p = document.querySelector('.reader-page[data-pane="a"]');
+    const sc = p.querySelector('.html-scroll');
+    const docEl = p.querySelector('.html-doc');
+    const cs = getComputedStyle(docEl);
+    const v = (k) => parseFloat(cs.getPropertyValue(k));
+    const w = v('--pg-w');
+    const mx = v('--pg-mx');
+    const cw = v('--pg-cw');
+    const chh = v('--pg-ch');
+    const n = v('--pg-n');
+    const sr = sc.getBoundingClientRect();
+    const box = { l: sr.left + v('--pg-left'), t: sr.top + v('--pg-top'), r: sr.left + v('--pg-left') + n * w, b: sr.top + v('--pg-top') + v('--pg-h') };
+    const sheets = [...p.querySelectorAll('.paged-page')].map((e) => e.getBoundingClientRect());
+    const sheetBox = { l: Math.min(...sheets.map((s) => s.left)), r: Math.max(...sheets.map((s) => s.right)), t: Math.min(...sheets.map((s) => s.top)), b: Math.max(...sheets.map((s) => s.bottom)) };
+    const sec = p.querySelector('.html-chapter.paged-cur');
+    const col = sec.querySelector('.html-col');
+    const ccs = getComputedStyle(col);
+    const colW = col.offsetWidth;
+    const gap = parseFloat(ccs.columnGap);
+    // Région de découpe d'un élément : intersection des boîtes de ses ancêtres qui découpent.
+    const clipOf = (el) => {
+      let c = { l: -1e9, t: -1e9, r: 1e9, b: 1e9 };
+      for (let a = el; a && a !== document.body; a = a.parentElement) {
+        const s = getComputedStyle(a);
+        let q = null;
+        if (s.overflowX !== 'visible' || s.overflowY !== 'visible') q = a.getBoundingClientRect();
+        const m = /^inset\(([^)]*)\)$/.exec(s.clipPath);
+        if (m) {
+          const r = a.getBoundingClientRect();
+          const parts = m[1].split(/\s+/).map(parseFloat);
+          const [t0, r0 = t0, b0 = t0, l0 = r0] = parts.every(Number.isFinite) ? parts : [0, 0, 0, 0];
+          const ins = { l: r.left + l0, t: r.top + t0, r: r.right - r0, b: r.bottom - b0 };
+          q = q ? { left: Math.max(q.left, ins.l), top: Math.max(q.top, ins.t), right: Math.min(q.right, ins.r), bottom: Math.min(q.bottom, ins.b) } : { left: ins.l, top: ins.t, right: ins.r, bottom: ins.b };
+        }
+        if (q) c = { l: Math.max(c.l, q.left), t: Math.max(c.t, q.top), r: Math.min(c.r, q.right), b: Math.min(c.b, q.bottom) };
+      }
+      return c;
+    };
+    const tf = col.style.transform;
+    const k0 = Math.round(-parseFloat((/translateX\((-?[\d.]+)px\)/.exec(tf) ?? [0, 0])[1]) / w);
+    const walker = document.createTreeWalker(sec.querySelector('.html-chapter-text'), NodeFilter.SHOW_TEXT);
+    const r = document.createRange();
+    const visibleOut = [];
+    const texts = [];
+    let t;
+    while ((t = walker.nextNode())) {
+      if (!/\S/.test(t.data) || getComputedStyle(t.parentElement).visibility === 'hidden') continue;
+      texts.push(t);
+      const clip = clipOf(t.parentElement);
+      r.selectNodeContents(t);
+      for (const q of r.getClientRects()) {
+        const l = Math.max(q.left, clip.l);
+        const rr = Math.min(q.right, clip.r);
+        const tt = Math.max(q.top, clip.t);
+        const bb = Math.min(q.bottom, clip.b);
+        if (rr - l < 1 || bb - tt < 1) continue;
+        if (l < box.l - 1 || rr > box.r + 1 || tt < box.t - 1 || bb > box.b + 1) visibleOut.push({ text: t.data.slice(0, 30), q: [q.left, q.top, q.right, q.bottom].map(Math.round) });
+      }
+    }
+    // Cases de colonne : la colonne sans translation, chaque ligne dans [k·w, k·w + cw] × [0, ch].
+    col.style.transform = 'none';
+    const cr = col.getBoundingClientRect();
+    const slots = [];
+    for (const tn of texts) {
+      r.selectNodeContents(tn);
+      for (const q of r.getClientRects()) {
+        if (q.width < 1 || q.height < 1) continue;
+        const dx = q.left - cr.left;
+        const k = Math.floor((dx + mx) / w);
+        const ok = dx >= k * w - 1.5 && q.right - cr.left <= k * w + cw + 1.5 && q.top - cr.top >= -4 && q.bottom - cr.top <= chh + 1.5;
+        if (!ok) slots.push({ text: tn.data.slice(0, 30), k, x: Math.round(dx - k * w), y: Math.round(q.top - cr.top), b: Math.round(q.bottom - cr.top) });
+      }
+    }
+    col.style.transform = tf;
+    // Premier caractère visible de la page de gauche (offset dans le chapitre).
+    let first = -1;
+    {
+      const root = sec.querySelector('.html-chapter-text');
+      const wk = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+      let pos = 0;
+      let nn;
+      const lo = box.l + mx - 2;
+      const hi = box.l + w - mx + 2;
+      const inPage = (q) => q && q.left >= lo && q.right <= hi && q.top >= box.t && q.bottom <= box.b;
+      while ((nn = wk.nextNode()) && first < 0) {
+        r.selectNodeContents(nn);
+        const rs = [...r.getClientRects()];
+        if (/\S/.test(nn.data) && rs.some(inPage)) {
+          for (let i = 0; i < nn.data.length; i++) {
+            if (/\s/.test(nn.data[i])) continue;
+            r.setStart(nn, i);
+            r.setEnd(nn, i + 1);
+            if (inPage(r.getClientRects()[0])) {
+              first = pos + i;
+              break;
+            }
+          }
+        }
+        pos += nn.data.length;
+      }
+    }
+    return {
+      chapter: [...p.querySelectorAll('.html-chapter')].indexOf(sec),
+      page: k0,
+      w,
+      mx,
+      cw,
+      colW,
+      gap,
+      step: colW + gap,
+      sheetsMatch: Math.abs(sheetBox.l - box.l) < 1.5 && Math.abs(sheetBox.r - box.r) < 1.5,
+      docClip: cs.clipPath,
+      secClip: getComputedStyle(sec).clipPath,
+      visibleOut: visibleOut.length,
+      visibleSample: visibleOut.slice(0, 3),
+      slots: slots.length,
+      slotSample: slots.slice(0, 3),
+      first,
+      indicator: p.querySelector('[data-testid=page-indicator]')?.textContent,
+    };
+  });
+
+/** Pixels d'encre (sombres) peints dans le volet hors des feuilles (ombres, panneau et indicateur exclus). */
+async function inkOutside(page) {
+  await page.mouse.move(2, 2);
+  await sleep(120);
+  const geo = await page.evaluate(() => {
+    const p = document.querySelector('.reader-page[data-pane="a"]');
+    const sc = p.querySelector('.html-scroll');
+    const r = sc.getBoundingClientRect();
+    const rect = (e) => {
+      const q = e.getBoundingClientRect();
+      return [q.left, q.top, q.right, q.bottom];
+    };
+    const masks = [...p.querySelectorAll('.paged-page')].map((e) => {
+      const [l, t, rr, b] = rect(e);
+      return [l - 6, t - 4, rr + 9, b + 22];
+    });
+    for (const e of document.querySelectorAll('[data-testid=reader-panel], .reader-pagejump-host, .toast, .floating')) {
+      const [l, t, rr, b] = rect(e);
+      masks.push([l - 28, t - 28, rr + 28, b + 40]);
+    }
+    return { sc: [r.left, r.top, r.width, r.height], masks };
+  });
+  const [x, y, w, h] = geo.sc;
+  const buf = await page.screenshot({ clip: { x, y, width: w, height: h } });
+  return page.evaluate(
+    async ({ b64, geo }) => {
+      const img = await createImageBitmap(await (await fetch('data:image/png;base64,' + b64)).blob());
+      const c = new OffscreenCanvas(img.width, img.height);
+      const ctx = c.getContext('2d');
+      ctx.drawImage(img, 0, 0);
+      const d = ctx.getImageData(0, 0, img.width, img.height).data;
+      const sx = img.width / geo.sc[2];
+      let n = 0;
+      let box = null;
+      for (let j = 0; j < img.height; j++)
+        for (let i = 0; i < img.width; i++) {
+          const k = (j * img.width + i) * 4;
+          if (0.3 * d[k] + 0.59 * d[k + 1] + 0.11 * d[k + 2] > 110) continue;
+          const px = geo.sc[0] + i / sx;
+          const py = geo.sc[1] + j / sx;
+          if (geo.masks.some(([l, t, r, b]) => px >= l && px <= r && py >= t && py <= b)) continue;
+          n++;
+          box = box ? [Math.min(box[0], px), Math.min(box[1], py), Math.max(box[2], px), Math.max(box[3], py)] : [px, py, px, py];
+        }
+      return { n, box: box && box.map(Math.round) };
+    },
+    { b64: buf.toString('base64'), geo },
+  );
+}
+
+const auditOk = (a) => a.visibleOut === 0 && a.slots === 0 && Math.abs(a.step - a.w) < 1 && Math.abs(a.colW - a.cw) < 1 && a.sheetsMatch;
+
+/** Panneau « Aa » ouvert ou fermé. */
+async function panel(page, open) {
+  const isOpen = !!(await page.$('[data-testid=reader-panel]'));
+  if (isOpen !== open) await page.click('[data-testid=reader-display-btn]');
+  if (open) await page.waitForSelector('[data-testid=reader-panel]');
+  else await page.waitForSelector('[data-testid=reader-panel]', { state: 'detached' });
+  await sleep(350);
+}
+
+async function nextPage(page) {
+  await page.evaluate(() => document.activeElement?.blur());
+  await page.keyboard.press('ArrowRight');
+  await sleep(380);
+}
+
+await withApp(async (page) => {
+  console.log('\n== Débordement : rien hors du cadre de la page (livre long) ==');
+  await set(page, { theme: 'light', fontSize: 19, lineHeight: 1.65, measure: 66, showToc: true, showExtracts: false, showConnectors: true, readerLayout: 'paged', pagedSpread: 'single', bookLayout: true, paperLook: false, pageMarks: 'numbered', fontFamily: 'sans' });
+  const longId = await importBuffer(page, 'traite-long.epub', await epubLong({ shy: true }));
+  await open(page, longId);
+  await jumpTo(page, '158');
+  const total = Number((/\/\s*(\d+)/.exec((await state(page)).indicator ?? '') ?? [])[1]);
+  check(total >= 300, `livre long : ${total} pages imprimées`, total);
+
+  // Mise en page livre : mesure plus étroite et marges plus amples, prises de la cascade.
+  const geoBook = await overflowAudit(page);
+  await set(page, { bookLayout: false });
+  await sleep(600);
+  const geoPlain = await overflowAudit(page);
+  check(geoBook.cw < geoPlain.cw && geoBook.mx > geoPlain.mx, 'mise en page livre : zone de texte plus étroite, marges plus amples', { livre: [geoBook.cw, geoBook.mx], ecran: [geoPlain.cw, geoPlain.mx] });
+
+  let bad = 0;
+  for (const pagedSpread of ['single', 'double'])
+    for (const fontFamily of ['serif', 'sans'])
+      for (const bookLayout of [true, false])
+        for (const open of [false, true]) {
+          await set(page, { pagedSpread, fontFamily, bookLayout });
+          await panel(page, open);
+          await sleep(300);
+          const label = `${pagedSpread === 'single' ? 'une page' : 'deux pages'}, ${fontFamily}, livre ${bookLayout ? 'oui' : 'non'}, panneau ${open ? 'ouvert' : 'fermé'}`;
+          for (let t = 0; t < 2; t++) {
+            if (t) await nextPage(page);
+            const a = await overflowAudit(page);
+            const ink = await inkOutside(page);
+            const ok = auditOk(a) && ink.n === 0;
+            if (!ok) bad++;
+            check(ok, `${label}${t ? ', page suivante' : ''} : aucune ligne hors du cadre (${a.indicator})`, { a, ink });
+          }
+        }
+  await panel(page, false);
+
+  // Bascule de la mise en page livre depuis le panneau (police sans, une page) : le passage lu reste.
+  await set(page, { pagedSpread: 'single', fontFamily: 'sans', bookLayout: false });
+  await sleep(500);
+  await panel(page, true);
+  // Page tournée par le lecteur : le passage lu est alors le premier caractère de la page. Il doit
+  // rester à l'écran à chaque bascule, sans dériver d'une bascule à l'autre.
+  await nextPage(page);
+  const before = await overflowAudit(page);
+  for (const target of [true, false, true]) {
+    await page.click('[data-testid=book-layout-switch]');
+    await sleep(700);
+    const a = await overflowAudit(page);
+    const ink = await inkOutside(page);
+    const kept = a.chapter === before.chapter ? await charInfo(page, a.chapter, before.first) : null;
+    check(auditOk(a) && ink.n === 0, `bascule « Mise en page livre » → ${target ? 'oui' : 'non'} : aucune ligne hors du cadre`, { a, ink });
+    check(!!kept?.visible, `bascule « Mise en page livre » → ${target ? 'oui' : 'non'} : le premier caractère lu (avant les bascules) reste à l'écran`, { before: [before.chapter, before.first], after: [a.chapter, a.first] });
+  }
+  await page.getByRole('radio', { name: 'Serif' }).click();
+  await sleep(700);
+  {
+    const a = await overflowAudit(page);
+    check(auditOk(a) && (await inkOutside(page)).n === 0, 'police changée depuis le panneau (serif) : aucune ligne hors du cadre', a);
+  }
+
+  // Redimensionnement (volet plus étroit, puis double page), panneau ouvert.
+  for (const [W, H, spread] of [
+    [1100, 900, 'single'],
+    [1100, 900, 'double'],
+    [1440, 900, 'double'],
+  ]) {
+    await set(page, { pagedSpread: spread });
+    await sleep(400);
+    const before = await overflowAudit(page);
+    await page.setViewportSize({ width: W, height: H });
+    await sleep(700);
+    const a = await overflowAudit(page);
+    const ink = await inkOutside(page);
+    const kept = a.chapter === before.chapter ? await charInfo(page, a.chapter, before.first) : null;
+    check(auditOk(a) && ink.n === 0, `redimensionné ${W}×${H}, ${spread} : aucune ligne hors du cadre`, { a, ink });
+    check(!!kept?.visible, `redimensionné ${W}×${H}, ${spread} : le premier caractère lu reste à l'écran`, { before: [before.chapter, before.first], after: [a.chapter, a.first] });
+  }
+  await panel(page, false);
+  await shot(page, '07-livre-long-deux-pages.png');
+
+  // Découpe de secours : sans la découpe du chapitre, colonnes décalées d'une demi-page (une colonne
+  // voisine à cheval sur chaque bord) — le document ne peint toujours rien hors des feuilles.
+  for (const spread of ['single', 'double']) {
+    await set(page, { pagedSpread: spread, bookLayout: true, fontFamily: 'sans' });
+    await sleep(500);
+    await page.evaluate(() => {
+      const sec = document.querySelector('.reader-page[data-pane="a"] .html-chapter.paged-cur');
+      const col = sec.querySelector('.html-col');
+      const w = parseFloat(getComputedStyle(sec.parentElement).getPropertyValue('--pg-w'));
+      sec.style.overflow = 'visible';
+      sec.style.clipPath = 'none';
+      col.dataset.tf = col.style.transform;
+      col.style.transform = `${col.style.transform} translateX(${w / 2}px)`;
+    });
+    await sleep(150);
+    const ink = await inkOutside(page);
+    check(ink.n === 0, `découpe de secours (${spread}) : rien de peint hors des feuilles même sans la découpe du chapitre`, ink);
+    await page.evaluate(() => {
+      const sec = document.querySelector('.reader-page[data-pane="a"] .html-chapter.paged-cur');
+      const col = sec.querySelector('.html-col');
+      sec.style.overflow = '';
+      sec.style.clipPath = '';
+      col.style.transform = col.dataset.tf;
+    });
+  }
+  // Défilement continu et feuilles, mise en page livre : aucune ligne ne dépasse la zone de texte de
+  // sa colonne (adresse web insécable, mots longs coupés plutôt que débordants).
+  for (const readerLayout of ['scroll', 'sheets'])
+    for (const fontFamily of ['serif', 'sans']) {
+      await set(page, { readerLayout, bookLayout: true, fontFamily });
+      await sleep(900);
+      const out = await page.evaluate(() => {
+        const p = document.querySelector('.reader-page[data-pane="a"]');
+        const sc = p.querySelector('.html-scroll').getBoundingClientRect();
+        const bad = [];
+        const r = document.createRange();
+        for (const root of p.querySelectorAll('.html-chapter-text')) {
+          const cr = root.getBoundingClientRect();
+          if (cr.bottom < sc.top - 2000 || cr.top > sc.bottom + 2000) continue;
+          const wk = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+          let n;
+          while ((n = wk.nextNode())) {
+            if (!/\S/.test(n.data)) continue;
+            r.selectNodeContents(n);
+            for (const q of r.getClientRects()) if (q.width >= 1 && (q.left < cr.left - 1 || q.right > cr.right + 1)) bad.push({ t: n.data.slice(0, 30), q: [q.left, q.right].map(Math.round), box: [cr.left, cr.right].map(Math.round) });
+          }
+        }
+        return { n: bad.length, sample: bad.slice(0, 3) };
+      });
+      check(out.n === 0, `${readerLayout === 'scroll' ? 'défilement continu' : 'feuilles'}, ${fontFamily}, mise en page livre : aucune ligne hors de la zone de texte`, out);
+    }
+  await set(page, { readerLayout: 'paged' });
+  console.log(`débordement : ${bad} configuration(s) en défaut`);
 });
 
 console.log(`\n${passes} OK, ${failures} échec(s)`);

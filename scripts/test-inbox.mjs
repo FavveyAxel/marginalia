@@ -79,13 +79,17 @@ await withApp(PORT, async (page, errors) => {
   const alertDot = await page.waitForSelector('.nav-item[aria-label="Bibliothèque"] .nav-alert', { timeout: 30000 }).then(() => true, () => false);
   ok(alertDot, 'pastille « ! » à côté de « Bibliothèque »');
   ok(!(await page.$('.ib-banner')), 'pas de bandeau dans la bibliothèque');
-  ok(!!(await page.$('.nav-item[aria-label="Boîte de réception"]')), 'éléments en attente : entrée dans la barre latérale');
+  ok(!(await page.$('.nav-item[aria-label="Boîte de réception"]')), 'pas d’entrée « Boîte de réception » dans la barre latérale');
+  ok((await page.textContent('.lib-inbox-chip .lib-inbox-n')) === String(await st(() => document.querySelector('.inbox-badge')?.textContent)), 'bouton « Reçu du téléphone » dans la bibliothèque, avec le compteur');
   ok(!!(await page.$('.inbox-btn .inbox-badge')), 'pastille sur le bouton de la boîte');
   await shot(page, `${SHOTS}/06-bandeau-barre.png`);
   await st(() => window.__store.getState().navigate({ name: 'home' }));
   await page.waitForSelector('.home-hello');
   ok(!(await page.$('.ib-banner')), 'pas de bandeau sur l’accueil');
-  await page.click('.inbox-btn');
+  await st(() => window.__store.getState().navigate({ name: 'library' }));
+  await page.click('.lib-inbox-chip');
+  await page.waitForSelector('.ib-list');
+  ok((await page.getAttribute('.nav-item[aria-label="Bibliothèque"]', 'class')).includes('active'), 'boîte ouverte depuis la bibliothèque (Bibliothèque reste sélectionnée)');
   await page.waitForSelector('.ib-card[data-name="idée.txt"] .ib-note', { timeout: 30000 });
   ok((await page.textContent('.ib-card[data-name="idée.txt"] .ib-note')).includes('introuvable'), 'texte inconnu : « Passage introuvable »');
   await page.waitForSelector('.ib-card[data-name="Article.html"] .btn-primary');
@@ -130,7 +134,7 @@ await withApp(PORT, async (page, errors) => {
   ok(await waitDone(page, 'Archive.zip'), 'retirer : fichier rangé sans rien créer');
   const left = (await state(page)).left;
   ok(left.length === 1 && left[0] === 'Conférence.url', 'reste seulement le lien', left.join(', '));
-  ok((await page.textContent('.nav-item[aria-label="Boîte de réception"] .count')) === '1' && (await page.textContent('.inbox-badge')) === '1', 'compteurs à jour (barre et pastille)');
+  ok((await page.textContent('.inbox-badge')) === '1' && !!(await page.$('.nav-item[aria-label="Bibliothèque"] .nav-alert')), 'pastilles à jour');
   await st(() => window.__store.getState().updateSettings({ sidebarCollapsed: true }));
   await page.waitForTimeout(400);
   await shot(page, `${SHOTS}/07-barre-repliee.png`);
@@ -140,7 +144,7 @@ await withApp(PORT, async (page, errors) => {
 
   // Désactivation : l'entrée disparaît.
   await st(() => window.__store.getState().updateSettings({ inbox: false }));
-  await page.waitForFunction(() => !document.querySelector('.nav-item[aria-label="Boîte de réception"]') && !document.querySelector('.inbox-btn'));
+  await page.waitForFunction(() => !document.querySelector('.nav-alert') && !document.querySelector('.inbox-btn'));
   ok(true, 'désactivée : entrée et bouton retirés');
   await page.click('.foot-item[aria-label="Corbeille"]');
   ok((await page.textContent('.page-title')) === 'Corbeille', 'icône du bas : Corbeille s’ouvre');

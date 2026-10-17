@@ -97,3 +97,4 @@
   .ib-match { grid-template-columns: minmax(0, 1fr); }
   .ib-match-add { justify-self: start; }
 }
+.ib-back { color: var(--ink-2); gap: 4px; }

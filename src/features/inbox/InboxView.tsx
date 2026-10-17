@@ -2,6 +2,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   BookOpen,
+  ChevronLeft,
   Check,
   CloudDownload,
   FilePen,
@@ -92,6 +93,9 @@ export function InboxView() {
   return (
     <>
       <header className="topbar">
+        <button className="btn btn-sm btn-ghost ib-back" onClick={() => useStore.getState().navigate({ name: 'library' })}>
+          <ChevronLeft size={15} /> Bibliothèque
+        </button>
         <span className="spacer" />
         {on && info && (
           <button className="btn btn-sm" onClick={() => void revealInbox()} title="Ouvrir le dossier dans le Finder ou l’Explorateur">

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { useInboxCount } from '../inbox/inbox';
 import { useShallow } from 'zustand/react/shallow';
 import {
   ArrowUpDown,
@@ -24,6 +25,7 @@ import {
   Check,
   CheckSquare,
   RefreshCw,
+  Inbox,
 } from 'lucide-react';
 import { useStore } from '../../lib/store';
 import { host, ACCEPTED_EXTENSIONS, type AppleBook } from '../../lib/platform';
@@ -117,6 +119,8 @@ export function LibraryView() {
   const books = useStore((s) => s.books);
   const highlights = useStore((s) => s.highlights);
   const importing = useStore((s) => s.importing);
+  const inboxOn = useStore((s) => !!s.settings.inbox);
+  const inboxN = useInboxCount();
   const [query, setQuery] = useState('');
   const [sort, setSort] = useState<SortKey>(() => readPref<SortKey>('lib.sort', ['recent', 'title', 'author', 'added'], 'recent'));
   const [view, setView] = useState<ViewMode>(() => readPref<ViewMode>('lib.view', ['grid', 'list'], 'grid'));
@@ -413,6 +417,12 @@ export function LibraryView() {
                     <span className="lib-chip-count">{filterCounts[k]}</span>
                   </button>
                 ))}
+                {inboxOn && (
+                  <button className={`chip lib-inbox-chip ${inboxN ? 'has-items' : ''}`} onClick={() => useStore.getState().navigate({ name: 'inbox' })} title="Ce que vous envoyez depuis le téléphone">
+                    <Inbox size={13} /> Reçu du téléphone
+                    {inboxN > 0 && <span className="lib-inbox-n">{inboxN}</span>}
+                  </button>
+                )}
               </div>
 
               {visible.length === 0 && importing === 0 ? (

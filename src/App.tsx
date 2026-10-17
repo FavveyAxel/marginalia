@@ -329,8 +329,7 @@ function Sidebar() {
       </button>
       <div className="sidebar-scroll">
         <NavItem match="home" route={{ name: 'home' }} icon={<Home size={15} />} label="Accueil" />
-        <NavItem match="library" route={{ name: 'library' }} icon={<BookOpen size={15} />} label="Bibliothèque" count={nBooks} alert={nInbox ? (nInbox === 1 ? 'Un élément reçu du téléphone attend votre décision' : `${nInbox} éléments reçus du téléphone attendent votre décision`) : undefined} />
-        {inboxOn && (nInbox > 0 || route.name === 'inbox') && <NavItem match="inbox" route={{ name: 'inbox' }} icon={<Inbox size={15} />} label="Boîte de réception" count={nInbox || undefined} />}
+        <NavItem match="library" activeAlso="inbox" route={{ name: 'library' }} icon={<BookOpen size={15} />} label="Bibliothèque" count={nBooks} alert={nInbox ? (nInbox === 1 ? 'Un élément reçu du téléphone attend votre décision' : `${nInbox} éléments reçus du téléphone attendent votre décision`) : undefined} />
         <NavItem match="write" route={{ name: 'write', draftId: null }} icon={<FilePen size={15} />} label="Écrits" count={nDrafts} />
         <NavItem match="maps" route={{ name: 'maps' }} icon={<Network size={15} />} label="Cartes" count={nMaps} />
         <div className="sidebar-section">Étudier</div>

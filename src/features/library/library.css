@@ -685,3 +685,25 @@
 .lib-ann-foot { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .lib-ann-report { font-size: 12px; color: var(--muted); line-height: 1.4; }
 .lib-ann-report.warn { color: var(--danger, #b4442c); }
+
+/* Accès à la Boîte de réception (ce qui arrive du téléphone) */
+.lib-inbox-chip {
+  margin-left: auto;
+  gap: 6px;
+}
+.lib-inbox-chip svg {
+  color: var(--muted);
+}
+.lib-inbox-n {
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  box-sizing: border-box;
+  border-radius: 8px;
+  background: var(--primary);
+  color: var(--primary-ink);
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 16px;
+  text-align: center;
+}

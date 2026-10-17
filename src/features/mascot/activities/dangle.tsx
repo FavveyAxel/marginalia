@@ -9,15 +9,15 @@ export const pose: PoseDef = {
   fps: 8,
   rig: (f) => {
     const k = f % 4;
-    // bras levés vers le point de prise, qui s'agitent ; jambes qui pédalent dans le vide
-    const armL: Pt = [[4, 2], [0, 7], [6, 0], [2, 9]][k] as Pt;
-    const armR: Pt = [[95, 0], [99, 8], [93, 4], [97, 2]][k] as Pt;
+    // Tenu par le haut de la tête : bras ballants qui gigotent un peu, jambes qui pédalent dans le vide.
+    const armL: Pt = [[10, 88], [7, 84], [11, 90], [8, 86]][k] as Pt;
+    const armR: Pt = [[89, 86], [92, 90], [88, 84], [91, 88]][k] as Pt;
     const legL: Pt = [[36, 118], [32, 112], [38, 120], [34, 110]][k] as Pt;
     const legR: Pt = [[63, 110], [66, 119], [61, 112], [68, 118]][k] as Pt;
     return {
       arms: [
-        { a: [21, 54], b: [5, 30], c: armL },
-        { a: [78, 54], b: [94, 30], c: armR },
+        { a: [21, 54], b: [k % 2 ? 11 : 13, 71], c: armL },
+        { a: [78, 54], b: [k % 2 ? 88 : 86, 71], c: armR },
       ],
       legs: [
         { a: [42, 64], b: [k % 2 ? 36 : 40, 92], c: legL },
@@ -28,6 +28,7 @@ export const pose: PoseDef = {
       feet: 'stand',
     };
   },
+  freeHands: true,
   eyes: (f) => (f % 6 < 2 ? 'closed' : 'open'),
   mouth: (f) => (f % 6 < 3 ? 'o' : 'flat'),
   // goutte de sueur et petits traits d'agitation

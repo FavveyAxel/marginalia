@@ -117,7 +117,7 @@ interface State {
   /** Tests : accélération du temps. */
   speed: number;
   /** Attrapé à la souris : point de prise dans le personnage (ox, oy) et position du pointeur. */
-  drag: { ox: number; oy: number; px: number; py: number } | null;
+  drag: { ox: number; oy: number; px: number; py: number; /** Balancier : angle (degrés), vitesse angulaire, dernière abscisse du pointeur, vitesse lissée. */ tilt: number; spin: number; lx: number; vx: number } | null;
   /** Action interrompue par la prise (reprise après l'atterrissage). */
   held: { act: Act; left: number } | null;
 }
@@ -755,10 +755,24 @@ export function Mascot({ route, workspaceId }: { route: string; workspaceId?: st
       const w = wrap.current;
       if (!w || !s.visible || !s.perch) return;
       if (s.drag) {
-        put(w, 'transform', `translate(${(s.drag.px - s.drag.ox).toFixed(1)}px, ${(s.drag.py - s.drag.oy).toFixed(1)}px)`);
+        const d = s.drag;
+        put(w, 'transform', `translate(${(d.px - d.ox).toFixed(1)}px, ${(d.py - d.oy).toFixed(1)}px)`);
         put(w, 'visibility', 'visible');
+        // Balancier : il penche à l'opposé du mouvement, comme un pendule accroché au point de prise.
+        const ds = Math.min(0.05, Math.max(1, dt) / 1000);
+        d.vx = d.vx * 0.7 + ((d.px - d.lx) / ds) * 0.3;
+        d.lx = d.px;
+        if (!still) {
+          // ressort amorti vers un angle qui suit la vitesse (quelques oscillations à l'arrêt)
+          const target = Math.max(-25, Math.min(25, d.vx * 0.025)); // vers la droite : les pieds traînent à gauche (rotation horaire)
+          d.spin += (120 * (target - d.tilt) - 9 * d.spin) * ds;
+          d.tilt = Math.max(-30, Math.min(30, d.tilt + d.spin * ds));
+        }
         const bd0 = body.current;
-        if (bd0) put(bd0, 'transform', '');
+        if (bd0) {
+          put(bd0, 'transformOrigin', `${d.ox.toFixed(0)}px ${d.oy.toFixed(0)}px`);
+          put(bd0, 'transform', Math.abs(d.tilt) < 0.2 ? '' : `rotate(${d.tilt.toFixed(1)}deg)`);
+        }
         if (bub.current) put(bub.current, 'visibility', 'hidden');
         return;
       }
@@ -1074,7 +1088,7 @@ export function Mascot({ route, workspaceId }: { route: string; workspaceId?: st
         s.view = 'front';
         s.frame = 0;
         s.frameAcc = 0;
-        s.drag = { ox: sx - rect.left, oy: sy - rect.top, px: ev.clientX, py: ev.clientY };
+        s.drag = { ox: sx - rect.left, oy: sy - rect.top, px: ev.clientX, py: ev.clientY, tilt: 0, spin: 0, lx: ev.clientX, vx: 0 };
         wrap.current?.classList.add('is-dragging');
         setTick((t) => t + 1);
       }

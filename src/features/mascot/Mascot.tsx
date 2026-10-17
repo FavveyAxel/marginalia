@@ -10,10 +10,12 @@
 // Réglage « Compagnon » (jamais, rarement, parfois, souvent) ; mouvement réduit : ni marche ni animation.
 import { useEffect, useRef, useState } from 'react';
 import { useStore } from '../../lib/store';
+import { extraPose, activityLine } from './activities';
 import { Sprite, anchorOf, isSeated, VB_H, VB_W, type Level, type Pose, type View } from './Sprite';
 import { quotesBy, HELLO_BY, CONTEXT, FLEX, HELLO, JOKES, PONDER, POKE, BYE, QUOTES, GUITAR, WHISTLE, WRITE, CIGAR, pick, type Ctx } from './lines';
 import { ALL_PERCHES, PERCHES, STAY, activityActs, buildVisit, sceneActs, sceneCount, type Act, type Hop, type Page, type Say } from './scenes';
 import { CHARACTERS } from './characters';
+import type { CharId } from './characters/types';
 import './mascot.css';
 
 export type MascotFreq = 'off' | 'rare' | 'sometimes' | 'often';
@@ -47,7 +49,7 @@ const SPEED = 42;
 /** Rythme des poses (images par seconde). */
 const FPS: Partial<Record<Pose, number>> = { walk: 8, jump: 8, wave: 8, sitwave: 8, flex: 6, puff: 10, stand: 2, look: 2, sit: 4, read: 4, think: 3, doze: 2, guitar: 6, whistle: 4, write: 4, cigar: 3 };
 /** Rythme d'une pose (une pose nouvelle sans rythme déclaré : 3 images par seconde). */
-const fps = (p: Pose) => FPS[p] ?? 3;
+const fps = (p: Pose) => FPS[p] ?? extraPose(p)?.fps ?? 3;
 /** Vues où il peut se montrer (jamais dans le lecteur, l'éditeur ni les tableaux). */
 const ROUTES = new Set(['home', 'library', 'workspace', 'settings', 'revision', 'plans', 'extracts', 'concepts', 'arguments', 'maps', 'history', 'trash', 'help']);
 
@@ -213,7 +215,11 @@ function ctxFor(page: Page, perch: HTMLElement | null, level: Level, workspaceId
   return c;
 }
 
-function bubbleFor(say: Say, ctx: Ctx, who?: string): Bubble {
+function bubbleFor(say: Say, ctx: Ctx, who?: string, charId: CharId = 'brain'): Bubble {
+  if (say.startsWith('act:')) {
+    const t = activityLine(say.slice(4), charId);
+    if (t) return { text: t };
+  }
   // Un philosophe cite surtout ses propres œuvres (une fois sur deux), et salue à sa manière.
   const own = who ? quotesBy(who) : [];
   const quote = () => (own.length && Math.random() < 0.5 ? pick(own) : pick(QUOTES));
@@ -248,6 +254,8 @@ function bubbleFor(say: Say, ctx: Ctx, who?: string): Bubble {
       }
       return { text: pick(JOKES) };
     }
+    default:
+      return quote();
   }
 }
 
@@ -572,7 +580,7 @@ export function Mascot({ route, workspaceId }: { route: string; workspaceId?: st
       if (!still && a.pose === 'stand' && s.anchor < 100) s.squash = { t0: now, dur: 220, k: -0.06 };
       // Réglage « sans bulles » : il fait ses gestes, mais ne dit rien.
       if (a.say && !silentRef.current) {
-        s.bubble = bubbleFor(a.say, ctxFor(page, s.perch, level, workspaceId), charRef.current === 'brain' ? undefined : CHARACTERS[charRef.current].name);
+        s.bubble = bubbleFor(a.say, ctxFor(page, s.perch, level, workspaceId), charRef.current === 'brain' ? undefined : CHARACTERS[charRef.current].name, charRef.current);
         s.bubbleId++;
         s.bubbleForced = a.say === 'poke';
         s.bubbleUntil = Date.now() + Math.min(13000, 4000 + (s.bubble.text.length + (s.bubble.lead?.length ?? 0)) * 45);

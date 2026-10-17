@@ -6,9 +6,10 @@
 import type { Level, Pose, View } from './Sprite';
 import type { Ctx } from './lines';
 import type { CharId } from './characters';
+import { EXTRA_ACTIVITIES, EXTRA_POSE_NAMES } from './activities';
 
 export type Page = Ctx['page'];
-export type Say = 'quote' | 'joke' | 'ponder' | 'context' | 'hello' | 'flex' | 'poke' | 'bye' | 'guitar' | 'whistle' | 'write' | 'cigar';
+export type Say = `act:${string}` | 'quote' | 'joke' | 'ponder' | 'context' | 'hello' | 'flex' | 'poke' | 'bye' | 'guitar' | 'whistle' | 'write' | 'cigar';
 /** Saut vers un autre encadré : le plus proche, un encadré précis (sélecteur), ou n'importe lequel. */
 export type Hop = { near?: boolean; sel?: string };
 export type Act = {
@@ -108,6 +109,7 @@ export const ACTIVITIES: Activity[] = [
   { id: 'whistle', w: 2, acts: whistle },
   { id: 'write', w: 2, acts: write },
   { id: 'cigar', w: 2, acts: cigar },
+  ...EXTRA_ACTIVITIES,
 ];
 /** Activités du compagnon (les siennes propres comptent double). */
 export function activitiesFor(char: CharId): Activity[] {
@@ -198,7 +200,7 @@ export const STAY = [0.4, 0.7, 1, 1.7, 3];
 export const STAY_LABELS = ['Très courte', 'Courte', 'Normale', 'Longue', 'Très longue'];
 /** Durée approximative d'une visite, pour l'affichage. */
 export const STAY_HINT = ['environ 30 secondes', 'environ 45 secondes', 'environ une minute et demie', 'près de 4 minutes', 'environ 7 minutes'];
-const POSES_CALMES = new Set<Pose>(['sit', 'read', 'doze', 'guitar', 'write', 'cigar', 'whistle']);
+const POSES_CALMES = new Set<Pose>(['sit', 'read', 'doze', 'guitar', 'write', 'cigar', 'whistle', ...EXTRA_POSE_NAMES]);
 
 /** Une visite complète : arrivée, des scènes (plus ou moins selon la durée choisie), au revoir, départ. */
 export function buildVisit(page: Page, level: Level, flex: boolean, stay = 1, char: CharId = 'brain', scenes = Math.max(1, Math.min(7, Math.round((2 + (chance(0.4) ? 1 : 0)) * stay)))): Act[] {

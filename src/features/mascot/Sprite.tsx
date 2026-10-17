@@ -1,5 +1,7 @@
 import { useId, type ReactNode } from 'react';
 import type { CharacterDef, DrawArgs } from './characters/types';
+import { extraPose, type ExtraPose } from './activities';
+import type { PropArgs } from './activities/types';
 
 // Le compagnon : un petit cerveau sur pattes, dessiné à l'encre. Trois vues : de face, de profil (il
 // marche de profil, peut s'asseoir de profil, jambes allongées sur l'encadré) et de dos (il s'en va,
@@ -25,12 +27,13 @@ export type Pose =
   | 'guitar'
   | 'whistle'
   | 'write'
-  | 'cigar';
+  | 'cigar'
+  | ExtraPose;
 export type View = 'front' | 'side' | 'back';
 export type Level = 0 | 1 | 2 | 3 | 4;
 
 const SEATED = new Set<Pose>(['sit', 'read', 'think', 'doze', 'sitwave', 'guitar', 'write', 'cigar']);
-export const isSeated = (p: Pose) => SEATED.has(p);
+export const isSeated = (p: Pose) => SEATED.has(p) || !!extraPose(p)?.seated;
 /**
  * Vue réellement dessinée. Le profil ne sert qu'à se déplacer (marcher, sauter) ; le dos, qu'à partir
  * (demi-tour et derniers pas). Toutes les activités, assises ou debout, se font de face.
@@ -128,6 +131,8 @@ function rigFront(pose: Pose, f: number): Rig {
     { a: [21, 54], b: [13, 62], c: [11, 70] },
     { a: [78, 54], b: [86, 62], c: [88, 70] },
   ];
+  const extra = extraPose(pose);
+  if (extra) return extra.rig(f);
   switch (pose) {
     case 'walk': // de dos : il s'éloigne en se dandinant
       return {
@@ -543,7 +548,7 @@ export function Sprite({
     const sh = side ? CH_SHOULDERS_SIDE : CH_SHOULDERS_FRONT;
     r.arms = r.arms.map((l, i) => ({ ...l, a: sh[i] })) as [Limb, Limb];
     if (pose === 'think') r.arms[1] = { ...r.arms[1], c: onFace(r.arms[1].c), b: side ? [62, 54] : [70, 54] };
-    if (FREE_HANDS.has(pose))
+    if (FREE_HANDS.has(pose) || extraPose(pose)?.freeHands)
       r.arms = r.arms.map((l) => {
         const sc = (p: Pt): Pt => [l.a[0] + (p[0] - l.a[0]) * ARM_SHORT, l.a[1] + (p[1] - l.a[1]) * ARM_SHORT];
         return { a: l.a, b: sc(l.b), c: sc(l.c) };
@@ -554,6 +559,8 @@ export function Sprite({
     r.arms[r.faceHand] = { ...arm, c: onFace(arm.c) };
   }
   const mouth = onFace(side ? [86, 42.5] : [48, 52]);
+  const xp = side ? undefined : extraPose(pose);
+  const pa: PropArgs | null = xp ? { frame, rig: r, mouth, onFace, char: (character?.id ?? 'brain') as PropArgs['char'], level, uid } : null;
   const lw = W_LIMB[muscle];
   const blink = pose === 'doze' || (blinkProp ?? (pose !== 'read' && pose !== 'write' && frame % 17 === 16));
   const pulse = level >= 3 && frame % 2 === 0;
@@ -730,6 +737,7 @@ export function Sprite({
         </radialGradient>
       </defs>
       <g transform={flip} filter={halo ? `url(#${fid})` : undefined}>
+        {xp?.back && pa && xp.back(pa)}
         {/* jambes, et le bras éloigné (profil), derrière le cerveau */}
         {r.feet !== 'none' && (
           <g filter={vol}>
@@ -761,6 +769,7 @@ export function Sprite({
           {pose === 'guitar' && <Guitar t={side ? G_SIDE : G_FRONT} />}
           {pose === 'guitar' && side && hands([r.arms[0]])}
           {pose === 'write' && (side ? <SideNotebook frame={frame} /> : <Notebook frame={frame} />)}
+          {xp?.mid && pa && xp.mid(pa)}
           {!behind && (
             <g filter={ch ? castShadow : undefined}>
             <g filter={vol}>
@@ -777,6 +786,7 @@ export function Sprite({
           {pose === 'whistle' && <WhistleNotes frame={frame} mouth={mouth} side={side} />}
           {pose === 'cigar' && <SmokeRings frame={frame} mouth={mouth} side={side} />}
           {ch?.front && <g filter={vol}>{ch.front(args)}</g>}
+          {xp?.over && pa && xp.over(pa)}
         </g>
         {pose === 'think' && (
           <g fill="currentColor" opacity={0.7}>
@@ -833,14 +843,28 @@ export function exprFor(pose: Pose, frame: number, blink: boolean, gaze: Pt): Ex
                   ? 'puff'
                   : 'smirk'
               : 'smile';
-  return { eyes, mouth, gaze: [gaze[0], gaze[1]], hot: cig % 2 === 1, browUp: pose === 'cigar' };
+  const xp = extraPose(pose);
+  return {
+    eyes: blink ? 'closed' : xp?.eyes ? xp.eyes(frame) : eyes,
+    mouth: xp?.mouth ? xp.mouth(frame) : mouth,
+    gaze: [gaze[0], gaze[1]],
+    hot: cig % 2 === 1,
+    browUp: pose === 'cigar',
+  };
 }
 export { Cigar };
 
 /** Yeux de face : ouverts, fermés, plissés de plaisir (guitare) ou mi-clos (cigare). */
-function FrontFace({ pose, blink, gaze, frame, fill }: FaceProps) {
-  const happy = pose === 'guitar' && frame % 12 >= 6;
-  const lidded = pose === 'cigar';
+function FrontFace({ pose, blink: blink0, gaze, frame, fill }: FaceProps) {
+  // Activités ajoutées : leur expression (yeux, bouche) remplace celle par défaut.
+  const xe = extraPose(pose);
+  const xEyes = xe?.eyes?.(frame);
+  const xMouth = xe?.mouth?.(frame);
+  const blink = blink0 || xEyes === 'closed';
+  const happy = (pose === 'guitar' && frame % 12 >= 6) || xEyes === 'happy';
+  const lidded = pose === 'cigar' || xEyes === 'lidded';
+  const MP: Record<string, Pose> = { sleep: 'doze', flat: 'think', o: 'whistle', tongue: 'write' };
+  const mp: Pose = (xMouth && MP[xMouth]) || pose;
   const cig = frame % CIGAR_CYCLE;
   return (
     <g>
@@ -877,18 +901,22 @@ function FrontFace({ pose, blink, gaze, frame, fill }: FaceProps) {
           <path d="M53.5 36.4 Q59 35.2 64.5 36.8" />
         </g>
       )}
-      {pose === 'doze' ? (
+      {mp === 'doze' ? (
         <ellipse cx={48} cy={52} rx={1.6} ry={1.2} fill={INK} />
-      ) : pose === 'think' ? (
+      ) : mp === 'think' ? (
         <path d="M45 52.5 Q48 51 51 52.5" fill="none" stroke={INK} strokeWidth={1.3} strokeLinecap="round" />
-      ) : pose === 'whistle' ? (
+      ) : mp === 'whistle' ? (
         // lèvres en « o » pour siffler
         <ellipse cx={48.6} cy={52.6} rx={1.9} ry={2.2} fill="#5a1f1a" stroke={INK} strokeWidth={1.3} />
-      ) : pose === 'write' ? (
+      ) : mp === 'write' ? (
         <g>
           <path d="M44.5 51.6 Q48 53.8 51.6 51.4" fill="none" stroke={INK} strokeWidth={1.3} strokeLinecap="round" />
           {[2, 3, 5, 6].includes(frame % 8) && <ellipse cx={51.9} cy={52.5} rx={1.3} ry={1.1} fill="#d9606a" stroke={INK} strokeWidth={0.6} transform="rotate(25 51.9 52.5)" />}
         </g>
+      ) : xMouth === 'smirk' ? (
+        <path d="M44.5 52 Q48.5 54.2 52.2 50.8" fill="none" stroke={INK} strokeWidth={1.3} strokeLinecap="round" />
+      ) : xMouth === 'puff' ? (
+        <ellipse cx={49} cy={52.4} rx={1.3} ry={1.5} fill="#5a1f1a" stroke={INK} strokeWidth={1.1} />
       ) : pose === 'cigar' ? (
         cigarUp(frame) ? (
           <g>

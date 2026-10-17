@@ -1851,6 +1851,234 @@ dataHandle('marginalia:appleBooksAnnotations', async () => {
   }
 });
 
+// ── Boîte de dépôt (dossier synchronisé avec le téléphone) ──
+// Un dossier d'iCloud Drive (Mac), de OneDrive ou de Documents (ailleurs) où le téléphone dépose
+// des fichiers. Le processus principal seul connaît le chemin : le rendu ne désigne un fichier que
+// par son nom, vérifié ici (nom simple, fichier ordinaire de premier niveau). Un fichier traité est
+// rangé dans « Traités », jamais supprimé.
+const INBOX_DONE_DIR = 'Traités';
+const INBOX_MAX_BYTES = 200 * 1024 * 1024;
+const INBOX_IGNORED = new Set(['.ds_store', 'desktop.ini', 'thumbs.db']);
+const inboxConfigPath = () => path.join(userData(), 'inbox.json');
+const ICLOUD_DRIVE = () => path.join(os.homedir(), 'Library/Mobile Documents/com~apple~CloudDocs');
+function oneDriveDir() {
+  const d = process.env.OneDrive;
+  if (!d || !path.isAbsolute(d)) return null;
+  try {
+    return fs.statSync(d).isDirectory() ? path.resolve(d) : null;
+  } catch {
+    return null;
+  }
+}
+function inboxDefaultDir() {
+  // Tests uniquement (MARGINALIA_E2E=1) : dossier par défaut imposé.
+  if (E2E && process.env.MARGINALIA_INBOX_DIR) return path.resolve(process.env.MARGINALIA_INBOX_DIR);
+  if (IS_MAC) return path.join(ICLOUD_DRIVE(), 'Marginalia');
+  if (IS_WIN) {
+    const od = oneDriveDir();
+    if (od) return path.join(od, 'Marginalia');
+  }
+  return path.join(app.getPath('documents'), 'Marginalia');
+}
+const sameOrInside = (p, base) => path.relative(base, p) === '' || isInside(p, base);
+function inboxCloud(dir) {
+  if (sameOrInside(dir, ICLOUD_DRIVE())) return 'icloud';
+  const od = oneDriveDir();
+  if (od && sameOrInside(dir, od)) return 'onedrive';
+  return null;
+}
+let inboxDirCache = null;
+function inboxDir() {
+  if (inboxDirCache) return inboxDirCache;
+  let dir = null;
+  try {
+    const cfg = JSON.parse(fs.readFileSync(inboxConfigPath(), 'utf8'));
+    if (cfg && typeof cfg.dir === 'string' && path.isAbsolute(cfg.dir)) dir = path.resolve(cfg.dir);
+  } catch {
+    /* pas encore de choix : dossier par défaut */
+  }
+  inboxDirCache = dir || inboxDefaultDir();
+  return inboxDirCache;
+}
+async function setInboxDir(dir) {
+  // null : retour au dossier par défaut (on n'enregistre pas de chemin, il suit la machine).
+  await writeAtomic(inboxConfigPath(), JSON.stringify(dir ? { dir } : {}));
+  inboxDirCache = null;
+}
+async function inboxInfo() {
+  const dir = inboxDir();
+  const defaultDir = inboxDefaultDir();
+  const st = await fsp.stat(dir).catch(() => null);
+  return { dir, defaultDir, isDefault: path.relative(defaultDir, dir) === '', exists: !!(st && st.isDirectory()), cloud: inboxCloud(dir) };
+}
+
+let inboxWatcher = null;
+let inboxTimer = null;
+function inboxBroadcast() {
+  clearTimeout(inboxTimer);
+  inboxTimer = setTimeout(() => {
+    inboxTimer = null;
+    for (const w of BrowserWindow.getAllWindows()) if (!w.isDestroyed()) w.webContents.send('marginalia:inboxChanged');
+  }, 1500);
+}
+function stopInboxWatch() {
+  clearTimeout(inboxTimer);
+  inboxTimer = null;
+  if (inboxWatcher) {
+    try {
+      inboxWatcher.close();
+    } catch {
+      /* déjà fermé */
+    }
+  }
+  inboxWatcher = null;
+}
+async function startInboxWatch() {
+  const dir = inboxDir();
+  try {
+    await fsp.mkdir(path.join(dir, INBOX_DONE_DIR), { recursive: true });
+  } catch (e) {
+    throw new Error(`Impossible de créer le dossier de la Boîte de dépôt (${(e && e.code) || (e && e.message) || e}).`);
+  }
+  if (inboxWatcher) return;
+  try {
+    const w = fs.watch(dir, { persistent: false }, inboxBroadcast);
+    // Dossier supprimé ou démonté : on arrête sans faire tomber l'app (enable() la relancera).
+    w.on('error', (e) => {
+      diag('boîte de dépôt', 'surveillance', e && e.message);
+      if (inboxWatcher === w) stopInboxWatch();
+    });
+    inboxWatcher = w;
+  } catch (e) {
+    throw new Error(`Impossible de surveiller le dossier de la Boîte de dépôt (${(e && e.code) || (e && e.message) || e}).`);
+  }
+}
+/** Changement de dossier : la surveillance suit si elle était active. */
+async function switchInboxDir(dir) {
+  const watching = !!inboxWatcher;
+  stopInboxWatch();
+  await setInboxDir(dir);
+  if (watching) await startInboxWatch();
+  return inboxInfo();
+}
+function inboxSkipped(name) {
+  return !name || name.startsWith('.') || name.startsWith('~$') || name === INBOX_DONE_DIR || INBOX_IGNORED.has(name.toLowerCase());
+}
+/** Fichier désigné par le rendu : nom simple, fichier ordinaire (pas un lien) de premier niveau. */
+async function inboxFile(name) {
+  if (typeof name !== 'string' || !name || name === '.' || name === '..' || /[/\\\0]/.test(name) || path.basename(name) !== name) {
+    throw new Error('Nom de fichier invalide.');
+  }
+  const dir = inboxDir();
+  const full = path.join(dir, name);
+  if (!isInside(full, dir) || path.dirname(full) !== path.resolve(dir)) throw new Error('Nom de fichier invalide.');
+  const st = await fsp.lstat(full).catch(() => null);
+  if (!st) throw new Error(`« ${name} » n'est plus dans la Boîte de dépôt.`);
+  if (!st.isFile()) throw new Error(`« ${name} » n'est pas un fichier.`);
+  return { full, st };
+}
+const fsReason = (e) => (e && e.code === 'EACCES') || (e && e.code === 'EPERM') ? 'accès refusé' : (e && e.code) || (e && e.message) || String(e);
+
+dataHandle('marginalia:inboxInfo', () => inboxInfo());
+dataHandle('marginalia:inboxEnable', async () => {
+  await startInboxWatch();
+  return inboxInfo();
+});
+dataHandle('marginalia:inboxDisable', async () => {
+  stopInboxWatch();
+});
+dataHandle('marginalia:inboxChoose', async () => {
+  const current = inboxDir();
+  const r = await dialog.showOpenDialog(parentWindow(), {
+    title: 'Choisir le dossier de la Boîte de dépôt',
+    defaultPath: fs.existsSync(current) ? current : path.dirname(current),
+    properties: ['openDirectory', 'createDirectory'],
+  });
+  if (r.canceled || !r.filePaths.length) return null;
+  const dir = path.resolve(r.filePaths[0]);
+  if (dir === path.resolve(userData()) || isInside(dir, userData()) || isInside(userData(), dir)) {
+    throw new Error('Choisissez un dossier en dehors des données de Marginalia.');
+  }
+  return switchInboxDir(dir);
+});
+dataHandle('marginalia:inboxReset', () => switchInboxDir(null));
+dataHandle('marginalia:inboxList', async () => {
+  const dir = inboxDir();
+  let entries = [];
+  try {
+    entries = await fsp.readdir(dir, { withFileTypes: true });
+  } catch (e) {
+    if (e && e.code === 'ENOENT') return [];
+    throw new Error(`Lecture de la Boîte de dépôt impossible (${fsReason(e)}).`);
+  }
+  const now = Date.now();
+  const files = [];
+  const pending = [];
+  for (const e of entries) {
+    const full = path.join(dir, e.name);
+    // Fichier resté dans iCloud (« .Nom.pdf.icloud ») : on demande son téléchargement ;
+    // la surveillance du dossier préviendra l'interface quand il sera arrivé.
+    const m = e.name.match(/^\.(.+)\.icloud$/);
+    if (m && e.isFile()) {
+      if (inboxSkipped(m[1]) || /[/\\]/.test(m[1])) continue;
+      if (IS_MAC) require('child_process').execFile('/usr/bin/brctl', ['download', path.join(dir, m[1])], { timeout: 30000 }, () => {});
+      const st = await fsp.stat(full).catch(() => null);
+      pending.push({ name: m[1], size: 0, mtime: st ? st.mtimeMs : now, pending: true });
+      continue;
+    }
+    if (inboxSkipped(e.name) || !e.isFile()) continue;
+    const st = await fsp.stat(full).catch(() => null);
+    if (!st || !st.isFile()) continue;
+    // Copie en cours (fichier vide tout juste créé) : on attend le prochain passage.
+    if (st.size === 0 && now - st.mtimeMs < 3000) continue;
+    files.push({ name: e.name, size: st.size, mtime: st.mtimeMs });
+  }
+  const present = new Set(files.map((f) => f.name));
+  return [...files, ...pending.filter((p) => !present.has(p.name))].sort((a, b) => a.mtime - b.mtime || a.name.localeCompare(b.name, 'fr'));
+});
+dataHandle('marginalia:inboxRead', async (_e, name) => {
+  const { full, st } = await inboxFile(name);
+  if (st.size > INBOX_MAX_BYTES) throw new Error(`« ${name} » est trop volumineux (plus de 200 Mo).`);
+  let buf;
+  try {
+    buf = await fsp.readFile(full);
+  } catch (e) {
+    throw new Error(`Lecture de « ${name} » impossible (${fsReason(e)}).`);
+  }
+  return { name, data: new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength) };
+});
+dataHandle('marginalia:inboxDone', async (_e, name) => {
+  const { full } = await inboxFile(name);
+  const doneDir = path.join(inboxDir(), INBOX_DONE_DIR);
+  try {
+    await fsp.mkdir(doneDir, { recursive: true });
+    // Nom déjà pris dans « Traités » : « nom (2).ext », « nom (3).ext »…
+    const ext = path.extname(name);
+    const base = name.slice(0, name.length - ext.length);
+    let target = path.join(doneDir, name);
+    for (let n = 2; await fsp.lstat(target).then(() => true, () => false); n++) target = path.join(doneDir, `${base} (${n})${ext}`);
+    try {
+      await fsp.rename(full, target);
+    } catch (e) {
+      if (!e || e.code !== 'EXDEV') throw e;
+      await fsp.copyFile(full, target, fs.constants.COPYFILE_EXCL);
+      await fsp.unlink(full);
+    }
+  } catch (e) {
+    throw new Error(`Impossible de ranger « ${name} » dans « ${INBOX_DONE_DIR} » (${fsReason(e)}).`);
+  }
+});
+dataHandle('marginalia:inboxReveal', async () => {
+  const dir = inboxDir();
+  try {
+    await fsp.mkdir(path.join(dir, INBOX_DONE_DIR), { recursive: true });
+  } catch (e) {
+    throw new Error(`Impossible de créer le dossier de la Boîte de dépôt (${fsReason(e)}).`);
+  }
+  const err = await shell.openPath(dir);
+  if (err) throw new Error(`Impossible d'ouvrir le dossier : ${err}`);
+});
+
 // Windows : familles vues par GDI+ (polices de la machine et de l'utilisateur), repli sur les clés
 // de registre « Fonts » (HKLM et HKCU) dont on retire le type et les noms de style. Sans module natif.
 const WIN_FONT_SCRIPT = `

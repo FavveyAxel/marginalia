@@ -61,6 +61,55 @@ export interface AppleBooksAnnotationsResult {
   books: AppleBooksAsset[];
 }
 
+/** Fichier en attente dans la Boîte de dépôt (dossier synchronisé avec le téléphone). */
+export interface InboxFile {
+  /** Nom du fichier dans le dossier (sans chemin). */
+  name: string;
+  size: number;
+  /** Date de modification (ms Unix). */
+  mtime: number;
+  /** Encore dans le nuage (iCloud) : téléchargement demandé, contenu pas encore lisible. */
+  pending?: boolean;
+}
+
+export interface InboxInfo {
+  /** Dossier surveillé (chemin absolu ; nom lisible en navigateur). */
+  dir: string;
+  /** Dossier par défaut (iCloud Drive › Marginalia sur Mac ; OneDrive ou Documents ailleurs). */
+  defaultDir: string;
+  isDefault: boolean;
+  /** Le dossier existe (créé à l'activation). */
+  exists: boolean;
+  /** Service qui synchronise le dossier, si on le reconnaît. */
+  cloud: 'icloud' | 'onedrive' | null;
+}
+
+/**
+ * Boîte de dépôt : un dossier (iCloud Drive, OneDrive…) où le téléphone dépose des fichiers.
+ * L'hôte ne lit que les fichiers de premier niveau de ce dossier ; un fichier traité est déplacé
+ * dans le sous-dossier « Traités » (jamais supprimé).
+ */
+export interface InboxApi {
+  info(): Promise<InboxInfo>;
+  /** Crée le dossier (et « Traités ») si besoin, puis le surveille. */
+  enable(): Promise<InboxInfo>;
+  /** Arrête la surveillance (le dossier reste). */
+  disable(): Promise<void>;
+  /** Sélecteur de dossier natif ; null si annulé. */
+  choose(): Promise<InboxInfo | null>;
+  /** Revient au dossier par défaut. */
+  reset(): Promise<InboxInfo>;
+  /** Fichiers en attente (premier niveau, sans fichiers cachés ni « Traités »). */
+  list(): Promise<InboxFile[]>;
+  read(name: string): Promise<PickedFile>;
+  /** Range le fichier dans « Traités » (nom unique en cas de doublon). */
+  done(name: string): Promise<void>;
+  /** Ouvre le dossier dans le Finder / l'Explorateur. */
+  reveal(): Promise<void>;
+  /** Le contenu du dossier a changé (regroupé : au plus une fois toutes les 1,5 s). */
+  onChange(cb: () => void): () => void;
+}
+
 /** État du chiffrement et du verrouillage (app de bureau). */
 export interface SecurityStatus {
   available: boolean;
@@ -163,6 +212,8 @@ export interface HostApi {
   onAppleBooksChanged?(cb: () => void): () => void;
   /** Surlignages, notes, signets et positions de Livres (lecture seule, copie de la base). */
   appleBooksAnnotations?(): Promise<AppleBooksAnnotationsResult>;
+  /** Boîte de dépôt (dossier partagé avec le téléphone). */
+  inbox?: InboxApi;
   /** Déplacement de la fenêtre par la barre du haut (app de bureau). */
   windowDragStart?(): Promise<void>;
   windowDragEnd?(): Promise<void>;
@@ -267,8 +318,64 @@ async function idbDel(store: string, key: string): Promise<void> {
   });
 }
 
+// Boîte de dépôt simulée (navigateur : développement et tests). Les tests y déposent des
+// fichiers avec window.__inbox.add(nom, contenu).
+const inboxFiles = new Map<string, { data: ArrayBuffer; mtime: number }>();
+const inboxDone: string[] = [];
+const inboxListeners = new Set<() => void>();
+let inboxTimer: ReturnType<typeof setTimeout> | null = null;
+const inboxChanged = () => {
+  if (inboxTimer) clearTimeout(inboxTimer);
+  inboxTimer = setTimeout(() => inboxListeners.forEach((cb) => cb()), 300);
+};
+const browserInboxInfo = (): InboxInfo => ({ dir: 'iCloud Drive/Marginalia', defaultDir: 'iCloud Drive/Marginalia', isDefault: true, exists: true, cloud: 'icloud' });
+const browserInbox: InboxApi = {
+  async info() {
+    return browserInboxInfo();
+  },
+  async enable() {
+    return browserInboxInfo();
+  },
+  async disable() {},
+  async choose() {
+    return null;
+  },
+  async reset() {
+    return browserInboxInfo();
+  },
+  async list() {
+    return [...inboxFiles].map(([name, f]) => ({ name, size: f.data.byteLength, mtime: f.mtime }));
+  },
+  async read(name) {
+    const f = inboxFiles.get(name);
+    if (!f) throw new Error('Fichier introuvable');
+    return { name, data: f.data.slice(0) };
+  },
+  async done(name) {
+    if (inboxFiles.delete(name)) inboxDone.push(name);
+    inboxChanged();
+  },
+  async reveal() {},
+  onChange(cb) {
+    inboxListeners.add(cb);
+    return () => inboxListeners.delete(cb);
+  },
+};
+if (typeof window !== 'undefined') {
+  (window as unknown as { __inbox: unknown }).__inbox = {
+    add(name: string, content: string | ArrayBuffer | Uint8Array) {
+      const data = typeof content === 'string' ? new TextEncoder().encode(content).buffer : content instanceof Uint8Array ? content.slice().buffer : content;
+      inboxFiles.set(name, { data: data as ArrayBuffer, mtime: Date.now() });
+      inboxChanged();
+    },
+    list: () => [...inboxFiles.keys()],
+    done: () => [...inboxDone],
+  };
+}
+
 const browserHost: HostApi = {
   kind: 'browser',
+  inbox: browserInbox,
   async loadDb() {
     return (await idbGet<Database>('kv', 'db')) ?? null;
   },

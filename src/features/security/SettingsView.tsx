@@ -18,6 +18,9 @@ import {
   Hourglass,
   Timer,
   TriangleAlert,
+  Smartphone,
+  FolderOpen,
+  FolderCog,
 } from 'lucide-react';
 import { host, type SecurityStatus } from '../../lib/platform';
 import { useStore } from '../../lib/store';
@@ -28,6 +31,7 @@ import { Sprite } from '../mascot/Sprite';
 import { LEVEL_STEPS, MASCOT_DEFAULT, levelFor, type MascotFreq } from '../mascot/Mascot';
 import { STAY_HINT, STAY_LABELS } from '../mascot/scenes';
 import { CHARACTERS, CHARACTER_IDS, type CharId } from '../mascot/characters';
+import { chooseInboxDir, prettyDir, resetInboxDir, revealInbox, setInboxEnabled, useInbox } from '../inbox/inbox';
 import './security.css';
 
 const DELAYS: { v: number; label: string }[] = [
@@ -88,6 +92,8 @@ export function SettingsView() {
               <PrivacyCards st={st} where={where} open={setDialog} setOption={setOption} />
             )}
           </section>
+
+          {host.inbox && <InboxSettings />}
 
           <MascotSettings />
         </div>
@@ -937,6 +943,64 @@ function MascotSettings() {
             </span>
           </div>
         </li>
+      </ul>
+    </section>
+  );
+}
+
+/** Boîte de dépôt : dossier synchronisé avec le téléphone (iCloud Drive, OneDrive…). */
+function InboxSettings() {
+  const on = useStore((s) => !!s.settings.inbox);
+  const info = useInbox((s) => s.info);
+  const mac = host.platform === 'darwin';
+  return (
+    <section className="set-section" aria-labelledby="set-inbox">
+      <h2 className="set-section-title" id="set-inbox">
+        <Smartphone size={18} strokeWidth={1.8} /> Téléphone
+      </h2>
+      <ul className="set-list">
+        <Row
+          icon={<Smartphone size={17} />}
+          title="Recevoir depuis le téléphone"
+          desc={
+            on
+              ? 'Ce que vous déposez dans le dossier arrive dans la Boîte de réception : les livres rejoignent la bibliothèque, les passages retrouvés deviennent des extraits.'
+              : `Marginalia surveille un dossier « Marginalia » ${mac ? 'd’iCloud Drive' : 'synchronisé (OneDrive…)'} : depuis le téléphone, Partager › Enregistrer dans Fichiers.`
+          }
+        >
+          <Switch on={on} onChange={(v) => void setInboxEnabled(v)} label="Recevoir depuis le téléphone" />
+        </Row>
+        {on && info && (
+          <li className="set-row sub set-inbox-dir">
+            <span className="set-icon" aria-hidden="true">
+              <FolderCog size={15} />
+            </span>
+            <div className="set-body">
+              <span className="set-title">Dossier : {prettyDir(info.dir)}</span>
+              <span className="set-desc" title={info.dir}>
+                {info.cloud === 'icloud'
+                  ? 'Synchronisé par iCloud Drive avec l’iPhone et l’iPad.'
+                  : info.cloud === 'onedrive'
+                    ? 'Synchronisé par OneDrive avec le téléphone.'
+                    : 'Choisissez un dossier synchronisé avec votre téléphone (iCloud Drive, OneDrive, Syncthing…).'}{' '}
+                Les fichiers traités sont rangés dans « Traités ».
+              </span>
+            </div>
+            <div className="set-control set-actions">
+              <button className="btn btn-sm" onClick={() => void revealInbox()}>
+                <FolderOpen size={13} /> Ouvrir
+              </button>
+              <button className="btn btn-sm" onClick={() => void chooseInboxDir()}>
+                Changer…
+              </button>
+              {!info.isDefault && (
+                <button className="btn btn-sm" onClick={() => void resetInboxDir()} title={prettyDir(info.defaultDir)}>
+                  Par défaut
+                </button>
+              )}
+            </div>
+          </li>
+        )}
       </ul>
     </section>
   );

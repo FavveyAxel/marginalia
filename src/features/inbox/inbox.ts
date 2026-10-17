@@ -1,0 +1,427 @@
+// ─────────────────────────────────────────────────────────────
+// Boîte de dépôt : un dossier synchronisé avec le téléphone (iCloud Drive › Marginalia,
+// OneDrive…). Marginalia le surveille ; chaque fichier déposé devient un élément de la
+// « Boîte de réception ».
+//  - Livres (PDF, EPUB) : ajoutés seuls à la bibliothèque.
+//  - Texte dont le passage est retrouvé sans ambiguïté dans un livre : extrait ajouté seul.
+//  - Le reste (texte non retrouvé, photo de page, page web, lien, document Word) attend une
+//    décision dans la boîte.
+// Un fichier traité est rangé dans le sous-dossier « Traités » (jamais supprimé). Le dossier
+// fait foi : rien de la boîte n'est écrit dans la base.
+// ─────────────────────────────────────────────────────────────
+import { useEffect } from 'react';
+import { create } from 'zustand';
+import { useStore } from '../../lib/store';
+import { extOf, host, IMAGE_EXTENSIONS, type InboxFile, type InboxInfo, type PickedFile } from '../../lib/platform';
+import type { PassageMatch } from './match';
+import { createDraftFromFile } from '../../lib/draftImport';
+import { displayableBlob, ORIENT } from '../reader/image/decode';
+
+export type InboxKind = 'book' | 'text' | 'image' | 'web' | 'link' | 'draft' | 'other';
+
+export interface InboxItem {
+  name: string;
+  size: number;
+  mtime: number;
+  kind: InboxKind;
+  /** Encore dans le nuage (iCloud télécharge le fichier). */
+  pending?: boolean;
+  status: 'waiting' | 'working' | 'ready' | 'error';
+  /** Étape en cours (« Lecture du texte de la photo… »). */
+  step?: string;
+  /** 0..1 pendant la reconnaissance du texte d'une photo. */
+  progress?: number;
+  /** Texte reçu (ou reconnu sur la photo), modifiable avant la recherche. */
+  text?: string;
+  /** Texte tel qu'il a été cherché (pour savoir s'il a changé depuis). */
+  searchedText?: string;
+  /** Livre auquel la dernière recherche était limitée. */
+  searchedIn?: string | null;
+  matches?: PassageMatch[];
+  /** Titre (page web), adresse (lien). */
+  title?: string;
+  url?: string;
+  /** Aperçu d'une photo (blob: URL). */
+  preview?: string;
+  error?: string;
+}
+
+interface InboxState {
+  info: InboxInfo | null;
+  items: InboxItem[];
+  /** Dernière lecture du dossier (ms) ; null tant qu'aucune. */
+  scannedAt: number | null;
+}
+
+export const useInbox = create<InboxState>(() => ({ info: null, items: [], scannedAt: null }));
+
+export const inboxAvailable = () => !!host.inbox;
+
+const BOOK_EXT = ['epub', 'pdf'];
+const TEXT_EXT = ['txt', 'text', 'md', 'markdown'];
+const WEB_EXT = ['html', 'htm'];
+const LINK_EXT = ['url', 'webloc'];
+
+export function kindOf(name: string): InboxKind {
+  const e = extOf(name);
+  if (BOOK_EXT.includes(e)) return 'book';
+  if (TEXT_EXT.includes(e)) return 'text';
+  if (IMAGE_EXTENSIONS.includes(e)) return 'image';
+  if (WEB_EXT.includes(e)) return 'web';
+  if (LINK_EXT.includes(e)) return 'link';
+  if (e === 'docx') return 'draft';
+  return 'other';
+}
+
+/** Nom sans extension, pour un titre. */
+export const baseName = (name: string) => name.replace(/\.[^.]+$/, '').trim() || name;
+
+/** « iCloud Drive › Marginalia », « OneDrive › Marginalia », sinon les deux derniers dossiers. */
+export function prettyDir(dir: string): string {
+  const parts = dir.split(/[\\/]+/).filter(Boolean);
+  const icloud = parts.indexOf('com~apple~CloudDocs');
+  if (icloud >= 0) return ['iCloud Drive', ...parts.slice(icloud + 1)].join(' › ');
+  const od = parts.findIndex((p) => /^OneDrive\b/i.test(p));
+  if (od >= 0) return ['OneDrive', ...parts.slice(od + 1)].join(' › ');
+  return parts.slice(-2).join(' › ');
+}
+
+// ── État ─────────────────────────────────────────────────────
+
+const patch = (name: string, p: Partial<InboxItem>) =>
+  useInbox.setState((s) => ({ items: s.items.map((i) => (i.name === name ? { ...i, ...p } : i)) }));
+const get = (name: string) => useInbox.getState().items.find((i) => i.name === name) ?? null;
+const drop = (name: string) =>
+  useInbox.setState((s) => {
+    const it = s.items.find((i) => i.name === name);
+    if (it?.preview) URL.revokeObjectURL(it.preview);
+    return { items: s.items.filter((i) => i.name !== name) };
+  });
+
+/** Noms traités pendant cette session : un fichier encore listé (déplacement en cours) n'est pas repris. */
+const handled = new Set<string>();
+let scanning: Promise<void> | null = null;
+let rescan = false;
+let queue: Promise<void> = Promise.resolve();
+
+const enabled = () => !!useStore.getState().settings.inbox && !!host.inbox;
+
+/** Relit le dossier, ajoute les nouveaux fichiers et lance leur traitement. */
+export function scanInbox(): Promise<void> {
+  if (scanning) {
+    rescan = true;
+    return scanning;
+  }
+  scanning = (async () => {
+    if (!enabled()) return;
+    let files: InboxFile[];
+    try {
+      files = await host.inbox!.list();
+    } catch (e) {
+      void host.diag?.('boite', 'lecture du dossier', String((e as Error)?.message ?? e));
+      return;
+    }
+    const names = new Set(files.map((f) => f.name));
+    for (const n of handled) if (!names.has(n)) handled.delete(n);
+    const prev = new Map(useInbox.getState().items.map((i) => [i.name, i]));
+    const items: InboxItem[] = [];
+    const todo: string[] = [];
+    for (const f of files) {
+      if (handled.has(f.name)) continue;
+      const old = prev.get(f.name);
+      // Inchangé (ou en cours) : on garde l'élément tel quel.
+      if (old && old.mtime === f.mtime && !(old.pending && !f.pending)) {
+        items.push(old);
+        continue;
+      }
+      if (old?.preview) URL.revokeObjectURL(old.preview);
+      items.push({ name: f.name, size: f.size, mtime: f.mtime, kind: kindOf(f.name), pending: f.pending, status: 'waiting', step: f.pending ? 'Téléchargement depuis le nuage…' : undefined });
+      if (!f.pending) todo.push(f.name);
+    }
+    for (const [n, it] of prev) if (!names.has(n) && it.preview) URL.revokeObjectURL(it.preview);
+    useInbox.setState({ items, scannedAt: Date.now() });
+    for (const n of todo) enqueue(n);
+  })().finally(() => {
+    scanning = null;
+    if (rescan) {
+      rescan = false;
+      void scanInbox();
+    }
+  });
+  return scanning;
+}
+
+function enqueue(name: string) {
+  queue = queue.then(() => processItem(name)).catch((e) => console.error('Boîte :', e));
+}
+
+async function read(name: string): Promise<PickedFile> {
+  return host.inbox!.read(name);
+}
+
+/** Range le fichier dans « Traités » et le retire de la boîte. */
+async function finish(name: string): Promise<boolean> {
+  try {
+    await host.inbox!.done(name);
+  } catch (e) {
+    patch(name, { status: 'error', error: String((e as Error)?.message ?? e) });
+    return false;
+  }
+  handled.add(name);
+  drop(name);
+  return true;
+}
+
+function decodeText(data: ArrayBuffer): string {
+  let t: string;
+  try {
+    t = new TextDecoder('utf-8', { fatal: true }).decode(data);
+  } catch {
+    t = new TextDecoder('windows-1252').decode(data);
+  }
+  return t.replace(/^﻿/, '').replace(/\r\n?/g, '\n').trim();
+}
+
+function linkOf(name: string, data: ArrayBuffer): string | null {
+  const t = decodeText(data);
+  const m = extOf(name) === 'webloc' ? t.match(/<string>\s*([^<\s]+)\s*<\/string>/) : t.match(/^\s*URL\s*=\s*(\S+)/im);
+  const url = (m?.[1] ?? t.match(/https?:\/\/\S+/)?.[0] ?? '').replace(/&amp;/g, '&');
+  return /^https?:\/\//i.test(url) ? url : null;
+}
+
+/** Score à partir duquel un texte devient un extrait sans demander. */
+const AUTO_SCORE = 0.8;
+const isClear = (m: PassageMatch[]) => m.length > 0 && m[0].score >= AUTO_SCORE && (m.length === 1 || m[1].score < m[0].score - 0.2);
+
+async function processItem(name: string) {
+  const it = get(name);
+  if (!it || it.pending || it.status !== 'waiting' || !enabled()) return;
+  try {
+    switch (it.kind) {
+      case 'book': {
+        patch(name, { status: 'working', step: 'Ajout à la bibliothèque…' });
+        const f = await read(name);
+        const added = await useStore.getState().importFiles([f], { toWorkspace: false });
+        if (added.length) await finish(name);
+        else patch(name, { status: 'error', error: 'Ce livre n’a pas pu être ajouté à la bibliothèque.' });
+        return;
+      }
+      case 'text': {
+        patch(name, { status: 'working', step: 'Lecture…' });
+        const text = decodeText((await read(name)).data);
+        if (!text) {
+          patch(name, { status: 'ready', text: '', matches: [], searchedText: '' });
+          return;
+        }
+        patch(name, { text, step: 'Recherche du passage dans la bibliothèque…' });
+        const matches = await search(text);
+        if (isClear(matches) && (await addExtract(name, matches[0], { auto: true }))) return;
+        patch(name, { status: 'ready', step: undefined, matches, searchedText: text, searchedIn: null });
+        return;
+      }
+      case 'image': {
+        patch(name, { status: 'working', step: 'Ouverture de la photo…', progress: 0 });
+        const f = await read(name);
+        const { recognize } = await import('../reader/image/ocr');
+        const { blob } = await displayableBlob(f.data, f.name);
+        patch(name, { preview: URL.createObjectURL(blob), step: 'Lecture du texte de la photo…' });
+        const bmp = await createImageBitmap(blob, ORIENT);
+        let ocr;
+        try {
+          ocr = await recognize(bmp, (p) => patch(name, { progress: p.value }));
+        } finally {
+          bmp.close();
+        }
+        const text = ocr.paras
+          .map((p) => p.lines.map((l) => l.words.map((w) => w.t).join(' ')).join('\n'))
+          .join('\n\n')
+          .trim();
+        patch(name, { text, progress: undefined, step: 'Recherche du passage dans la bibliothèque…' });
+        const matches = text ? await search(text) : [];
+        patch(name, { status: 'ready', step: undefined, matches, searchedText: text, searchedIn: null });
+        return;
+      }
+      case 'web': {
+        const t = decodeText((await read(name)).data);
+        const title = t.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1]?.replace(/\s+/g, ' ').trim();
+        patch(name, { status: 'ready', title: title ? decodeEntities(title) : baseName(name) });
+        return;
+      }
+      case 'link': {
+        const f = await read(name);
+        const url = linkOf(name, f.data);
+        patch(name, url ? { status: 'ready', url, title: baseName(name) } : { status: 'error', error: 'Adresse introuvable dans ce lien.' });
+        return;
+      }
+      default:
+        patch(name, { status: 'ready' });
+    }
+  } catch (e) {
+    console.error('Boîte :', name, e);
+    patch(name, { status: 'error', step: undefined, progress: undefined, error: String((e as Error)?.message ?? e) || 'Lecture impossible.' });
+  }
+}
+
+function decodeEntities(s: string) {
+  const t = document.createElement('textarea');
+  t.innerHTML = s;
+  return t.value;
+}
+
+async function search(text: string, bookIds?: string[]): Promise<PassageMatch[]> {
+  if (!useStore.getState().books.length) return [];
+  const { findPassage } = await import('./match');
+  return findPassage(text, bookIds ? { bookIds } : {});
+}
+
+// ── Actions de la boîte ──────────────────────────────────────
+
+const titleOf = (bookId: string) => useStore.getState().books.find((b) => b.id === bookId)?.title ?? 'ce livre';
+
+/** Ajoute le passage retrouvé comme extrait (surlignage simple) du livre. */
+export async function addExtract(name: string, m: PassageMatch, opts: { auto?: boolean } = {}): Promise<boolean> {
+  const st = useStore.getState();
+  if (!st.books.some((b) => b.id === m.bookId)) return false;
+  const h = st.addHighlight({ bookId: m.bookId, category: null, plain: true, text: m.text, anchor: m.anchor, locationLabel: m.locationLabel, printedPage: m.printedPage });
+  if (!(await finish(name))) return false;
+  st.toast(`${opts.auto ? 'Extrait reçu du téléphone, ajouté à' : 'Extrait ajouté à'} « ${titleOf(m.bookId)} »`, 'success', { label: 'Voir', run: () => useStore.getState().jumpToHighlight(h.id) });
+  return true;
+}
+
+/** Relance la recherche avec le texte (éventuellement corrigé), dans un livre ou partout. */
+export async function researchItem(name: string, text: string, bookId: string | null = null) {
+  patch(name, { text, status: 'working', step: 'Recherche du passage…' });
+  try {
+    const matches = text.trim() ? await search(text, bookId ? [bookId] : undefined) : [];
+    patch(name, { status: 'ready', step: undefined, matches, searchedText: text, searchedIn: bookId });
+  } catch (e) {
+    patch(name, { status: 'ready', step: undefined, error: String((e as Error)?.message ?? e) });
+  }
+}
+
+export const setItemText = (name: string, text: string) => patch(name, { text });
+
+/** Ajoute le fichier tel quel à la bibliothèque (photo, page web…). */
+export async function addToLibrary(name: string) {
+  patch(name, { status: 'working', step: 'Ajout à la bibliothèque…' });
+  try {
+    const f = await read(name);
+    const added = await useStore.getState().importFiles([f], { toWorkspace: false, asBook: true });
+    if (added.length) await finish(name);
+    else patch(name, { status: 'ready', step: undefined });
+  } catch (e) {
+    patch(name, { status: 'error', step: undefined, error: String((e as Error)?.message ?? e) });
+  }
+}
+
+/** Crée un écrit : à partir du texte (texte, photo) ou du document Word. */
+export async function makeDraft(name: string) {
+  const it = get(name);
+  if (!it) return;
+  patch(name, { status: 'working', step: 'Création de l’écrit…' });
+  try {
+    let d: { id: string; title: string };
+    if (it.kind === 'draft') {
+      const f = await read(name);
+      d = await createDraftFromFile(f.name, f.data);
+    } else {
+      const text = (it.text ?? '').trim();
+      // Paragraphes gardés ; les caractères Markdown du texte reçu sont échappés.
+      const md = text.replace(/([\\`*_[\]#<>|])/g, '\\$1').replace(/\n(?!\n)/g, '  \n');
+      d = await createDraftFromFile(`${baseName(name)}.md`, new TextEncoder().encode(md).buffer as ArrayBuffer);
+    }
+    if (!(await finish(name))) return;
+    useStore.getState().toast(`Écrit « ${d.title} » créé`, 'success', { label: 'Ouvrir', run: () => useStore.getState().navigate({ name: 'write', draftId: d.id }) });
+  } catch (e) {
+    patch(name, { status: 'error', step: undefined, error: String((e as Error)?.message ?? e) });
+  }
+}
+
+/** Retire de la boîte sans rien créer (le fichier est rangé dans « Traités »). */
+export async function dismissItem(name: string) {
+  if (await finish(name)) useStore.getState().toast('Retiré de la boîte (rangé dans « Traités »)', 'info');
+}
+
+export function retryItem(name: string) {
+  patch(name, { status: 'waiting', error: undefined, step: undefined });
+  enqueue(name);
+}
+
+export async function revealInbox() {
+  try {
+    await host.inbox?.reveal();
+  } catch (e) {
+    useStore.getState().toast(String((e as Error)?.message ?? e), 'error');
+  }
+}
+
+/** Active ou désactive la boîte (réglage + surveillance du dossier). */
+export async function setInboxEnabled(on: boolean) {
+  if (!host.inbox) return;
+  useStore.getState().updateSettings({ inbox: on });
+  if (on) {
+    try {
+      useInbox.setState({ info: await host.inbox.enable() });
+    } catch (e) {
+      useStore.getState().toast(String((e as Error)?.message ?? e), 'error');
+    }
+  }
+}
+
+export async function chooseInboxDir() {
+  const info = await host.inbox?.choose().catch((e) => {
+    useStore.getState().toast(String((e as Error)?.message ?? e), 'error');
+    return null;
+  });
+  if (!info) return;
+  useInbox.setState({ info, items: [] });
+  handled.clear();
+  void scanInbox();
+}
+
+export async function resetInboxDir() {
+  const info = await host.inbox?.reset();
+  if (!info) return;
+  useInbox.setState({ info, items: [] });
+  handled.clear();
+  void scanInbox();
+}
+
+/** Branché une fois dans l'app : surveillance du dossier tant que la boîte est activée. */
+export function useInboxSync() {
+  const ready = useStore((s) => s.ready);
+  const on = useStore((s) => !!s.settings.inbox);
+  useEffect(() => {
+    const api = host.inbox;
+    if (!api || !ready) return;
+    if (!useInbox.getState().info) void api.info().then((info) => useInbox.setState({ info })).catch(() => undefined);
+    if (!on) {
+      void api.disable().catch(() => undefined);
+      useInbox.setState({ items: [] });
+      return;
+    }
+    let alive = true;
+    void (async () => {
+      try {
+        const info = await api.enable();
+        if (alive) useInbox.setState({ info });
+      } catch (e) {
+        void host.diag?.('boite', 'activation', String((e as Error)?.message ?? e));
+      }
+      if (alive) void scanInbox();
+    })();
+    const off = api.onChange(() => void scanInbox());
+    let last = Date.now();
+    const onFocus = () => {
+      if (Date.now() - last < 20_000) return;
+      last = Date.now();
+      void scanInbox();
+    };
+    window.addEventListener('focus', onFocus);
+    return () => {
+      alive = false;
+      off();
+      window.removeEventListener('focus', onFocus);
+    };
+  }, [ready, on]);
+}

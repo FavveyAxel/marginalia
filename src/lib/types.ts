@@ -575,6 +575,8 @@ export interface Settings {
   /** Compagnon : ne dit jamais rien (aucune bulle). Défaut : non. */
   mascotSilent?: boolean;
   /** Compagnon choisi : le cerveau (défaut), Socrate, Platon, Aristote ou Rousseau. */
+  /** Boîte de dépôt : dossier partagé avec le téléphone, surveillé (désactivée par défaut). */
+  inbox?: boolean;
   mascotCharacter?: 'brain' | 'socrate' | 'platon' | 'aristote' | 'rousseau';
 }
 
@@ -712,6 +714,8 @@ export type Route =
   /** Toutes les cartes (libres, de livres, de mouvements) et où elles sont rangées. */
   | { name: 'maps' }
   | { name: 'trash' }
+  /** Boîte de réception : ce qui arrive du téléphone par la Boîte de dépôt. */
+  | { name: 'inbox' }
   | { name: 'history' }
   | { name: 'help' }
   /** Réglages (confidentialité et sécurité). */

@@ -135,6 +135,24 @@ api.security = {
   },
 };
 
+// Boîte de dépôt : le chemin du dossier reste dans le processus principal ; le rendu ne donne que des noms.
+api.inbox = {
+  info: () => ipcRenderer.invoke('marginalia:inboxInfo'),
+  enable: () => ipcRenderer.invoke('marginalia:inboxEnable'),
+  disable: () => ipcRenderer.invoke('marginalia:inboxDisable'),
+  choose: () => ipcRenderer.invoke('marginalia:inboxChoose'),
+  reset: () => ipcRenderer.invoke('marginalia:inboxReset'),
+  list: () => ipcRenderer.invoke('marginalia:inboxList'),
+  read: async (name) => toFile(await ipcRenderer.invoke('marginalia:inboxRead', String(name))),
+  done: (name) => ipcRenderer.invoke('marginalia:inboxDone', String(name)),
+  reveal: () => ipcRenderer.invoke('marginalia:inboxReveal'),
+  onChange: (cb) => {
+    const handler = () => cb();
+    ipcRenderer.on('marginalia:inboxChanged', handler);
+    return () => ipcRenderer.removeListener('marginalia:inboxChanged', handler);
+  },
+};
+
 if (appleBooks) {
   Object.assign(api, {
     appleBooksScan: () => ipcRenderer.invoke('marginalia:appleBooksScan'),

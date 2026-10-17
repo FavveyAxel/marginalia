@@ -1,7 +1,7 @@
 // Styles de toutes les vues, en premier : même ordre de cascade qu'avant le découpage du code.
 import './styles/cascade';
 import { Suspense, useEffect, useState } from 'react';
-import { BookOpen, Brain, CircleHelp, Settings2, PanelLeftClose, PanelLeftOpen, Coffee, FilePen, Highlighter, History, Home, Laptop, Lightbulb, ListTree, Moon, Network, Plus, Search, Sigma, Sun, Trash2, Upload } from 'lucide-react';
+import { BookOpen, Brain, CircleHelp, Settings2, PanelLeftClose, PanelLeftOpen, Coffee, FilePen, Highlighter, History, Home, Inbox, Laptop, Lightbulb, ListTree, Moon, Network, Plus, Search, Sigma, Sun, Trash2, Upload } from 'lucide-react';
 import { useStore } from './lib/store';
 import { host, filesFromDrop } from './lib/platform';
 import type { Route, ThemeId } from './lib/types';
@@ -16,6 +16,7 @@ import { CommandPalette } from './components/CommandPalette';
 import { bindPainterMenu } from './features/editor/painterMenu';
 import { isTextEditingTarget } from './features/history/keys';
 import { useAppleBooksSync } from './features/library/appleBooks';
+import { useInboxSync, useInbox } from './features/inbox/inbox';
 import { useResizeDiagnostics } from './lib/diagnostics';
 import { useDocxMigration } from './features/library/docxMigration';
 import { fmtKeys, isMac, isMod, isWindows, matchKeys } from './lib/keys';
@@ -28,7 +29,7 @@ import type { SecurityStatus } from './lib/platform';
 
 // Vues chargées à la demande (découpage du code) : l'accueil et la bibliothèque sont dans le paquet
 // principal, le reste (lecteur, éditeur, carte, révision…) est préchargé en arrière-plan après l'affichage.
-const { ReaderView, ConceptsView, AllExtractsView, ArgumentsView, RevisionView, PlansView, WriteView, WorkspaceView, TrashView, HistoryView, HelpView, BoardView, MapsView, SettingsView } = lazyViews;
+const { ReaderView, ConceptsView, AllExtractsView, ArgumentsView, RevisionView, PlansView, WriteView, WorkspaceView, TrashView, InboxView, HistoryView, HelpView, BoardView, MapsView, SettingsView } = lazyViews;
 
 // Thème choisi, gardé aussi hors de la base (préférence d'affichage, sans donnée personnelle) :
 // l'écran de verrouillage s'affiche avant que la base soit lisible.
@@ -263,6 +264,8 @@ function Sidebar() {
     return n;
   });
   const nTrash = useStore((s) => s.trash.length);
+  const inboxOn = useStore((s) => !!s.settings.inbox);
+  const nInbox = useInbox((s) => s.items.length);
   const setCommandOpen = useStore((s) => s.setCommandOpen);
   const due = useDueCount();
   const collapsed = useStore((s) => !!s.settings.sidebarCollapsed);
@@ -293,6 +296,7 @@ function Sidebar() {
       <div className="sidebar-scroll">
         <NavItem match="home" route={{ name: 'home' }} icon={<Home size={15} />} label="Accueil" />
         <NavItem match="library" route={{ name: 'library' }} icon={<BookOpen size={15} />} label="Bibliothèque" count={nBooks} />
+        {inboxOn && <NavItem match="inbox" route={{ name: 'inbox' }} icon={<Inbox size={15} />} label="Boîte de réception" count={nInbox || undefined} />}
         <NavItem match="write" route={{ name: 'write', draftId: null }} icon={<FilePen size={15} />} label="Écrits" count={nDrafts} />
         <NavItem match="maps" route={{ name: 'maps' }} icon={<Network size={15} />} label="Cartes" count={nMaps} />
         <div className="sidebar-section">Étudier</div>
@@ -457,6 +461,7 @@ export function App() {
   useWindowDrag();
   useNativeMenu();
   useAppleBooksSync();
+  useInboxSync();
   useDocxMigration();
   useFormatRepair();
   useResizeDiagnostics();
@@ -578,6 +583,7 @@ export function App() {
             {route.name === 'plans' && <PlansView planId={route.planId} />}
             {route.name === 'write' && <WriteView key={route.draftId ?? 'list'} draftId={route.draftId} />}
             {route.name === 'trash' && <TrashView />}
+            {route.name === 'inbox' && <InboxView />}
             {route.name === 'history' && <HistoryView />}
             {route.name === 'help' && <HelpView />}
             {route.name === 'board' && <BoardView key={route.boardId} boardId={route.boardId} />}

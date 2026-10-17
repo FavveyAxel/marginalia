@@ -31,13 +31,15 @@ export type Level = 0 | 1 | 2 | 3 | 4;
 
 const SEATED = new Set<Pose>(['sit', 'read', 'think', 'doze', 'sitwave', 'guitar', 'write', 'cigar']);
 export const isSeated = (p: Pose) => SEATED.has(p);
-/** Vue réellement dessinée : saluer et faire le costaud se font toujours de face, marcher de profil. */
+/**
+ * Vue réellement dessinée. Le profil ne sert qu'à se déplacer (marcher, sauter) ; le dos, qu'à partir
+ * (demi-tour et derniers pas). Toutes les activités, assises ou debout, se font de face.
+ */
 export function viewFor(p: Pose, v: View): View {
-  if (p === 'wave' || p === 'flex' || p === 'sitwave' || p === 'look') return 'front';
-  if (p === 'jump') return v === 'back' ? 'front' : v;
   if (p === 'walk') return v === 'back' ? 'back' : 'side';
-  if (v === 'back' && (p === 'read' || p === 'think' || p === 'guitar' || p === 'whistle' || p === 'write' || p === 'cigar')) return 'front';
-  return v;
+  if (p === 'jump') return v === 'side' ? 'side' : 'front';
+  if (p === 'stand' && v === 'back') return 'back';
+  return 'front';
 }
 /** Ligne d'appui (unités du viewBox) : sol pour les poses debout, bord de l'encadré pour les poses assises. */
 export const anchorOf = (p: Pose, v: View = 'front') => (isSeated(p) ? (viewFor(p, v) === 'side' ? 64 : 70) : 124);

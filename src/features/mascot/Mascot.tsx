@@ -12,7 +12,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useStore } from '../../lib/store';
 import { Sprite, anchorOf, isSeated, VB_H, VB_W, type Level, type Pose, type View } from './Sprite';
 import { quotesBy, HELLO_BY, CONTEXT, FLEX, HELLO, JOKES, PONDER, POKE, BYE, QUOTES, GUITAR, WHISTLE, WRITE, CIGAR, pick, type Ctx } from './lines';
-import { ALL_PERCHES, PERCHES, STAY, buildVisit, sceneActs, sceneCount, type Act, type Hop, type Page, type Say } from './scenes';
+import { ALL_PERCHES, PERCHES, STAY, activityActs, buildVisit, sceneActs, sceneCount, type Act, type Hop, type Page, type Say } from './scenes';
 import { CHARACTERS } from './characters';
 import './mascot.css';
 
@@ -556,10 +556,8 @@ export function Mascot({ route, workspaceId }: { route: string; workspaceId?: st
           a = { pose: 'stand', ms: 260, view: 'side', facing: dir };
         } else s.facing = dir;
       }
-      // Encadré mince (ligne de liste) : assis de face, ses jambes cacheraient la ligne ; il s'assoit de
-      // profil, jambes allongées sur le bord.
-      if (isSeated(a.pose) && s.perch && s.perch.getBoundingClientRect().height < 70 && a.pose !== 'sitwave' && (a.view ?? 'front') !== 'side')
-        a = { ...a, view: 'side', facing: a.facing ?? (Math.random() < 0.5 ? 1 : -1) };
+      // Assis : toujours de face (le profil est réservé aux déplacements), même sur un encadré mince.
+      if (isSeated(a.pose) && a.view === 'side') a = { ...a, view: 'front' };
       if (a.pose === 'sitwave' && s.perch && s.perch.getBoundingClientRect().height < 70) a = { ...a, pose: 'wave' };
       const wasSeated = isSeated(s.pose);
       s.act = a;
@@ -604,7 +602,7 @@ export function Mascot({ route, workspaceId }: { route: string; workspaceId?: st
         s.x = found!.x;
         s.facing = Math.random() < 0.5 ? 1 : -1;
         s.wavedMid = false;
-        s.queue = buildVisit(page, level, s.pendingFlex, STAY[stayRef.current] ?? 1);
+        s.queue = buildVisit(page, level, s.pendingFlex, STAY[stayRef.current] ?? 1, charRef.current);
         s.pendingFlex = false;
         s.visible = true;
         s.pose = 'puff';
@@ -940,15 +938,25 @@ export function Mascot({ route, workspaceId }: { route: string; workspaceId?: st
       /** Joue une scène de la page (index), puis reprend la visite. */
       scene: (index: number) => {
         const s = st.current;
-        s.queue.unshift(...sceneActs(pageOf(route), index, level));
+        s.queue.unshift(...sceneActs(pageOf(route), index, level, charRef.current));
         s.act = null;
         wakeRef.current();
+      },
+      /** Joue une activité précise (id du registre), puis reprend la visite ; false si indisponible. */
+      activity: (id: string) => {
+        const acts = activityActs(id, charRef.current);
+        if (!acts) return false;
+        const s = st.current;
+        s.queue.unshift(...acts);
+        s.act = null;
+        wakeRef.current();
+        return true;
       },
       page: () => pageOf(route),
       /** Durée moyenne d'une visite (ms, sans compter la marche) pour un cran du réglage. */
       visitMs: (idx: number, n = 200) => {
         let t = 0;
-        for (let i = 0; i < n; i++) t += buildVisit(pageOf(route), level, false, STAY[idx]).reduce((a, x) => a + x.ms, 0);
+        for (let i = 0; i < n; i++) t += buildVisit(pageOf(route), level, false, STAY[idx], charRef.current).reduce((a, x) => a + x.ms, 0);
         return t / n;
       },
       spotInfo: (el: HTMLElement) => {

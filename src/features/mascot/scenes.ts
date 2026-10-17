@@ -5,6 +5,7 @@
 // Les phrases sont choisies au moment où il parle (contexte de l'encadré où il se trouve).
 import type { Level, Pose, View } from './Sprite';
 import type { Ctx } from './lines';
+import type { CharId } from './characters';
 
 export type Page = Ctx['page'];
 export type Say = 'quote' | 'joke' | 'ponder' | 'context' | 'hello' | 'flex' | 'poke' | 'bye' | 'guitar' | 'whistle' | 'write' | 'cigar';
@@ -44,22 +45,20 @@ const facing = (): 1 | -1 => (chance(0.5) ? 1 : -1);
 
 const stroll = (to = r()): Act[] => [{ pose: 'walk', ms: 0, walkTo: to }, { pose: 'stand', ms: 350, view: 'front' }];
 const look = (ms = 1600): Act => ({ pose: 'look', ms, view: 'front' });
-const sitDown = (pose: Pose, ms: number, view?: View): Act => {
-  const v = view ?? (chance(0.55) ? 'front' : 'side');
-  return { pose, ms, view: v, facing: v === 'side' ? facing() : undefined };
-};
+// Assis ou en activité : toujours de face (le profil est réservé aux déplacements).
+const sitDown = (pose: Pose, ms: number): Act => ({ pose, ms, view: 'front' });
 const think = (say: Say = chance(0.6) ? 'quote' : 'ponder'): Act[] => [
   { pose: 'think', ms: 4200, say, view: 'front' },
   { pose: 'sit', ms: sec(3, 5), view: 'front' },
 ];
 const nap = (): Act[] => [
-  sitDown('sit', 1200, chance(0.3) ? 'back' : undefined),
-  { pose: 'doze', ms: sec(8, 15), view: chance(0.5) ? 'front' : 'side', facing: facing() },
+  sitDown('sit', 1200),
+  { pose: 'doze', ms: sec(8, 15), view: 'front' },
   { pose: 'stand', ms: 300, view: 'front' },
   { pose: 'look', ms: 1200, view: 'front', say: chance(0.6) ? 'joke' : undefined },
 ];
 const read = (comment: boolean): Act[] => {
-  const v: View = chance(0.6) ? 'front' : 'side';
+  const v: View = 'front';
   const f = facing();
   const out: Act[] = [{ pose: 'read', ms: sec(3, 5), view: v, facing: f, say: comment ? 'context' : undefined }];
   out.push({ pose: 'read', ms: sec(8, 16), view: v, facing: f });
@@ -68,7 +67,7 @@ const read = (comment: boolean): Act[] => {
 };
 // Passe-temps : guitare, sifflet, écriture d'un livre, cigare de penseur.
 const guitar = (): Act[] => {
-  const v: View = chance(0.6) ? 'front' : 'side';
+  const v: View = 'front';
   const f = facing();
   return [
     { pose: 'guitar', ms: sec(3, 4), view: v, facing: f },
@@ -77,12 +76,12 @@ const guitar = (): Act[] => {
   ];
 };
 const whistle = (): Act[] => [
-  { pose: 'whistle', ms: sec(3, 5), view: chance(0.6) ? 'front' : 'side', facing: facing(), say: chance(0.5) ? 'whistle' : undefined },
+  { pose: 'whistle', ms: sec(3, 5), view: 'front', say: chance(0.5) ? 'whistle' : undefined },
   ...stroll(),
   { pose: 'whistle', ms: sec(2, 4), view: 'front' },
 ];
 const write = (): Act[] => {
-  const v: View = chance(0.6) ? 'front' : 'side';
+  const v: View = 'front';
   const f = facing();
   return [
     { pose: 'write', ms: sec(4, 6), view: v, facing: f, say: 'write' },
@@ -91,7 +90,7 @@ const write = (): Act[] => {
   ];
 };
 const cigar = (): Act[] => {
-  const v: View = chance(0.65) ? 'front' : 'side';
+  const v: View = 'front';
   const f = facing();
   return [
     { pose: 'cigar', ms: sec(4, 6), view: v, facing: f },
@@ -99,14 +98,36 @@ const cigar = (): Act[] => {
     { pose: 'cigar', ms: sec(3, 5), view: v, facing: f },
   ];
 };
-const pastime = (): Act[] => oneOf([guitar, whistle, write, cigar])();
+
+// ── Activités (registre) ─────────────────────────────────────
+// Chaque activité : une suite d'actions sur place. `chars` : réservée à certains compagnons
+// (Socrate qui questionne, Rousseau qui herborise…) ; absente : pour tous. `w` : poids du tirage.
+export type Activity = { id: string; w: number; chars?: CharId[]; acts: () => Act[] };
+export const ACTIVITIES: Activity[] = [
+  { id: 'guitar', w: 2, acts: guitar },
+  { id: 'whistle', w: 2, acts: whistle },
+  { id: 'write', w: 2, acts: write },
+  { id: 'cigar', w: 2, acts: cigar },
+];
+/** Activités du compagnon (les siennes propres comptent double). */
+export function activitiesFor(char: CharId): Activity[] {
+  return ACTIVITIES.filter((a) => !a.chars || a.chars.includes(char));
+}
+function pickActivity(char: CharId, exclude: string[] = []): Activity {
+  const list = activitiesFor(char).filter((a) => !exclude.includes(a.id));
+  const wt = (a: Activity) => a.w * (a.chars ? 2 : 1);
+  let t = r() * list.reduce((n, a) => n + wt(a), 0);
+  for (const a of list) if ((t -= wt(a)) < 0) return a;
+  return list[0];
+}
+const pastime = (char: CharId): Act[] => pickActivity(char).acts();
 
 const hop = (h: Hop): Act[] => [{ pose: 'jump', ms: 0, hop: h }, { pose: 'stand', ms: 300, view: 'front' }];
 const quip = (): Act => ({ pose: 'stand', ms: 4800, say: oneOf<Say>(['joke', 'joke', 'ponder', 'context']), view: 'front' });
 
 // ── Scènes par page ─────────────────────────────────────────
 
-type Scene = { w: number; acts: (level: Level) => Act[] };
+type Scene = { w: number; acts: (level: Level, char: CharId) => Act[] };
 
 const SCENES: Record<Page, Scene[]> = {
   home: [
@@ -122,6 +143,8 @@ const SCENES: Record<Page, Scene[]> = {
     { w: 2, acts: () => [...hop({ sel: '.home-resume-card ~ .home-resume-card' }), ...stroll(0.2 + r() * 0.6), ...write()] },
     { w: 2, acts: () => [...hop({ sel: '.home-space' }), ...stroll(), ...guitar()] },
     { w: 1, acts: () => [...stroll(), ...(chance(0.5) ? cigar() : whistle())] },
+    // Une activité au hasard (y compris celles propres au compagnon).
+    { w: 3, acts: (_l, c) => [...stroll(), ...pastime(c)] },
   ],
   library: [
     // Il cherche quoi lire : saute de couverture en couverture, regarde, puis s'installe et lit.
@@ -141,6 +164,7 @@ const SCENES: Record<Page, Scene[]> = {
     { w: 2, acts: () => [...hop({ near: true }), ...cigar()] },
     { w: 1, acts: () => [...hop({ near: true }), ...guitar()] },
     { w: 1, acts: () => [...whistle(), ...hop({ near: true }), look()] },
+    { w: 3, acts: (_l, c) => [...hop({ near: true }), ...pastime(c)] },
   ],
   workspace: [
     // Il s'installe sur un document de l'espace et réagit à l'espace.
@@ -152,12 +176,13 @@ const SCENES: Record<Page, Scene[]> = {
     // Il écrit dans l'espace, ou réfléchit au cigare.
     { w: 2, acts: () => [...stroll(), ...write()] },
     { w: 1, acts: () => [...hop({ near: true }), ...(chance(0.5) ? cigar() : guitar())] },
+    { w: 3, acts: (_l, c) => [...stroll(), ...pastime(c)] },
   ],
   other: [
     { w: 2, acts: () => [...stroll(), quip()] },
     { w: 2, acts: () => [sitDown('sit', sec(3, 5)), ...think()] },
     { w: 1, acts: () => nap() },
-    { w: 1, acts: () => pastime() },
+    { w: 2, acts: (_l, c) => pastime(c) },
   ],
 };
 
@@ -176,13 +201,13 @@ export const STAY_HINT = ['environ 30 secondes', 'environ 45 secondes', 'environ
 const POSES_CALMES = new Set<Pose>(['sit', 'read', 'doze', 'guitar', 'write', 'cigar', 'whistle']);
 
 /** Une visite complète : arrivée, des scènes (plus ou moins selon la durée choisie), au revoir, départ. */
-export function buildVisit(page: Page, level: Level, flex: boolean, stay = 1, scenes = Math.max(1, Math.min(7, Math.round((2 + (chance(0.4) ? 1 : 0)) * stay)))): Act[] {
+export function buildVisit(page: Page, level: Level, flex: boolean, stay = 1, char: CharId = 'brain', scenes = Math.max(1, Math.min(7, Math.round((2 + (chance(0.4) ? 1 : 0)) * stay)))): Act[] {
   const q: Act[] = [{ pose: 'puff', ms: 300 }, { pose: 'stand', ms: 450, view: 'front' }];
   if (flex) q.push({ pose: 'flex', ms: 2600, say: 'flex' });
   // Coucou à l'arrivée (et au départ) seulement ; entre les deux, très rarement.
   else q.push({ pose: 'wave', ms: 1500, say: chance(0.5) ? 'hello' : undefined });
   for (let i = 0; i < scenes; i++) {
-    q.push(...pickScene(page).acts(level));
+    q.push(...pickScene(page).acts(level, char));
     if (level >= 2 && chance(0.15)) q.push({ pose: 'flex', ms: 1800 });
   }
   // Activités calmes plus ou moins longues selon la durée choisie (les gestes et la parole ne changent pas).
@@ -196,7 +221,12 @@ export function buildVisit(page: Page, level: Level, flex: boolean, stay = 1, sc
 }
 
 /** Une scène précise (tests, démonstration). */
-export function sceneActs(page: Page, index: number, level: Level): Act[] {
-  return SCENES[page][index % SCENES[page].length].acts(level);
+export function sceneActs(page: Page, index: number, level: Level, char: CharId = 'brain'): Act[] {
+  return SCENES[page][index % SCENES[page].length].acts(level, char);
+}
+/** Une activité précise (tests, démonstration) ; null si elle n'existe pas pour ce compagnon. */
+export function activityActs(id: string, char: CharId = 'brain'): Act[] | null {
+  const a = activitiesFor(char).find((x) => x.id === id);
+  return a ? a.acts() : null;
 }
 export const sceneCount = (page: Page) => SCENES[page].length;

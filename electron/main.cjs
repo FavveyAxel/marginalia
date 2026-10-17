@@ -2002,6 +2002,27 @@ dataHandle('marginalia:inboxChoose', async () => {
   return switchInboxDir(dir);
 });
 dataHandle('marginalia:inboxReset', () => switchInboxDir(null));
+// Téléchargements iCloud demandés (une fois par fichier et par minute au plus).
+const inboxAsked = new Map();
+function inboxDownload(full) {
+  const t = inboxAsked.get(full) || 0;
+  if (Date.now() - t < 60000) return;
+  inboxAsked.set(full, Date.now());
+  require('child_process').execFile('/usr/bin/brctl', ['download', full], { timeout: 120000 }, (err) => {
+    if (err) diag('boite', 'téléchargement iCloud', path.basename(full), String(err.message || err));
+  });
+}
+// Un fichier qui arrive d'iCloud ne change pas toujours le dossier (pas d'avis de fs.watch) :
+// tant que quelque chose est en attente, on prévient l'interface toutes les 4 s pour qu'elle relise.
+let inboxRecheck = null;
+function inboxRecheckSoon() {
+  if (inboxRecheck || !inboxWatcher) return;
+  inboxRecheck = setTimeout(() => {
+    inboxRecheck = null;
+    if (!inboxWatcher) return;
+    for (const w of BrowserWindow.getAllWindows()) if (!w.isDestroyed()) w.webContents.send('marginalia:inboxChanged');
+  }, 4000);
+}
 dataHandle('marginalia:inboxList', async () => {
   const dir = inboxDir();
   let entries = [];
@@ -2021,7 +2042,7 @@ dataHandle('marginalia:inboxList', async () => {
     const m = e.name.match(/^\.(.+)\.icloud$/);
     if (m && e.isFile()) {
       if (inboxSkipped(m[1]) || /[/\\]/.test(m[1])) continue;
-      if (IS_MAC) require('child_process').execFile('/usr/bin/brctl', ['download', path.join(dir, m[1])], { timeout: 30000 }, () => {});
+      if (IS_MAC) inboxDownload(path.join(dir, m[1]));
       const st = await fsp.stat(full).catch(() => null);
       pending.push({ name: m[1], size: 0, mtime: st ? st.mtimeMs : now, pending: true });
       continue;
@@ -2031,8 +2052,17 @@ dataHandle('marginalia:inboxList', async () => {
     if (!st || !st.isFile()) continue;
     // Copie en cours (fichier vide tout juste créé) : on attend le prochain passage.
     if (st.size === 0 && now - st.mtimeMs < 3000) continue;
+    // macOS récent : un fichier iCloud pas encore téléchargé garde son vrai nom mais n'occupe
+    // aucun bloc sur le disque (fichier « sans données »). On demande son téléchargement et on
+    // le signale en attente ; une nouvelle lecture du dossier est programmée.
+    if (IS_MAC && st.size > 0 && st.blocks === 0) {
+      inboxDownload(full);
+      pending.push({ name: e.name, size: st.size, mtime: st.mtimeMs, pending: true });
+      continue;
+    }
     files.push({ name: e.name, size: st.size, mtime: st.mtimeMs });
   }
+  if (pending.length) inboxRecheckSoon();
   const present = new Set(files.map((f) => f.name));
   return [...files, ...pending.filter((p) => !present.has(p.name))].sort((a, b) => a.mtime - b.mtime || a.name.localeCompare(b.name, 'fr'));
 });

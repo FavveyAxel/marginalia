@@ -1166,7 +1166,7 @@ export function Mascot({ route, workspaceId }: { route: string; workspaceId?: st
     <div className="mascot-layer" aria-hidden="true">
       <div ref={wrap} className="mascot" data-character={charId} style={{ width: W, height: H }} onClick={poke} onPointerDown={onPointerDown} title="Glisser pour le déplacer">
         <div ref={body} className="mascot-body">
-          <Sprite pose={s.pose} frame={still ? 0 : s.frame} level={level} view={s.view} facing={s.facing} halo={halo} blink={!still && s.blinkUntil > 0} character={CHARACTERS[charId]} />
+          <Sprite pose={s.pose} frame={still ? 0 : s.frame} level={level} view={s.view} facing={s.facing} halo={halo} night={!!halo} blink={!still && s.blinkUntil > 0} character={CHARACTERS[charId]} />
         </div>
       </div>
       {s.bubble && (

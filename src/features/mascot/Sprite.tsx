@@ -668,11 +668,15 @@ export function Sprite({
   ) : (
     <FrontFace pose={pose} blink={blink} gaze={r.gaze} frame={frame} fill={fill} />
   );
-  // Lampe de nuit, de profil en marchant : le bras proche ne balance plus, il porte la lampe un peu en avant.
-  if (night && side && pose === 'walk') {
+  // Lampe de nuit, de profil : le bras proche ne balance plus (marche) et ne se lève plus devant le
+  // visage (saut) ; il porte la lampe un peu en avant.
+  if (night && side && (pose === 'walk' || pose === 'jump')) {
     const [ax, ay] = r.arms[1].a;
-    const sw = Math.sin((2 * Math.PI * (frame % 8)) / 8);
-    r.arms[1] = { a: r.arms[1].a, b: [ax + 4, ay + 15], c: [ax + 10 + sw, ay + 29 + Math.abs(sw) * 0.6] };
+    const sw = pose === 'walk' ? Math.sin((2 * Math.PI * (frame % 8)) / 8) : 0;
+    r.arms[1] =
+      pose === 'walk'
+        ? { a: r.arms[1].a, b: [ax + 4, ay + 15], c: [ax + 10 + sw, ay + 29 + Math.abs(sw) * 0.6] }
+        : { a: r.arms[1].a, b: [ax + 8, ay + 11], c: [ax + 19, ay + 15] };
   }
   const behind = !side && !!r.armsBehind;
   const nearArms = side ? [r.arms[1]] : r.arms;
@@ -680,7 +684,7 @@ export function Sprite({
   // sinon posée sur l'encadré, à sa gauche, la base sur la ligne d'appui.
   const lampHeld = pose === 'walk' || pose === 'jump';
   const lamp = night
-    ? { char: character?.id, frame, uid, held: lampHeld, x: lampHeld ? r.arms[1].c[0] : -2, y: lampHeld ? r.arms[1].c[1] : anchorOf(pose, v) }
+    ? { char: character?.id, frame, uid, held: lampHeld, x: lampHeld ? r.arms[1].c[0] : -6, y: lampHeld ? r.arms[1].c[1] : anchorOf(pose, v) }
     : null;
 
   return (

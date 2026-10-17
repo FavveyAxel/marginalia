@@ -38,7 +38,8 @@ const spec = (c: string | undefined): Spec => SPECS[(c as CharId) in SPECS ? (c 
 
 /** Transformation du repère local vers le Sprite. */
 function place(s: Spec, x: number, y: number, held: boolean) {
-  const k = held ? s.held : s.placed;
+  // Posée, un peu plus grande pour se voir à la taille réelle du compagnon.
+  const k = held ? s.held : s.placed * 1.35;
   const m = !held && s.mirror ? -1 : 1;
   const [gx, gy] = held ? s.grip : [0, 0];
   return {

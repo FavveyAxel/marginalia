@@ -16,7 +16,7 @@ import { CommandPalette } from './components/CommandPalette';
 import { bindPainterMenu } from './features/editor/painterMenu';
 import { isTextEditingTarget } from './features/history/keys';
 import { useAppleBooksSync } from './features/library/appleBooks';
-import { useInboxSync, useInbox } from './features/inbox/inbox';
+import { useInboxSync, useInboxCount } from './features/inbox/inbox';
 import { useResizeDiagnostics } from './lib/diagnostics';
 import { useDocxMigration } from './features/library/docxMigration';
 import { fmtKeys, isMac, isMod, isWindows, matchKeys } from './lib/keys';
@@ -241,12 +241,46 @@ export async function importViaDialog() {
   if (books.length === 1) useStore.getState().openBook(books[0].id);
 }
 
-function NavItem({ route, icon, label, count, match, activeAlso }: { route: Route; icon: JSX.Element; label: string; count?: number | string; match: Route['name']; activeAlso?: Route['name'] }) {
+/** Outil du bas de la barre : icône seule (libellé en infobulle), pastille si besoin. */
+function FootItem({ route, icon, label, count, match }: { route: Route; icon: JSX.Element; label: string; count?: number; match: Route['name'] }) {
+  const current = useStore((s) => s.route.name);
+  const navigate = useStore((s) => s.navigate);
+  return (
+    <button className={`nav-item foot-item ${current === match ? 'active' : ''}`} onClick={() => navigate(route)} title={count ? `${label} (${count})` : label} aria-label={label} aria-current={current === match ? 'page' : undefined}>
+      {icon}
+      {!!count && <span className="foot-dot" aria-hidden="true" />}
+    </button>
+  );
+}
+
+/** Boîte de réception, à côté d'« Importer » : ce qui arrive du téléphone. */
+function InboxButton({ n, rail }: { n: number; rail?: boolean }) {
+  const current = useStore((s) => s.route.name);
+  const label = n ? `Boîte de réception : ${n} élément${n > 1 ? 's' : ''} reçu${n > 1 ? 's' : ''} du téléphone` : 'Boîte de réception (rien en attente)';
+  return (
+    <button
+      className={`icon-btn inbox-btn ${rail ? 'rail' : ''} ${current === 'inbox' ? 'active' : ''}`}
+      onClick={() => useStore.getState().navigate({ name: 'inbox' })}
+      title={label}
+      aria-label={label}
+    >
+      <Inbox size={16} />
+      {n > 0 && <span className="inbox-badge">{n > 9 ? '9+' : n}</span>}
+    </button>
+  );
+}
+
+function NavItem({ route, icon, label, count, match, activeAlso, alert }: { route: Route; icon: JSX.Element; label: string; count?: number | string; match: Route['name']; activeAlso?: Route['name']; alert?: string }) {
   const current = useStore((s) => s.route.name);
   const navigate = useStore((s) => s.navigate);
   return (
     <button className={`nav-item ${current === match || (!!activeAlso && current === activeAlso) ? 'active' : ''}`} onClick={() => navigate(route)} title={label} aria-label={label}>
       {icon} <span className="nav-label">{label}</span>
+      {alert && (
+        <span className="nav-alert" title={alert} aria-label={alert} role="img">
+          !
+        </span>
+      )}
       {!!count && <span className="count">{count}</span>}
     </button>
   );
@@ -265,7 +299,7 @@ function Sidebar() {
   });
   const nTrash = useStore((s) => s.trash.length);
   const inboxOn = useStore((s) => !!s.settings.inbox);
-  const nInbox = useInbox((s) => s.items.length);
+  const nInbox = useInboxCount();
   const setCommandOpen = useStore((s) => s.setCommandOpen);
   const due = useDueCount();
   const collapsed = useStore((s) => !!s.settings.sidebarCollapsed);
@@ -295,8 +329,8 @@ function Sidebar() {
       </button>
       <div className="sidebar-scroll">
         <NavItem match="home" route={{ name: 'home' }} icon={<Home size={15} />} label="Accueil" />
-        <NavItem match="library" route={{ name: 'library' }} icon={<BookOpen size={15} />} label="Bibliothèque" count={nBooks} />
-        {inboxOn && <NavItem match="inbox" route={{ name: 'inbox' }} icon={<Inbox size={15} />} label="Boîte de réception" count={nInbox || undefined} />}
+        <NavItem match="library" route={{ name: 'library' }} icon={<BookOpen size={15} />} label="Bibliothèque" count={nBooks} alert={nInbox ? (nInbox === 1 ? 'Un élément reçu du téléphone attend votre décision' : `${nInbox} éléments reçus du téléphone attendent votre décision`) : undefined} />
+        {inboxOn && (nInbox > 0 || route.name === 'inbox') && <NavItem match="inbox" route={{ name: 'inbox' }} icon={<Inbox size={15} />} label="Boîte de réception" count={nInbox || undefined} />}
         <NavItem match="write" route={{ name: 'write', draftId: null }} icon={<FilePen size={15} />} label="Écrits" count={nDrafts} />
         <NavItem match="maps" route={{ name: 'maps' }} icon={<Network size={15} />} label="Cartes" count={nMaps} />
         <div className="sidebar-section">Étudier</div>
@@ -326,21 +360,27 @@ function Sidebar() {
           <WorkspaceTree />
         )}
       </div>
-      <div className="sidebar-foot">
-        <NavItem match="history" route={{ name: 'history' }} icon={<History size={15} />} label="Historique" />
-        <NavItem match="trash" route={{ name: 'trash' }} icon={<Trash2 size={15} />} label="Corbeille" count={nTrash || undefined} />
-        <NavItem match="settings" route={{ name: 'settings' }} icon={<Settings2 size={15} />} label="Réglages" />
-        <NavItem match="help" route={{ name: 'help' }} icon={<CircleHelp size={15} />} label="Aide" />
+      <div className="sidebar-foot foot-row" role="group" aria-label="Outils">
+        <FootItem match="history" route={{ name: 'history' }} icon={<History size={16} />} label="Historique" />
+        <FootItem match="trash" route={{ name: 'trash' }} icon={<Trash2 size={16} />} label="Corbeille" count={nTrash} />
+        <FootItem match="settings" route={{ name: 'settings' }} icon={<Settings2 size={16} />} label="Réglages" />
+        <FootItem match="help" route={{ name: 'help' }} icon={<CircleHelp size={16} />} label="Aide" />
       </div>
       {!collapsed && <AppearanceSwitch />}
       {collapsed ? (
-        <button className="icon-btn rail-import" onClick={importViaDialog} title={fmtKeys('Importer (⌘O)')} aria-label="Importer">
-          <Plus size={16} />
-        </button>
+        <>
+          <button className="icon-btn rail-import" onClick={importViaDialog} title={fmtKeys('Importer (⌘O)')} aria-label="Importer">
+            <Plus size={16} />
+          </button>
+          {inboxOn && <InboxButton n={nInbox} rail />}
+        </>
       ) : (
-        <button className="btn" style={{ margin: '8px 4px 0' }} onClick={importViaDialog}>
-          <Plus size={15} /> Importer <span style={{ marginLeft: 'auto' }} /> <Kbd>⌘O</Kbd>
-        </button>
+        <div className="import-row">
+          <button className="btn import-btn" onClick={importViaDialog}>
+            <Plus size={15} /> Importer <span style={{ marginLeft: 'auto' }} /> <Kbd>⌘O</Kbd>
+          </button>
+          {inboxOn && <InboxButton n={nInbox} />}
+        </div>
       )}
     </nav>
   );

@@ -425,3 +425,16 @@ export function useInboxSync() {
     };
   }, [ready, on]);
 }
+
+/**
+ * Élément qui attend une décision : pas un livre en cours de rangement automatique, ni un texte
+ * dont on cherche encore le passage (il deviendra peut-être un extrait tout seul).
+ */
+export const needsDecision = (i: InboxItem) => i.status === 'error' || (i.kind === 'book' ? false : i.kind === 'text' ? i.status === 'ready' : true);
+
+/** Nombre d'éléments qui attendent une décision (0 si la boîte est désactivée). */
+export function useInboxCount(): number {
+  const on = useStore((s) => !!s.settings.inbox);
+  const n = useInbox((s) => s.items.reduce((k, i) => k + (needsDecision(i) ? 1 : 0), 0));
+  return on ? n : 0;
+}

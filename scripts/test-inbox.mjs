@@ -49,7 +49,8 @@ await withApp(PORT, async (page, errors) => {
   ok((await page.textContent('.set-inbox-dir')).includes('iCloud Drive › Marginalia'), 'réglage activé : dossier affiché');
   await page.locator('#set-inbox').scrollIntoViewIfNeeded();
   await shot(page, `${SHOTS}/02-reglages-on.png`);
-  ok(!!(await page.$('.nav-item[aria-label="Boîte de réception"]')), 'entrée « Boîte de réception » dans la barre latérale');
+  ok(!!(await page.$('.inbox-btn')), 'bouton de la boîte à côté d’« Importer »');
+  ok(!(await page.$('.nav-item[aria-label="Boîte de réception"]')), 'boîte vide : pas d’entrée dans la barre latérale');
 
   // 1. Livre : rangé seul.
   const nBooks0 = await st(() => window.__store.getState().books.length);
@@ -74,7 +75,17 @@ await withApp(PORT, async (page, errors) => {
   // 5. Photo de page (OCR).
   await drop(page, 'IMG_0412.jpg', new Uint8Array(fs.readFileSync(IMG)));
 
-  await page.click('.nav-item[aria-label="Boîte de réception"]');
+  await st(() => window.__store.getState().navigate({ name: 'library' }));
+  const alertDot = await page.waitForSelector('.nav-item[aria-label="Bibliothèque"] .nav-alert', { timeout: 30000 }).then(() => true, () => false);
+  ok(alertDot, 'pastille « ! » à côté de « Bibliothèque »');
+  ok(!(await page.$('.ib-banner')), 'pas de bandeau dans la bibliothèque');
+  ok(!!(await page.$('.nav-item[aria-label="Boîte de réception"]')), 'éléments en attente : entrée dans la barre latérale');
+  ok(!!(await page.$('.inbox-btn .inbox-badge')), 'pastille sur le bouton de la boîte');
+  await shot(page, `${SHOTS}/06-bandeau-barre.png`);
+  await st(() => window.__store.getState().navigate({ name: 'home' }));
+  await page.waitForSelector('.home-hello');
+  ok(!(await page.$('.ib-banner')), 'pas de bandeau sur l’accueil');
+  await page.click('.inbox-btn');
   await page.waitForSelector('.ib-card[data-name="idée.txt"] .ib-note', { timeout: 30000 });
   ok((await page.textContent('.ib-card[data-name="idée.txt"] .ib-note')).includes('introuvable'), 'texte inconnu : « Passage introuvable »');
   await page.waitForSelector('.ib-card[data-name="Article.html"] .btn-primary');
@@ -119,13 +130,20 @@ await withApp(PORT, async (page, errors) => {
   ok(await waitDone(page, 'Archive.zip'), 'retirer : fichier rangé sans rien créer');
   const left = (await state(page)).left;
   ok(left.length === 1 && left[0] === 'Conférence.url', 'reste seulement le lien', left.join(', '));
-  ok((await page.textContent('.nav-item[aria-label="Boîte de réception"] .count')) === '1', 'compteur de la barre latérale à jour');
+  ok((await page.textContent('.nav-item[aria-label="Boîte de réception"] .count')) === '1' && (await page.textContent('.inbox-badge')) === '1', 'compteurs à jour (barre et pastille)');
+  await st(() => window.__store.getState().updateSettings({ sidebarCollapsed: true }));
+  await page.waitForTimeout(400);
+  await shot(page, `${SHOTS}/07-barre-repliee.png`);
+  ok(!!(await page.$('.inbox-btn.rail')) && !!(await page.$('.foot-item[aria-label="Corbeille"]')), 'barre repliée : outils et boîte en icônes');
+  await st(() => window.__store.getState().updateSettings({ sidebarCollapsed: false }));
   await shot(page, `${SHOTS}/05-apres.png`);
 
   // Désactivation : l'entrée disparaît.
   await st(() => window.__store.getState().updateSettings({ inbox: false }));
-  await page.waitForFunction(() => !document.querySelector('.nav-item[aria-label="Boîte de réception"]'));
-  ok(true, 'désactivée : entrée retirée de la barre latérale');
+  await page.waitForFunction(() => !document.querySelector('.nav-item[aria-label="Boîte de réception"]') && !document.querySelector('.inbox-btn'));
+  ok(true, 'désactivée : entrée et bouton retirés');
+  await page.click('.foot-item[aria-label="Corbeille"]');
+  ok((await page.textContent('.page-title')) === 'Corbeille', 'icône du bas : Corbeille s’ouvre');
   ok(errors.length === 0, 'aucune erreur dans la console', errors.slice(0, 3).join(' | '));
 });
 

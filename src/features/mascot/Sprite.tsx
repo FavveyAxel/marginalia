@@ -2,6 +2,7 @@ import { useId, type ReactNode } from 'react';
 import type { CharacterDef, DrawArgs } from './characters/types';
 import { extraPose, type ExtraPose } from './activities';
 import type { PropArgs } from './activities/types';
+import { Lamp, LampGlow } from './lamps';
 
 // Le compagnon : un petit cerveau sur pattes, dessiné à l'encre. Trois vues : de face, de profil (il
 // marche de profil, peut s'asseoir de profil, jambes allongées sur l'encadré) et de dos (il s'en va,
@@ -512,6 +513,7 @@ export function Sprite({
   halo,
   blink: blinkProp,
   character,
+  night,
 }: {
   pose: Pose;
   frame: number;
@@ -524,6 +526,8 @@ export function Sprite({
   blink?: boolean;
   /** Un philosophe à la place du cerveau (même corps, mêmes poses ; seul son attribut grandit). */
   character?: CharacterDef;
+  /** Thème sombre : il a sa lampe (de son époque), tenue en marchant ou en sautant, posée à côté de lui sinon. */
+  night?: boolean;
 }) {
   const uid = useId().replace(/:/g, '');
   if (pose === 'puff') return <Puff frame={frame} />;
@@ -664,8 +668,20 @@ export function Sprite({
   ) : (
     <FrontFace pose={pose} blink={blink} gaze={r.gaze} frame={frame} fill={fill} />
   );
+  // Lampe de nuit, de profil en marchant : le bras proche ne balance plus, il porte la lampe un peu en avant.
+  if (night && side && pose === 'walk') {
+    const [ax, ay] = r.arms[1].a;
+    const sw = Math.sin((2 * Math.PI * (frame % 8)) / 8);
+    r.arms[1] = { a: r.arms[1].a, b: [ax + 4, ay + 15], c: [ax + 10 + sw, ay + 29 + Math.abs(sw) * 0.6] };
+  }
   const behind = !side && !!r.armsBehind;
   const nearArms = side ? [r.arms[1]] : r.arms;
+  // ── Lampe de nuit (voir lamps.tsx) ── tenue dans la main proche (arms[1]) quand il se déplace,
+  // sinon posée sur l'encadré, à sa gauche, la base sur la ligne d'appui.
+  const lampHeld = pose === 'walk' || pose === 'jump';
+  const lamp = night
+    ? { char: character?.id, frame, uid, held: lampHeld, x: lampHeld ? r.arms[1].c[0] : -2, y: lampHeld ? r.arms[1].c[1] : anchorOf(pose, v) }
+    : null;
 
   return (
     <svg className="mascot-svg" width="100%" height="100%" viewBox={`0 0 ${VB_W} ${VB_H}`} style={{ color: INK }} aria-hidden={title ? undefined : true} role={title ? 'img' : undefined}>
@@ -736,7 +752,16 @@ export function Sprite({
           <stop offset="1" stopColor="#d99f8a" />
         </radialGradient>
       </defs>
+      {/* lampe de nuit : la lueur, derrière lui et hors du filtre de halo */}
+      {lamp && (
+        <g transform={flip}>
+          <g transform={lamp.held ? `translate(0 ${r.lift})` : undefined}>
+            <LampGlow {...lamp} />
+          </g>
+        </g>
+      )}
       <g transform={flip} filter={halo ? `url(#${fid})` : undefined}>
+        {lamp && !lamp.held && <Lamp {...lamp} />}
         {xp?.back && pa && xp.back(pa)}
         {/* jambes, et le bras éloigné (profil), derrière le cerveau */}
         {r.feet !== 'none' && (
@@ -780,6 +805,7 @@ export function Sprite({
           )}
           {pose === 'read' && (side ? <SideBook frame={frame} /> : <Book frame={frame} />)}
           {pose === 'write' && <Quill nib={side ? writeNibSide(frame) : writeNib(frame)} rot={side ? -128 : -42} />}
+          {lamp?.held && <Lamp {...lamp} />}
           {!behind && <g filter={vol}>{hands(nearArms)}</g>}
           {pose === 'cigar' && !cigarUp(frame) && <LoweredCigar hand={r.arms[1].c} side={side} frame={frame} />}
           {pose === 'guitar' && <GuitarNotes frame={frame} side={side} />}

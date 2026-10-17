@@ -11,8 +11,9 @@ import * as geometry from './geometry';
 import * as classify from './classify';
 import * as herborize from './herborize';
 import * as meditate from './meditate';
+import * as dangle from './dangle';
 
-export const EXTRA_POSE_NAMES = ['coffee', 'juggle', 'spyglass', 'plane', 'paint', 'question', 'geometry', 'classify', 'herborize', 'meditate'] as const;
+export const EXTRA_POSE_NAMES = ['coffee', 'juggle', 'spyglass', 'plane', 'paint', 'question', 'geometry', 'classify', 'herborize', 'meditate', 'dangle'] as const;
 export type ExtraPose = (typeof EXTRA_POSE_NAMES)[number];
 
 export const EXTRA_POSES: Record<ExtraPose, PoseDef> = {
@@ -26,8 +27,9 @@ export const EXTRA_POSES: Record<ExtraPose, PoseDef> = {
   classify: classify.pose,
   herborize: herborize.pose,
   meditate: meditate.pose,
+  dangle: dangle.pose,
 };
-export const EXTRA_ACTIVITIES: ActivityDef[] = [coffee, juggle, spyglass, plane, paint, question, geometry, classify, herborize, meditate].map((m) => m.activity);
+export const EXTRA_ACTIVITIES: ActivityDef[] = [coffee, juggle, spyglass, plane, paint, question, geometry, classify, herborize, meditate, dangle].map((m) => m.activity);
 export const extraPose = (p: string): PoseDef | undefined => (EXTRA_POSES as Record<string, PoseDef>)[p];
 
 /** Une phrase de l'activité pour ce compagnon (les siennes d'abord, sinon celles de tous). */

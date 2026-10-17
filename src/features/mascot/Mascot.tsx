@@ -76,7 +76,7 @@ export const LEVEL_STEPS = [0, 5, 15, 40, 100];
 
 /** Bulle : une phrase, ou une citation (auteur, œuvre) avec éventuellement une petite phrase avant. */
 type Bubble = { text: string; author?: string; source?: string; lead?: string };
-type Flight = { from: HTMLElement; fx: number; to: HTMLElement; tx: number; t0: number; dur: number };
+type Flight = { from: HTMLElement; fx: number; to: HTMLElement; tx: number; t0: number; dur: number; /** Départ d'un point de l'écran (lâché dans le vide) au lieu d'un bord. */ p0?: { x: number; y: number } };
 type Side = 'top' | 'left' | 'right';
 
 interface State {
@@ -116,6 +116,10 @@ interface State {
   flight: Flight | null;
   /** Tests : accélération du temps. */
   speed: number;
+  /** Attrapé à la souris : point de prise dans le personnage (ox, oy) et position du pointeur. */
+  drag: { ox: number; oy: number; px: number; py: number } | null;
+  /** Action interrompue par la prise (reprise après l'atterrissage). */
+  held: { act: Act; left: number } | null;
 }
 
 function edgeOk(el: HTMLElement, strict: boolean) {
@@ -468,6 +472,7 @@ export function Mascot({ route, workspaceId }: { route: string; workspaceId?: st
   silentRef.current = silent;
   const level = levelFor(docs);
   const [, setTick] = useState(0);
+  const suppressClick = useRef(false);
   const wrap = useRef<HTMLDivElement>(null);
   const body = useRef<HTMLDivElement>(null);
   const bub = useRef<HTMLDivElement>(null);
@@ -501,6 +506,8 @@ export function Mascot({ route, workspaceId }: { route: string; workspaceId?: st
     wavedMid: false,
     flight: null,
     speed: 1,
+    drag: null,
+    held: null,
   });
   const live = freq !== 'off' && ROUTES.has(route);
   const page = pageOf(route);
@@ -513,6 +520,9 @@ export function Mascot({ route, workspaceId }: { route: string; workspaceId?: st
     s.bubble = null;
     s.bubblePos = null;
     s.flight = null;
+    s.drag = null;
+    s.held = null;
+    wrap.current?.classList.remove('is-dragging');
     s.next = Date.now() + gap;
   };
 
@@ -648,6 +658,17 @@ export function Mascot({ route, workspaceId }: { route: string; workspaceId?: st
         s.squash = still ? null : { t0: now + 300, dur: 300, k: 0.12 };
         return true;
       }
+      // Tenu à la souris : il gigote (images de la pose), le reste attend qu'on le lâche.
+      if (s.drag) {
+        s.frameAcc += dt;
+        const stepMs = 1000 / fps(s.pose);
+        while (s.frameAcc >= stepMs) {
+          s.frameAcc -= stepMs;
+          s.frame++;
+          changed = true;
+        }
+        return changed;
+      }
       if (now - lastCheck > 250) {
         lastCheck = now;
         if (!s.perch || !s.perch.isConnected || !edgeOk(s.perch, false)) {
@@ -733,6 +754,14 @@ export function Mascot({ route, workspaceId }: { route: string; workspaceId?: st
     const place = (s: State, dt: number, now: number) => {
       const w = wrap.current;
       if (!w || !s.visible || !s.perch) return;
+      if (s.drag) {
+        put(w, 'transform', `translate(${(s.drag.px - s.drag.ox).toFixed(1)}px, ${(s.drag.py - s.drag.oy).toFixed(1)}px)`);
+        put(w, 'visibility', 'visible');
+        const bd0 = body.current;
+        if (bd0) put(bd0, 'transform', '');
+        if (bub.current) put(bub.current, 'visibility', 'hidden');
+        return;
+      }
       const r = s.perch.getBoundingClientRect();
       // L'encadré bouge (cartes qui arrivent en glissant, mise en page qui change) : on le suit image
       // par image le temps qu'il se stabilise, au lieu d'attendre le prochain réveil.
@@ -752,8 +781,8 @@ export function Mascot({ route, workspaceId }: { route: string; workspaceId?: st
         const a = f.from.getBoundingClientRect();
         const b = f.to.getBoundingClientRect();
         const t = Math.max(0, Math.min(1, (now - f.t0) / f.dur));
-        const x0 = a.left + f.fx;
-        const y0 = a.top;
+        const x0 = f.p0 ? f.p0.x : a.left + f.fx;
+        const y0 = f.p0 ? f.p0.y : a.top;
         const x1 = b.left + f.tx;
         const y1 = b.top;
         const apex = 34 + Math.hypot(x1 - x0, y1 - y0) * 0.18 + Math.max(0, y0 - y1) * 0.3;
@@ -848,6 +877,7 @@ export function Mascot({ route, workspaceId }: { route: string; workspaceId?: st
     // atterrissage, changement de hauteur).
     let timer = 0;
     const busy = (s: State, now: number) =>
+      !!s.drag ||
       !!s.flight || s.act?.walkTo != null || !!s.squash || Math.abs(s.anchor - anchorOf(s.pose, s.view)) > 0.3 || now < burstUntil || (!!s.bubble && !s.bubblePos);
     const step = (now: number) => {
       const s = st.current;
@@ -1022,7 +1052,110 @@ export function Mascot({ route, workspaceId }: { route: string; workspaceId?: st
   const s = st.current;
   if (!live || !s.visible) return null;
   const halo = document.documentElement.dataset.theme === 'dark' ? '#e9dfcc' : undefined;
+  // ── Glisser-déposer : on l'attrape à la souris et on le pose sur un autre encadré ──
+  const onPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (e.button !== 0 || s.act?.pose === 'puff' || s.act?.leave) return;
+    const sx = e.clientX;
+    const sy = e.clientY;
+    const rect = e.currentTarget.getBoundingClientRect();
+    let dragging = false;
+    const move = (ev: PointerEvent) => {
+      if (!dragging) {
+        if (Math.hypot(ev.clientX - sx, ev.clientY - sy) < 5) return;
+        dragging = true;
+        // Il lâche ce qu'il faisait (repris après l'atterrissage) et gigote au bout du pointeur.
+        if (s.act && s.act.walkTo == null && !s.act.hop && s.act.pose !== 'dangle') s.held = { act: s.act, left: s.left };
+        s.flight = null;
+        s.squash = null;
+        s.bubble = null;
+        s.bubblePos = null;
+        s.act = { pose: 'dangle', ms: 1e9, view: 'front' };
+        s.pose = 'dangle';
+        s.view = 'front';
+        s.frame = 0;
+        s.frameAcc = 0;
+        s.drag = { ox: sx - rect.left, oy: sy - rect.top, px: ev.clientX, py: ev.clientY };
+        wrap.current?.classList.add('is-dragging');
+        setTick((t) => t + 1);
+      }
+      s.drag!.px = ev.clientX;
+      s.drag!.py = ev.clientY;
+      wakeRef.current();
+    };
+    const up = () => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+      window.removeEventListener('pointercancel', up);
+      if (!dragging || !s.drag) return;
+      suppressClick.current = true;
+      setTimeout(() => (suppressClick.current = false), 0);
+      wrap.current?.classList.remove('is-dragging');
+      drop();
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+    window.addEventListener('pointercancel', up);
+  };
+  /** Lâché : il tombe sur l'encadré en dessous ; sinon, il saute sur le plus proche ; sinon, pouf. */
+  const drop = () => {
+    const d = s.drag!;
+    const left = d.px - d.ox;
+    const top = d.py - d.oy;
+    const cx = left + W / 2;
+    const feet = top + (124 / VB_H) * H;
+    const page = pageOf(route);
+    const pool = [...new Set([...document.querySelectorAll<HTMLElement>(`${PERCHES[page].join(', ')}, ${ALL_PERCHES}`)])].filter((el) => edgeOk(el, false));
+    const below = pool
+      .map((el) => ({ el, r: el.getBoundingClientRect() }))
+      .filter(({ r }) => cx >= r.left - 16 && cx <= r.right + 16 && r.top >= feet - 46)
+      .sort((a, b) => a.r.top - b.r.top)[0];
+    s.drag = null;
+    const now = performance.now();
+    const resume: Act[] = [{ pose: 'stand', ms: 450, view: 'front' }, { pose: 'look', ms: 1700, view: 'front', say: 'act:dangle' }];
+    if (s.held && !s.held.act.leave) resume.push({ ...s.held.act, ms: Math.max(2500, s.held.left) });
+    s.held = null;
+    if (below) {
+      // Il tombe : la ligne d'appui part de là où on l'a lâché et rejoint le bord en douceur.
+      const rw = below.r.width;
+      applyScale(scaleFor(rw));
+      s.perch = below.el;
+      s.x = Math.max(6, Math.min(cx - below.r.left - W / 2, rw - W - 6));
+      s.anchor = Math.max(124, (below.r.top - top) / SCALE);
+      s.squash = { t0: now + 160, dur: 280, k: 0.14 };
+    } else {
+      // Dans le vide : un saut vers le bord libre le plus proche.
+      const near = pool
+        .map((el) => {
+          const r = el.getBoundingClientRect();
+          return { el, d: Math.hypot(r.left + r.width / 2 - cx, r.top - feet) };
+        })
+        .sort((a, b) => a.d - b.d);
+      const spot = near.map((o) => freeSpot(o.el, Math.max(6, cx - o.el.getBoundingClientRect().left - W / 2))).find(Boolean) ?? null;
+      if (!spot || !s.perch) {
+        s.queue = [{ pose: 'puff', ms: 300, leave: true }];
+        s.act = null;
+        wakeRef.current();
+        return;
+      }
+      const tr = spot.el.getBoundingClientRect();
+      const dist = Math.hypot(tr.left + spot.x - left, tr.top - feet);
+      s.flight = { from: s.perch, fx: s.x, to: spot.el, tx: spot.x, t0: now, dur: Math.min(900, 320 + dist * 0.4), p0: { x: left, y: feet } };
+      s.facing = tr.left + spot.x >= left ? 1 : -1;
+      s.pose = 'jump';
+      s.view = 'side';
+      s.act = { pose: 'jump', ms: 0, view: 'side', facing: s.facing };
+      s.queue.unshift(...resume);
+      wakeRef.current();
+      setTick((t) => t + 1);
+      return;
+    }
+    s.queue.unshift(...resume);
+    s.act = null;
+    wakeRef.current();
+    setTick((t) => t + 1);
+  };
   const poke = () => {
+    if (suppressClick.current) return;
     if (s.act?.pose === 'puff') return;
     s.queue.unshift({ pose: isSeated(s.pose) ? 'sitwave' : 'wave', ms: 1500, say: 'poke', view: 'front' });
     if (s.act?.walkTo == null) s.act = null;
@@ -1031,7 +1164,7 @@ export function Mascot({ route, workspaceId }: { route: string; workspaceId?: st
   const still = reduced();
   return (
     <div className="mascot-layer" aria-hidden="true">
-      <div ref={wrap} className="mascot" data-character={charId} style={{ width: W, height: H }} onClick={poke}>
+      <div ref={wrap} className="mascot" data-character={charId} style={{ width: W, height: H }} onClick={poke} onPointerDown={onPointerDown} title="Glisser pour le déplacer">
         <div ref={body} className="mascot-body">
           <Sprite pose={s.pose} frame={still ? 0 : s.frame} level={level} view={s.view} facing={s.facing} halo={halo} blink={!still && s.blinkUntil > 0} character={CHARACTERS[charId]} />
         </div>

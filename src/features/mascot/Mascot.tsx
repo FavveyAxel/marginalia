@@ -11,6 +11,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useStore } from '../../lib/store';
 import { extraPose, activityLine } from './activities';
+import { needsDecision, useInbox } from '../inbox/inbox';
 import { Sprite, anchorOf, isSeated, VB_H, VB_W, type Level, type Pose, type View } from './Sprite';
 import { quotesBy, HELLO_BY, CONTEXT, FLEX, HELLO, JOKES, PONDER, POKE, BYE, QUOTES, GUITAR, WHISTLE, WRITE, CIGAR, pick, type Ctx } from './lines';
 import { ALL_PERCHES, PERCHES, STAY, activityActs, buildVisit, sceneActs, sceneCount, type Act, type Hop, type Page, type Say } from './scenes';
@@ -212,6 +213,34 @@ function ctxFor(page: Page, perch: HTMLElement | null, level: Level, workspaceId
   }
   const due = document.querySelector('.home-review-n')?.textContent;
   if (due != null && /^\d+$/.test(due.trim())) c.due = Number(due);
+  // Le reste de ce qu'on voit : extraits, concepts, fiches, écrits, espaces, téléphone…
+  const DAY = 86_400_000;
+  const now = Date.now();
+  const daysSince = (t: number | null | undefined) => (t ? Math.max(0, Math.floor((now - t) / DAY)) : null);
+  c.weekday = new Date().getDay();
+  c.highlights = st.highlights.length;
+  c.concepts = st.concepts.length;
+  if (st.concepts.length) c.conceptName = st.concepts[Math.floor(Math.random() * st.concepts.length)].name;
+  c.cards = st.cards.length;
+  c.plans = st.plans.length;
+  c.spaces = st.workspaces.length;
+  c.trash = st.trash.length;
+  c.inbox = useInbox.getState().items.filter(needsDecision).length;
+  c.unread = st.books.filter((b) => !b.lastOpenedAt && !b.progress).length;
+  c.finished = st.books.filter((b) => frac(b.progress) >= 0.99).length;
+  const byAuthor = new Map<string, number>();
+  for (const b of st.books) if (b.author?.trim()) byAuthor.set(b.author.trim(), (byAuthor.get(b.author.trim()) ?? 0) + 1);
+  const top = [...byAuthor].sort((a, b) => b[1] - a[1])[0];
+  if (top && top[1] >= 2) c.topAuthor = { name: top[0], n: top[1] };
+  if (book) {
+    c.bookHl = st.highlights.filter((h) => h.bookId === book!.id).length;
+    c.bookFormat = book.format;
+    c.bookDays = daysSince(book.lastOpenedAt);
+  }
+  const lastH = st.highlights.reduce<(typeof st.highlights)[number] | null>((m, h) => (!m || h.createdAt > m.createdAt ? h : m), null);
+  if (lastH?.text?.trim()) c.lastExtract = { text: lastH.text.replace(/\s+/g, ' ').trim(), book: st.books.find((b) => b.id === lastH.bookId)?.title ?? '' };
+  const lastD = st.drafts.reduce<(typeof st.drafts)[number] | null>((m, d) => (!m || d.updatedAt > m.updatedAt ? d : m), null);
+  if (lastD) c.lastDraft = { title: lastD.title || 'Sans titre', words: lastD.wordCount ?? 0, days: daysSince(lastD.updatedAt) ?? 0 };
   return c;
 }
 

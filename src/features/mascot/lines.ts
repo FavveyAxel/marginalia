@@ -168,6 +168,25 @@ export type Ctx = {
   book?: { title: string; author: string; progress: number }; // livre sur lequel il est assis / livre en cours (progress 0..1)
   space?: { name: string; items: number }; // espace sur lequel il est assis
   due?: number; // cartes de révision à revoir aujourd’hui
+  // Ce qu’il y a à l’écran et dans la bibliothèque (tout est facultatif : une phrase ne sort que si son
+  // information est connue).
+  weekday?: number; // 0 dimanche … 6 samedi
+  highlights?: number; // extraits en tout
+  concepts?: number;
+  conceptName?: string; // un concept au hasard
+  cards?: number; // fiches de révision
+  plans?: number;
+  spaces?: number;
+  trash?: number;
+  inbox?: number; // éléments reçus du téléphone en attente
+  unread?: number; // livres jamais ouverts
+  finished?: number; // livres lus jusqu’au bout
+  topAuthor?: { name: string; n: number }; // auteur le plus présent
+  bookHl?: number; // extraits du livre (celui du contexte)
+  bookFormat?: string; // epub, pdf, image…
+  bookDays?: number | null; // jours depuis la dernière ouverture du livre
+  lastExtract?: { text: string; book: string };
+  lastDraft?: { title: string; words: number; days: number };
 };
 
 /** Coupe une chaîne trop longue et termine par une ellipse. */
@@ -178,6 +197,8 @@ const short = (s: string, n = 40): string => {
 const ttl = (b: { title: string }) => `« ${short(b.title)} »`;
 const auth = (b: { author: string }) => short(b.author, 24);
 const late = (h: number) => h >= 23 || h < 5;
+/** Citation sans sa ponctuation finale (elle est remise après le guillemet). */
+const quoteOf = (t: string, n: number) => short(t.replace(/[\s.!?…;:,]+$/u, ''), n);
 
 export const CONTEXT: ((c: Ctx) => string | null)[] = [
   // Heure
@@ -237,8 +258,72 @@ export const CONTEXT: ((c: Ctx) => string | null)[] = [
   (c) => (c.level === 0 ? 'Je suis encore un petit cerveau. Chaque livre me fait grandir.' : null),
   (c) => (c.level === 4 ? 'Regarde ces circonvolutions. Je pourrais soulever la Critique de la raison pure.' : null),
   (c) => (c.level === 4 ? 'Niveau maximal. Je fais des pompes sur les syllogismes.' : null),
-  (c) => (c.level >= 2 && c.level < 4 ? 'Je sens mes neurones se raffermir. Continue comme ça.' : null),
+  (c) => (c.level >= 2 && c.level < 4 ? 'Je sens mes neurones se raffermir. Continue comme ça.' : null),  // ── Ce qu’il y a à l’écran ─────────────────────────────────
+  // Le livre du contexte : ses extraits, son format, la dernière fois qu’il a été ouvert.
+  (c) => (c.book && c.bookHl === 0 && c.book.progress > 0.05 ? `Aucun extrait dans ${ttl(c.book)}. Rien ne t’a arrêté ? Méfie-toi des lectures trop lisses.` : null),
+  (c) => (c.book && c.bookHl && c.bookHl > 0 && c.bookHl < 5 ? `${c.bookHl} extrait${c.bookHl > 1 ? 's' : ''} dans ${ttl(c.book)}. Peu, mais bien choisis, j’espère.` : null),
+  (c) => (c.book && c.bookHl && c.bookHl >= 10 && c.bookHl < 20 ? `Les marges de ${ttl(c.book)} commencent à être bien remplies.` : null),
+  (c) => (c.book && c.bookHl && c.bookHl >= 20 ? `${c.bookHl} extraits dans ${ttl(c.book)} ! Tu vas finir par surligner tout le livre.` : null),
+  (c) => (c.book && c.bookHl && c.bookHl > 0 && c.book.progress < 0.1 ? `Déjà des extraits alors que tu viens de commencer ${ttl(c.book)}. Lecteur attentif.` : null),
+  (c) => (c.book && c.bookFormat === 'pdf' ? `Un PDF. Je m’assieds dessus quand même : c’est plat, c’est confortable.` : null),
+  (c) => (c.book && c.bookFormat === 'epub' ? `${ttl(c.book)} en EPUB : la page s’adapte à toi. Moi aussi, d’ailleurs.` : null),
+  (c) => (c.book && c.bookFormat === 'image' ? 'Une photo de page. Le papier n’a jamais été aussi léger.' : null),
+  (c) => (c.book && c.bookDays != null && c.bookDays >= 14 && c.bookDays < 60 ? `${c.bookDays} jours que tu n’as pas ouvert ${ttl(c.book)}. Il s’ennuie un peu.` : null),
+  (c) => (c.book && c.bookDays != null && c.bookDays >= 60 ? `${ttl(c.book)} prend la poussière. Enfin, la poussière numérique.` : null),
+  (c) => (c.book && c.bookDays === 0 && c.book.progress > 0 ? `Tu as lu ${ttl(c.book)} aujourd’hui. Je l’ai senti dans mes synapses.` : null),
+  (c) => (c.book && c.book.progress >= 0.2 && c.book.progress < 0.35 ? `Un quart de ${ttl(c.book)} déjà. Le plus dur, c’était de commencer.` : null),
+  (c) => (c.book && c.book.progress >= 0.45 && c.book.progress <= 0.55 ? `Pile la moitié de ${ttl(c.book)}. Le juste milieu, dirait Aristote.` : null),
+  (c) => (c.book && c.book.author ? `${auth(c.book)}… J’aimerais bien lui poser deux ou trois questions.` : null),
+  (c) => (c.book && c.book.author && c.bookHl ? `Si ${auth(c.book)} voyait tes surlignages, je crois que ça lui ferait plaisir.` : null),
+  (c) => (c.page === 'library' && c.book ? `Je suis assis sur ${ttl(c.book)}. Si tu l’ouvres, je me pousse.` : null),
+  (c) => (c.page === 'home' && c.book ? `${ttl(c.book)} t’attend sur « Reprendre ». Il a gardé ta page.` : null),
+  // La bibliothèque
+  (c) => (c.unread !== undefined && c.unread >= 5 ? `${c.unread} livres pas encore ouverts. Une pile à lire, c’est une promesse.` : null),
+  (c) => (c.unread === 0 && c.books >= 3 ? 'Tous tes livres ont été ouverts au moins une fois. C’est rare, ça.' : null),
+  (c) => (c.finished && c.finished >= 1 ? `${c.finished} livre${c.finished > 1 ? 's' : ''} lu${c.finished > 1 ? 's' : ''} jusqu’au bout. Je garde le compte.` : null),
+  (c) => (c.topAuthor && c.topAuthor.n >= 3 ? `${c.topAuthor.n} livres de ${short(c.topAuthor.name, 24)}. C’est de la fidélité, ou une obsession ?` : null),
+  (c) => (c.topAuthor && c.topAuthor.n === 2 ? `Deux livres de ${short(c.topAuthor.name, 24)} : tu prépares un dialogue avec lui-même ?` : null),
+  (c) => (c.books >= 5 && c.books < 30 ? `${c.books} livres : de quoi tenir un long hiver.` : null),
+  // Les extraits
+  (c) => (c.highlights === 0 && c.books > 0 ? 'Pas encore un seul extrait. Le surligneur ne mord pas.' : null),
+  (c) => (c.highlights !== undefined && c.highlights >= 50 && c.highlights < 300 ? `${c.highlights} extraits en tout. Tu tisses ta propre anthologie.` : null),
+  (c) => (c.highlights !== undefined && c.highlights >= 300 ? `${c.highlights} extraits. Pascal a laissé près de mille fragments ; tu t’en approches.` : null),
+  (c) => (c.lastExtract ? `J’ai relu ton dernier extrait : « ${quoteOf(c.lastExtract.text, 60)} ». Bien vu.` : null),
+  (c) => (c.lastExtract ? `« ${quoteOf(c.lastExtract.text, 50)} »… Ça mériterait une fiche de révision, non ?` : null),
+  (c) => (c.page === 'home' && c.highlights ? 'J’aime bien jeter un œil aux derniers extraits, en bas de l’accueil. Tu as bon goût.' : null),
+  // Les concepts
+  (c) => (c.concepts === 0 && c.highlights !== undefined && c.highlights >= 10 ? 'Beaucoup d’extraits, aucun concept. Et si tu nommais ce qui revient ?' : null),
+  (c) => (c.conceptName ? `Le concept « ${short(c.conceptName, 28)} » me travaille. Tu en as une définition à toi ?` : null),
+  (c) => (c.conceptName ? `« ${short(c.conceptName, 28)} »… Encore faudrait-il s’entendre sur les mots. Socrate y passait des journées.` : null),
+  (c) => (c.concepts !== undefined && c.concepts >= 10 ? `${c.concepts} concepts : tu te construis un vrai vocabulaire philosophique.` : null),
+  // Les fiches de révision
+  (c) => (c.cards === 0 && c.highlights !== undefined && c.highlights >= 5 ? 'Aucune fiche de révision. La mémoire, ça s’entretient comme un muscle.' : null),
+  (c) => (c.cards !== undefined && c.cards >= 50 ? `${c.cards} fiches de révision. Ta mémoire va devenir encyclopédique.` : null),
+  (c) => (c.page === 'home' && c.due !== undefined && c.due > 0 ? 'Les fiches d’abord, le reste ensuite. Promis, ce sera rapide.' : null),
+  (c) => (c.due !== undefined && c.due >= 30 ? `${c.due} cartes… Elles se sont multipliées pendant que tu dormais.` : null),
+  // Les écrits et les plans
+  (c) => (c.lastDraft && c.lastDraft.words > 0 && c.lastDraft.words < 100 ? `« ${short(c.lastDraft.title, 30)} » ne fait que ${c.lastDraft.words} mots. Les grands textes aussi ont commencé petits.` : null),
+  (c) => (c.lastDraft && c.lastDraft.words >= 1000 ? `« ${short(c.lastDraft.title, 30)} » dépasse les ${(Math.floor(c.lastDraft.words / 1000) * 1000).toLocaleString('fr-FR')} mots. Ça devient sérieux.` : null),
+  (c) => (c.lastDraft && c.lastDraft.days >= 7 ? `« ${short(c.lastDraft.title, 30)} » attend depuis ${c.lastDraft.days} jours. Une phrase aujourd’hui ?` : null),
+  (c) => (c.lastDraft && c.lastDraft.days === 0 ? 'Tu as écrit aujourd’hui. Je l’ai vu. Je ne dis rien. Enfin, si.' : null),
+  (c) => (c.plans && c.plans >= 1 && c.drafts === 0 ? 'Un plan sans écrit, c’est une carte sans voyage.' : null),
+  (c) => (c.plans === 0 && c.drafts > 0 ? 'Tu écris sans plan ? Audacieux. Montaigne faisait pareil.' : null),
+  (c) => (c.books && c.drafts && c.highlights && c.concepts && c.cards ? 'Lire, extraire, définir, réviser, écrire : tu as fait le tour complet. Bravo.' : null),
+  // Les espaces
+  (c) => (c.spaces === 0 && c.books >= 5 ? 'Et si tu rangeais tes lectures dans un espace de travail ?' : null),
+  (c) => (c.space ? `« ${short(c.space.name, 30)} »… Joli nom pour un atelier de pensée.` : null),
+  (c) => (c.space && c.space.items > 0 && c.space.items < 5 ? `Quelques éléments dans « ${short(c.space.name, 30)} ». Les fondations sont posées.` : null),
+  // Téléphone, corbeille
+  (c) => (c.inbox && c.inbox > 0 ? `${c.inbox === 1 ? 'Une chose reçue' : `${c.inbox} choses reçues`} du téléphone ${c.inbox === 1 ? 't’attend' : 't’attendent'} dans la bibliothèque.` : null),
+  (c) => (c.trash !== undefined && c.trash >= 10 ? `${c.trash} éléments dans la corbeille. On fait le ménage, ou on garde tout par prudence ?` : null),
+  // Le jour et l’heure
+  (c) => (c.weekday === 1 && c.hour < 12 ? 'Lundi matin. Sisyphe aussi reprenait sa pierre. Il faut l’imaginer heureux.' : null),
+  (c) => (c.weekday === 5 && c.hour >= 15 ? 'Vendredi après-midi. Épicure conseillerait de finir le chapitre au soleil.' : null),
+  (c) => (c.weekday === 0 || c.weekday === 6 ? 'Le week-end, on lit pour le plaisir. Et le plaisir, c’est sérieux.' : null),
+  (c) => (c.hour >= 18 && c.hour < 21 ? 'Fin de journée : le bon moment pour relire ses extraits.' : null),
+  (c) => (c.hour >= 21 && c.hour < 23 ? 'Lecture du soir : les idées mûrissent pendant la nuit.' : null),
 ];
+
 
 /** Salutations à l’arrivée. */
 export const HELLO: string[] = [

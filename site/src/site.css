@@ -383,3 +383,26 @@ a.btn-primary:hover { background: #3a342b; }
 
 .os-logo { object-fit: contain; }
 .btn-primary .os-logo { filter: invert(1) brightness(1.2); }
+
+/* ── Une photo, et le texte est là ── */
+.photo {
+  max-width: 75rem; margin: 9rem auto 0; padding: 0 var(--gutter);
+  display: grid; grid-template-columns: minmax(0, 4fr) minmax(0, 7fr); gap: 4.5rem; align-items: center;
+}
+.photo h2 { font-size: 3.5rem; }
+.photo p { margin: 1rem 0 0; color: var(--ink-2); max-width: 40ch; }
+.photo-stack { position: relative; padding-bottom: 5rem; }
+.photo-shot { display: block; width: 100%; height: auto; border-radius: 0.75rem; box-shadow: var(--shadow-lg); }
+.photo-card {
+  position: absolute; left: -2.5rem; bottom: 0; width: 46%; height: auto; border-radius: 0.875rem;
+  box-shadow: 0 1px 2px rgba(30, 24, 14, 0.08), 0 24px 48px -16px rgba(30, 24, 14, 0.35);
+}
+@media (max-width: 900px) {
+  .photo { grid-template-columns: minmax(0, 1fr); gap: 1.75rem; }
+  .photo-stack { padding-bottom: 0; }
+  .photo-card { position: static; width: 85%; margin: -2.5rem 0 0 auto; display: block; }
+}
+@media (max-width: 620px) {
+  .photo { margin-top: 6rem; }
+  .photo h2 { font-size: 2.5rem; }
+}

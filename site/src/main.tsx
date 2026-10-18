@@ -8,7 +8,7 @@ import { DOWNLOADS, VERSION, type Download } from './downloads';
 import './site.css';
 
 // Cadence de chaque pose (images par seconde), comme dans l'app ; activités : leur propre cadence.
-const FPS: Partial<Record<string, number>> = { puff: 10, sitwave: 8, read: 4, wave: 8, write: 4, think: 3, jump: 8, walk: 8, doze: 2 };
+const FPS: Partial<Record<string, number>> = { flex: 6, puff: 10, sitwave: 8, read: 4, wave: 8, write: 4, think: 3, jump: 8, walk: 8, doze: 2 };
 const fpsOf = (p: Pose) => FPS[p] ?? extraPose(p)?.fps ?? 4;
 const reduced = () => typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
 
@@ -116,6 +116,7 @@ const PERCHES: Record<string, PerchDef> = {
   hero: { side: 'right', inset: 2, seq: () => HERO_SEQ },
   apercu: { side: 'right', inset: 3, seq: (b) => [[TAB_POSES[b.tab] ?? 'wave', 600000]] },
   cote: { side: 'right', inset: 2.5, seq: () => [['question', 4500], ['wave', 2500]] },
+  photo: { side: 'right', inset: 2.5, seq: () => [['flex', 2500], ['wave', 2500]] },
   espaces: { side: 'left', inset: 2, seq: () => [['juggle', 600000]] },
   livres: { side: 'right', inset: 2, seq: () => [['plane', 600000]] },
   fonctions: { side: 'slot', inset: 0, seat: true, seq: (b) => [[MORE[b.group]?.pose ?? 'read', 600000]] },
@@ -442,6 +443,7 @@ const MORE: { icon: string; title: string; pose: Pose; line: string; items: stri
       'Photos et scans : texte reconnu, sans connexion',
       'Synchronisation avec l’app Livres d’Apple (Mac)',
       'Depuis le téléphone : photo d’une page ou passage copié',
+      'Le texte d’une photo : en extrait, ou en nouvel écrit',
       'Défilement continu ou page par page, comme un livre',
       'Deux textes côte à côte',
       'Recherche, signets, aller à la page imprimée',
@@ -661,6 +663,26 @@ function App() {
           </div>
           <div className="shot-wrap" data-perch="cote">
             <img className="cote-shot" src="/captures/cote.png" alt="Une dissertation dans l’éditeur, le Discours de la méthode ouvert à côté" width={1440} height={900} loading="lazy" />
+          </div>
+        </section>
+
+        <section className="photo reveal" aria-labelledby="photo-title">
+          <div className="photo-text">
+            <h2 id="photo-title">Une photo, et le texte est là</h2>
+            <p>
+              Importez une photo ou un scan, en JPG, PNG ou HEIC : Marginalia en reconnaît le texte, sur votre ordinateur, sans connexion.
+              Vous le sélectionnez et le surlignez comme dans un livre, et vous corrigez d’un clic une ligne mal lue.
+            </p>
+            <p>
+              Une page photographiée avec votre téléphone ? Marginalia retrouve le passage dans vos livres et l’ajoute comme extrait, ou en
+              fait un nouvel écrit. Importée depuis un espace de travail, l’image s’y range directement.
+            </p>
+          </div>
+          <div className="photo-stack">
+            <div className="shot-wrap" data-perch="photo">
+              <img className="photo-shot" src="/captures/photo-texte.png" alt="Une photo de page dans Marginalia : un passage surligné, et le texte reconnu ligne par ligne" width={1440} height={900} loading="lazy" />
+            </div>
+            <img className="photo-card" src="/captures/photo-telephone.png" alt="Une photo reçue du téléphone : le texte lu, le passage retrouvé dans le Discours de la méthode, et les boutons Ajouter comme extrait et Créer un écrit" width={760} height={605} loading="lazy" />
           </div>
         </section>
 

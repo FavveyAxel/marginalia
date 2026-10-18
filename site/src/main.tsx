@@ -461,7 +461,8 @@ const MORE: { icon: string; title: string; pose: Pose; line: string; items: stri
       'EPUB, PDF, Word, Markdown, texte, HTML',
       'Photos et scans : texte reconnu, sans connexion',
       'Synchronisation avec l’app Livres d’Apple (Mac)',
-      'Depuis le téléphone : photo d’une page ou passage copié',
+      'Depuis le téléphone, par le Wi-Fi (QR code) : photo, livre ou passage copié',
+      'Notes de l’app Livres ou de Play Livres collées : un extrait par passage',
       'Le texte d’une photo : en extrait, ou en nouvel écrit',
       'Défilement continu ou page par page, comme un livre',
       'Deux textes côte à côte',
@@ -743,8 +744,9 @@ function App() {
               Vous le sélectionnez et le surlignez comme dans un livre, et vous corrigez d’un clic une ligne mal lue.
             </p>
             <p>
-              Une page photographiée avec votre téléphone ? Marginalia retrouve le passage dans vos livres et l’ajoute comme extrait, ou en
-              fait un nouvel écrit. Importée depuis un espace de travail, l’image s’y range directement.
+              Depuis le téléphone, c’est encore plus simple : scannez le QR code affiché par Marginalia et prenez la photo. Elle arrive par
+              le Wi-Fi, sans câble ni compte, sur iPhone comme sur Android. Marginalia retrouve le passage dans vos livres et l’ajoute comme
+              extrait, ou en fait un nouvel écrit.
             </p>
           </div>
           <div className="photo-stack">

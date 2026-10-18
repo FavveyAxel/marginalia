@@ -5,7 +5,8 @@ Gratuite, sans compte, tout reste sur l'ordinateur. Site : <https://marginalia-b
 
 - Lecture EPUB, PDF, DOCX, Markdown, TXT, HTML, photos et scans (texte reconnu hors ligne) ; deux textes côte à côte
 - Synchronisation avec l'app Livres d'Apple (Mac) : livres, surlignages, notes, signets, position de lecture
-- Depuis le téléphone : photo d'une page ou passage copié, déposés dans un dossier iCloud
+- Depuis le téléphone (iPhone, Android) : par le Wi-Fi en scannant un QR code (photos, livres, documents, passages ou notes
+  de l'app Livres collées), ou par un dossier synchronisé (iCloud Drive, OneDrive) ; texte des photos reconnu et passage retrouvé dans vos livres
 - Surlignage en 6 catégories (problème, thèse, argument, thèse adverse, concept, exemple), notes « ma voix »
 - Fiche-texte et mouvements, reconstruction prémisses → conclusion
 - Cartes pour organiser sa pensée : carte d'argument de chaque livre, cartes libres sur plusieurs livres,

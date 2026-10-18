@@ -406,3 +406,18 @@ a.btn-primary:hover { background: #3a342b; }
   .photo { margin-top: 6rem; }
   .photo h2 { font-size: 2.5rem; }
 }
+
+/* ── Alternance gauche / droite des sections avec capture (écran large) ── */
+@media (min-width: 901px) {
+  /* 1. Écrire : texte à gauche (inchangé) */
+  /* 2. Photo : capture à gauche */
+  .photo { grid-template-columns: minmax(0, 7fr) minmax(0, 4fr); }
+  .photo .photo-stack { order: -1; }
+  .photo .photo-card { left: auto; right: -2.5rem; }
+  /* 3. Espaces : texte à gauche */
+  .spaces { grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); }
+  .spaces .spaces-text { order: -1; }
+  /* 4. Livres : capture à gauche */
+  .books { grid-template-columns: minmax(0, 6fr) minmax(0, 5fr); }
+  .books .books-wrap { order: -1; justify-self: start; }
+}

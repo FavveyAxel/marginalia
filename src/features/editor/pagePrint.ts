@@ -56,6 +56,9 @@ function collectCss(): string {
     for (const r of Array.from(rules)) {
       // @font-face de l'app : adresses app:// ou http:// inaccessibles à l'impression ; remplacées par fontCss
       if (r.type === CSSRule.FONT_FACE_RULE) continue;
+      // règles d'impression de l'éditeur (ex. SuperDoc : URL des liens ajoutée après le texte) : on
+      // imprime le rendu de l'écran, tel quel
+      if (r instanceof CSSMediaRule && /\bprint\b/.test(r.conditionText) && !/\bscreen\b/.test(r.conditionText)) continue;
       css += r.cssText + '\n';
     }
   }
@@ -191,6 +194,7 @@ html { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
   width: ${w}px !important; height: ${h}px !important;
   break-after: page; page-break-after: always; break-inside: avoid;
 }
+.mgl-print-pages .superdoc-link::after { content: none !important; }
 .mgl-print-pages > .superdoc-page:last-child { break-after: auto; page-break-after: auto; }
 ${opts.mode === 'web' ? WEB_CSS : ''}
 </style>

@@ -399,7 +399,7 @@ function releasePainterListeners() {
   painterListeners.clear();
 }
 
-function loadSuperDoc(): Promise<Any> {
+export function loadSuperDoc(): Promise<Any> {
   const w = window as Any;
   if (w.SuperDoc) return Promise.resolve(w.SuperDoc);
   loading ??= new Promise((resolve, reject) => {

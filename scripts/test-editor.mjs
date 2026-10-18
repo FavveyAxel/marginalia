@@ -311,7 +311,8 @@ await withApp(PORT, async (page, errors) => {
     check('Markdown : titres, texte, modification', /^# Discours de la méthode/m.test(md) && /^## Première partie/m.test(md) && md.includes('MARQUEUR-EDIT'), md.split('\n')[0]);
     check('Markdown : notes [^1]', /\[\^1\]/.test(md) && /^\[\^1\]: /m.test(md));
     const html = fs.readFileSync((await exportVia(page, 'html', 'fixture.html')).path, 'utf8');
-    check('HTML : document autonome', html.startsWith('<!doctype html>') && html.includes('<h2>Première partie</h2>') && html.includes('MARQUEUR-EDIT') && html.includes('class="footnotes"'));
+    // page web « telle qu'à l'écran » : les pages de l'éditeur (titres, notes en bas de page compris)
+    check('HTML : document autonome', html.startsWith('<!doctype html>') && html.includes('class="mgl-print-pages"') && html.includes('Première partie') && html.includes('MARQUEUR-EDIT') && (html.match(/class="superdoc-page/g) || []).length > 1);
     const txt = fs.readFileSync((await exportVia(page, 'txt', 'fixture.txt')).path, 'utf8');
     check('Texte brut : contenu et notes', txt.includes('MARQUEUR-EDIT') && txt.includes('PREMIÈRE PARTIE') && /\nNotes\n/.test(txt) && !/[<>]/.test(txt.slice(0, 500)));
     // PDF en navigateur : erreur attendue → message propre, pas de plantage

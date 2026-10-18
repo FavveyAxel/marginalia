@@ -85,6 +85,7 @@ function inlineTxt(inl: Inline[], nums: Map<string, number>): string {
 }
 
 // ── Markdown ─────────────────────────────────────────────────
+const MD_PAGE_BREAK = '<div style="page-break-after: always; break-after: page;"></div>';
 export function toMarkdown(m: DocModel): string {
   const nums = noteNumbers(m);
   const shift = headingShift(m);
@@ -93,6 +94,12 @@ export function toMarkdown(m: DocModel): string {
   let prevList: string | null = null;
   const blanks = blankLines(m);
   for (const [bi, b] of m.blocks.entries()) {
+    // saut de page : balise reconnue par les convertisseurs (Pandoc, Typora, impression du HTML)
+    if (b.pageBreak && out.some((l) => l.trim())) {
+      if (prevList !== null) out.push('');
+      prevList = null;
+      out.push(MD_PAGE_BREAK, '');
+    }
     if (isEmpty(b)) {
       // ligne blanche voulue : paragraphe insécable (affiché vide par les lecteurs Markdown)
       if (blanks.has(bi)) out.push('&nbsp;', '');
@@ -135,6 +142,12 @@ export function toText(m: DocModel): string {
   let prevList: string | null = null;
   const blanks = blankLines(m);
   for (const [bi, b] of m.blocks.entries()) {
+    // saut de page : caractère de saut de page (form feed), compris par les imprimantes et éditeurs
+    if (b.pageBreak && out.some((l) => l.trim())) {
+      if (prevList !== null) out.push('');
+      prevList = null;
+      out.push('\f');
+    }
     if (isEmpty(b)) {
       if (blanks.has(bi)) out.push(BLANK); // une ligne vide de plus que l'écart normal entre paragraphes
       continue;
@@ -381,6 +394,11 @@ function bodyHtml(m: DocModel, noteLinks: boolean, tc?: TypoCtx): string {
   // voulues pour aérer le texte — gardées, sauf en fin de document. Sans typographie : ignorés.
   const blanks = blankLines(m);
   for (const [bi, b] of m.blocks.entries()) {
+    // saut de page : la suite commence une nouvelle page (impression) ; à l'écran, un filet discret
+    if (b.pageBreak && out.length) {
+      if (b.kind !== 'li') closeTo(0);
+      out.push('<div class="page-break" role="separator" aria-label="Saut de page"></div>');
+    }
     if (isEmpty(b)) {
       if (!tc || !blanks.has(bi)) continue;
       const css = blockCss(b, tc);
@@ -451,6 +469,8 @@ export interface ExportOptions {
 
 const SCREEN_CSS = `
 :root { color-scheme: light; }
+.page-break { border: 0; border-top: 1px dashed #c9c1b2; margin: 2.5em 0; height: 0; }
+@media print { .page-break { border: 0; margin: 0; break-after: page; page-break-after: always; } }
 body { margin: 0; background: #fbf9f4; color: #1d1a15; }
 main { max-width: 42rem; margin: 0 auto; padding: 3rem 1.5rem 5rem; font-family: 'Iowan Old Style', 'Literata', Georgia, 'Times New Roman', serif; font-size: 1.125rem; line-height: 1.65; }
 h1, h2, h3, h4 { line-height: 1.25; font-weight: 600; margin: 2em 0 0.6em; }
@@ -503,6 +523,7 @@ ${opts.fontCss ?? ''}
 html { -webkit-print-color-adjust: exact; }
 body { margin: 0; color: #000; background: #fff; font-family: 'Times New Roman', 'Iowan Old Style', Georgia, serif; font-size: 12pt; line-height: 1.5; }
 h1, h2, h3, h4 { font-weight: bold; line-height: 1.25; page-break-after: avoid; break-after: avoid; }
+.page-break { height: 0; margin: 0; border: 0; break-after: page; page-break-after: always; }
 h1 { font-size: 16pt; margin: 24pt 0 6pt; }
 h2 { font-size: 14pt; margin: 18pt 0 6pt; }
 h3 { font-size: 12pt; font-style: italic; margin: 12pt 0 6pt; }

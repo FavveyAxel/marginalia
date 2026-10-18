@@ -79,6 +79,8 @@ export async function ensureA4SectPr(data: ArrayBuffer): Promise<{ data: ArrayBu
 }
 
 // ── Modèle de lecture ────────────────────────────────────────
+/** Marqueur interne d'un saut de page dans le texte d'un paragraphe (caractère de la zone privée). */
+const PAGE_MARK = '\uE000';
 /**
  * Mise en forme de caractères (exports fidèles : PDF, HTML). Valeurs absentes = héritées.
  * `b` / `i` / `u` à false : explicitement désactivés (ex. run non gras dans un titre gras).
@@ -136,6 +138,8 @@ export interface Block {
   /** Style de paragraphe Word (pStyle) et mise en forme effective du paragraphe (style + directe). */
   styleId?: string;
   fmt?: BlockFmt;
+  /** Commence sur une nouvelle page (saut de page, « saut de page avant », saut de section). */
+  pageBreak?: boolean;
 }
 /** Typographie du document (styles.xml, thème, sectPr), pour des exports PDF / HTML fidèles. */
 export interface DocTypography {
@@ -543,7 +547,9 @@ function parseInlines(p: Element, notes: string[] | null, counter: { words: stri
           break;
         case 'br':
         case 'cr':
-          if (wattr(c, 'type') !== 'page') out.push({ t: 'br' });
+          // saut de page : repéré par un marqueur, retiré ensuite (le bloc est coupé à cet endroit)
+          if (wattr(c, 'type') === 'page') out.push({ t: 'text', text: PAGE_MARK });
+          else out.push({ t: 'br' });
           counter.words.push(' ');
           break;
         case 'noBreakHyphen':
@@ -593,6 +599,8 @@ export async function parseDocx(data: ArrayBuffer): Promise<DocModel> {
   const noteOrder: string[] = [];
   const counter = { words: [] as string[] };
 
+  /** Le prochain paragraphe commence une page (saut en fin de paragraphe, saut de section). */
+  let breakNext = false;
   const para = (p: Element) => {
     const ppr = first(p, 'pPr');
     const styleId = ppr ? wattr(first(ppr, 'pStyle'), 'val') : null;
@@ -610,6 +618,11 @@ export async function parseDocx(data: ArrayBuffer): Promise<DocModel> {
     const sid = styleId && typo.has(styleId) ? styleId : typo.defaultPara;
     const fmt = mergeFmt<BlockFmt>(typo.para(sid), readPPr(ppr));
     const block: Block = { kind, inlines: parseInlines(p, noteOrder, counter, typo), fmt, ...(sid ? { styleId: sid } : {}) };
+    if (ppr && onOff(first(ppr, 'pageBreakBefore'))) block.pageBreak = true;
+    if (breakNext) {
+      block.pageBreak = true;
+      breakNext = false;
+    }
     counter.words.push('\n');
     if (numPr && (kind === 'p' || kind === 'quote')) {
       const numId = wattr(first(numPr, 'numId'), 'val') ?? '';
@@ -621,7 +634,52 @@ export async function parseDocx(data: ArrayBuffer): Promise<DocModel> {
         block.ordered = numbering.get(numId)?.get(ilvl) ?? false;
       }
     }
-    blocks.push(block);
+    pushSplit(block);
+    // saut de section « page suivante » porté par ce paragraphe : la suite commence sur une nouvelle page
+    const sect = ppr ? first(ppr, 'sectPr') : null;
+    if (sect) {
+      const ty = wattr(first(sect, 'type'), 'val');
+      if (!ty || ty === 'nextPage' || ty === 'evenPage' || ty === 'oddPage') breakNext = true;
+    }
+  };
+  /** Coupe un paragraphe à ses sauts de page : le morceau qui suit un saut commence une page. */
+  const pushSplit = (block: Block) => {
+    if (!block.inlines.some((i) => i.t === 'text' && i.text.includes(PAGE_MARK))) {
+      blocks.push(block);
+      return;
+    }
+    let cur: Inline[] = [];
+    let brk = !!block.pageBreak;
+    const parts: { inlines: Inline[]; pageBreak: boolean }[] = [];
+    for (const inl of block.inlines) {
+      if (inl.t !== 'text' || !inl.text.includes(PAGE_MARK)) {
+        cur.push(inl);
+        continue;
+      }
+      const segs = inl.text.split(PAGE_MARK);
+      segs.forEach((seg, k) => {
+        if (k > 0) {
+          parts.push({ inlines: cur, pageBreak: brk });
+          cur = [];
+          brk = true;
+        }
+        if (seg) cur.push({ ...inl, text: seg });
+      });
+    }
+    parts.push({ inlines: cur, pageBreak: brk });
+    // un saut tout au début ou tout à la fin ne crée pas de paragraphe vide
+    const hasText = (x: Inline[]) => x.some((i) => i.t !== 'text' || i.text.trim() !== '');
+    parts.forEach((part, k) => {
+      if (!hasText(part.inlines) && (k === 0 || k === parts.length - 1) && parts.length > 1) {
+        if (k === parts.length - 1) breakNext = breakNext || part.pageBreak;
+        else parts[k + 1].pageBreak = parts[k + 1].pageBreak || part.pageBreak;
+        return;
+      }
+      const b: Block = { ...block, inlines: part.inlines };
+      if (part.pageBreak) b.pageBreak = true;
+      else delete b.pageBreak;
+      blocks.push(b);
+    });
   };
   const walk = (n: Element) => {
     for (const c of Array.from(n.children)) {
@@ -644,7 +702,9 @@ export async function parseDocx(data: ArrayBuffer): Promise<DocModel> {
     for (const fn of Array.from(fdoc.getElementsByTagNameNS(W_NS, 'footnote'))) {
       const ty = wattr(fn, 'type');
       if (ty === 'separator' || ty === 'continuationSeparator' || ty === 'continuationNotice') continue;
-      const paras = el(fn, 'p').map((p) => trimNote(parseInlines(p, null, { words: [] }, typo)));
+      const paras = el(fn, 'p').map((p) =>
+        trimNote(parseInlines(p, null, { words: [] }, typo).map((i) => (i.t === 'text' && i.text.includes(PAGE_MARK) ? { ...i, text: i.text.split(PAGE_MARK).join(' ') } : i))),
+      );
       notes.set(wattr(fn, 'id') ?? '', paras);
     }
   }

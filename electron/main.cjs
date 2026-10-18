@@ -2239,7 +2239,9 @@ dataHandle('marginalia:printToPdf', async (_e, html) => {
     ]);
     await new Promise((r) => setTimeout(r, 150)); // laisse les images data: se décoder
     // preferCSSPageSize : le format du document (@page size) l'emporte ; A4 sinon.
-    const pdf = await win.webContents.printToPDF({ pageSize: 'A4', printBackground: true, preferCSSPageSize: true });
+    // Pages de l'éditeur (export « tel qu'à l'écran ») : chaque page porte déjà ses marges → aucune marge ajoutée.
+    const fullBleed = /class="mgl-print-pages"/.test(html);
+    const pdf = await win.webContents.printToPDF({ pageSize: 'A4', printBackground: true, preferCSSPageSize: true, ...(fullBleed ? { margins: { top: 0, bottom: 0, left: 0, right: 0 } } : {}) });
     return new Uint8Array(pdf.buffer, pdf.byteOffset, pdf.byteLength);
   } finally {
     if (!win.isDestroyed()) win.destroy();

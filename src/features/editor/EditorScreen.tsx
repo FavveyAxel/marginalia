@@ -9,6 +9,7 @@ import { Kbd, Skeleton } from '../../components/ui';
 import type { DocEngine, EngineState, EngineStats, OutlineItem } from './engine';
 import { ensureA4SectPr, parseDocx } from './docx';
 import { exportText, safeFileName, toPrintHtml, usedFonts } from './exporters';
+import { renderPagesForPrint } from './pagePrint';
 import { bundledFontFaceCss } from './exportFonts';
 import {
   fmtInt,
@@ -824,7 +825,13 @@ function Editor({ draft }: { draft: Draft }) {
           try {
             // polices fournies avec l'app (Literata…) incluses : la fenêtre d'impression n'a pas accès au réseau
             const fontCss = await bundledFontFaceCss(usedFonts(g.model));
-            pdf = await host.printToPdf(toPrintHtml(g.model, d.title, { fontCss }));
+            // Pages de l'éditeur imprimées telles quelles (sauts de page, notes en bas de page, numéros…) ;
+            // si la mise en page échoue, PDF reconstruit à partir du texte.
+            const paged = await renderPagesForPrint((await stripForExport(g.data)).data, { fontCss }).catch((err) => {
+              console.warn('Mise en page pour le PDF impossible :', err);
+              return null;
+            });
+            pdf = await host.printToPdf(paged ? paged.html : toPrintHtml(g.model, d.title, { fontCss }));
           } catch (err) {
             console.warn(err);
             toast(host.kind === 'browser' ? `L’export PDF n’est disponible que dans l’app ${isMac ? 'Mac' : 'de bureau'}. Essayez Word ou Page web.` : 'L’export PDF a échoué. Réessayez, ou exportez en Word.', 'error');
@@ -833,7 +840,15 @@ function Editor({ draft }: { draft: Draft }) {
           path = await host.saveBinary(`${name}.pdf`, pdf, 'pdf');
         } else {
           const fontCss = format === 'html' ? await bundledFontFaceCss(usedFonts(g.model)) : '';
-          const text = exportText(g.model, format, d.title, { fontCss });
+          // Page web : les pages telles qu'à l'écran ; Markdown et texte : le texte, sauts de page compris.
+          const paged =
+            format === 'html'
+              ? await renderPagesForPrint((await stripForExport(g.data)).data, { fontCss, mode: 'web', title: d.title }).catch((err) => {
+                  console.warn('Mise en page pour la page web impossible :', err);
+                  return null;
+                })
+              : null;
+          const text = paged ? paged.html : exportText(g.model, format, d.title, { fontCss });
           const bytes = new TextEncoder().encode(text);
           path = await host.saveBinary(`${name}.${format}`, bytes.buffer as ArrayBuffer, format);
         }

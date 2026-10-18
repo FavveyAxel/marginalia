@@ -127,7 +127,7 @@ function AnnotatedPage() {
   );
   return (
     <figure className="page" aria-label="Exemple : le début du Contrat social, annoté dans Marginalia">
-      <Rousseau className="page-rousseau" size={150} poke seq={HERO_SEQ} />
+      <Rousseau className="page-rousseau" size={ROUSSEAU_SIZE} poke seq={HERO_SEQ} />
       <div className="page-body">
         <p className="page-ref">Rousseau, <cite>Du contrat social</cite>, I, 1</p>
         <p>
@@ -152,7 +152,10 @@ function AnnotatedPage() {
   );
 }
 
-const HERO_SEQ: [Pose, number][] = [['wave', 2600], ['read', 6500], ['spyglass', 4500], ['juggle', 5500], ['think', 3200], ['herborize', 6000]];
+/** Une seule taille pour Rousseau sur tout le site (unités du dessin, converties en rem). */
+const ROUSSEAU_SIZE = 108;
+
+const HERO_SEQ: [Pose, number][] = [['wave', 2600], ['read', 6500], ['spyglass', 4500], ['juggle', 5500], ['think', 3200], ['coffee', 6000]];
 
 const STEPS = [
   {
@@ -309,8 +312,8 @@ const MORE: { icon: string; title: string; pose: Pose; line: string; items: stri
   {
     icon: 'lock',
     title: 'Organiser et protéger',
-    pose: 'meditate' as Pose,
-    line: 'Tout reste chez vous. J’y tiens : je me suis toujours méfié du monde.',
+    pose: 'herborize' as Pose,
+    line: 'Tout reste chez vous. J’y tiens : moi, j’herborisais loin du monde.',
     items: [
       'Espaces de travail par cours ou dissertation, avec groupes',
       'Historique : revenir à l’état d’avant chaque action',
@@ -377,7 +380,7 @@ function Features() {
         <aside className="presenter" aria-hidden="true">
           <div className="presenter-inner">
             <p className="bubble" key={k}>{m.line}</p>
-            <Rousseau className="presenter-rousseau" size={150} seat seq={[[m.pose, 600000]]} />
+            <Rousseau className="presenter-rousseau" size={ROUSSEAU_SIZE} seat seq={[[m.pose, 600000]]} />
           </div>
         </aside>
         <div className="more-grid">

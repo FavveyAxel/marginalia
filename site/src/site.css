@@ -103,8 +103,9 @@ a.btn-primary:hover { background: #3a342b; }
   background: var(--bg-page); border-radius: 4px; box-shadow: var(--shadow-lg);
   padding: 2.75rem 2rem 2.5rem 2.75rem;
 }
+/* au-dessus de la colonne des notes : assis, ses jambes tombent dans la marge vide, jamais sur le texte */
 .page-rousseau {
-  position: absolute; right: 10.625rem; top: calc(-1 * var(--anchor)); display: block; color: var(--ink);
+  position: absolute; right: 2rem; top: calc(-1 * var(--anchor)); display: block; color: var(--ink);
   pointer-events: none;
 }
 .page-rousseau svg { width: 100%; height: 100%; display: block; overflow: visible; }
@@ -346,7 +347,7 @@ a.btn-primary:hover { background: #3a342b; }
   .spaces .shot-wrap { order: 1; }
 }
 @media (max-width: 620px) {
-  .page { margin-top: 10rem; }
+  .page { margin-top: 7.5rem; padding-top: 4.5rem; }
 }
 
 @media (prefers-reduced-motion: no-preference) {

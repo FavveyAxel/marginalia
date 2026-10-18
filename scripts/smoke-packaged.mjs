@@ -63,9 +63,19 @@ async function smoke(exe) {
         timeout: 120_000,
       });
     } catch (e) {
-      const msg = `lancement (essai ${attempt}) : ${String(e && e.message).split('\n').slice(0, 3).join(' ')}`;
-      if (attempt === 2) ok(false, msg);
-      else console.log('       ' + msg + ' — nouvel essai');
+      const full = String(e && e.message);
+      console.log(`       lancement (essai ${attempt}) :\n${full}`);
+      if (process.env.GITHUB_ACTIONS) console.log(`::warning title=Lancement essai ${attempt} (${process.platform} ${process.arch})::${full.replace(/\r?\n/g, ' ⏎ ').slice(0, 3000)}`);
+      if (attempt === 2) ok(false, `lancement : ${full.split('\n')[0]}`);
+      else {
+        // Une instance restée ouverte bloquerait la suivante (instance unique) : on la ferme.
+        try {
+          const { execSync } = await import('node:child_process');
+          if (process.platform === 'win32') execSync(`taskkill /F /IM "${path.basename(exe)}"`, { stdio: 'ignore' });
+          else execSync(`pkill -f ${JSON.stringify(exe)}`, { stdio: 'ignore' });
+        } catch {}
+        await new Promise((r) => setTimeout(r, 3000));
+      }
     }
   }
   if (!app) {

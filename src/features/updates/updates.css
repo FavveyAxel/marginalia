@@ -40,3 +40,12 @@
 .up-banner-actions a.btn { text-decoration: none; display: inline-flex; align-items: center; gap: 5px; }
 .up-banner-close { position: absolute; top: 8px; right: 8px; color: var(--muted); }
 @media (prefers-reduced-motion: reduce) { .up-items li { animation: none; } }
+
+/* Mac : autorisation « Accès complet au disque » */
+.da-lede { font-size: var(--fs-md); color: var(--ink-2); line-height: 1.5; max-width: 52ch; }
+.da-note { margin: 0 0 14px; padding: 10px 12px; border-radius: var(--radius-sm); background: color-mix(in srgb, #d9a21b 14%, var(--bg-panel)); color: var(--ink); font-size: var(--fs-md); line-height: 1.45; }
+.da-steps { margin: 0; padding: 0; list-style: none; counter-reset: da; display: flex; flex-direction: column; }
+.da-steps li { counter-increment: da; display: grid; grid-template-columns: 26px minmax(0, 1fr); gap: 4px 10px; padding: 10px 0; border-top: 1px solid var(--border); color: var(--ink-2); line-height: 1.5; font-size: var(--fs-md); }
+.da-steps li::before { content: counter(da); grid-row: span 2; width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; font-size: 12px; font-weight: 600; background: var(--bg-inset); color: var(--ink); }
+.da-steps li .btn { grid-column: 2; justify-self: start; margin-top: 4px; display: inline-flex; align-items: center; gap: 5px; }
+.da-steps strong { color: var(--ink); font-weight: 600; }

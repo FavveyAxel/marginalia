@@ -42,6 +42,7 @@ const UPDATE_URL = `http://127.0.0.1:${server.address().port}/repos/FavveyAxel/m
 
 async function launch(version, extra = {}) {
   const env = { ...process.env, HOME, XDG_CONFIG_HOME: path.join(HOME, '.config'), VITE_DEV_SERVER_URL: '', MARGINALIA_E2E: '1', MARGINALIA_UPDATE_URL: UPDATE_URL, MARGINALIA_APP_VERSION: version, ...extra };
+  if (extra.MARGINALIA_APP_VERSION) env.MARGINALIA_APP_VERSION = extra.MARGINALIA_APP_VERSION;
   const app = await electron.launch({ executablePath: path.join(ROOT, 'node_modules/electron/dist/electron'), args: ['--no-sandbox', ROOT], env, timeout: 60000 });
   const page = await app.firstWindow();
   await page.waitForFunction(() => window.__store && window.__store.getState().ready, null, { timeout: 60000 });
@@ -107,6 +108,27 @@ try {
   ({ app, page } = await launch('3.23'));
   await page.waitForTimeout(2500);
   ok(!(await page.$('[data-testid="whats-new"]')), 'relance : « Quoi de neuf » ne revient pas');
+
+  // ── 2 bis. Mac : autorisation « Accès complet au disque » refusée ──
+  await app.close();
+  // Version suivante (3.24) installée par-dessus : macOS a « oublié » l'autorisation.
+  ({ app, page } = await launch('3.24', { MARGINALIA_E2E_DISK_ACCESS: 'denied' }));
+  await page.waitForSelector('[data-testid="disk-access"]', { timeout: 15000 });
+  let da = await page.locator('[data-testid="disk-access"]').innerText();
+  ok(da.includes('Une autorisation à redonner') && da.includes('ne reconnaît plus l’autorisation donnée à l’ancienne version') && da.includes('« − »') && da.includes('« + »'), 'après mise à jour : « à redonner », retirer puis remettre');
+  await page.screenshot({ path: path.join(SHOTS, '05-autorisation-mac.png') });
+  await page.click('[data-testid="disk-access"] button:has-text("Ouvrir les Réglages")');
+  await page.click('[data-testid="disk-access"] button:has-text("Plus tard")');
+  ok((await settings(page)).diskAccessAskedVersion === '3.24', '« Plus tard » : plus proposé pour cette version');
+  await page.waitForTimeout(600);
+  await app.close();
+  ({ app, page } = await launch('3.24', { MARGINALIA_E2E_DISK_ACCESS: 'denied' }));
+  await page.waitForTimeout(2500);
+  ok(!(await page.$('[data-testid="disk-access"]')), 'relance de la même version : pas redemandé');
+  await app.close();
+  ({ app, page } = await launch('3.25', { MARGINALIA_E2E_DISK_ACCESS: 'granted' }));
+  await page.waitForTimeout(2500);
+  ok(!(await page.$('[data-testid="disk-access"]')), 'autorisation valable : rien à demander');
 
   // ── 3. Réglage désactivé : aucune requête ──
   await page.evaluate(() => window.__store.getState().updateSettings({ updateCheck: false }));

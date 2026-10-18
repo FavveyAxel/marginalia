@@ -1691,7 +1691,7 @@ const AE_DIR = () => path.join(IBOOKSX_DOCS(), 'AEAnnotation');
 const BK_DIR = () => path.join(IBOOKSX_DOCS(), 'BKLibrary');
 const APPLE_EPOCH_S = 978307200; // 1er janvier 2001, en secondes Unix
 const BOOKS_DENIED =
-  'macOS refuse l’accès aux données de Livres. Autorisez Marginalia dans Réglages système › Confidentialité et sécurité › Accès complet au disque (ou acceptez la demande d’accès aux données d’autres apps), puis relancez la synchronisation.';
+  'macOS refuse l’accès aux données de Livres. Autorisez Marginalia dans Réglages système › Confidentialité et sécurité › Accès complet au disque, puis relancez Marginalia. Après une mise à jour, macOS ne reconnaît plus l’ancienne autorisation même si la case paraît cochée : retirez Marginalia de la liste (« − »), ajoutez-la de nouveau (« + »), puis relancez.';
 let sqliteBinCache = null;
 function sqliteBin() {
   if (sqliteBinCache) return sqliteBinCache;
@@ -2145,6 +2145,53 @@ dataHandle('marginalia:inboxReveal', async () => {
   }
   const err = await shell.openPath(dir);
   if (err) throw new Error(`Impossible d'ouvrir le dossier : ${err}`);
+});
+
+// ── Mac : autorisation « Accès complet au disque » (données de l'app Livres) ──
+// macOS protège le dossier de Livres (conteneur com.apple.iBooksX). L'autorisation est liée à la
+// signature de l'app : après chaque mise à jour, l'ancienne case cochée ne vaut plus pour la nouvelle
+// version et il faut la retirer puis la remettre. On ne se fie donc qu'à un vrai essai de lecture.
+//  - 'nobooks' : Livres n'a jamais servi sur ce Mac (rien à demander) ;
+//  - 'granted' : lecture possible ; 'denied' : refusée par macOS.
+async function diskAccessStatus() {
+  // Tests : l'état est imposé (un refus de macOS ne se simule pas ailleurs).
+  if (E2E && process.env.MARGINALIA_E2E_DISK_ACCESS) return process.env.MARGINALIA_E2E_DISK_ACCESS;
+  if (!APPLE_BOOKS) return 'nobooks';
+  const container = path.dirname(path.dirname(IBOOKSX_DOCS())); // …/Containers/com.apple.iBooksX
+  const st = await fsp.stat(container).catch(() => null);
+  if (!st) return 'nobooks';
+  try {
+    await fsp.readdir(AE_DIR());
+    return 'granted';
+  } catch (e) {
+    if (isDenied(e)) return 'denied';
+    // Dossier des annotations absent : on essaie le dossier des documents.
+    try {
+      await fsp.readdir(IBOOKSX_DOCS());
+      return 'granted';
+    } catch (e2) {
+      return isDenied(e2) ? 'denied' : 'nobooks';
+    }
+  }
+}
+handle('marginalia:diskAccess', async () => ({ status: await diskAccessStatus() }));
+handle('marginalia:openDiskAccessSettings', async () => {
+  if (!IS_MAC) return false;
+  // Réglages Système › Confidentialité et sécurité › Accès complet au disque (macOS 13 et suivants, et avant).
+  await shell.openExternal('x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles');
+  return true;
+});
+handle('marginalia:revealApp', () => {
+  // …/Marginalia.app/Contents/MacOS/Marginalia → …/Marginalia.app, montré dans le Finder (à glisser dans la liste).
+  const exe = app.getPath('exe');
+  const bundle = exe.includes('.app/') ? exe.slice(0, exe.indexOf('.app/') + 4) : exe;
+  shell.showItemInFolder(bundle);
+  return bundle;
+});
+handle('marginalia:relaunch', () => {
+  // L'autorisation ne vaut qu'après un redémarrage de l'app ; les données sont écrites avant (before-quit).
+  app.relaunch();
+  app.quit();
 });
 
 // ── Mises à jour : la dernière Release publiée sur GitHub ──

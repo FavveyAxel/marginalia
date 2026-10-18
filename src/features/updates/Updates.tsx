@@ -6,7 +6,7 @@ import { createPortal } from 'react-dom';
 import { create } from 'zustand';
 import { marked } from 'marked';
 import DOMPurify from 'dompurify';
-import { Download, NotebookPen, RefreshCw, Smartphone, Sparkles, Lock, Network, X } from 'lucide-react';
+import { Download, FolderSearch, HardDrive, NotebookPen, RefreshCw, RotateCw, Settings2, Smartphone, Sparkles, Lock, Network, X } from 'lucide-react';
 import { useStore } from '../../lib/store';
 import { host, type UpdateInfo } from '../../lib/platform';
 import { openWifiReceive } from '../inbox/inbox';
@@ -21,8 +21,10 @@ interface UpdatesUi {
   update: UpdateInfo | null;
   /** Récap de la nouvelle version (texte de la Release) ouvert. */
   notesOpen: boolean;
+  /** Mac : autorisation « Accès complet au disque » à (re)donner ; updated : juste après une mise à jour. */
+  diskAccess: { updated: boolean } | null;
 }
-export const useUpdates = create<UpdatesUi>(() => ({ version: null, news: null, update: null, notesOpen: false }));
+export const useUpdates = create<UpdatesUi>(() => ({ version: null, news: null, update: null, notesOpen: false, diskAccess: null }));
 
 /** Vérifie maintenant (bouton des réglages) : met à jour l'annonce et renvoie le résultat. */
 export async function checkForUpdate(): Promise<UpdateInfo | null> {
@@ -69,6 +71,13 @@ export function useUpdatesSync() {
         const news = isNew ? [] : newsSince(seen, version);
         if (news.length) useUpdates.setState({ news });
         else st.updateSettings({ lastSeenVersion: version });
+      }
+      // Mac : l'app Livres est là mais macOS refuse la lecture (premier lancement, ou autorisation
+      // perdue avec la mise à jour). Proposé une fois par version.
+      if (host.diskAccess && st.settings.diskAccessAskedVersion !== version) {
+        const r = await host.diskAccess.status().catch(() => null);
+        if (r?.status === 'denied') useUpdates.setState({ diskAccess: { updated: !!(st.settings.diskAccessAskedVersion || seen) } });
+        else if (r) st.updateSettings({ diskAccessAskedVersion: version });
       }
       if (st.settings.updateCheck === false) return;
       // Un peu après le lancement : l'interface d'abord.
@@ -257,19 +266,91 @@ function UpdateBanner({ u }: { u: UpdateInfo }) {
   );
 }
 
+/** Mac : guider l'autorisation « Accès complet au disque » (et la retirer / remettre après une mise à jour). */
+function DiskAccess({ updated }: { updated: boolean }) {
+  const later = () => {
+    const v = useUpdates.getState().version;
+    if (v) useStore.getState().updateSettings({ diskAccessAskedVersion: v });
+    useUpdates.setState({ diskAccess: null });
+  };
+  useEscape(later);
+  const api = host.diskAccess!;
+  return createPortal(
+    <div className="up-back anim-fade" onMouseDown={(e) => e.target === e.currentTarget && later()}>
+      <div className="up-dialog panel anim-scale" role="dialog" aria-modal="true" aria-labelledby="da-title" data-testid="disk-access">
+        <header className="up-head">
+          <p className="up-kicker">
+            <HardDrive size={14} /> Synchronisation avec Livres
+          </p>
+          <h2 id="da-title">Une autorisation à {updated ? 'redonner' : 'donner'}</h2>
+          <p className="up-sub da-lede">
+            Pour retrouver vos livres, surlignages et notes de l’app Livres, macOS demande d’autoriser Marginalia dans « Accès complet au disque ». Sans
+            cette autorisation, tout le reste fonctionne.
+          </p>
+        </header>
+        {updated && (
+          <p className="da-note" role="note">
+            Vous venez de mettre à jour Marginalia : macOS ne reconnaît plus l’autorisation donnée à l’ancienne version, même si la case paraît cochée. Il
+            faut la retirer puis la remettre.
+          </p>
+        )}
+        <ol className="da-steps">
+          <li>
+            <div>
+              Ouvrez <strong>Réglages Système › Confidentialité et sécurité › Accès complet au disque</strong>.
+            </div>
+            <button className="btn btn-sm" onClick={() => void api.openSettings()}>
+              <Settings2 size={13} /> Ouvrir les Réglages
+            </button>
+          </li>
+          <li>
+            <div>
+              Si <strong>Marginalia</strong> est déjà dans la liste, sélectionnez-la et cliquez sur <strong>« − »</strong> pour la retirer.
+            </div>
+          </li>
+          <li>
+            <div>
+              Cliquez sur <strong>« + »</strong> et choisissez Marginalia dans le dossier Applications, ou glissez l’app dans la liste. Vérifiez que
+              l’interrupteur est activé.
+            </div>
+            <button className="btn btn-sm" onClick={() => void api.revealApp()}>
+              <FolderSearch size={13} /> Montrer Marginalia dans le Finder
+            </button>
+          </li>
+          <li>
+            <div>Relancez Marginalia : l’autorisation ne compte qu’au redémarrage.</div>
+          </li>
+        </ol>
+        <footer className="up-foot">
+          <button className="btn" onClick={later}>
+            Plus tard
+          </button>
+          <button className="btn btn-primary" onClick={() => void api.relaunch()}>
+            <RotateCw size={14} /> Relancer Marginalia
+          </button>
+        </footer>
+      </div>
+    </div>,
+    document.body,
+  );
+}
+
 /** Calque des mises à jour : fenêtres et annonce. */
 export function UpdatesLayer() {
   useUpdatesSync();
   const news = useUpdates((s) => s.news);
   const update = useUpdates((s) => s.update);
   const notesOpen = useUpdates((s) => s.notesOpen);
+  const disk = useUpdates((s) => s.diskAccess);
   const route = useStore((s) => s.route.name);
   return (
     <>
       {news && news.length > 0 && <WhatsNew news={news} />}
+      {/* Après « Quoi de neuf » : l'autorisation à redonner. */}
+      {disk && !(news && news.length) && <DiskAccess updated={disk.updated} />}
       {update && notesOpen && <ReleaseNotes u={update} />}
       {/* L'annonce attend la fin de la lecture (pas dans le lecteur) et la fermeture de « Quoi de neuf ». */}
-      {update && !notesOpen && !news && route !== 'reader' && <UpdateBanner u={update} />}
+      {update && !notesOpen && !news && !disk && route !== 'reader' && <UpdateBanner u={update} />}
     </>
   );
 }

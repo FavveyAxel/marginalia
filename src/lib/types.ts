@@ -583,6 +583,8 @@ export interface Settings {
   updateDismissed?: string;
   /** Dernière version dont les nouveautés ont été vues (fenêtre « Quoi de neuf »). */
   lastSeenVersion?: string;
+  /** Mac : version pour laquelle l'autorisation « Accès complet au disque » a déjà été proposée. */
+  diskAccessAskedVersion?: string;
   mascotCharacter?: 'brain' | 'socrate' | 'platon' | 'aristote' | 'rousseau';
 }
 

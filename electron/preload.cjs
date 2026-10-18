@@ -183,6 +183,12 @@ if (nativeImageConvert) {
   api.convertImage = async (data, ext) => toArrayBuffer(await ipcRenderer.invoke('marginalia:convertImage', data, ext));
 }
 
+api.diskAccess = {
+  status: () => ipcRenderer.invoke('marginalia:diskAccess'),
+  openSettings: () => ipcRenderer.invoke('marginalia:openDiskAccessSettings'),
+  revealApp: () => ipcRenderer.invoke('marginalia:revealApp'),
+  relaunch: () => ipcRenderer.invoke('marginalia:relaunch'),
+};
 api.updates = {
   version: () => ipcRenderer.invoke('marginalia:appVersion'),
   check: () => ipcRenderer.invoke('marginalia:checkUpdate'),

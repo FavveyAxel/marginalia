@@ -97,6 +97,14 @@ export interface UpdateInfo {
   error?: string;
 }
 
+/** Mac : autorisation « Accès complet au disque » (lecture des données de l'app Livres). */
+export interface DiskAccessApi {
+  status(): Promise<{ status: 'granted' | 'denied' | 'nobooks' }>;
+  openSettings(): Promise<boolean>;
+  revealApp(): Promise<string>;
+  relaunch(): Promise<void>;
+}
+
 export interface UpdatesApi {
   version(): Promise<string>;
   check(): Promise<UpdateInfo>;
@@ -259,6 +267,7 @@ export interface HostApi {
   inbox?: InboxApi;
   /** Version de l'app et vérification des mises à jour (app de bureau). */
   updates?: UpdatesApi;
+  diskAccess?: DiskAccessApi;
   /** Déplacement de la fenêtre par la barre du haut (app de bureau). */
   windowDragStart?(): Promise<void>;
   windowDragEnd?(): Promise<void>;

@@ -421,3 +421,7 @@ a.btn-primary:hover { background: #3a342b; }
   .books { grid-template-columns: minmax(0, 6fr) minmax(0, 5fr); }
   .books .books-wrap { order: -1; justify-self: start; }
 }
+/* Téléphone : seulement la capture principale (image, texte reconnu, extraits) */
+@media (max-width: 900px) {
+  .photo .photo-card { display: none; }
+}

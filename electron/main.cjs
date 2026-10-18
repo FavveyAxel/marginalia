@@ -26,6 +26,7 @@ const { pathToFileURL } = require('node:url');
 const zipkit = require('./backup.cjs');
 const vault = require('./vault.cjs');
 const wifiKit = require('./wifi.cjs');
+const fontNames = require('./fontnames.cjs');
 
 const DEV_URL = process.env.VITE_DEV_SERVER_URL || '';
 const APP_ORIGIN = 'app://marginalia';
@@ -1459,7 +1460,8 @@ const SAVE_FILTERS = {
 };
 
 // Polices installées : liste native de macOS (NSFontManager via JavaScript for Automation),
-// repli sur system_profiler ; Windows : PowerShell (familles GDI+, repli sur le registre) ;
+// repli sur system_profiler ; Windows : noms lus dans les fichiers de polices (electron/fontnames.cjs,
+// aucun programme lancé) ;
 // Linux : fc-list. Aucun accès réseau ; résultat mis en cache pour la session.
 let fontCache = null;
 // ── Fenêtre : déplacement par la barre du haut, sans zone « app-region » CSS ──
@@ -2289,50 +2291,6 @@ dataHandle('marginalia:wifiInfo', () => wifiReceiver.info());
 handle('marginalia:wifiStop', () => wifiReceiver.stop('closed'));
 dataHandle('marginalia:wifiReport', (_e, name, result) => wifiReceiver.report(name, result));
 
-// Windows : familles vues par GDI+ (polices de la machine et de l'utilisateur), repli sur les clés
-// de registre « Fonts » (HKLM et HKCU) dont on retire le type et les noms de style. Sans module natif.
-const WIN_FONT_SCRIPT = `
-$ErrorActionPreference = 'SilentlyContinue'
-[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
-$names = @()
-try {
-  Add-Type -AssemblyName System.Drawing
-  $names = (New-Object System.Drawing.Text.InstalledFontCollection).Families | ForEach-Object { $_.Name }
-} catch {}
-if (-not $names -or $names.Count -eq 0) {
-  foreach ($k in 'HKLM:\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Fonts', 'HKCU:\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Fonts') {
-    $p = Get-ItemProperty -Path $k
-    if ($p) { $names += $p.PSObject.Properties | Where-Object { $_.Name -notlike 'PS*' } | ForEach-Object { 'reg:' + $_.Name } }
-  }
-}
-ConvertTo-Json -Compress -InputObject @($names)
-`;
-const FONT_STYLE_WORDS = /\s+(Regular|Bold|Italic|Oblique|Light|Thin|Medium|Semibold|SemiBold|Semilight|SemiLight|Demibold|ExtraBold|Extra Bold|ExtraLight|Extra Light|UltraLight|Condensed|Cond|Narrow|BdIt|Bd|It)\b.*$/i;
-async function windowsFontFamilies(run) {
-  const ps = path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
-  const encoded = Buffer.from(WIN_FONT_SCRIPT, 'utf16le').toString('base64');
-  let raw = [];
-  try {
-    raw = JSON.parse((await run(ps, ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-EncodedCommand', encoded], 30000)).replace(/^\uFEFF/, '').trim() || '[]');
-  } catch {
-    raw = [];
-  }
-  const set = new Set();
-  for (const n of Array.isArray(raw) ? raw : []) {
-    if (typeof n !== 'string') continue;
-    if (!n.startsWith('reg:')) {
-      set.add(n.trim());
-      continue;
-    }
-    // « Cambria & Cambria Math (TrueType) », « Segoe UI Bold Italic (TrueType) »
-    for (const part of n.slice(4).replace(/\s*\((TrueType|OpenType|Type 1|VGA res)\)\s*$/i, '').split(' & ')) {
-      const fam = part.replace(FONT_STYLE_WORDS, '').trim();
-      if (fam) set.add(fam);
-    }
-  }
-  return [...set].sort((a, b) => a.localeCompare(b, 'fr'));
-}
-
 handle('marginalia:listFonts', async () => {
   if (fontCache) return fontCache;
   const { execFile } = require('child_process');
@@ -2351,7 +2309,8 @@ handle('marginalia:listFonts', async () => {
       } catch { families = []; }
     }
   } else if (IS_WIN) {
-    families = await windowsFontFamilies(run);
+    // Lecture directe des fichiers de polices : pas de PowerShell (signalé par les antivirus).
+    families = await fontNames.familiesInDirs(fontNames.windowsFontDirs());
   } else {
     const out = await run('fc-list', [':', 'family'], 15000);
     families = [...new Set(out.split('\n').map((l) => l.split(',')[0].trim()).filter(Boolean))];

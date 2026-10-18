@@ -1,6 +1,6 @@
 import { StrictMode, useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { Sprite, anchorOf, VB_H, VB_W, type Pose } from '../../src/features/mascot/Sprite';
+import { Sprite, anchorOf, isSeated, VB_H, VB_W, type Pose } from '../../src/features/mascot/Sprite';
 import { extraPose } from '../../src/features/mascot/activities';
 import { rousseau } from '../../src/features/mascot/characters/rousseau';
 import { DOWNLOADS, VERSION, type Download } from './downloads';
@@ -15,7 +15,26 @@ const reduced = () => typeof matchMedia === 'function' && matchMedia('(prefers-r
  * Rousseau, dessiné et animé par le moteur de l'app. `seq` : activités jouées l'une après l'autre (ms).
  * `poke` : un clic le fait sauter puis passer à l'activité suivante.
  */
-function Rousseau({ seq, size, className, poke, facing }: { seq: [Pose, number][]; size: number; className?: string; poke?: boolean; facing?: 1 | -1 }) {
+/** Une pile de livres pour s'asseoir (même repère que le dessin du personnage : 100 × 130, assise vers y = 70). */
+function BookSeat() {
+  const ink = { stroke: 'currentColor', strokeWidth: 1.6, strokeLinejoin: 'round' as const };
+  const book = (x: number, y: number, w: number, h: number, fill: string, band: string) => (
+    <g>
+      <rect x={x} y={y} width={w} height={h} rx={1.6} fill={fill} {...ink} />
+      <rect x={x + w - 6} y={y + 1.2} width={4.2} height={h - 2.4} fill="#f4ecdc" stroke="none" />
+      <line x1={x + 5} y1={y + h / 2} x2={x + w - 10} y2={y + h / 2} stroke={band} strokeWidth={1.4} strokeLinecap="round" />
+    </g>
+  );
+  return (
+    <svg className="book-seat" viewBox={`0 0 ${VB_W} ${VB_H}`} aria-hidden="true">
+      {book(24, 108, 52, 19, '#6f8a74', '#d9c58f')}
+      {book(28, 90, 46, 18, '#9b5f4a', '#e8d6a8')}
+      {book(25, 72, 50, 18, '#5f6f93', '#d9c58f')}
+    </svg>
+  );
+}
+
+function Rousseau({ seq, size, className, poke, facing, seat }: { seq: [Pose, number][]; size: number; className?: string; poke?: boolean; facing?: 1 | -1; seat?: boolean }) {
   const [i, setI] = useState(0);
   const [frame, setFrame] = useState(0);
   const [jumping, setJumping] = useState(false);
@@ -39,7 +58,12 @@ function Rousseau({ seq, size, className, poke, facing }: { seq: [Pose, number][
   }, [jumping]);
   const h = (size * VB_H) / VB_W;
   const style = { width: `${size / 16}rem`, height: `${h / 16}rem`, ['--anchor' as string]: `${(anchorOf(pose) / VB_H) * (h / 16)}rem` };
-  const sprite = <Sprite pose={pose} frame={frame} level={2} character={rousseau} facing={facing} />;
+  const sprite = (
+    <>
+      {seat && isSeated(pose) && <BookSeat />}
+      <Sprite pose={pose} frame={frame} level={2} character={rousseau} facing={facing} />
+    </>
+  );
   // tailles en rem : la mascotte suit l'échelle fluide de la page
   if (poke && !reduced())
     return (
@@ -353,7 +377,7 @@ function Features() {
         <aside className="presenter" aria-hidden="true">
           <div className="presenter-inner">
             <p className="bubble" key={k}>{m.line}</p>
-            <Rousseau className="presenter-rousseau" size={150} seq={[[m.pose, 600000]]} />
+            <Rousseau className="presenter-rousseau" size={150} seat seq={[[m.pose, 600000]]} />
           </div>
         </aside>
         <div className="more-grid">

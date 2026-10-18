@@ -358,3 +358,8 @@ a.btn-primary:hover { background: #3a342b; }
   .presenter { display: none; }
   .more-layout:has(.more-group.is-on) .more-group:not(.is-on) { opacity: 1; }
 }
+
+/* Pile de livres sous Rousseau assis (présentateur) : derrière lui, même repère */
+.presenter-rousseau { position: relative; }
+.presenter-rousseau > svg { position: relative; }
+.presenter-rousseau .book-seat { position: absolute; inset: 0; width: 100%; height: 100%; color: var(--ink); }

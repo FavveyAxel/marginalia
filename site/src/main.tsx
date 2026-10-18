@@ -535,6 +535,11 @@ function Pict({ name }: { name: string }) {
     map: <><circle cx="12" cy="12" r="2.6" {...p} /><circle cx="4.5" cy="6" r="1.8" {...p} /><circle cx="19.5" cy="6" r="1.8" {...p} /><circle cx="5" cy="18.5" r="1.8" {...p} /><circle cx="19" cy="18.5" r="1.8" {...p} /><path d="M6 7.2l4 3M18 7.2l-4 3M6.4 17.3l3.6-3.4M17.6 17.3L14 13.9" {...p} /></>,
     lock: <><rect x="5" y="10.5" width="14" height="10" rx="1.6" {...p} /><path d="M8 10.5V8a4 4 0 0 1 8 0v2.5M12 14.5v2.5" {...p} /></>,
     doc: <><path d="M6 3h8l4 4v14H6z" {...p} /><path d="M14 3v4h4M9 12h6M9 15h6M9 18h3" {...p} /></>,
+    offline: <><path d="M7 18.5h10.5a3.5 3.5 0 0 0 .6-6.95A5.5 5.5 0 0 0 7.6 10 4.25 4.25 0 0 0 7 18.5z" {...p} /><path d="M4 4l16 16" {...p} /></>,
+    noacc: <><circle cx="12" cy="8" r="3.2" {...p} /><path d="M6 20c.4-3.8 2.6-6 6-6s5.6 2.2 6 6" {...p} /><path d="M4 4l16 16" {...p} /></>,
+    scan: <><path d="M4 8V5.5A1.5 1.5 0 0 1 5.5 4H8M16 4h2.5A1.5 1.5 0 0 1 20 5.5V8M20 16v2.5a1.5 1.5 0 0 1-1.5 1.5H16M8 20H5.5A1.5 1.5 0 0 1 4 18.5V16" {...p} /><path d="M8 9.5h8M8 12.5h8M8 15.5h5" {...p} /></>,
+    shield: <><path d="M12 3l7 2.8v5.4c0 4.4-2.9 8-7 9.8-4.1-1.8-7-5.4-7-9.8V5.8z" {...p} /><path d="M9 12l2.2 2.2L15.5 10" {...p} /></>,
+    folder: <><path d="M3.5 7.5A1.5 1.5 0 0 1 5 6h4.2l2 2H19a1.5 1.5 0 0 1 1.5 1.5v8A1.5 1.5 0 0 1 19 19H5a1.5 1.5 0 0 1-1.5-1.5z" {...p} /><path d="M12 11v5M9.8 13.8L12 16l2.2-2.2" {...p} /></>,
     figure: <><circle cx="12" cy="7" r="3.2" {...p} /><path d="M6.5 21c.5-4.5 2.5-7 5.5-7s5 2.5 5.5 7" {...p} /><path d="M8.6 6.2c-1.4-.2-1.8 1.4-.6 2M15.4 6.2c1.4-.2 1.8 1.4.6 2" {...p} /></>,
   };
   return <svg className="pict" viewBox="0 0 24 24" aria-hidden="true">{d[name]}</svg>;
@@ -614,6 +619,44 @@ function Features({ travel }: { travel: boolean }) {
   );
 }
 
+const PRIVACY = [
+  { icon: 'offline', title: 'Hors ligne, par construction', text: 'L’app bloque toute connexion sortante vers Internet. Elle fonctionne aussi bien en mode avion qu’au bureau.' },
+  { icon: 'noacc', title: 'Ni compte, ni pistage', text: 'Pas d’inscription, pas de publicité, pas de statistiques d’utilisation. Personne ne sait ce que vous lisez ni ce que vous écrivez.' },
+  { icon: 'scan', title: 'La reconnaissance de texte reste chez vous', text: 'Le moteur et ses modèles sont livrés avec l’app : vos photos et vos scans ne sont envoyés nulle part.' },
+  { icon: 'lock', title: 'Chiffrement AES-256', text: 'En option, toutes vos données sont chiffrées sur le disque. La clé est gardée par le Trousseau du Mac ou par Windows.' },
+  { icon: 'shield', title: 'Verrouillage', text: 'Par mot de passe, ou Touch ID sur Mac. Verrouillage automatique après quelques minutes ou à la mise en veille, et une clé de secours en cas d’oubli.' },
+  { icon: 'folder', title: 'Vos fichiers, vos sauvegardes', text: 'Tout est rangé dans un dossier de votre ordinateur. Une sauvegarde complète tient dans une archive .zip, que vous gardez où vous voulez.' },
+];
+
+/** Confidentialité : ce que l'app garantit (vérifié dans electron/main.cjs, vault.cjs, ocr.ts). */
+function Privacy() {
+  return (
+    <section className="private reveal" id="confidentialite" aria-labelledby="private-title">
+      <div className="private-head">
+        <p className="eyebrow"><Pict name="lock" /> Confidentialité</p>
+        <h2 id="private-title">Rien ne quitte votre ordinateur</h2>
+        <p className="private-lede">
+          Vos lectures, vos notes et vos brouillons n’appartiennent qu’à vous. Marginalia tourne entièrement sur votre ordinateur&nbsp;:
+          il n’y a pas de serveur, donc rien à envoyer, rien à fuiter.
+        </p>
+      </div>
+      <ul className="private-grid">
+        {PRIVACY.map((x) => (
+          <li key={x.title}>
+            <Pict name={x.icon} />
+            <h3>{x.title}</h3>
+            <p>{x.text}</p>
+          </li>
+        ))}
+      </ul>
+      <p className="private-note">
+        Les photos prises avec votre téléphone passent par votre propre iCloud Drive ou OneDrive, jamais par nous. Et le code de l’app
+        est public&nbsp;: chacun peut <a href="https://github.com/FavveyAxel/marginalia">vérifier ce qu’elle fait</a>.
+      </p>
+    </section>
+  );
+}
+
 function App() {
   useReveal();
   const travel = useTravel();
@@ -628,6 +671,7 @@ function App() {
         <nav className="top-nav" aria-label="Sections">
           <a href="#apercu">Aperçu</a>
           <a href="#fonctions">Fonctions</a>
+          <a href="#confidentialite">Confidentialité</a>
           <a className="btn btn-primary" href="#telecharger">Télécharger</a>
         </nav>
       </header>
@@ -646,6 +690,9 @@ function App() {
                 </a>
               </div>
             </div>
+            <p className="hero-trust">
+              <Pict name="offline" /> Hors ligne <span aria-hidden="true">·</span> sans compte <span aria-hidden="true">·</span> chiffrement en option
+            </p>
           </div>
           <AnnotatedPage travel={travel} />
         </section>
@@ -717,15 +764,7 @@ function App() {
 
         <Features travel={travel} />
 
-        <section className="private reveal">
-          <div>
-            <h2>Rien ne quitte votre ordinateur</h2>
-            <p>
-              Pas de compte, pas de serveur, pas de publicité. Vos livres, vos notes et vos écrits restent dans le dossier de l’app ;
-              l’app bloque toute connexion sortante. En option&nbsp;: chiffrement des données et verrouillage par mot de passe ou Touch ID.
-            </p>
-          </div>
-        </section>
+        <Privacy />
 
         <section className="download" id="telecharger">
           <h2>Télécharger Marginalia {VERSION}</h2>

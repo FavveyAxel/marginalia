@@ -78,6 +78,158 @@ function Rousseau({ seq, size, className, poke, facing, seat }: { seq: [Pose, nu
   );
 }
 
+
+// ── Un seul Rousseau qui accompagne la lecture de la page ────────────
+// Il se pose sur des « perchoirs » (éléments [data-perch]) et va de l'un à l'autre en sautant (ou en
+// marchant si c'est à la même hauteur) quand on fait défiler. Sur les captures, il reste debout sur le
+// bord haut ; il ne s'assoit que sur la marge de la page annotée et sur sa pile de livres de présentateur.
+type Bus = { tab: number; group: number; at: string | null };
+const bus: Bus = { tab: 0, group: 0, at: null };
+const busListeners = new Set<() => void>();
+const setBus = (patch: Partial<Bus>) => {
+  let changed = false;
+  for (const k of Object.keys(patch) as (keyof Bus)[]) if (bus[k] !== patch[k]) { (bus as Record<string, unknown>)[k] = patch[k]; changed = true; }
+  if (changed) busListeners.forEach((f) => f());
+};
+function useBus(): Bus {
+  const [, force] = useState(0);
+  useEffect(() => { const f = () => force((x) => x + 1); busListeners.add(f); return () => { busListeners.delete(f); }; }, []);
+  return bus;
+}
+/** Le voyage n'a lieu que sur un écran assez large, et si le système ne demande pas moins de mouvement. */
+function useTravel() {
+  const q = () => typeof matchMedia === 'function' && matchMedia('(min-width: 901px)').matches && !reduced();
+  const [on, setOn] = useState(q);
+  useEffect(() => {
+    const m = matchMedia('(min-width: 901px)');
+    const f = () => setOn(q());
+    m.addEventListener('change', f);
+    return () => m.removeEventListener('change', f);
+  }, []);
+  return on;
+}
+
+const TAB_POSES: Pose[] = ['spyglass', 'geometry', 'paint'];
+type PerchDef = { side: 'left' | 'right' | 'slot'; inset: number; seat?: boolean; seq: (b: Bus) => [Pose, number][] };
+const PERCHES: Record<string, PerchDef> = {
+  hero: { side: 'right', inset: 2, seq: () => HERO_SEQ },
+  apercu: { side: 'right', inset: 3, seq: (b) => [[TAB_POSES[b.tab] ?? 'wave', 600000]] },
+  cote: { side: 'right', inset: 2.5, seq: () => [['question', 4500], ['wave', 2500]] },
+  espaces: { side: 'left', inset: 2, seq: () => [['juggle', 600000]] },
+  livres: { side: 'right', inset: 2, seq: () => [['plane', 600000]] },
+  fonctions: { side: 'slot', inset: 0, seat: true, seq: (b) => [[MORE[b.group]?.pose ?? 'read', 600000]] },
+  telecharger: { side: 'right', inset: 1, seq: () => [['wave', 3000], ['whistle', 5000]] },
+};
+
+function Traveler() {
+  const b = useBus();
+  const box = useRef<HTMLDivElement>(null);
+  const [state, setState] = useState<{ at: string; mode: 'perch' | 'jump' | 'walk'; facing: 1 | -1 }>({ at: 'hero', mode: 'perch', facing: 1 });
+  const [i, setI] = useState(0);
+  const [frame, setFrame] = useState(0);
+  const [poke, setPoke] = useState(false);
+  const def = PERCHES[state.at];
+  const seq = def.seq(b);
+  const seqKey = state.at + JSON.stringify(seq);
+  const pose: Pose = state.mode === 'jump' || poke ? 'jump' : state.mode === 'walk' ? 'walk' : seq[i % seq.length][0];
+  const seated = isSeated(pose);
+  const w = ROUSSEAU_SIZE, h = (ROUSSEAU_SIZE * VB_H) / VB_W; // unités du dessin → rem
+  const live = useRef({ pose, at: state.at, mode: state.mode });
+  live.current = { pose, at: state.at, mode: state.mode };
+
+  useEffect(() => { setI(0); setFrame(0); }, [seqKey]);
+  useEffect(() => {
+    const t = setInterval(() => setFrame((f) => f + 1), 1000 / fpsOf(pose));
+    return () => clearInterval(t);
+  }, [pose]);
+  useEffect(() => {
+    if (state.mode !== 'perch' || seq.length < 2 || poke) return;
+    const t = setTimeout(() => { setI((x) => x + 1); setFrame(0); }, seq[i % seq.length][1]);
+    return () => clearTimeout(t);
+  }, [i, seqKey, state.mode, poke]);
+  useEffect(() => {
+    if (!poke) return;
+    const t = setTimeout(() => { setPoke(false); setI((x) => x + 1); setFrame(0); }, 900);
+    return () => clearTimeout(t);
+  }, [poke]);
+  useEffect(() => { setBus({ at: state.mode === 'perch' ? state.at : null }); }, [state.at, state.mode]);
+
+  useEffect(() => {
+    const rem = () => parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
+    // point où poser la boîte du dessin (coin haut gauche, coordonnées de l'écran) pour un perchoir
+    const spot = (name: string, p: Pose) => {
+      const el = document.querySelector<HTMLElement>(`[data-perch="${name}"]`);
+      if (!el) return null;
+      const r = el.getBoundingClientRect();
+      const R = rem(), W = (w / 16) * R, H = (h / 16) * R;
+      const d = PERCHES[name];
+      if (d.side === 'slot') return { x: r.left + (r.width - W) / 2, y: r.top + r.height - H, r };
+      const x = d.side === 'right' ? r.right - d.inset * R - W : r.left + d.inset * R;
+      return { x, y: r.top - (anchorOf(p) / VB_H) * H, r };
+    };
+    let raf = 0;
+    let cur = { x: -999, y: -999 };
+    let trip: { from: { x: number; y: number }; to: string; t0: number; dur: number; jump: boolean; arc: number } | null = null;
+    let at = 'hero';
+    const order = Object.keys(PERCHES);
+    const pick = () => {
+      const vh = window.innerHeight;
+      let best: string | null = null, bestD = Infinity;
+      for (const name of order) {
+        const el = document.querySelector<HTMLElement>(`[data-perch="${name}"]`);
+        if (!el) continue;
+        const r = el.getBoundingClientRect();
+        if (r.bottom < vh * 0.12 || r.top > vh * 0.82) continue;
+        const d = Math.abs(r.top - vh * 0.32);
+        if (d < bestD) { bestD = d; best = name; }
+      }
+      return best;
+    };
+    const tick = (now: number) => {
+      raf = requestAnimationFrame(tick);
+      const want = pick();
+      if (want && want !== at && !trip) {
+        const target = spot(want, 'jump');
+        if (target) {
+          const dx = target.x - cur.x, dy = target.y - cur.y;
+          const dist = Math.hypot(dx, dy);
+          const jump = Math.abs(dy) > 60;
+          trip = { from: { ...cur }, to: want, t0: now, dur: Math.min(1400, Math.max(650, dist * 1.1)), jump, arc: Math.min(220, 70 + Math.abs(dy) * 0.12) };
+          setState({ at: want, mode: jump ? 'jump' : 'walk', facing: dx >= 0 ? 1 : -1 });
+        }
+        at = want;
+      }
+      let pos = spot(at, trip ? 'jump' : live.current.pose);
+      if (!pos) return;
+      if (trip) {
+        const t = Math.min(1, (now - trip.t0) / trip.dur);
+        const e = t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
+        const x = trip.from.x + (pos.x - trip.from.x) * e;
+        let y = trip.from.y + (pos.y - trip.from.y) * e;
+        if (trip.jump) y -= trip.arc * 4 * t * (1 - t);
+        pos = { ...pos, x, y };
+        if (t >= 1) { trip = null; setState((s) => ({ ...s, mode: 'perch' })); }
+      }
+      cur = { x: pos.x, y: pos.y };
+      if (box.current) box.current.style.transform = `translate3d(${pos.x.toFixed(1)}px, ${pos.y.toFixed(1)}px, 0)`;
+    };
+    // départ : posé sur la page annotée
+    const first = spot('hero', live.current.pose);
+    if (first) cur = { x: first.x, y: first.y };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, []);
+
+  return (
+    <div className="traveler" ref={box} style={{ width: `${w / 16}rem`, height: `${h / 16}rem` }}>
+      <button type="button" className="traveler-hit" onClick={() => { setPoke(true); setFrame(0); }} aria-label="Rousseau : cliquez pour qu’il change d’activité">
+        {def.seat && seated && state.mode === 'perch' && <BookSeat />}
+        <Sprite pose={pose} frame={frame} level={2} character={rousseau} facing={state.mode === 'perch' ? 1 : state.facing} />
+      </button>
+    </div>
+  );
+}
+
 function useOs(): 'mac' | 'win' | null {
   const [os, setOs] = useState<'mac' | 'win' | null>(null);
   useEffect(() => {
@@ -117,7 +269,7 @@ function DownloadButton({ d }: { d: Download }) {
 }
 
 /** La page annotée du héros : début du Contrat social (1762), surligné comme dans l'app. */
-function AnnotatedPage() {
+function AnnotatedPage({ travel }: { travel: boolean }) {
   const [hover, setHover] = useState<string | null>(null);
   let order = 0;
   const hl = (cat: string, label: string, text: string) => (
@@ -126,8 +278,8 @@ function AnnotatedPage() {
     </mark>
   );
   return (
-    <figure className="page" aria-label="Exemple : le début du Contrat social, annoté dans Marginalia">
-      <Rousseau className="page-rousseau" size={ROUSSEAU_SIZE} poke seq={HERO_SEQ} />
+    <figure className="page" data-perch="hero" aria-label="Exemple : le début du Contrat social, annoté dans Marginalia">
+      {!travel && <Rousseau className="page-rousseau" size={ROUSSEAU_SIZE} poke seq={HERO_SEQ} />}
       <div className="page-body">
         <p className="page-ref">Rousseau, <cite>Du contrat social</cite>, I, 1</p>
         <p>
@@ -195,6 +347,7 @@ function Showcase() {
     const t = setTimeout(() => setK((x) => (x + 1) % STEPS.length), AUTO_MS);
     return () => clearTimeout(t);
   }, [k, auto, visible]);
+  useEffect(() => { setBus({ tab: k }); }, [k]);
   const s = STEPS[k];
   const playing = auto && visible && !reduced();
   return (
@@ -211,7 +364,7 @@ function Showcase() {
       </div>
       <div className="showcase-panel" id="showcase-panel" role="tabpanel" aria-labelledby={`tab-${s.shot}`}>
         <p className="showcase-text" key={s.shot}>{s.text}</p>
-        <div className="shot">
+        <div className="shot" data-perch="apercu">
           {STEPS.map((x, i) => (
             <img key={x.shot} src={`/captures/${x.shot}.png`} alt={`Marginalia : ${x.title.toLowerCase()}`} className={i === k ? 'is-on' : ''} loading={i === 0 ? 'eager' : 'lazy'} width={1440} height={900} />
           ))}
@@ -342,7 +495,7 @@ function Pict({ name }: { name: string }) {
 }
 
 /** Toutes les fonctions, présentées par Rousseau : il change d'activité selon le groupe lu ou survolé. */
-function Features() {
+function Features({ travel }: { travel: boolean }) {
   const [row, setRow] = useState(0);
   const [side, setSide] = useState(0);
   const [hover, setHover] = useState<number | null>(null);
@@ -373,14 +526,21 @@ function Features() {
   const active = Math.min(MORE.length - 1, row * 2 + side);
   const k = hover ?? active;
   const m = MORE[k];
+  const b = useBus();
+  useEffect(() => { setBus({ group: k }); }, [k]);
+  const here = !travel || b.at === 'fonctions';
   return (
     <section className="more reveal" id="fonctions" aria-labelledby="more-title">
       <h2 id="more-title">Toutes les fonctions</h2>
       <div className="more-layout">
         <aside className="presenter" aria-hidden="true">
           <div className="presenter-inner">
-            <p className="bubble" key={k}>{m.line}</p>
-            <Rousseau className="presenter-rousseau" size={ROUSSEAU_SIZE} seat seq={[[m.pose, 600000]]} />
+            <p className={`bubble ${here ? '' : 'is-away'}`} key={k}>{m.line}</p>
+            {travel ? (
+              <div className="presenter-slot" data-perch="fonctions" style={{ width: `${ROUSSEAU_SIZE / 16}rem`, height: `${((ROUSSEAU_SIZE * VB_H) / VB_W) / 16}rem` }} />
+            ) : (
+              <Rousseau className="presenter-rousseau" size={ROUSSEAU_SIZE} seat seq={[[m.pose, 600000]]} />
+            )}
           </div>
         </aside>
         <div className="more-grid">
@@ -410,6 +570,7 @@ function Features() {
 
 function App() {
   useReveal();
+  const travel = useTravel();
   const os = useOs();
   const mine = DOWNLOADS.filter((d) => d.os === (os ?? 'mac'));
   return (
@@ -440,7 +601,7 @@ function App() {
               </div>
             </div>
           </div>
-          <AnnotatedPage />
+          <AnnotatedPage travel={travel} />
         </section>
 
         <Showcase />
@@ -454,13 +615,13 @@ function App() {
             </p>
             <p>Le partage de l’écran se règle à la souris, ou d’un clic en deux moitiés égales.</p>
           </div>
-          <div className="shot-wrap">
+          <div className="shot-wrap" data-perch="cote">
             <img className="cote-shot" src="/captures/cote.png" alt="Une dissertation dans l’éditeur, le Discours de la méthode ouvert à côté" width={1440} height={900} loading="lazy" />
           </div>
         </section>
 
         <section className="spaces reveal" aria-labelledby="spaces-title">
-          <div className="shot-wrap">
+          <div className="shot-wrap" data-perch="espaces">
             <img className="spaces-shot" src="/captures/espaces.png" alt="Un espace de travail « Dissertation : la liberté », avec ses livres, écrits, plans et cartes rangés en groupes" width={1440} height={900} loading="lazy" />
           </div>
           <div className="spaces-text">
@@ -483,12 +644,12 @@ function App() {
             <p>Un livre ajouté sur votre iPhone ou votre iPad arrive tout seul. Rien n’est jamais modifié dans Livres.</p>
             <p className="books-note">Livres achetés avec protection (DRM) exclus.</p>
           </div>
-          <div className="shot-wrap books-wrap">
+          <div className="shot-wrap books-wrap" data-perch="livres">
           <img className="books-shot" src="/captures/livres.png" alt="La fenêtre Livres d’Apple de Marginalia : choix des livres et correspondance des couleurs" width={560} height={503} loading="lazy" />
           </div>
         </section>
 
-        <Features />
+        <Features travel={travel} />
 
         <section className="private reveal">
           <div>
@@ -502,7 +663,7 @@ function App() {
 
         <section className="download" id="telecharger">
           <h2>Télécharger Marginalia {VERSION}</h2>
-          <div className="dl-groups">
+          <div className="dl-groups" data-perch="telecharger">
             {(['mac', 'win'] as const).map((g) => (
               <div className={`dl-group ${os === g ? 'is-mine' : ''}`} key={g}>
                 <h3>
@@ -551,6 +712,7 @@ function App() {
         </section>
       </main>
 
+      {travel && <Traveler />}
       <footer className="foot">
         <p>Marginalia {VERSION}. Fait pour les élèves de terminale, les étudiants et tous les lecteurs de philosophie.</p>
       </footer>

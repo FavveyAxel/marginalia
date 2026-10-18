@@ -84,6 +84,24 @@ export interface WifiInfo {
   count?: number;
 }
 
+/** Dernière version publiée (Release GitHub), comparée à celle de l'app. */
+export interface UpdateInfo {
+  current: string;
+  latest: string | null;
+  newer: boolean;
+  /** Texte de la Release (Markdown) : le récap des nouveautés. */
+  notes?: string;
+  publishedAt?: string | null;
+  /** Page de téléchargement du site (s'ouvre dans le navigateur). */
+  downloadUrl?: string;
+  error?: string;
+}
+
+export interface UpdatesApi {
+  version(): Promise<string>;
+  check(): Promise<UpdateInfo>;
+}
+
 export type WifiEvent =
   | { type: 'received'; name: string; size: number; kind: 'book' | 'image' | 'draft' | 'text'; device: string; at: number }
   | { type: 'device'; device: string; at: number }
@@ -237,6 +255,8 @@ export interface HostApi {
   appleBooksAnnotations?(): Promise<AppleBooksAnnotationsResult>;
   /** Boîte de dépôt (dossier partagé avec le téléphone). */
   inbox?: InboxApi;
+  /** Version de l'app et vérification des mises à jour (app de bureau). */
+  updates?: UpdatesApi;
   /** Déplacement de la fenêtre par la barre du haut (app de bureau). */
   windowDragStart?(): Promise<void>;
   windowDragEnd?(): Promise<void>;

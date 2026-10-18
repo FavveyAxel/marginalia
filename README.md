@@ -73,8 +73,10 @@ dans les « Artifacts » de l'exécution (gardés 7 jours).
 
 Tout fonctionne en local sur l'ordinateur : aucun compte, aucun serveur. Les livres, notes et écrits restent dans le dossier de l'app
 (`~/Library/Application Support/Marginalia` sur Mac, `%APPDATA%\Marginalia` sur Windows). La reconnaissance du texte des images (tesseract.js) et le correcteur tournent hors ligne,
-la télémétrie de l'éditeur (SuperDoc) est désactivée, et l'app bloque toute requête réseau sortante. Seuls les liens cliqués
-s'ouvrent dans votre navigateur.
+la télémétrie de l'éditeur (SuperDoc) est désactivée, et l'app bloque toute requête réseau sortante, sauf la vérification
+des mises à jour au lancement (lecture de la dernière Release GitHub, sans aucune donnée envoyée ; désactivable dans les Réglages).
+La réception par le Wi-Fi (QR code) n'accepte que des connexions du réseau local, et seulement pendant que sa fenêtre est
+ouverte. Seuls les liens cliqués s'ouvrent dans votre navigateur.
 
 En option (Réglages › Confidentialité et sécurité, désactivées par défaut) :
 - **Chiffrement transparent** : base, fichiers de la bibliothèque, sauvegardes et journal chiffrés (AES-256-GCM) ; la clé de

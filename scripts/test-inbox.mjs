@@ -44,7 +44,7 @@ await withApp(PORT, async (page, errors) => {
   await st(() => window.__store.getState().navigate({ name: 'settings' }));
   await page.waitForSelector('#set-inbox');
   await shot(page, `${SHOTS}/01-reglages-off.png`);
-  await page.click('button[aria-label="Recevoir depuis le téléphone"]');
+  await page.click('button[aria-label="Recevoir par un dossier synchronisé"]');
   await page.waitForSelector('.set-inbox-dir');
   ok((await page.textContent('.set-inbox-dir')).includes('iCloud Drive › Marginalia'), 'réglage activé : dossier affiché');
   await page.locator('#set-inbox').scrollIntoViewIfNeeded();

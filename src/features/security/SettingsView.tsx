@@ -21,6 +21,9 @@ import {
   Smartphone,
   FolderOpen,
   FolderCog,
+  QrCode,
+  RefreshCw,
+  Sparkles,
 } from 'lucide-react';
 import { host, type SecurityStatus } from '../../lib/platform';
 import { useStore } from '../../lib/store';
@@ -31,7 +34,9 @@ import { Sprite } from '../mascot/Sprite';
 import { LEVEL_STEPS, MASCOT_DEFAULT, levelFor, type MascotFreq } from '../mascot/Mascot';
 import { STAY_HINT, STAY_LABELS } from '../mascot/scenes';
 import { CHARACTERS, CHARACTER_IDS, type CharId } from '../mascot/characters';
-import { chooseInboxDir, prettyDir, resetInboxDir, revealInbox, setInboxEnabled, useInbox } from '../inbox/inbox';
+import { chooseInboxDir, openWifiReceive, prettyDir, resetInboxDir, revealInbox, setInboxEnabled, useInbox, wifiAvailable } from '../inbox/inbox';
+import { checkForUpdate, newsAvailable, showNews, useUpdates } from '../updates/Updates';
+import type { UpdateInfo } from '../../lib/platform';
 import './security.css';
 
 const DELAYS: { v: number; label: string }[] = [
@@ -94,6 +99,8 @@ export function SettingsView() {
           </section>
 
           {host.inbox && <InboxSettings />}
+
+          {host.updates && <UpdateSettings />}
 
           <MascotSettings />
         </div>
@@ -959,16 +966,27 @@ function InboxSettings() {
         <Smartphone size={18} strokeWidth={1.8} /> Téléphone
       </h2>
       <ul className="set-list">
+        {wifiAvailable() && (
+          <Row
+            icon={<QrCode size={17} />}
+            title="Par le Wi-Fi"
+            desc="Scannez un QR code avec le téléphone (iPhone ou Android) : photos, fichiers et texte arrivent dans la Boîte de réception. La réception n’est ouverte que pendant que sa fenêtre est affichée ; rien ne passe par Internet."
+          >
+            <button className="btn btn-sm" onClick={openWifiReceive}>
+              Recevoir…
+            </button>
+          </Row>
+        )}
         <Row
           icon={<Smartphone size={17} />}
-          title="Recevoir depuis le téléphone"
+          title="Par un dossier synchronisé"
           desc={
             on
               ? 'Ce que vous déposez dans le dossier arrive dans la Boîte de réception : les livres rejoignent la bibliothèque, les passages retrouvés deviennent des extraits.'
               : `Marginalia surveille un dossier « Marginalia » ${mac ? 'd’iCloud Drive' : 'synchronisé (OneDrive…)'} : depuis le téléphone, Partager › Enregistrer dans Fichiers.`
           }
         >
-          <Switch on={on} onChange={(v) => void setInboxEnabled(v)} label="Recevoir depuis le téléphone" />
+          <Switch on={on} onChange={(v) => void setInboxEnabled(v)} label="Recevoir par un dossier synchronisé" />
         </Row>
         {on && info && (
           <li className="set-row sub set-inbox-dir">
@@ -1001,6 +1019,65 @@ function InboxSettings() {
             </div>
           </li>
         )}
+      </ul>
+    </section>
+  );
+}
+
+/** Mises à jour : vérification au lancement (Release GitHub), recherche manuelle, nouveautés. */
+function UpdateSettings() {
+  const check = useStore((s) => s.settings.updateCheck !== false);
+  const version = useUpdates((s) => s.version);
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState<UpdateInfo | null>(null);
+  const run = async () => {
+    setBusy(true);
+    setResult(await checkForUpdate());
+    setBusy(false);
+  };
+  return (
+    <section className="set-section" aria-labelledby="set-updates">
+      <h2 className="set-section-title" id="set-updates">
+        <RefreshCw size={18} strokeWidth={1.8} /> Mises à jour
+      </h2>
+      <ul className="set-list">
+        <Row
+          icon={<RefreshCw size={17} />}
+          title="Vérifier les mises à jour au lancement"
+          desc="Marginalia regarde s’il existe une nouvelle version publiée et vous la présente. C’est sa seule connexion à Internet : aucune donnée n’est envoyée, rien n’est téléchargé sans vous."
+        >
+          <Switch on={check} onChange={(v) => useStore.getState().updateSettings({ updateCheck: v })} label="Vérifier les mises à jour au lancement" />
+        </Row>
+        <Row
+          icon={<Info size={17} />}
+          title={`Version installée : ${version ?? '…'}`}
+          desc={
+            result?.error
+              ? result.error
+              : result?.newer
+                ? `La version ${result.latest} est disponible.`
+                : result
+                  ? 'Vous avez la dernière version.'
+                  : undefined
+          }
+        >
+          <div className="set-actions">
+            {newsAvailable() && (
+              <button className="btn btn-sm" onClick={showNews}>
+                <Sparkles size={13} /> Nouveautés
+              </button>
+            )}
+            {result?.newer ? (
+              <button className="btn btn-sm btn-primary" onClick={() => useUpdates.setState({ update: result, notesOpen: true })}>
+                Voir la version {result.latest}
+              </button>
+            ) : (
+              <button className="btn btn-sm" onClick={() => void run()} disabled={busy}>
+                {busy ? 'Recherche…' : 'Rechercher maintenant'}
+              </button>
+            )}
+          </div>
+        </Row>
       </ul>
     </section>
   );

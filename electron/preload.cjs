@@ -182,4 +182,8 @@ if (nativeImageConvert) {
   api.convertImage = async (data, ext) => toArrayBuffer(await ipcRenderer.invoke('marginalia:convertImage', data, ext));
 }
 
+api.updates = {
+  version: () => ipcRenderer.invoke('marginalia:appVersion'),
+  check: () => ipcRenderer.invoke('marginalia:checkUpdate'),
+};
 contextBridge.exposeInMainWorld('marginalia', api);

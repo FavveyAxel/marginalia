@@ -428,7 +428,7 @@ const SECTIONS: Section[] = [
     intro: `Choisissez l’ambiance, et sachez que vos textes ne quittent jamais ${OS_TEXT.yourComputer}.`,
     items: [
       { title: 'Thèmes', text: `Automatique (suit le mode clair/sombre ${OS_TEXT.systemName}), Clair, Sombre ou Sépia, en bas de la barre latérale.` },
-      { title: '100 % local', text: `Aucune donnée n’est envoyée sur Internet : l’app bloque toute connexion sortante. La reconnaissance de texte et le correcteur fonctionnent hors ligne.${isMac ? ' La synchro avec Livres passe par iCloud Drive, géré par macOS.' : ''}` },
+      { title: '100 % local', text: `Aucune donnée n’est envoyée sur Internet : l’app bloque toute connexion sortante, sauf la vérification des mises à jour au lancement (une simple lecture de la dernière version publiée, désactivable dans les Réglages). La reconnaissance de texte et le correcteur fonctionnent hors ligne. La réception par le Wi-Fi passe directement du téléphone à l’ordinateur, sur votre réseau, et n’est ouverte que pendant que sa fenêtre est affichée.${isMac ? ' La synchro avec Livres passe par iCloud Drive, géré par macOS.' : ''}` },
       { title: 'En cas de problème', text: `Menu Aide${isMac ? '' : ' (touche Alt)'} › « Exporter le journal de diagnostic » : un fichier est copié dans vos Téléchargements pour comprendre un bug.` },
     ],
   },

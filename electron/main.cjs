@@ -2147,6 +2147,73 @@ dataHandle('marginalia:inboxReveal', async () => {
   if (err) throw new Error(`Impossible d'ouvrir le dossier : ${err}`);
 });
 
+// ── Mises à jour : la dernière Release publiée sur GitHub ──
+// Une seule requête (lecture publique, sans cookie ni identifiant, sans aucune donnée de
+// l'utilisateur), faite à la demande du rendu : au lancement si le réglage « Vérifier les mises
+// à jour » est actif, ou par le bouton des réglages. Rien n'est téléchargé ni installé : l'app
+// propose seulement d'ouvrir la page de téléchargement du site.
+// Requête faite par Node (processus principal) : le blocage réseau de la session ne la voit pas ;
+// c'est la seule connexion sortante de l'app.
+const UPDATE_URL = (E2E && process.env.MARGINALIA_UPDATE_URL) || 'https://api.github.com/repos/FavveyAxel/marginalia/releases/latest';
+const DOWNLOAD_PAGE = 'https://marginalia-bice.vercel.app/#telecharger';
+const appVersion = () => (E2E && process.env.MARGINALIA_APP_VERSION) || app.getVersion();
+/** Compare deux versions « 3.22 », « v3.22.1 » : < 0, 0, > 0. */
+function compareVersions(a, b) {
+  const p = (v) => String(v || '').replace(/^v/i, '').split(/[.-]/).map((x) => (/^\d+$/.test(x) ? Number(x) : NaN));
+  const x = p(a), y = p(b);
+  for (let i = 0; i < Math.max(x.length, y.length); i++) {
+    const m = Number.isNaN(x[i] ?? 0) ? 0 : x[i] ?? 0;
+    const n = Number.isNaN(y[i] ?? 0) ? 0 : y[i] ?? 0;
+    if (m !== n) return m - n;
+  }
+  return 0;
+}
+function fetchJson(url, timeoutMs = 10000) {
+  return new Promise((resolve, reject) => {
+    const mod = url.startsWith('https:') ? require('node:https') : require('node:http');
+    const req = mod.get(url, { headers: { 'User-Agent': 'Marginalia', Accept: 'application/vnd.github+json' }, timeout: timeoutMs }, (res) => {
+      if (res.statusCode !== 200) {
+        res.resume();
+        return reject(new Error(`HTTP ${res.statusCode}`));
+      }
+      const chunks = [];
+      let n = 0;
+      res.on('data', (c) => {
+        n += c.length;
+        if (n > 1024 * 1024) req.destroy(new Error('réponse trop longue'));
+        else chunks.push(c);
+      });
+      res.on('end', () => {
+        try {
+          resolve(JSON.parse(Buffer.concat(chunks).toString('utf8')));
+        } catch (e) {
+          reject(e);
+        }
+      });
+    });
+    req.on('timeout', () => req.destroy(new Error('délai dépassé')));
+    req.on('error', reject);
+  });
+}
+handle('marginalia:appVersion', () => appVersion());
+handle('marginalia:checkUpdate', async () => {
+  const current = appVersion();
+  // Tests de bout en bout : jamais de réseau, sauf vers le faux serveur fourni.
+  if (E2E && !process.env.MARGINALIA_UPDATE_URL) return { current, latest: null, newer: false };
+  try {
+    const r = await fetchJson(UPDATE_URL);
+    const latest = String((r && r.tag_name) || '').replace(/^v/i, '');
+    if (!latest || r.draft || r.prerelease) return { current, latest: null, newer: false };
+    const notes = typeof r.body === 'string' ? r.body.slice(0, 20000) : '';
+    const newer = compareVersions(latest, current) > 0;
+    diag('maj', 'vérification', { current, latest, newer });
+    return { current, latest, newer, notes, publishedAt: r.published_at || null, downloadUrl: DOWNLOAD_PAGE };
+  } catch (e) {
+    diag('maj', 'vérification impossible', e && e.message);
+    return { current, latest: null, newer: false, error: 'Impossible de joindre GitHub (pas de connexion ?).' };
+  }
+});
+
 // ── Réception par le Wi-Fi (voir electron/wifi.cjs) ──
 const wifiReceiver = wifiKit.createReceiver({
   dir: wifiDir,

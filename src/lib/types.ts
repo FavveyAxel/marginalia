@@ -577,6 +577,12 @@ export interface Settings {
   /** Compagnon choisi : le cerveau (défaut), Socrate, Platon, Aristote ou Rousseau. */
   /** Boîte de dépôt : dossier partagé avec le téléphone, surveillé (désactivée par défaut). */
   inbox?: boolean;
+  /** Vérifier au lancement s'il existe une nouvelle version (Release GitHub). Défaut : oui. */
+  updateCheck?: boolean;
+  /** Version dont l'annonce « nouvelle version disponible » a été écartée (« Plus tard »). */
+  updateDismissed?: string;
+  /** Dernière version dont les nouveautés ont été vues (fenêtre « Quoi de neuf »). */
+  lastSeenVersion?: string;
   mascotCharacter?: 'brain' | 'socrate' | 'platon' | 'aristote' | 'rousseau';
 }
 

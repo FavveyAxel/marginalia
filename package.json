@@ -228,7 +228,8 @@
               "public.tiff"
             ]
           }
-        ]
+        ],
+        "NSLocalNetworkUsageDescription": "Marginalia utilise le réseau local pour recevoir depuis votre téléphone, envoyer un écrit au téléphone et échanger avec un autre Marginalia sur le même Wi-Fi. Rien ne passe par Internet."
       }
     },
     "dmg": {

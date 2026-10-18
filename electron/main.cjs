@@ -51,6 +51,10 @@ protocol.registerSchemesAsPrivileged([
   { scheme: 'app', privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true } },
 ]);
 
+// Tests seulement : dossier de données isolé (sur Mac, XDG_CONFIG_HOME est ignoré ; sans cela deux
+// lancements de test partageraient données et verrou d'instance unique).
+if (process.env.MARGINALIA_E2E === '1' && process.env.MARGINALIA_E2E_USER_DATA) app.setPath('userData', process.env.MARGINALIA_E2E_USER_DATA);
+
 // ── Instance unique ──────────────────────────────────────────
 if (!app.requestSingleInstanceLock()) {
   app.quit();

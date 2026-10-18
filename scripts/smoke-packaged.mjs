@@ -43,11 +43,12 @@ async function smoke(exe) {
   console.log(`\n── ${path.relative(ROOT, exe)} ──`);
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'mg-smoke-'));
   const failures = [];
+  const label = path.relative(ROOT, exe).split(path.sep).slice(0, 3).join('/');
   const ok = (cond, msg) => {
     console.log((cond ? 'OK     ' : 'ÉCHEC  ') + msg);
     if (!cond) failures.push(msg);
     // Sur GitHub Actions : l'échec apparaît aussi en annotation (lisible sans le journal complet).
-    if (!cond && process.env.GITHUB_ACTIONS) console.log(`::error title=Test de démarrage (${process.platform} ${process.arch})::${String(msg).replace(/\r?\n/g, ' ')}`);
+    if (!cond && process.env.GITHUB_ACTIONS) console.log(`::error title=Test de démarrage (${label})::${String(msg).replace(/\r?\n/g, ' ')}`);
   };
   const args = process.platform === 'linux' ? ['--no-sandbox'] : [];
   // Lancement : une seconde tentative si le premier échoue (machines Mac de GitHub parfois lentes au
@@ -59,7 +60,7 @@ async function smoke(exe) {
         executablePath: exe,
         args,
         // MARGINALIA_E2E=1 : le rendu expose son store (window.__store), déjà utilisé par les tests e2e.
-        env: { ...process.env, MARGINALIA_E2E: '1', VITE_DEV_SERVER_URL: '', XDG_CONFIG_HOME: tmp },
+        env: { ...process.env, MARGINALIA_E2E: '1', MARGINALIA_E2E_USER_DATA: path.join(tmp, 'Marginalia'), VITE_DEV_SERVER_URL: '', XDG_CONFIG_HOME: tmp },
         timeout: 120_000,
       });
     } catch (e) {

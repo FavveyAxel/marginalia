@@ -21,6 +21,16 @@ export interface NewsEntry {
 
 export const NEWS: NewsEntry[] = [
   {
+    version: '3.27',
+    items: [
+      {
+        icon: 'sparkles',
+        title: 'On voit la lecture du texte d’une image',
+        text: 'Pendant que Marginalia reconnaît le texte d’une photo ou d’un scan, un faisceau balaie l’image et les lignes s’éclairent à son passage, dans le lecteur comme sur la photo de la Boîte de réception.',
+      },
+    ],
+  },
+  {
     version: '3.26',
     items: [
       {

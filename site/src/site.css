@@ -343,7 +343,7 @@ a.btn-primary:hover { background: #3a342b; }
 }
 /* Petits écrans : place au-dessus des captures et de la page pour Rousseau debout */
 @media (max-width: 900px) {
-  .cote .shot-wrap, .spaces .shot-wrap, .books-wrap { margin-top: 7.5rem; }
+  .cote .shot-wrap, .spaces .shot-wrap, .books-wrap { margin-top: 0; }
   .spaces .shot-wrap { order: 1; }
 }
 @media (max-width: 620px) {
@@ -377,3 +377,6 @@ a.btn-primary:hover { background: #3a342b; }
 .perched { position: absolute !important; z-index: 2; }
 .perched.traveler-hit { width: auto; height: auto; }
 [data-perch] { position: relative; }
+@media (max-width: 900px) {
+  .cote, .spaces, .books { gap: 1.75rem; }
+}

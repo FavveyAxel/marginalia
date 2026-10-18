@@ -128,7 +128,7 @@ a.dl-main:hover { background: #3a342b; }
 
 /* ── Aperçu (onglets + capture) ── */
 .showcase { max-width: 1200px; margin: 0 auto; padding: 0 var(--gutter); }
-.tabs { display: inline-flex; gap: 4px; padding: 4px; background: rgba(40, 32, 20, 0.06); border-radius: 12px; }
+.tabs { display: inline-flex; flex-wrap: wrap; gap: 4px; padding: 4px; background: rgba(40, 32, 20, 0.06); border-radius: 12px; }
 .tabs button {
   font-family: var(--font-display); font-size: 26px; line-height: 1; color: var(--muted);
   background: none; border: 0; padding: 10px 20px 12px; border-radius: 9px; cursor: pointer;
@@ -139,6 +139,16 @@ a.dl-main:hover { background: #3a342b; }
 .shot { position: relative; border-radius: 12px; overflow: hidden; box-shadow: var(--shadow-lg); background: var(--bg-panel); aspect-ratio: 1440 / 900; }
 .shot img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: left top; opacity: 0; transition: opacity 220ms ease; }
 .shot img.is-on { opacity: 1; }
+
+/* ── Livres d'Apple ── */
+.books {
+  max-width: 1200px; margin: clamp(96px, 12vw, 160px) auto 0; padding: 0 var(--gutter);
+  display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 6fr); gap: clamp(32px, 5vw, 72px); align-items: center;
+}
+.books h2 { font-size: clamp(40px, 5vw, 56px); }
+.books p { margin: 16px 0 0; color: var(--ink-2); max-width: 44ch; }
+.books .books-note { font-family: var(--font-ui); font-size: 13px; color: var(--muted); }
+.books-shot { width: 100%; height: auto; border-radius: 14px; box-shadow: var(--shadow-lg); justify-self: end; max-width: 560px; }
 
 /* ── Et aussi ── */
 .more { max-width: 1200px; margin: clamp(96px, 12vw, 160px) auto 0; padding: 0 var(--gutter); }
@@ -193,6 +203,8 @@ a.dl-row-btn:hover { background: #3a342b; }
 @media (max-width: 900px) {
   .hero { grid-template-columns: minmax(0, 1fr); }
   .more-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .books { grid-template-columns: minmax(0, 1fr); }
+  .books-shot { justify-self: start; }
   .dl-groups { grid-template-columns: minmax(0, 1fr); }
 }
 @media (max-width: 620px) {

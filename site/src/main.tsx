@@ -114,8 +114,8 @@ const STEPS = [
     shot: 'lire',
   },
   {
-    title: 'Comprendre',
-    text: 'Vos surlignages deviennent une fiche du texte, une carte de l’argument et des fiches de concepts. La révision espacée vous les fait revoir au bon moment.',
+    title: 'Organiser sa pensée',
+    text: 'Une carte pour organiser votre pensée : posez la problématique au centre, puis reliez-y thèses, arguments et objections tirés de vos lectures, même de plusieurs livres. Vos surlignages deviennent aussi une fiche du texte et des fiches de concepts.',
     shot: 'comprendre',
   },
   {
@@ -204,6 +204,19 @@ function App() {
         </section>
 
         <Showcase />
+
+        <section className="books" aria-labelledby="books-title">
+          <div className="books-text">
+            <h2 id="books-title">Synchronisé avec l’app Livres</h2>
+            <p>
+              Sur Mac, vos EPUB et PDF de l’app Livres d’Apple arrivent dans Marginalia avec vos surlignages, vos notes, vos signets et
+              l’endroit où vous en êtes. Chaque couleur de Livres devient une catégorie : le jaune une thèse, le vert un argument…
+            </p>
+            <p>Un livre ajouté sur votre iPhone ou votre iPad arrive tout seul. Rien n’est jamais modifié dans Livres.</p>
+            <p className="books-note">Livres achetés avec protection (DRM) exclus.</p>
+          </div>
+          <img className="books-shot" src="/captures/livres.png" alt="La fenêtre Livres d’Apple de Marginalia : choix des livres et correspondance des couleurs" width={560} height={503} loading="lazy" />
+        </section>
 
         <section className="more" id="fonctions" aria-labelledby="more-title">
           <h2 id="more-title">Et aussi</h2>

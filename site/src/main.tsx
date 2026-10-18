@@ -26,7 +26,8 @@ function Rousseau({ seq, size, className }: { seq: [Pose, number][]; size: numbe
   }, [i, seq]);
   const h = (size * VB_H) / VB_W;
   return (
-    <span className={className} style={{ width: size, height: h, ['--anchor' as string]: `${(anchorOf(pose) / VB_H) * h}px` }} aria-hidden="true">
+    // tailles en rem : la mascotte suit l'échelle fluide de la page
+    <span className={className} style={{ width: `${size / 16}rem`, height: `${h / 16}rem`, ['--anchor' as string]: `${(anchorOf(pose) / VB_H) * (h / 16)}rem` }} aria-hidden="true">
       <Sprite pose={pose} frame={frame} level={2} character={rousseau} />
     </span>
   );
@@ -56,18 +57,16 @@ function OsIcon({ os }: { os: 'mac' | 'win' }) {
   );
 }
 
-function DownloadButton({ d, main }: { d: Download; main?: boolean }) {
+function DownloadButton({ d }: { d: Download }) {
   if (!d.url)
     return (
-      <span className={`dl ${main ? 'dl-main' : ''} is-soon`} aria-disabled="true">
-        <span className="dl-label"><OsIcon os={d.os} /> {d.label}</span>
-        <span className="dl-detail">Lien bientôt disponible</span>
+      <span className="btn btn-lg btn-quiet" aria-disabled="true">
+        <OsIcon os={d.os} /> {d.label} : bientôt
       </span>
     );
   return (
-    <a className={`dl ${main ? 'dl-main' : ''}`} href={d.url} download>
-      <span className="dl-label"><OsIcon os={d.os} /> Télécharger pour {d.label}</span>
-      <span className="dl-detail">{d.detail}, {d.size}</span>
+    <a className="btn btn-lg btn-primary" href={d.url}>
+      <OsIcon os={d.os} /> Télécharger pour {d.os === 'mac' ? 'Mac' : 'Windows'}
     </a>
   );
 }
@@ -256,7 +255,7 @@ function App() {
         <nav className="top-nav" aria-label="Sections">
           <a href="#apercu">Aperçu</a>
           <a href="#fonctions">Fonctions</a>
-          <a className="top-dl" href="#telecharger">Télécharger</a>
+          <a className="btn btn-primary" href="#telecharger">Télécharger</a>
         </nav>
       </header>
 
@@ -266,10 +265,13 @@ function App() {
             <h1>Marginalia</h1>
             <p className="lede">Lire, annoter et écrire la philosophie. Une app pour Mac et Windows, gratuite, sans compte&nbsp;: tout reste sur votre ordinateur.</p>
             <div className="hero-dl">
-              <DownloadButton d={mine[0]} main />
-              <a className="other" href="#telecharger">
-                {os === 'win' ? 'Mac, ou autre version de Windows' : os === 'mac' ? 'Mac Intel ou Windows' : 'Toutes les versions'}
-              </a>
+              <DownloadButton d={mine[0]} />
+              <div className="hero-dl-links">
+                <span className="btn-note">{mine[0].label}, {mine[0].size}</span>
+                <a className="other" href="#telecharger">
+                  {os === 'win' ? 'Mac, ou autre version de Windows' : os === 'mac' ? 'Mac Intel ou Windows' : 'Toutes les versions'}
+                </a>
+              </div>
             </div>
           </div>
           <AnnotatedPage />
@@ -335,11 +337,11 @@ function App() {
                         <span className="dl-row-detail">{d.detail}</span>
                       </span>
                       {d.url ? (
-                        <a className="dl-row-btn" href={d.url} download>
+                        <a className="btn btn-primary" href={d.url}>
                           Télécharger <span className="dl-size">{d.size}</span>
                         </a>
                       ) : (
-                        <span className="dl-row-btn is-soon" aria-disabled="true">Bientôt</span>
+                        <span className="btn btn-quiet" aria-disabled="true">Bientôt</span>
                       )}
                     </li>
                   ))}

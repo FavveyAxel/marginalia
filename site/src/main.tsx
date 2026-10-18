@@ -131,7 +131,7 @@ function Traveler() {
   const [poke, setPoke] = useState(false);
   const [host, setHost] = useState<HTMLElement | null>(null);
   const fly = useRef<HTMLDivElement>(null);
-  const perched = useRef<HTMLButtonElement>(null);
+  const perched = useRef<HTMLSpanElement>(null);
   const def = PERCHES[at];
   const seq = def.seq(b);
   const seqKey = at + JSON.stringify(seq);
@@ -254,9 +254,9 @@ function Traveler() {
       )}
       {!trip && host &&
         createPortal(
-          <button type="button" ref={perched} className="perched traveler-hit" style={{ ...size, ...place }} onClick={() => { setPoke(true); setFrame(0); }} aria-label="Rousseau : cliquez pour qu’il change d’activité">
+          <span ref={perched} className="perched traveler-hit" style={{ ...size, ...place }} aria-hidden="true">
             {sprite(1)}
-          </button>,
+          </span>,
           host,
         )}
     </>
@@ -312,7 +312,7 @@ function AnnotatedPage({ travel }: { travel: boolean }) {
   );
   return (
     <figure className="page" data-perch="hero" aria-label="Exemple : le début du Contrat social, annoté dans Marginalia">
-      {!travel && <Rousseau className="page-rousseau" size={ROUSSEAU_SIZE} poke seq={HERO_SEQ} />}
+      {!travel && <Rousseau className="page-rousseau" size={ROUSSEAU_SIZE} seq={HERO_SEQ} />}
       <div className="page-body">
         <p className="page-ref">Rousseau, <cite>Du contrat social</cite>, I, 1</p>
         <p>

@@ -150,13 +150,82 @@ function Showcase() {
   );
 }
 
-const MORE = [
-  { icon: 'split', title: 'Deux textes côte à côte', text: 'Comparez un auteur et son commentateur, ou le texte et votre cours.' },
-  { icon: 'cards', title: 'Révision espacée', text: 'Vos concepts et citations reviennent au bon moment, avant l’oubli.' },
-  { icon: 'book', title: 'Le programme de terminale', text: 'Les notions et repères du programme, avec leurs sens selon les auteurs.' },
-  { icon: 'phone', title: 'Depuis le téléphone', text: 'Une photo d’une page, un passage copié : ils arrivent dans l’app, prêts à classer.' },
-  { icon: 'doc', title: 'Exports fidèles', text: 'Word, PDF, page web : sauts de page, notes et numéros comme à l’écran.' },
-  { icon: 'figure', title: 'Un compagnon de travail', text: 'Rousseau, Socrate, Platon ou Aristote lisent, herborisent et vous tiennent compagnie.' },
+const MORE: { icon: string; title: string; items: string[] }[] = [
+  {
+    icon: 'book',
+    title: 'Importer et lire',
+    items: [
+      'EPUB, PDF, Word, Markdown, texte, HTML',
+      'Photos et scans : texte reconnu, sans connexion',
+      'Synchronisation avec l’app Livres d’Apple (Mac)',
+      'Depuis le téléphone : photo d’une page ou passage copié',
+      'Défilement continu ou page par page, comme un livre',
+      'Deux textes côte à côte',
+      'Recherche, signets, aller à la page imprimée',
+      'Reprise là où vous en étiez',
+    ],
+  },
+  {
+    icon: 'mark',
+    title: 'Surligner et étudier',
+    items: [
+      'Six catégories : problème, thèse, argument, thèse adverse, concept, exemple',
+      'Notes sur chaque extrait',
+      'Fiche-texte : problème, thèse, enjeu, mouvements',
+      'Tous vos extraits, filtrés par livre, catégorie ou concept',
+      'Citations prêtes à coller, avec auteur, édition et page',
+    ],
+  },
+  {
+    icon: 'map',
+    title: 'Cartes pour organiser sa pensée',
+    items: [
+      'Carte d’argument de chaque livre, cartes libres sur plusieurs livres',
+      'Problématique ou sujet au centre, branches repliables',
+      'Rangement en arbre, débat, chronologie ou étoile',
+      'Zones, liens nommés, points à revoir signalés',
+      'Le livre à côté : glissez un passage sur la carte',
+      'Comparer deux auteurs, une carte par mouvement',
+      'Présentation en plein écran, export image ou PDF',
+      'Un plan ou une explication tirés de la carte',
+    ],
+  },
+  {
+    icon: 'cards',
+    title: 'Concepts, arguments, révision',
+    items: [
+      'Lexique personnel : sens selon les auteurs, distinctions',
+      'Notions et repères du programme de terminale',
+      'Arguments reconstruits : prémisses, implicites, conclusion',
+      'Révision espacée : définitions, thèses, textes à trous, citations',
+    ],
+  },
+  {
+    icon: 'doc',
+    title: 'Plans et écriture',
+    items: [
+      'Plans de dissertation nourris de vos extraits et arguments',
+      'Traitement de texte au format Word (.docx)',
+      'Notes de bas de page, notes privées, commentaires en marge',
+      'Citer en écrivant : chaque citation reste reliée à son passage',
+      'Correcteur orthographique, pinceau, plan déplaçable',
+      'Mode concentration et machine à écrire',
+      'Versions comparées mot à mot',
+      'Export Word, PDF, page web, Markdown, mise en page comprise',
+    ],
+  },
+  {
+    icon: 'lock',
+    title: 'Organiser et protéger',
+    items: [
+      'Espaces de travail par cours ou dissertation, avec groupes',
+      'Historique : revenir à l’état d’avant chaque action',
+      'Corbeille de 30 jours',
+      'Thèmes clair, sépia et sombre',
+      'Tout en local ; chiffrement et verrouillage (mot de passe ou Touch ID) en option',
+      'Un compagnon : Rousseau, Socrate, Platon, Aristote ou le cerveau',
+    ],
+  },
 ];
 
 function Pict({ name }: { name: string }) {
@@ -166,6 +235,9 @@ function Pict({ name }: { name: string }) {
     cards: <><rect x="6" y="3.5" width="12" height="15" rx="1.5" {...p} transform="rotate(8 12 11)" /><rect x="5" y="5.5" width="12" height="15" rx="1.5" {...p} /><path d="M8 11h6M8 14h4" {...p} /></>,
     book: <><path d="M12 6.5C10 5 7 4.5 4 5v13c3-.5 6 0 8 1.5 2-1.5 5-2 8-1.5V5c-3-.5-6 0-8 1.5zM12 6.5v13" {...p} /></>,
     phone: <><rect x="7" y="2.5" width="10" height="19" rx="2" {...p} /><path d="M10.5 18.5h3" {...p} /><path d="M10 9l2 2 2-2M12 6v5" {...p} /></>,
+    mark: <><path d="M4 20h16" {...p} /><path d="M14.5 4.5l5 5L10 19H5v-5z" {...p} /><path d="M12.5 6.5l5 5" {...p} /></>,
+    map: <><circle cx="12" cy="12" r="2.6" {...p} /><circle cx="4.5" cy="6" r="1.8" {...p} /><circle cx="19.5" cy="6" r="1.8" {...p} /><circle cx="5" cy="18.5" r="1.8" {...p} /><circle cx="19" cy="18.5" r="1.8" {...p} /><path d="M6 7.2l4 3M18 7.2l-4 3M6.4 17.3l3.6-3.4M17.6 17.3L14 13.9" {...p} /></>,
+    lock: <><rect x="5" y="10.5" width="14" height="10" rx="1.6" {...p} /><path d="M8 10.5V8a4 4 0 0 1 8 0v2.5M12 14.5v2.5" {...p} /></>,
     doc: <><path d="M6 3h8l4 4v14H6z" {...p} /><path d="M14 3v4h4M9 12h6M9 15h6M9 18h3" {...p} /></>,
     figure: <><circle cx="12" cy="7" r="3.2" {...p} /><path d="M6.5 21c.5-4.5 2.5-7 5.5-7s5 2.5 5.5 7" {...p} /><path d="M8.6 6.2c-1.4-.2-1.8 1.4-.6 2M15.4 6.2c1.4-.2 1.8 1.4.6 2" {...p} /></>,
   };
@@ -219,16 +291,20 @@ function App() {
         </section>
 
         <section className="more" id="fonctions" aria-labelledby="more-title">
-          <h2 id="more-title">Et aussi</h2>
-          <ul className="more-grid">
+          <h2 id="more-title">Toutes les fonctions</h2>
+          <div className="more-grid">
             {MORE.map((m) => (
-              <li key={m.title}>
+              <section key={m.title} className="more-group" aria-label={m.title}>
                 <Pict name={m.icon} />
                 <h3>{m.title}</h3>
-                <p>{m.text}</p>
-              </li>
+                <ul>
+                  {m.items.map((x) => (
+                    <li key={x}>{x}</li>
+                  ))}
+                </ul>
+              </section>
             ))}
-          </ul>
+          </div>
         </section>
 
         <section className="private">

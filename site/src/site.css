@@ -153,10 +153,12 @@ a.dl-main:hover { background: #3a342b; }
 /* ── Et aussi ── */
 .more { max-width: 1200px; margin: clamp(96px, 12vw, 160px) auto 0; padding: 0 var(--gutter); }
 .more h2 { font-size: clamp(40px, 5vw, 56px); }
-.more-grid { list-style: none; margin: 36px 0 0; padding: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 40px 48px; }
+.more-grid { margin: 40px 0 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 48px 56px; }
 .pict { width: 30px; height: 30px; color: var(--ink); }
-.more-grid h3 { margin: 12px 0 6px; font-family: var(--font-ui); font-size: 16px; font-weight: 600; }
-.more-grid p { margin: 0; font-size: 16px; line-height: 1.55; color: var(--ink-2); max-width: 34ch; }
+.more-group h3 { margin: 12px 0 10px; font-family: var(--font-ui); font-size: 16px; font-weight: 600; }
+.more-group ul { margin: 0; padding: 0; list-style: none; }
+.more-group li { position: relative; padding: 6px 0 6px 16px; font-size: 16px; line-height: 1.45; color: var(--ink-2); border-top: 1px solid var(--border); }
+.more-group li::before { content: ''; position: absolute; left: 2px; top: 0.95em; width: 5px; height: 5px; border-radius: 50%; background: var(--muted); }
 
 /* ── Confidentialité ── */
 .private {

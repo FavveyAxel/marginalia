@@ -135,11 +135,18 @@
 @keyframes wr-pulse { 0%, 100% { opacity: 0.25; transform: scale(0.85); } 50% { opacity: 1; transform: scale(1); } }
 @media (prefers-reduced-motion: reduce) { .wr-pulse { animation: none; opacity: 0.7; } }
 .wr-got { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; max-height: 180px; overflow: auto; }
-.wr-got li { display: grid; grid-template-columns: 22px minmax(0, 1fr); column-gap: 8px; row-gap: 0; padding: 6px 2px; border-top: 1px solid var(--border); animation: rise-in var(--dur-med) var(--ease-out) both; }
+.wr-got li { display: grid; grid-template-columns: 22px minmax(0, 1fr) auto; column-gap: 8px; row-gap: 1px; align-items: center; padding: 7px 2px; border-top: 1px solid var(--border); animation: rise-in var(--dur-med) var(--ease-out) both; }
+.wr-got-go { grid-row: span 2; grid-column: 3; }
+.wr-got-row.is-waiting .wr-got-kind, .wr-got-row.is-waiting .wr-got-kind svg { color: var(--warning, #b7791f); }
+.wr-got-row.is-error .wr-got-kind, .wr-got-row.is-error .wr-got-kind svg { color: var(--danger); }
+.wr-got-row.is-busy .wr-got-kind { color: var(--muted); }
+.wr-got-row .ib-spinner { width: 10px; height: 10px; border-width: 1.5px; }
+.ib-card.ib-flash { box-shadow: 0 0 0 2px var(--primary); transition: box-shadow 200ms; }
 .wr-got-icon { grid-row: span 2; width: 22px; height: 22px; display: grid; place-items: center; border-radius: 6px; background: var(--bg-inset); color: var(--ink-2); }
 .wr-got-name { font-size: var(--fs-md); color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.wr-got-kind { display: flex; align-items: center; gap: 4px; font-size: var(--fs-sm); color: var(--muted); }
-.wr-got-kind svg { color: var(--primary); }
+.wr-got-kind { grid-column: 2; display: flex; align-items: flex-start; gap: 5px; line-height: 1.35; font-size: var(--fs-sm); color: var(--muted); }
+.wr-got-kind svg { color: var(--primary); flex: none; margin-top: 2px; }
+.wr-got { max-height: 260px; }
 .wr-problem { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 10px; padding: 28px 12px; color: var(--muted); }
 .wr-problem p { margin: 0; max-width: 46ch; color: var(--ink-2); line-height: 1.5; }
 .wr-wait { margin: 0; padding: 60px 0; text-align: center; color: var(--muted); }

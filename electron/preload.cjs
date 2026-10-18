@@ -149,6 +149,7 @@ api.inbox = {
   wifiStart: () => ipcRenderer.invoke('marginalia:wifiStart'),
   wifiInfo: () => ipcRenderer.invoke('marginalia:wifiInfo'),
   wifiStop: () => ipcRenderer.invoke('marginalia:wifiStop'),
+  wifiReport: (name, result) => ipcRenderer.invoke('marginalia:wifiReport', String(name), { state: String(result && result.state), label: String(result && result.label) }),
   onWifi: (cb) => {
     const handler = (_e, evt) => cb(evt);
     ipcRenderer.on('marginalia:wifi', handler);

@@ -64,7 +64,7 @@ for (const dark of [false, true]) {
       ok((await page.locator('.wr-status').innerText()).includes('iPhone connecté'), 'iPhone connecté');
       await st((t) => window.__inbox.wifi('Texte du 2026-10-18 14.33.10.txt', t, 'iPhone'), NOTES);
       await page.waitForFunction(() => document.querySelectorAll('.wr-got li').length === 2);
-      ok((await page.locator('.wr-got li').first().innerText()).includes('passage recherché'), 'envois listés dans la fenêtre, le plus récent en haut');
+      ok((await page.locator('.wr-got li').first().getAttribute('data-name')).startsWith('Texte du'), 'envois listés dans la fenêtre, le plus récent en haut');
       await shot(page, `${SHOTS}/03-recus.png`);
 
       // Notes collées → 3 extraits, la note rattachée, la citation inconnue reste dans la boîte.
@@ -74,6 +74,12 @@ for (const dark of [false, true]) {
       const appl = hs.find((h) => h.t.startsWith('Car ce n'));
       ok(!!appl && appl.note === 'La méthode compte plus que le talent : bon pour l’introduction.' && !appl.plain, 'la note suit son passage');
       ok(hs.filter((h) => h.plain).length === 2, 'passages sans note : surlignage simple');
+      // Chaque envoi dit ce qu'il est devenu, avec de quoi le retrouver.
+      await page.waitForFunction(() => [...document.querySelectorAll('.wr-got-row')].every((r) => !r.classList.contains('is-busy')), null, { timeout: 30000 });
+      const rows = await page.$$eval('.wr-got-row', (rs) => rs.map((r) => ({ state: r.className.match(/is-(\w+)/)?.[1], text: r.querySelector('.wr-got-kind').innerText, btn: r.querySelector('.wr-got-go')?.innerText ?? '' })));
+      ok(rows[0].state === 'waiting' && /3 extraits ajoutés à « Discours de la méthode » ; 1 passage non retrouvé/.test(rows[0].text) && rows[0].btn === 'Voir dans la boîte', 'notes : « 3 extraits ajoutés… ; 1 passage non retrouvé »', JSON.stringify(rows[0]));
+      ok(rows[1].state === 'waiting' && /Photo reçue : à ranger dans la Boîte/.test(rows[1].text) && rows[1].btn === 'Voir dans la boîte', 'photo sans texte : « à ranger dans la Boîte » + bouton', JSON.stringify(rows[1]));
+      await shot(page, `${SHOTS}/05-devenir.png`);
       await page.click('.wr-head .icon-btn');
       await page.waitForSelector('[data-testid="wifi-receive"]', { state: 'detached' });
       ok(true, 'fenêtre fermée');

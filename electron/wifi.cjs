@@ -242,6 +242,7 @@ function createReceiver(o) {
       return json(res, 410, { error: 'La réception a été fermée sur l’ordinateur.' });
     }
     cur.count++;
+    cur.names.add(name);
     touch();
     o.emit({ type: 'received', name, size: got.size, kind: kindOf(ext), device: deviceOf(req), at: Date.now() });
     return json(res, 200, { ok: true, name });
@@ -282,6 +283,13 @@ function createReceiver(o) {
       return page(res);
     }
     if (req.method === 'GET' && action === 'state') return json(res, 200, { open: true });
+    // Devenir d'un envoi de cette session (« Ajouté à la bibliothèque… ») : le téléphone le demande.
+    if (req.method === 'GET' && action === 'result') {
+      const name = url.searchParams.get('name') || '';
+      if (!s.names.has(name)) return json(res, 404, { error: 'Envoi inconnu.' });
+      touch();
+      return json(res, 200, s.results.get(name) || { state: 'working' });
+    }
     if (req.method === 'POST' && (action === 'file' || action === 'text') && parts.length === 3) {
       // Contre les envois provoqués par une autre page web : en-tête personnalisé exigé (force
       // une requête « préliminaire » CORS qu'on ne satisfait jamais pour une autre origine).
@@ -331,7 +339,7 @@ function createReceiver(o) {
     } catch {
       await listen(0);
     }
-    s = { server, token, port: server.address().port, sockets, timer: null, count: 0, devices: new Set() };
+    s = { server, token, port: server.address().port, sockets, timer: null, count: 0, devices: new Set(), names: new Set(), results: new Map() };
     touch();
     diag('wifi', 'réception ouverte', s.port);
     return info();
@@ -358,7 +366,15 @@ function createReceiver(o) {
     o.emit({ type: 'stopped', reason });
   }
 
-  return { start, stop, info, isOpen: () => !!s };
+  /** Devenir d'un envoi, donné par l'interface (seulement pour les envois de la session en cours). */
+  function report(name, result) {
+    if (!s || !s.names.has(String(name)) || !result) return;
+    const state = String(result.state || '').slice(0, 20);
+    const label = String(result.label || '').slice(0, 300);
+    s.results.set(String(name), { state, label });
+  }
+
+  return { start, stop, info, report, isOpen: () => !!s };
 }
 
 module.exports = { createReceiver, isLocalAddress, lanAddresses, cleanName, ACCEPT_EXT };

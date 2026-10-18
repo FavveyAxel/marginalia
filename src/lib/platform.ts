@@ -146,6 +146,8 @@ export interface InboxApi {
   wifiInfo?(): Promise<WifiInfo>;
   /** Ferme la réception par le Wi-Fi. */
   wifiStop?(): Promise<void>;
+  /** Devenir d'un envoi (affiché sur le téléphone qui l'a envoyé). */
+  wifiReport?(name: string, result: { state: string; label: string }): Promise<void>;
   onWifi?(cb: (e: WifiEvent) => void): () => void;
   /** Le contenu du dossier a changé (regroupé : au plus une fois toutes les 1,5 s). */
   onChange(cb: () => void): () => void;
@@ -420,6 +422,7 @@ const browserInbox: InboxApi = {
     wifiOpen = false;
     wifiListeners.forEach((cb) => cb({ type: 'stopped', reason: 'closed' }));
   },
+  async wifiReport() {},
   onWifi(cb) {
     wifiListeners.add(cb);
     return () => wifiListeners.delete(cb);

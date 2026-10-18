@@ -2240,6 +2240,7 @@ dataHandle('marginalia:wifiStart', async () => {
 });
 dataHandle('marginalia:wifiInfo', () => wifiReceiver.info());
 handle('marginalia:wifiStop', () => wifiReceiver.stop('closed'));
+dataHandle('marginalia:wifiReport', (_e, name, result) => wifiReceiver.report(name, result));
 
 // Windows : familles vues par GDI+ (polices de la machine et de l'utilisateur), repli sur les clés
 // de registre « Fonts » (HKLM et HKCU) dont on retire le type et les noms de style. Sans module natif.

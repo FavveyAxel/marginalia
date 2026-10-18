@@ -59,6 +59,7 @@ try {
   const WDIR = path.join(userData, 'wifi-recus');
 
   await page.evaluate(() => {
+    window.__inboxPaused = true; // l'interface ne traite pas les fichiers : on teste la couche du dessous
     window.__wifi = [];
     window.__changes = 0;
     window.marginalia.inbox.onWifi((e) => window.__wifi.push(e));
@@ -117,6 +118,16 @@ try {
   const evs = await page.evaluate(() => window.__wifi.filter((e) => e.type === 'received'));
   ok(evs.length === 4 && evs[0].kind === 'image' && evs[1].kind === 'book' && evs[3].kind === 'text', 'interface prévenue de chaque envoi, avec sa nature', evs.map((e) => e.kind));
   ok((await page.evaluate(() => window.__changes)) >= 4, 'boîte prévenue (avis de changement)');
+
+  // Devenir d'un envoi, demandé par le téléphone
+  const res0 = await req('GET', `${B}/result?name=${encodeURIComponent(n1)}`);
+  ok(res0.status === 200 && JSON.parse(res0.body).state === 'working', 'résultat : « en cours » tant que l’app n’a rien dit');
+  await page.evaluate((n) => window.marginalia.inbox.wifiReport(n, { state: 'library', label: 'Ajouté à la bibliothèque : « Essai »' }), n1);
+  const res1 = JSON.parse((await req('GET', `${B}/result?name=${encodeURIComponent(n1)}`)).body);
+  ok(res1.state === 'library' && res1.label === 'Ajouté à la bibliothèque : « Essai »', 'résultat renvoyé au téléphone', res1);
+  ok((await req('GET', `${B}/result?name=${encodeURIComponent('db.json')}`)).status === 404, 'résultat d’un fichier non envoyé : refusé');
+  await page.evaluate(() => window.marginalia.inbox.wifiReport('autre.pdf', { state: 'library', label: 'x' }));
+  ok((await req('GET', `${B}/result?name=autre.pdf`)).status === 404, 'l’app ne peut pas inventer un envoi');
 
   // La boîte lit les envois (dossier synchronisé non activé)
   const list = await page.evaluate(() => window.marginalia.inbox.list());

@@ -55,6 +55,16 @@ li { padding: 0.75rem 0.125rem; border-bottom: 1px solid var(--border); }
 .li-state { flex: none; font-size: 0.8125rem; color: var(--muted); font-variant-numeric: tabular-nums; }
 .li.ok .li-state { color: var(--ok); }
 .li.err .li-state { color: var(--err); }
+.li-res { margin: 0.3rem 0 0; font-size: 0.8125rem; color: var(--muted); display: flex; gap: 0.375rem; align-items: flex-start; }
+.li-res::before { content: ''; flex: none; width: 0.5rem; height: 0.5rem; border-radius: 50%; margin-top: 0.3rem; background: var(--muted); opacity: 0.5; }
+.li-res.working::before { animation: pulse 1.2s ease-in-out infinite; }
+.li-res.done { color: var(--ink-2); }
+.li-res.done::before { background: var(--ok); opacity: 1; }
+.li-res.waiting { color: var(--ink-2); }
+.li-res.waiting::before { background: var(--bar); opacity: 1; }
+.li-res.error { color: var(--err); }
+.li-res.error::before { background: var(--err); opacity: 1; }
+@keyframes pulse { 0%, 100% { opacity: 0.25; } 50% { opacity: 0.9; } }
 .li-err { margin: 0.25rem 0 0; font-size: 0.8125rem; color: var(--err); }
 .li-err button { margin-left: 0.375rem; font: inherit; color: var(--ink); background: none; border: 0; text-decoration: underline; padding: 0; cursor: pointer; }
 .bar { height: 3px; border-radius: 2px; background: var(--border); margin-top: 0.5rem; overflow: hidden; }
@@ -202,6 +212,7 @@ body.is-closed .actions, body.is-closed .text-box { opacity: 0.4; pointer-events
       if (xhr.status === 200) {
         ui.li.className = 'li ok';
         ui.state.textContent = 'Reçu ✓';
+        if (r.name) follow(ui, r.name);
       } else {
         if (xhr.status === 404 || xhr.status === 410 || xhr.status === 423) setClosed(true);
         // Réessayer n'a de sens que pour un incident passager (serveur), pas pour un refus.
@@ -214,6 +225,42 @@ body.is-closed .actions, body.is-closed .text-box { opacity: 0.4; pointer-events
       done();
     };
     xhr.send(job.body);
+  }
+
+  // Ce que l'ordinateur en a fait (« Ajouté à la bibliothèque… », « Extrait ajouté à… ») :
+  // demandé régulièrement jusqu'à la réponse (5 minutes au plus ; une photo se lit en quelques secondes).
+  var DONE = { library: 1, extract: 1, extracts: 1, draft: 1, dismissed: 1 };
+  function follow(ui, name) {
+    var res = document.createElement('p');
+    res.className = 'li-res working';
+    res.textContent = 'Traitement sur l’ordinateur…';
+    ui.li.appendChild(res);
+    var t0 = Date.now();
+    (function tick() {
+      var x = new XMLHttpRequest();
+      x.open('GET', base + '/result?name=' + encodeURIComponent(name));
+      x.onload = function () {
+        var o = {};
+        try { o = JSON.parse(x.responseText); } catch (e) {}
+        if (x.status === 200 && o.state && o.state !== 'working') {
+          res.className = 'li-res ' + (DONE[o.state] ? 'done' : o.state === 'error' ? 'error' : 'waiting');
+          res.textContent = o.label || 'Traité sur l’ordinateur.';
+          return;
+        }
+        if (x.status !== 200) {
+          res.className = 'li-res waiting';
+          res.textContent = 'Reçu sur l’ordinateur : à retrouver dans la Boîte de réception de Marginalia.';
+          return;
+        }
+        if (Date.now() - t0 < 300000) setTimeout(tick, 1500);
+        else { res.className = 'li-res waiting'; res.textContent = 'Reçu : à retrouver dans la Boîte de réception de Marginalia.'; }
+      };
+      x.onerror = function () {
+        res.className = 'li-res waiting';
+        res.textContent = 'Reçu : à retrouver dans la Boîte de réception de Marginalia.';
+      };
+      x.send();
+    })();
   }
 
   function fail(job, msg, canRetry) {

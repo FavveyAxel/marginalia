@@ -4,7 +4,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import qrcode from 'qrcode-generator';
-import { BookOpen, Check, FilePen, FileText, Image as ImageIcon, Lock, Smartphone, WifiOff, X } from 'lucide-react';
+import { AlertCircle, BookOpen, Check, FilePen, FileText, Image as ImageIcon, Inbox, Lock, Smartphone, WifiOff, X } from 'lucide-react';
+import { useStore } from '../../lib/store';
+import { useInbox, type Outcome } from './inbox';
 import { host, type WifiEvent, type WifiInfo } from '../../lib/platform';
 
 type Received = Extract<WifiEvent, { type: 'received' }>;
@@ -34,12 +36,77 @@ function KindIcon({ kind }: { kind: Received['kind'] }) {
   return kind === 'book' ? <BookOpen {...p} /> : kind === 'image' ? <ImageIcon {...p} /> : kind === 'draft' ? <FilePen {...p} /> : <FileText {...p} />;
 }
 
-const KIND_DONE: Record<Received['kind'], string> = {
-  book: 'livre, ajouté à la bibliothèque',
-  image: 'photo, texte en cours de lecture',
-  draft: 'document Word',
-  text: 'texte, passage recherché dans vos livres',
-};
+/** Une ligne « reçu » : ce que devient l'envoi, en direct, et où le retrouver. */
+function GotRow({ g, onClose }: { g: Received; onClose: () => void }) {
+  const it = useInbox((s) => s.items.find((i) => i.name === g.name));
+  const o: Outcome | undefined = useInbox((s) => s.outcomes[g.name]);
+  const busy = !o && (!it || it.status === 'waiting' || it.status === 'working');
+  const step = it?.step ?? 'Réception…';
+  const pct = it?.progress != null ? ` ${Math.round(it.progress * 100)} %` : '';
+  const go = () => {
+    const st = useStore.getState();
+    if (!o) return;
+    onClose();
+    if (o.highlightId) st.jumpToHighlight(o.highlightId);
+    else if (o.bookId && o.state === 'library') st.openBook(o.bookId);
+    else if (o.draftId) st.navigate({ name: 'write', draftId: o.draftId });
+    else {
+      // Resté dans la Boîte : on montre sa carte.
+      requestAnimationFrame(() => {
+        const card = document.querySelector<HTMLElement>(`.ib-card[data-name="${CSS.escape(g.name)}"]`);
+        card?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+        card?.classList.add('ib-flash');
+        setTimeout(() => card?.classList.remove('ib-flash'), 1600);
+      });
+    }
+  };
+  const action = !o
+    ? null
+    : o.state === 'library' || o.state === 'draft'
+      ? 'Ouvrir'
+      : o.state === 'extract' || o.state === 'extracts'
+        ? o.highlightId
+          ? 'Voir'
+          : null
+        : o.state === 'waiting' || o.state === 'error'
+          ? 'Voir dans la boîte'
+          : null;
+  return (
+    <li className={`wr-got-row is-${busy ? 'busy' : o?.state ?? 'waiting'}`} data-name={g.name}>
+      <span className="wr-got-icon">
+        <KindIcon kind={g.kind} />
+      </span>
+      <span className="wr-got-name" title={g.name}>
+        {g.name}
+      </span>
+      <span className="wr-got-kind">
+        {busy ? (
+          <>
+            <span className="ib-spinner" aria-hidden="true" /> {step}
+            {pct}
+          </>
+        ) : o?.state === 'waiting' ? (
+          <>
+            <Inbox size={12} /> {o.label}
+          </>
+        ) : o?.state === 'error' ? (
+          <>
+            <AlertCircle size={12} /> {o.label}
+          </>
+        ) : (
+          <>
+            <Check size={12} /> {o?.label}
+          </>
+        )}
+      </span>
+      {action && (
+        <button className="btn btn-sm wr-got-go" onClick={go}>
+          {action}
+        </button>
+      )}
+    </li>
+  );
+}
 
 export function WifiReceive({ onClose }: { onClose: () => void }) {
   const api = host.inbox;
@@ -175,17 +242,7 @@ export function WifiReceive({ onClose }: { onClose: () => void }) {
           {got.length > 0 && (
             <ul className="wr-got" aria-label="Reçu">
               {got.map((g) => (
-                <li key={g.name + g.at}>
-                  <span className="wr-got-icon">
-                    <KindIcon kind={g.kind} />
-                  </span>
-                  <span className="wr-got-name" title={g.name}>
-                    {g.name}
-                  </span>
-                  <span className="wr-got-kind">
-                    <Check size={12} /> {KIND_DONE[g.kind]}
-                  </span>
-                </li>
+                <GotRow key={g.name + g.at} g={g} onClose={onClose} />
               ))}
             </ul>
           )}

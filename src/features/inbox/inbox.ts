@@ -55,9 +55,47 @@ interface InboxState {
   scannedAt: number | null;
   /** Fenêtre « Recevoir depuis le téléphone » (réception par le Wi-Fi) ouverte. */
   wifiOpen: boolean;
+  /** Ce qu'est devenu chaque élément (par nom de fichier) : affiché dans la fenêtre de réception et renvoyé au téléphone. */
+  outcomes: Record<string, Outcome>;
 }
 
-export const useInbox = create<InboxState>(() => ({ info: null, items: [], scannedAt: null, wifiOpen: false }));
+/**
+ * Devenir d'un élément reçu : où il se trouve maintenant.
+ *  - library : ajouté à la bibliothèque (bookId) ; extract(s) : extrait(s) ajouté(s) (highlightId) ;
+ *  - draft : écrit créé (draftId) ; waiting : attend une décision dans la Boîte ; dismissed ; error.
+ */
+export interface Outcome {
+  state: 'library' | 'extract' | 'extracts' | 'draft' | 'waiting' | 'dismissed' | 'error';
+  /** Phrase courte : « Ajouté à la bibliothèque : « Du contrat social » ». */
+  label: string;
+  bookId?: string;
+  highlightId?: string;
+  draftId?: string;
+}
+
+export const useInbox = create<InboxState>(() => ({ info: null, items: [], scannedAt: null, wifiOpen: false, outcomes: {} }));
+
+/** Enregistre le devenir d'un élément ; un envoi par le Wi-Fi le renvoie aussi au téléphone. */
+function setOutcome(name: string, o: Outcome, wifi = get(name)?.source === 'wifi') {
+  useInbox.setState((s) => ({ outcomes: { ...s.outcomes, [name]: o } }));
+  if (wifi) void host.inbox?.wifiReport?.(name, { state: o.state, label: o.label }).catch(() => undefined);
+}
+
+/** Élément resté dans la Boîte : que lui faut-il ? */
+function waitingLabel(it: InboxItem): string {
+  if (it.status === 'error') return it.error || 'Lecture impossible.';
+  const m = it.matches?.[0];
+  switch (it.kind) {
+    case 'image':
+      return m ? `Passage retrouvé dans « ${titleOf(m.bookId)} » : à valider dans la Boîte de réception` : it.text ? 'Texte lu sur la photo : à ranger dans la Boîte de réception' : 'Photo reçue : à ranger dans la Boîte de réception';
+    case 'text':
+      return m ? `Passage trouvé dans « ${titleOf(m.bookId)} » : à valider dans la Boîte de réception` : 'Passage non retrouvé dans vos livres : à ranger dans la Boîte de réception';
+    case 'draft':
+      return 'Document Word : à ouvrir comme écrit depuis la Boîte de réception';
+    default:
+      return 'Reçu : à ranger dans la Boîte de réception';
+  }
+}
 
 /** Réception par le Wi-Fi possible (app de bureau). */
 export const wifiAvailable = () => !!host.inbox?.wifiStart;
@@ -128,7 +166,8 @@ export function scanInbox(): Promise<void> {
     return scanning;
   }
   scanning = (async () => {
-    if (!enabled()) return;
+    // Tests de bas niveau : la boîte de l'interface ne consomme pas les fichiers qu'ils examinent.
+    if (!enabled() || (window as unknown as { __inboxPaused?: boolean }).__inboxPaused) return;
     let files: InboxFile[];
     try {
       files = await host.inbox!.list();
@@ -217,8 +256,10 @@ async function processItem(name: string) {
         patch(name, { status: 'working', step: 'Ajout à la bibliothèque…' });
         const f = await read(name);
         const added = await useStore.getState().importFiles([f], { toWorkspace: false });
-        if (added.length) await finish(name);
-        else patch(name, { status: 'error', error: 'Ce livre n’a pas pu être ajouté à la bibliothèque.' });
+        if (added.length) {
+          setOutcome(name, { state: 'library', label: `Ajouté à la bibliothèque : « ${added[0].title} »`, bookId: added[0].id });
+          await finish(name);
+        } else patch(name, { status: 'error', error: 'Ce livre n’a pas pu être ajouté à la bibliothèque.' });
         return;
       }
       case 'text': {
@@ -279,6 +320,13 @@ async function processItem(name: string) {
   } catch (e) {
     console.error('Boîte :', name, e);
     patch(name, { status: 'error', step: undefined, progress: undefined, error: String((e as Error)?.message ?? e) || 'Lecture impossible.' });
+  } finally {
+    // Resté dans la Boîte (décision attendue, erreur) : on le dit, sans écraser un devenir déjà connu.
+    const left = get(name);
+    if (left && (left.status === 'ready' || left.status === 'error')) {
+      const prev = useInbox.getState().outcomes[name];
+      if (!prev || prev.state === 'waiting' || prev.state === 'error') setOutcome(name, prev && prev.state === 'waiting' && left.status !== 'error' ? prev : { state: left.status === 'error' ? 'error' : 'waiting', label: waitingLabel(left) });
+    }
   }
 }
 
@@ -322,11 +370,18 @@ async function addSeveral(name: string, text: string): Promise<'done' | string |
   const where = books.size === 1 ? `« ${titleOf([...books][0])} »` : `${books.size} livres`;
   const msg = added ? `${added} extrait${added > 1 ? 's' : ''} reçu${added > 1 ? 's' : ''} du téléphone, ajouté${added > 1 ? 's' : ''} à ${where}` : 'Ces passages sont déjà dans vos extraits';
   const id = firstId;
+  const base = { highlightId: id ?? undefined, bookId: books.size === 1 ? [...books][0] : undefined };
   if (!rest.length) {
+    setOutcome(name, { state: 'extracts', label: added ? `${added} extrait${added > 1 ? 's' : ''} ajouté${added > 1 ? 's' : ''} à ${where}` : 'Déjà dans vos extraits', ...base });
     if (!(await finish(name))) return rest.join('\n\n');
     st.toast(msg, 'success', id ? { label: 'Voir', run: () => useStore.getState().jumpToHighlight(id) } : undefined);
     return 'done';
   }
+  setOutcome(name, {
+    state: 'waiting',
+    label: `${added ? `${added} extrait${added > 1 ? 's' : ''} ajouté${added > 1 ? 's' : ''} à ${where}` : 'Déjà dans vos extraits'} ; ${rest.length} passage${rest.length > 1 ? 's' : ''} non retrouvé${rest.length > 1 ? 's' : ''}, à voir dans la Boîte de réception`,
+    ...base,
+  });
   st.toast(`${msg}. ${rest.length} passage${rest.length > 1 ? 's' : ''} non retrouvé${rest.length > 1 ? 's' : ''} : à voir dans la boîte.`, 'success', id ? { label: 'Voir', run: () => useStore.getState().jumpToHighlight(id) } : undefined);
   return rest.join('\n\n');
 }
@@ -346,6 +401,9 @@ export async function addExtract(name: string, m: PassageMatch, opts: { auto?: b
   const st = useStore.getState();
   if (!st.books.some((b) => b.id === m.bookId)) return false;
   const h = st.addHighlight({ bookId: m.bookId, category: null, plain: true, text: m.text, anchor: m.anchor, locationLabel: m.locationLabel, printedPage: m.printedPage });
+  const prev = useInbox.getState().outcomes[name];
+  const extra = prev?.state === 'waiting' && /extraits? ajouté/.test(prev.label) ? `${prev.label.split(' ; ')[0]}, et 1 de plus` : null;
+  setOutcome(name, { state: 'extract', label: extra ?? `Extrait ajouté à « ${titleOf(m.bookId)} »${m.locationLabel ? `, ${m.printedPage ? 'p. ' + m.printedPage : m.locationLabel}` : ''}`, highlightId: h.id, bookId: m.bookId });
   if (!(await finish(name))) return false;
   st.toast(`${opts.auto ? 'Extrait reçu du téléphone, ajouté à' : 'Extrait ajouté à'} « ${titleOf(m.bookId)} »`, 'success', { label: 'Voir', run: () => useStore.getState().jumpToHighlight(h.id) });
   return true;
@@ -370,8 +428,10 @@ export async function addToLibrary(name: string) {
   try {
     const f = await read(name);
     const added = await useStore.getState().importFiles([f], { toWorkspace: false, asBook: true });
-    if (added.length) await finish(name);
-    else patch(name, { status: 'ready', step: undefined });
+    if (added.length) {
+      setOutcome(name, { state: 'library', label: `Ajouté à la bibliothèque : « ${added[0].title} »`, bookId: added[0].id });
+      await finish(name);
+    } else patch(name, { status: 'ready', step: undefined });
   } catch (e) {
     patch(name, { status: 'error', step: undefined, error: String((e as Error)?.message ?? e) });
   }
@@ -393,6 +453,7 @@ export async function makeDraft(name: string) {
       const md = text.replace(/([\\`*_[\]#<>|])/g, '\\$1').replace(/\n(?!\n)/g, '  \n');
       d = await createDraftFromFile(`${baseName(name)}.md`, new TextEncoder().encode(md).buffer as ArrayBuffer);
     }
+    setOutcome(name, { state: 'draft', label: `Écrit créé : « ${d.title} »`, draftId: d.id });
     if (!(await finish(name))) return;
     useStore.getState().toast(`Écrit « ${d.title} » créé`, 'success', { label: 'Ouvrir', run: () => useStore.getState().navigate({ name: 'write', draftId: d.id }) });
   } catch (e) {
@@ -403,6 +464,7 @@ export async function makeDraft(name: string) {
 /** Retire de la boîte sans rien créer (le fichier est rangé dans « Traités »). */
 export async function dismissItem(name: string) {
   const wifi = get(name)?.source === 'wifi';
+  setOutcome(name, { state: 'dismissed', label: 'Retiré de la Boîte de réception' }, wifi);
   if (await finish(name)) useStore.getState().toast(wifi ? 'Retiré de la boîte' : 'Retiré de la boîte (rangé dans « Traités »)', 'info');
 }
 

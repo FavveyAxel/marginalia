@@ -1764,3 +1764,10 @@
   padding: 0 6px;
   font-size: var(--fs-sm);
 }
+
+/* Icônes des boutons de barre d'outils (« + », petite flèche…) : transparentes aux clics, pour que le
+   bouton entier les reçoive — y compris sur la flèche, et jamais quand le bouton est désactivé. */
+.ed-root :is(.ed-toolbar, .ed-tb-overflow, .ed-topbar) button :is(svg, svg *),
+.ed-tb-overflow-pop button :is(svg, svg *) {
+  pointer-events: none;
+}

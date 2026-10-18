@@ -41,8 +41,8 @@ export const NEWS: NewsEntry[] = [
       },
       {
         icon: 'update',
-        title: 'Sur Windows, plus d’alerte d’antivirus',
-        text: 'La liste des polices est lue directement dans les fichiers de polices, sans lancer de programme : les antivirus n’ont plus rien à signaler.',
+        title: 'Sur Windows, plus d’alerte d’antivirus, et des menus fiables',
+        text: 'La liste des polices est lue directement dans les fichiers de polices, sans lancer de programme. Le menu « + » de l’éditeur s’ouvre aussi par sa petite flèche, et les menus ne passent plus sous la barre de titre.',
       },
     ],
   },

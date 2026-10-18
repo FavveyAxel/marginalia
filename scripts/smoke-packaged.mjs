@@ -46,6 +46,8 @@ async function smoke(exe) {
   const ok = (cond, msg) => {
     console.log((cond ? 'OK     ' : 'ÉCHEC  ') + msg);
     if (!cond) failures.push(msg);
+    // Sur GitHub Actions : l'échec apparaît aussi en annotation (lisible sans le journal complet).
+    if (!cond && process.env.GITHUB_ACTIONS) console.log(`::error title=Test de démarrage (${process.platform} ${process.arch})::${String(msg).replace(/\r?\n/g, ' ')}`);
   };
   const args = process.platform === 'linux' ? ['--no-sandbox'] : [];
   const app = await electron.launch({
@@ -65,7 +67,11 @@ async function smoke(exe) {
     const page = await app.firstWindow({ timeout: 60_000 });
     const pageErrors = [];
     page.on('pageerror', (e) => pageErrors.push(e.message));
-    page.on('console', (m) => m.type() === 'error' && console.log('   console.error :', m.text()));
+    page.on('console', (m) => {
+      if (m.type() !== 'error') return;
+      console.log('   console.error :', m.text());
+      if (process.env.GITHUB_ACTIONS) console.log(`::warning title=console.error::${m.text().replace(/\r?\n/g, ' ').slice(0, 400)}`);
+    });
     page.on('crash', () => (crashed = 'renderer'));
     app.on('close', () => (crashed ??= 'app fermée'));
 

@@ -26,6 +26,7 @@ const { pathToFileURL } = require('node:url');
 const zipkit = require('./backup.cjs');
 const vault = require('./vault.cjs');
 const wifiKit = require('./wifi.cjs');
+const shareNet = require('./share-net.cjs');
 const fontNames = require('./fontnames.cjs');
 
 const DEV_URL = process.env.VITE_DEV_SERVER_URL || '';
@@ -915,6 +916,8 @@ async function lockNow(reason) {
     await Promise.all([...fileLocks.values()]);
     wifiReceiver.stop('locked');
     wifiSender.stop('locked');
+    shareSender.stop('locked');
+    shareReceiver.cancel('locked');
     vault.wipe(sec.dek);
     sec.dek = null;
     sec.lockedBy = reason;
@@ -2388,6 +2391,54 @@ dataHandle('marginalia:sendStart', async (_e, files) => {
 });
 handle('marginalia:sendStop', () => wifiSender.stop('closed'));
 
+// ── Partage entre deux Marginalia par code à 6 chiffres (voir electron/share-net.cjs) ──
+// Le paquet est opaque ici (format : src/features/share). Événements 'marginalia:share' :
+// { side: 'send', type: 'request' | 'request-closed' | 'attempt' | 'progress' | 'done' | 'stopped', … }
+// et { side: 'receive', type: 'progress' | 'done', … }.
+const shareEmit = (evt) => {
+  for (const w of BrowserWindow.getAllWindows()) if (!w.isDestroyed()) w.webContents.send('marginalia:share', evt);
+};
+const shareSender = shareNet.createShareSender({
+  isLocked: () => isLocked(),
+  diag: (...a) => diag(...a),
+  emit: (evt) => shareEmit({ side: 'send', ...evt }),
+});
+const shareReceiver = shareNet.createShareReceiver({ diag: (...a) => diag(...a) });
+const shareMessage = (e) => (e && e.code && typeof e.message === 'string' ? e.message : `Partage impossible (${(e && e.code) || (e && e.message) || e}).`);
+dataHandle('marginalia:shareSendStart', async (_e, bytes, meta) => {
+  // Vue sans copie sur les octets reçus du rendu (jusqu'à 2 Go).
+  const data = ArrayBuffer.isView(bytes) ? Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength) : toBuffer(bytes || new Uint8Array(0));
+  if (!data.length) throw new Error('Rien à envoyer.');
+  if (data.length > shareNet.MAX_BYTES) throw new Error('Envoi trop volumineux (2 Go au plus).');
+  try {
+    return await shareSender.start({ bytes: data, meta: meta && typeof meta === 'object' ? meta : {} });
+  } catch (e) {
+    diag('partage', 'envoi : ouverture', e && e.message);
+    throw new Error(shareMessage(e));
+  }
+});
+handle('marginalia:shareSendStop', () => shareSender.stop('closed'));
+dataHandle('marginalia:shareSendAccept', () => shareSender.accept());
+handle('marginalia:shareSendReject', () => shareSender.reject());
+dataHandle('marginalia:shareFind', async (_e, code, manualAddress) => {
+  try {
+    return await shareReceiver.findShare(String(code ?? ''), { manualAddress: manualAddress ? String(manualAddress) : undefined });
+  } catch (e) {
+    diag('partage', 'recherche', e && (e.code || e.message));
+    throw new Error(shareMessage(e));
+  }
+});
+dataHandle('marginalia:shareReceive', async (_e, id) => {
+  try {
+    const bytes = await shareReceiver.receiveShare(String(id ?? ''), { onProgress: (done, total) => shareEmit({ side: 'receive', type: 'progress', done, total }) });
+    shareEmit({ side: 'receive', type: 'done', size: bytes.length });
+    return bytes;
+  } catch (e) {
+    diag('partage', 'réception', e && (e.code || e.message));
+    throw new Error(shareMessage(e));
+  }
+});
+
 handle('marginalia:listFonts', async () => {
   if (fontCache) return fontCache;
   const { execFile } = require('child_process');
@@ -3341,6 +3392,8 @@ let quitReady = false;
 app.on('before-quit', (event) => {
   wifiReceiver.stop('quit');
   wifiSender.stop('quit');
+  shareSender.stop('quit');
+  shareReceiver.cancel('quit');
   if (quitReady) return;
   event.preventDefault();
   if (appQuitting) return;

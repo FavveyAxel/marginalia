@@ -202,6 +202,20 @@ api.sendToPhone = {
     return () => ipcRenderer.removeListener('marginalia:send', handler);
   },
 };
+// Partage entre deux Marginalia par code à 6 chiffres (réseau local) : octets opaques, chiffrés.
+api.shareNet = {
+  sendStart: (bytes, meta) => ipcRenderer.invoke('marginalia:shareSendStart', bytes, meta),
+  sendStop: () => ipcRenderer.invoke('marginalia:shareSendStop'),
+  sendAccept: () => ipcRenderer.invoke('marginalia:shareSendAccept'),
+  sendReject: () => ipcRenderer.invoke('marginalia:shareSendReject'),
+  find: (code, manualAddress) => ipcRenderer.invoke('marginalia:shareFind', String(code), manualAddress ? String(manualAddress) : undefined),
+  receive: async (id) => toArrayBuffer(await ipcRenderer.invoke('marginalia:shareReceive', String(id))),
+  onEvent: (cb) => {
+    const handler = (_e, evt) => cb(evt);
+    ipcRenderer.on('marginalia:share', handler);
+    return () => ipcRenderer.removeListener('marginalia:share', handler);
+  },
+};
 api.firstRun = () => ipcRenderer.invoke('marginalia:firstRun');
 api.updates = {
   version: () => ipcRenderer.invoke('marginalia:appVersion'),

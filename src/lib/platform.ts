@@ -112,6 +112,56 @@ export interface SendToPhoneApi {
   onEvent(cb: (e: { type: 'device'; device: string; at: number } | { type: 'downloaded'; name: string; device: string; at: number } | { type: 'stopped'; reason: string }) => void): () => void;
 }
 
+/** Session d'envoi par code (partage entre deux Marginalia sur le même réseau local). */
+export interface ShareSendInfo {
+  open: true;
+  /** Code à 6 chiffres à dicter au destinataire. */
+  code: string;
+  /** Fin de validité du code (ms depuis 1970) : 10 minutes après l'ouverture. */
+  expiresAt: number;
+  port: number;
+  /** Découverte UDP active (sinon, seule la saisie d'adresse fonctionne). */
+  discovery: boolean;
+  /** « adresse:port » à saisir chez le destinataire si la diffusion est bloquée. */
+  addresses: string[];
+  request: null;
+}
+
+/** Envoi trouvé avec le code : métadonnées déchiffrées, montrées avant d'accepter. */
+export interface ShareFound {
+  /** À passer à receive(). */
+  id: string;
+  meta: Record<string, unknown>;
+  size: number;
+  from: { address: string; port: number; name: string };
+}
+
+export type ShareNetEvent =
+  | { side: 'send'; type: 'request'; device: string; address: string; at: number }
+  | { side: 'send'; type: 'request-closed'; reason: 'no-answer'; at: number }
+  | { side: 'send'; type: 'attempt'; ok: false; remaining: number; at: number }
+  | { side: 'send'; type: 'progress'; done: number; total: number }
+  | { side: 'send'; type: 'done'; size: number; device: string; at: number }
+  | { side: 'send'; type: 'stopped'; reason: 'closed' | 'locked' | 'quit' | 'expired' | 'tries' | 'sent' }
+  | { side: 'receive'; type: 'progress'; done: number; total: number }
+  | { side: 'receive'; type: 'done'; size: number };
+
+/** Partage direct entre deux ordinateurs (réseau local, code à 6 chiffres) ; app de bureau uniquement. */
+export interface ShareNetApi {
+  /** Ouvre l'envoi (remplace le précédent) : `meta` (titre, compteurs, taille) est chiffré avant d'être montré. */
+  sendStart(bytes: ArrayBuffer | Uint8Array, meta: Record<string, unknown>): Promise<ShareSendInfo>;
+  sendStop(): Promise<void>;
+  /** Accepte la demande en attente (événement 'request') : le paquet part. false s'il n'y en a pas. */
+  sendAccept(): Promise<boolean>;
+  /** Refuse la demande en attente ; la session reste ouverte. */
+  sendReject(): Promise<boolean>;
+  /** Cherche l'envoi (diffusion, ou « adresse:port » saisie) et prouve le code ; erreurs en français. */
+  find(code: string, manualAddress?: string): Promise<ShareFound>;
+  /** Reçoit le paquet après l'accord de l'émetteur : octets déchiffrés et vérifiés. */
+  receive(id: string): Promise<ArrayBuffer>;
+  onEvent(cb: (e: ShareNetEvent) => void): () => void;
+}
+
 /** Mac : autorisation « Accès complet au disque » (lecture des données de l'app Livres). */
 export interface DiskAccessApi {
   status(): Promise<{ status: 'granted' | 'denied' | 'nobooks' }>;
@@ -285,6 +335,8 @@ export interface HostApi {
   /** Version de l'app et vérification des mises à jour (app de bureau). */
   updates?: UpdatesApi;
   sendToPhone?: SendToPhoneApi;
+  /** Partage direct avec une autre Marginalia du réseau local (code à 6 chiffres). */
+  shareNet?: ShareNetApi;
   /** Tout premier lancement sur cet ordinateur (aucune donnée de Marginalia avant ce lancement). */
   firstRun?(): Promise<boolean>;
   diskAccess?: DiskAccessApi;

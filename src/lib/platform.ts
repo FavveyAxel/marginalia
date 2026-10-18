@@ -70,7 +70,24 @@ export interface InboxFile {
   mtime: number;
   /** Encore dans le nuage (iCloud) : téléchargement demandé, contenu pas encore lisible. */
   pending?: boolean;
+  /** Reçu par le Wi-Fi (dossier local de l'app ; effacé une fois traité). Absent : dossier synchronisé. */
+  source?: 'wifi';
 }
+
+/** Réception par le Wi-Fi : adresses à scanner (la première est la plus probable). */
+export interface WifiInfo {
+  open: boolean;
+  port?: number;
+  urls?: { address: string; iface: string; url: string }[];
+  /** Fermeture automatique après ce délai sans activité (ms). */
+  idleMs?: number;
+  count?: number;
+}
+
+export type WifiEvent =
+  | { type: 'received'; name: string; size: number; kind: 'book' | 'image' | 'draft' | 'text'; device: string; at: number }
+  | { type: 'device'; device: string; at: number }
+  | { type: 'stopped'; reason: 'closed' | 'idle' | 'locked' | 'quit' };
 
 export interface InboxInfo {
   /** Dossier surveillé (chemin absolu ; nom lisible en navigateur). */
@@ -106,6 +123,12 @@ export interface InboxApi {
   done(name: string): Promise<void>;
   /** Ouvre le dossier dans le Finder / l'Explorateur. */
   reveal(): Promise<void>;
+  /** Ouvre la réception par le Wi-Fi (serveur local, jeton neuf) ; idempotent. */
+  wifiStart?(): Promise<WifiInfo>;
+  wifiInfo?(): Promise<WifiInfo>;
+  /** Ferme la réception par le Wi-Fi. */
+  wifiStop?(): Promise<void>;
+  onWifi?(cb: (e: WifiEvent) => void): () => void;
   /** Le contenu du dossier a changé (regroupé : au plus une fois toutes les 1,5 s). */
   onChange(cb: () => void): () => void;
 }
@@ -320,7 +343,13 @@ async function idbDel(store: string, key: string): Promise<void> {
 
 // Boîte de dépôt simulée (navigateur : développement et tests). Les tests y déposent des
 // fichiers avec window.__inbox.add(nom, contenu).
-const inboxFiles = new Map<string, { data: ArrayBuffer; mtime: number }>();
+const inboxFiles = new Map<string, { data: ArrayBuffer; mtime: number; wifi?: boolean }>();
+const wifiListeners = new Set<(e: WifiEvent) => void>();
+let wifiOpen = false;
+// Comme l'hôte réel : les fichiers du dossier ne sont listés qu'une fois la boîte activée.
+let cloudOn = false;
+const wifiDemo = (): WifiInfo =>
+  wifiOpen ? { open: true, port: 47800, idleMs: 900000, count: 0, urls: [{ address: '192.168.1.24', iface: 'en0', url: 'http://192.168.1.24:47800/r/Qm9uam91ciBSb3Vzc2VhdQ' }] } : { open: false };
 const inboxDone: string[] = [];
 const inboxListeners = new Set<() => void>();
 let inboxTimer: ReturnType<typeof setTimeout> | null = null;
@@ -334,9 +363,12 @@ const browserInbox: InboxApi = {
     return browserInboxInfo();
   },
   async enable() {
+    cloudOn = true;
     return browserInboxInfo();
   },
-  async disable() {},
+  async disable() {
+    cloudOn = false;
+  },
   async choose() {
     return null;
   },
@@ -344,7 +376,7 @@ const browserInbox: InboxApi = {
     return browserInboxInfo();
   },
   async list() {
-    return [...inboxFiles].map(([name, f]) => ({ name, size: f.data.byteLength, mtime: f.mtime }));
+    return [...inboxFiles].filter(([, f]) => f.wifi || cloudOn).map(([name, f]) => ({ name, size: f.data.byteLength, mtime: f.mtime, ...(f.wifi ? { source: 'wifi' as const } : {}) }));
   },
   async read(name) {
     const f = inboxFiles.get(name);
@@ -356,6 +388,22 @@ const browserInbox: InboxApi = {
     inboxChanged();
   },
   async reveal() {},
+  async wifiStart() {
+    wifiOpen = true;
+    return wifiDemo();
+  },
+  async wifiInfo() {
+    return wifiDemo();
+  },
+  async wifiStop() {
+    if (!wifiOpen) return;
+    wifiOpen = false;
+    wifiListeners.forEach((cb) => cb({ type: 'stopped', reason: 'closed' }));
+  },
+  onWifi(cb) {
+    wifiListeners.add(cb);
+    return () => wifiListeners.delete(cb);
+  },
   onChange(cb) {
     inboxListeners.add(cb);
     return () => inboxListeners.delete(cb);
@@ -366,6 +414,16 @@ if (typeof window !== 'undefined') {
     add(name: string, content: string | ArrayBuffer | Uint8Array) {
       const data = typeof content === 'string' ? new TextEncoder().encode(content).buffer : content instanceof Uint8Array ? content.slice().buffer : content;
       inboxFiles.set(name, { data: data as ArrayBuffer, mtime: Date.now() });
+      inboxChanged();
+    },
+    /** Envoi simulé par le Wi-Fi : fichier « reçu » + événements de la fenêtre de réception. */
+    wifi(name: string, content: string | ArrayBuffer | Uint8Array, device = 'iPhone') {
+      const data = typeof content === 'string' ? new TextEncoder().encode(content).buffer : content instanceof Uint8Array ? content.slice().buffer : content;
+      inboxFiles.set(name, { data: data as ArrayBuffer, mtime: Date.now(), wifi: true });
+      const ext = name.split('.').pop()!.toLowerCase();
+      const kind = ['pdf', 'epub'].includes(ext) ? 'book' : ext === 'docx' ? 'draft' : ['txt', 'md'].includes(ext) ? 'text' : 'image';
+      wifiListeners.forEach((cb) => cb({ type: 'device', device, at: Date.now() }));
+      wifiListeners.forEach((cb) => cb({ type: 'received', name, size: (data as ArrayBuffer).byteLength, kind, device, at: Date.now() }));
       inboxChanged();
     },
     list: () => [...inboxFiles.keys()],

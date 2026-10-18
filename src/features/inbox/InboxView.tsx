@@ -9,11 +9,13 @@ import {
   FileQuestion,
   FileText,
   FolderOpen,
+  FolderSync,
   Globe,
   Highlighter,
   Image as ImageIcon,
   Inbox,
   Link2,
+  QrCode,
   RotateCw,
   Search,
   Smartphone,
@@ -35,9 +37,12 @@ import {
   setInboxEnabled,
   setItemText,
   useInbox,
+  openWifiReceive,
+  wifiAvailable,
   type InboxItem,
   type InboxKind,
 } from './inbox';
+import { WifiReceive } from './WifiReceive';
 import './inbox.css';
 
 const KIND_LABEL: Record<InboxKind, string> = {
@@ -88,7 +93,13 @@ export function InboxView() {
   const info = useInbox((s) => s.info);
   const items = useInbox((s) => s.items);
   const scannedAt = useInbox((s) => s.scannedAt);
+  const wifiOpen = useInbox((s) => s.wifiOpen);
   const available = !!host.inbox;
+  const wifi = wifiAvailable();
+  const closeWifi = () => useInbox.setState({ wifiOpen: false });
+  // Quitter la vue ferme aussi la réception.
+  useEffect(() => () => useInbox.setState({ wifiOpen: false }), []);
+  const syncName = host.platform === 'darwin' ? 'iCloud Drive' : 'votre dossier synchronisé (OneDrive…)';
 
   return (
     <>
@@ -100,6 +111,11 @@ export function InboxView() {
         {on && info && (
           <button className="btn btn-sm" onClick={() => void revealInbox()} title="Ouvrir le dossier dans le Finder ou l’Explorateur">
             <FolderOpen size={14} /> Ouvrir le dossier
+          </button>
+        )}
+        {wifi && (
+          <button className="btn btn-sm btn-primary" onClick={openWifiReceive} data-testid="wifi-open">
+            <QrCode size={14} /> Recevoir depuis le téléphone
           </button>
         )}
       </header>
@@ -121,31 +137,49 @@ export function InboxView() {
             <div className="ib-empty">
               <Inbox size={28} strokeWidth={1.5} />
               <h3>Disponible dans l’app de bureau</h3>
-              <p>La Boîte de dépôt surveille un dossier de l’ordinateur synchronisé avec votre téléphone.</p>
+              <p>La Boîte de réception reçoit ce que vous envoyez depuis le téléphone, par le Wi-Fi ou un dossier synchronisé.</p>
             </div>
-          ) : !on ? (
-            <div className="ib-empty">
-              <Inbox size={28} strokeWidth={1.5} />
-              <h3>Recevoir depuis le téléphone</h3>
-              <p>
-                Marginalia surveillera un dossier « Marginalia » dans {host.platform === 'darwin' ? 'iCloud Drive' : 'votre dossier synchronisé (OneDrive…)'}. Tout ce que vous y déposez depuis le téléphone arrive ici.
-              </p>
-              <button className="btn btn-primary" onClick={() => void setInboxEnabled(true)}>
-                Activer la Boîte de dépôt
-              </button>
-            </div>
-          ) : items.length === 0 ? (
-            <div className="ib-empty">
-              <Check size={28} strokeWidth={1.5} />
-              <h3>{scannedAt ? 'Rien en attente' : 'Lecture du dossier…'}</h3>
-              <HowTo cloud={info?.cloud ?? null} />
-            </div>
-          ) : (
+          ) : items.length > 0 ? (
             <ul className="ib-list" aria-label="Éléments reçus">
               {items.map((it) => (
                 <ItemCard key={it.name} it={it} />
               ))}
             </ul>
+          ) : on ? (
+            <div className="ib-empty">
+              <Check size={28} strokeWidth={1.5} />
+              <h3>{scannedAt ? 'Rien en attente' : 'Lecture du dossier…'}</h3>
+              <HowTo cloud={info?.cloud ?? null} />
+              {wifi && (
+                <button className="btn" onClick={openWifiReceive}>
+                  <QrCode size={14} /> Ou envoyer par le Wi-Fi
+                </button>
+              )}
+            </div>
+          ) : (
+            <div className="ib-ways">
+              {wifi && (
+                <section className="ib-way is-main">
+                  <QrCode size={24} strokeWidth={1.5} />
+                  <h3>Par le Wi-Fi</h3>
+                  <p>
+                    Scannez un code avec le téléphone : photos de pages, livres, documents et passages copiés arrivent ici aussitôt. Sans compte, sans rien installer,
+                    et rien ne passe par Internet. iPhone et Android.
+                  </p>
+                  <button className="btn btn-primary" onClick={openWifiReceive}>
+                    Recevoir depuis le téléphone
+                  </button>
+                </section>
+              )}
+              <section className="ib-way">
+                <FolderSync size={24} strokeWidth={1.5} />
+                <h3>Par un dossier synchronisé</h3>
+                <p>Marginalia surveille un dossier « Marginalia » dans {syncName}. Ce que vous y déposez depuis le téléphone arrive ici, même quand l’ordinateur était éteint.</p>
+                <button className="btn" onClick={() => void setInboxEnabled(true)}>
+                  Activer le dossier
+                </button>
+              </section>
+            </div>
           )}
           {on && items.length > 0 && (
             <details className="ib-howto-more">
@@ -155,6 +189,7 @@ export function InboxView() {
           )}
         </div>
       </div>
+      {wifiOpen && wifi && <WifiReceive onClose={closeWifi} />}
     </>
   );
 }
@@ -191,10 +226,10 @@ function ItemCard({ it }: { it: InboxItem }) {
             {title}
           </span>
           <span className="ib-meta">
-            {KIND_LABEL[it.kind]} · reçu {when(it.mtime)}
+            {KIND_LABEL[it.kind]} · reçu {it.source === 'wifi' ? 'par le Wi-Fi ' : ''}{when(it.mtime)}
           </span>
         </div>
-        <button className="icon-btn sm ib-dismiss" title="Retirer de la boîte (le fichier est rangé dans « Traités »)" aria-label={`Retirer « ${title} » de la boîte`} onClick={() => void dismissItem(it.name)} disabled={it.status === 'working'}>
+        <button className="icon-btn sm ib-dismiss" title={it.source === 'wifi' ? 'Retirer de la boîte' : 'Retirer de la boîte (le fichier est rangé dans « Traités »)'} aria-label={`Retirer « ${title} » de la boîte`} onClick={() => void dismissItem(it.name)} disabled={it.status === 'working'}>
           <X size={15} />
         </button>
       </div>

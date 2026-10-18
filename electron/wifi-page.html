@@ -1,0 +1,289 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
+<meta name="robots" content="noindex">
+<title>Envoyer à Marginalia</title>
+<style nonce="__NONCE__">
+:root {
+  --bg: #efebe3; --panel: #fbf9f4; --page: #fffdf8; --ink: #1d1a15; --ink-2: #4a443a; --muted: #7a7266;
+  --border: rgba(40, 32, 20, 0.12); --accent: #1d1a15; --accent-ink: #fbf9f4;
+  --ok: #3b9a5f; --err: #c4405a; --bar: #d9a21b;
+  --ui: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', Roboto, system-ui, sans-serif;
+  --serif: 'Iowan Old Style', 'Palatino Linotype', Palatino, Georgia, serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #1b1916; --panel: #24211d; --page: #2a2622; --ink: #ede7dc; --ink-2: #c9c1b3; --muted: #978e80;
+    --border: rgba(255, 245, 230, 0.12); --accent: #ede7dc; --accent-ink: #1b1916; }
+}
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+html { -webkit-text-size-adjust: 100%; }
+body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--ui); font-size: 16px; line-height: 1.45; }
+main { max-width: 34rem; margin: 0 auto; padding: max(1.25rem, env(safe-area-inset-top)) 1rem max(2rem, env(safe-area-inset-bottom)); }
+.brand { display: flex; align-items: center; gap: 0.5rem; font-family: var(--serif); font-size: 1.05rem; color: var(--ink-2); }
+.brand-mark { width: 1.6rem; height: 1.6rem; border-radius: 0.4rem; background: var(--page); border: 1px solid var(--border); display: grid; place-items: center; font-style: italic; font-weight: 600; color: var(--ink); }
+h1 { font-family: var(--serif); font-weight: 500; font-size: 2rem; line-height: 1.1; margin: 1.25rem 0 0.35rem; letter-spacing: -0.01em; }
+.sub { margin: 0; color: var(--muted); font-size: 0.95rem; }
+.sub strong { color: var(--ink-2); font-weight: 600; }
+.actions { display: grid; gap: 0.625rem; margin-top: 1.5rem; }
+.act { position: relative; display: flex; align-items: center; gap: 0.875rem; width: 100%; padding: 1rem; border-radius: 1rem; border: 1px solid var(--border);
+  background: var(--panel); color: var(--ink); text-align: left; font: inherit; cursor: pointer; transition: transform 120ms ease, background-color 120ms; }
+.act:active { transform: scale(0.985); background: var(--page); }
+.act.primary { background: var(--accent); color: var(--accent-ink); border-color: transparent; }
+.act.primary .act-desc { color: inherit; opacity: 0.75; }
+.act svg { flex: none; width: 1.75rem; height: 1.75rem; }
+.act-title { display: block; font-weight: 600; font-size: 1.05rem; }
+.act-desc { display: block; color: var(--muted); font-size: 0.875rem; margin-top: 0.1rem; }
+.act input { position: absolute; inset: 0; opacity: 0; width: 100%; height: 100%; cursor: pointer; font-size: 16px; }
+.text-box { display: none; margin-top: 0.625rem; padding: 0.875rem; border-radius: 1rem; border: 1px solid var(--border); background: var(--panel); }
+.text-box.open { display: block; }
+textarea { width: 100%; min-height: 9rem; resize: vertical; padding: 0.75rem; border-radius: 0.625rem; border: 1px solid var(--border); background: var(--page); color: var(--ink);
+  font: 16px/1.5 var(--serif); }
+textarea:focus { outline: 2px solid #3d6fe0; outline-offset: 1px; }
+.hint { margin: 0.5rem 0 0; font-size: 0.8125rem; color: var(--muted); }
+.row { display: flex; gap: 0.5rem; justify-content: flex-end; margin-top: 0.75rem; }
+.btn { appearance: none; border: 1px solid var(--border); background: var(--page); color: var(--ink); font: 600 0.9375rem var(--ui); padding: 0.625rem 1rem; border-radius: 0.625rem; cursor: pointer; }
+.btn.primary { background: var(--accent); color: var(--accent-ink); border-color: transparent; }
+.btn:disabled { opacity: 0.45; }
+h2 { font: 600 0.8125rem var(--ui); text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); margin: 2rem 0 0.5rem; }
+ul { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--border); }
+li { padding: 0.75rem 0.125rem; border-bottom: 1px solid var(--border); }
+.li-top { display: flex; align-items: baseline; gap: 0.75rem; }
+.li-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; }
+.li-state { flex: none; font-size: 0.8125rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+.li.ok .li-state { color: var(--ok); }
+.li.err .li-state { color: var(--err); }
+.li-err { margin: 0.25rem 0 0; font-size: 0.8125rem; color: var(--err); }
+.li-err button { margin-left: 0.375rem; font: inherit; color: var(--ink); background: none; border: 0; text-decoration: underline; padding: 0; cursor: pointer; }
+.bar { height: 3px; border-radius: 2px; background: var(--border); margin-top: 0.5rem; overflow: hidden; }
+.bar > i { display: block; height: 100%; width: 0; background: var(--bar); transition: width 150ms linear; }
+.li.ok .bar, .li.err .bar { display: none; }
+.empty { color: var(--muted); font-size: 0.875rem; padding: 0.75rem 0.125rem; margin: 0; }
+.closed { display: none; margin-top: 1.25rem; padding: 1rem; border-radius: 1rem; background: var(--panel); border: 1px solid var(--err); }
+.closed.show { display: block; }
+.closed strong { display: block; margin-bottom: 0.25rem; }
+.closed p { margin: 0; color: var(--ink-2); font-size: 0.9375rem; }
+body.is-closed .actions, body.is-closed .text-box { opacity: 0.4; pointer-events: none; }
+.foot { margin-top: 2rem; display: flex; gap: 0.5rem; align-items: flex-start; color: var(--muted); font-size: 0.8125rem; }
+.foot svg { flex: none; width: 1rem; height: 1rem; margin-top: 0.1rem; }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+</style>
+</head>
+<body>
+<main>
+  <div class="brand"><span class="brand-mark">M</span> Marginalia</div>
+  <h1>Envoyer à l’ordinateur</h1>
+  <p class="sub">Vers Marginalia sur <strong>__COMPUTER__</strong>, par le Wi-Fi.</p>
+
+  <div class="closed" id="closed" role="alert">
+    <strong>La réception est fermée sur l’ordinateur.</strong>
+    <p>Dans Marginalia, ouvrez « Recevoir depuis le téléphone » et scannez le nouveau code.</p>
+  </div>
+
+  <div class="actions">
+    <label class="act primary">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 8.5A2.5 2.5 0 0 1 6.5 6h1.6l1.3-2h5.2l1.3 2h1.6A2.5 2.5 0 0 1 20 8.5v8a2.5 2.5 0 0 1-2.5 2.5h-11A2.5 2.5 0 0 1 4 16.5z"/><circle cx="12" cy="12.5" r="3.5"/></svg>
+      <span><span class="act-title">Prendre une photo</span><span class="act-desc">D’une page de livre : son texte est lu et retrouvé dans vos livres.</span></span>
+      <input type="file" id="camera" accept="image/*" capture="environment" aria-label="Prendre une photo">
+    </label>
+    <label class="act">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 3h8l4 4v14H6z"/><path d="M14 3v4h4M9 13h6M9 16.5h4"/></svg>
+      <span><span class="act-title">Choisir des fichiers</span><span class="act-desc">Livres PDF ou EPUB, photos, documents Word.</span></span>
+      <input type="file" id="files" multiple accept=".pdf,.epub,.docx,.txt,.md,image/*,.heic,.heif" aria-label="Choisir des fichiers">
+    </label>
+    <button class="act" id="text-toggle" type="button" aria-expanded="false" aria-controls="text-box">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 4h6v2H9z"/><path d="M15 5h2.5A1.5 1.5 0 0 1 19 6.5v13a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 5 19.5v-13A1.5 1.5 0 0 1 6.5 5H9"/><path d="M9 11h6M9 14.5h6M9 18h3"/></svg>
+      <span><span class="act-title">Coller du texte</span><span class="act-desc">Un passage, ou toutes vos notes d’un livre.</span></span>
+    </button>
+  </div>
+
+  <div class="text-box" id="text-box">
+    <label class="sr" for="text">Texte à envoyer</label>
+    <textarea id="text" placeholder="Collez ici un passage copié dans un livre, ou vos notes…"></textarea>
+    <p class="hint">Chaque passage retrouvé dans un de vos livres devient un extrait, au bon endroit. Notes de l’app Livres : ouvrez le livre › Notes › Modifier › Tout sélectionner › Partager › Copier.</p>
+    <div class="row">
+      <button class="btn" id="text-cancel" type="button">Annuler</button>
+      <button class="btn primary" id="text-send" type="button" disabled>Envoyer le texte</button>
+    </div>
+  </div>
+
+  <h2>Envoyés</h2>
+  <ul id="list" aria-live="polite"></ul>
+  <p class="empty" id="empty">Rien pour l’instant. Ce que vous envoyez apparaît aussitôt dans la Boîte de réception de Marginalia.</p>
+
+  <p class="foot">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="10.5" width="14" height="10" rx="1.6"/><path d="M8 10.5V8a4 4 0 0 1 8 0v2.5"/></svg>
+    <span>Rien ne passe par Internet : l’envoi va directement à votre ordinateur, sur ce réseau Wi-Fi.</span>
+  </p>
+</main>
+<script nonce="__NONCE__">
+(function () {
+  'use strict';
+  var base = location.pathname.replace(/\/+$/, '');
+  var list = document.getElementById('list');
+  var empty = document.getElementById('empty');
+  var closedBox = document.getElementById('closed');
+  var queue = [];
+  var busy = false;
+  var closed = false;
+
+  function setClosed(on) {
+    closed = on;
+    closedBox.classList.toggle('show', on);
+    document.body.classList.toggle('is-closed', on);
+  }
+
+  function sizeOf(n) {
+    if (n < 1024 * 1024) return Math.max(1, Math.round(n / 1024)) + ' Ko';
+    return (n / 1024 / 1024).toFixed(n < 10 * 1024 * 1024 ? 1 : 0).replace('.', ',') + ' Mo';
+  }
+
+  function row(title) {
+    empty.style.display = 'none';
+    var li = document.createElement('li');
+    li.className = 'li';
+    var top = document.createElement('div');
+    top.className = 'li-top';
+    var name = document.createElement('span');
+    name.className = 'li-name';
+    name.textContent = title;
+    var state = document.createElement('span');
+    state.className = 'li-state';
+    state.textContent = 'En attente';
+    top.appendChild(name);
+    top.appendChild(state);
+    var bar = document.createElement('div');
+    bar.className = 'bar';
+    var fill = document.createElement('i');
+    bar.appendChild(fill);
+    li.appendChild(top);
+    li.appendChild(bar);
+    list.insertBefore(li, list.firstChild);
+    return { li: li, state: state, fill: fill };
+  }
+
+  function add(job) {
+    job.ui = row(job.title);
+    queue.push(job);
+    pump();
+  }
+
+  function pump() {
+    if (busy || !queue.length) return;
+    busy = true;
+    var job = queue.shift();
+    send(job, function () {
+      busy = false;
+      pump();
+    });
+  }
+
+  function send(job, done) {
+    var ui = job.ui;
+    ui.li.className = 'li';
+    var old = ui.li.querySelector('.li-err');
+    if (old) old.remove();
+    ui.state.textContent = 'Envoi…';
+    var xhr = new XMLHttpRequest();
+    xhr.open('POST', base + job.path);
+    xhr.setRequestHeader('X-Marginalia', '1');
+    if (job.type) xhr.setRequestHeader('Content-Type', job.type);
+    xhr.upload.onprogress = function (e) {
+      if (!e.lengthComputable) return;
+      var p = e.loaded / e.total;
+      ui.fill.style.width = Math.round(p * 100) + '%';
+      ui.state.textContent = Math.round(p * 100) + ' %';
+    };
+    xhr.onload = function () {
+      var r = {};
+      try { r = JSON.parse(xhr.responseText); } catch (e) {}
+      if (xhr.status === 200) {
+        ui.li.className = 'li ok';
+        ui.state.textContent = 'Reçu ✓';
+      } else {
+        if (xhr.status === 404 || xhr.status === 410 || xhr.status === 423) setClosed(true);
+        // Réessayer n'a de sens que pour un incident passager (serveur), pas pour un refus.
+        fail(job, r.error || 'Envoi impossible.', xhr.status >= 500);
+      }
+      done();
+    };
+    xhr.onerror = function () {
+      fail(job, 'L’ordinateur ne répond pas. Il est peut-être en veille, ou sur un autre Wi-Fi.', true);
+      done();
+    };
+    xhr.send(job.body);
+  }
+
+  function fail(job, msg, canRetry) {
+    var ui = job.ui;
+    ui.li.className = 'li err';
+    ui.state.textContent = 'Échec';
+    var p = document.createElement('p');
+    p.className = 'li-err';
+    p.textContent = msg;
+    if (!canRetry) {
+      ui.li.appendChild(p);
+      return;
+    }
+    var retry = document.createElement('button');
+    retry.type = 'button';
+    retry.textContent = 'Réessayer';
+    retry.onclick = function () {
+      p.remove();
+      ui.fill.style.width = '0';
+      ui.state.textContent = 'En attente';
+      queue.push(job);
+      pump();
+    };
+    p.appendChild(retry);
+    ui.li.appendChild(p);
+  }
+
+  function onFiles(input) {
+    var files = Array.prototype.slice.call(input.files || []);
+    files.forEach(function (f) {
+      add({ title: f.name + ' · ' + sizeOf(f.size), path: '/file?name=' + encodeURIComponent(f.name || 'photo.jpg'), body: f, type: 'application/octet-stream' });
+    });
+    input.value = '';
+  }
+  document.getElementById('camera').addEventListener('change', function () { onFiles(this); });
+  document.getElementById('files').addEventListener('change', function () { onFiles(this); });
+
+  var toggle = document.getElementById('text-toggle');
+  var box = document.getElementById('text-box');
+  var area = document.getElementById('text');
+  var sendBtn = document.getElementById('text-send');
+  function openText(on) {
+    box.classList.toggle('open', on);
+    toggle.setAttribute('aria-expanded', on ? 'true' : 'false');
+    if (on) setTimeout(function () { area.focus(); }, 50);
+  }
+  toggle.addEventListener('click', function () { openText(!box.classList.contains('open')); });
+  document.getElementById('text-cancel').addEventListener('click', function () { area.value = ''; sendBtn.disabled = true; openText(false); });
+  area.addEventListener('input', function () { sendBtn.disabled = !area.value.trim(); });
+  sendBtn.addEventListener('click', function () {
+    var t = area.value.trim();
+    if (!t) return;
+    var first = t.replace(/\s+/g, ' ').replace(/^[“"«‘„\s]+/, '').slice(0, 48);
+    add({ title: '« ' + first + (t.length > 48 ? '…' : '') + ' »', path: '/text', body: new Blob([t], { type: 'text/plain;charset=utf-8' }), type: 'text/plain; charset=utf-8' });
+    area.value = '';
+    sendBtn.disabled = true;
+    openText(false);
+  });
+
+  // La fenêtre de l'ordinateur a-t-elle été fermée ? (vérifié quand la page revient au premier plan)
+  function check() {
+    var x = new XMLHttpRequest();
+    x.open('GET', base + '/state');
+    x.onload = function () { setClosed(x.status !== 200); };
+    x.onerror = function () { setClosed(true); };
+    x.send();
+  }
+  document.addEventListener('visibilitychange', function () { if (!document.hidden) check(); });
+  setInterval(function () { if (!document.hidden && !busy) check(); }, 15000);
+})();
+</script>
+</body>
+</html>

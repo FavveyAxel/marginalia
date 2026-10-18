@@ -26,6 +26,8 @@ export interface InboxItem {
   kind: InboxKind;
   /** Encore dans le nuage (iCloud télécharge le fichier). */
   pending?: boolean;
+  /** Reçu par le Wi-Fi (effacé une fois traité) ; absent : dossier synchronisé. */
+  source?: 'wifi';
   status: 'waiting' | 'working' | 'ready' | 'error';
   /** Étape en cours (« Lecture du texte de la photo… »). */
   step?: string;
@@ -51,9 +53,20 @@ interface InboxState {
   items: InboxItem[];
   /** Dernière lecture du dossier (ms) ; null tant qu'aucune. */
   scannedAt: number | null;
+  /** Fenêtre « Recevoir depuis le téléphone » (réception par le Wi-Fi) ouverte. */
+  wifiOpen: boolean;
 }
 
-export const useInbox = create<InboxState>(() => ({ info: null, items: [], scannedAt: null }));
+export const useInbox = create<InboxState>(() => ({ info: null, items: [], scannedAt: null, wifiOpen: false }));
+
+/** Réception par le Wi-Fi possible (app de bureau). */
+export const wifiAvailable = () => !!host.inbox?.wifiStart;
+
+/** Ouvre la Boîte de réception et la fenêtre « Recevoir depuis le téléphone ». */
+export function openWifiReceive() {
+  if (useStore.getState().route.name !== 'inbox') useStore.getState().navigate({ name: 'inbox' });
+  useInbox.setState({ wifiOpen: true });
+}
 
 export const inboxAvailable = () => !!host.inbox;
 
@@ -104,7 +117,9 @@ let scanning: Promise<void> | null = null;
 let rescan = false;
 let queue: Promise<void> = Promise.resolve();
 
-const enabled = () => !!useStore.getState().settings.inbox && !!host.inbox;
+// Les envois par le Wi-Fi sont toujours lus ; le dossier synchronisé seulement s'il est activé
+// (l'hôte ne liste ce dossier qu'après inbox.enable()).
+const enabled = () => !!host.inbox;
 
 /** Relit le dossier, ajoute les nouveaux fichiers et lance leur traitement. */
 export function scanInbox(): Promise<void> {
@@ -135,7 +150,7 @@ export function scanInbox(): Promise<void> {
         continue;
       }
       if (old?.preview) URL.revokeObjectURL(old.preview);
-      items.push({ name: f.name, size: f.size, mtime: f.mtime, kind: kindOf(f.name), pending: f.pending, status: 'waiting', step: f.pending ? 'Téléchargement depuis le nuage…' : undefined });
+      items.push({ name: f.name, size: f.size, mtime: f.mtime, kind: kindOf(f.name), pending: f.pending, source: f.source, status: 'waiting', step: f.pending ? 'Téléchargement depuis le nuage…' : undefined });
       if (!f.pending) todo.push(f.name);
     }
     for (const [n, it] of prev) if (!names.has(n) && it.preview) URL.revokeObjectURL(it.preview);
@@ -214,7 +229,12 @@ async function processItem(name: string) {
           return;
         }
         patch(name, { text, step: 'Recherche du passage dans la bibliothèque…' });
-        const matches = await search(text);
+        // Plusieurs passages (notes d'un livre copiées depuis Livres, Play Livres…) : un extrait chacun.
+        const several = await addSeveral(name, text);
+        if (several === 'done') return;
+        const left = several ?? text;
+        if (several) patch(name, { text: left });
+        const matches = await search(left);
         if (isClear(matches) && (await addExtract(name, matches[0], { auto: true }))) return;
         patch(name, { status: 'ready', step: undefined, matches, searchedText: text, searchedIn: null });
         return;
@@ -266,6 +286,49 @@ function decodeEntities(s: string) {
   const t = document.createElement('textarea');
   t.innerHTML = s;
   return t.value;
+}
+
+/**
+ * Texte à plusieurs passages : chaque passage retrouvé sans ambiguïté devient un extrait (avec la
+ * note qui le suit). 'done' : tout est traité (fichier rangé) ; une chaîne : les passages non
+ * retrouvés, qui restent dans la boîte ; null : un seul passage, traitement ordinaire.
+ */
+async function addSeveral(name: string, text: string): Promise<'done' | string | null> {
+  const { splitBlocks, hasSeveralPassages, pairNotes } = await import('./passages');
+  const blocks = splitBlocks(text);
+  if (!hasSeveralPassages(blocks)) return null;
+  const found: (PassageMatch | null)[] = [];
+  for (let i = 0; i < blocks.length; i++) {
+    patch(name, { step: `Recherche des passages dans la bibliothèque… (${Math.min(i + 1, blocks.length)} / ${blocks.length})` });
+    const m = blocks[i].candidate ? await search(blocks[i].text) : [];
+    found.push(isClear(m) ? m[0] : null);
+  }
+  const { found: hits, rest } = pairNotes(blocks, (i) => found[i]);
+  if (!hits.length) return null;
+  const st = useStore.getState();
+  const books = new Set<string>();
+  let added = 0;
+  let firstId: string | null = null;
+  for (const { match: m, note } of hits) {
+    if (!st.books.some((b) => b.id === m.bookId)) continue;
+    books.add(m.bookId);
+    // Déjà là (même texte dans le même livre, envoi répété) : on ne double pas l'extrait.
+    if (useStore.getState().highlights.some((h) => h.bookId === m.bookId && h.text === m.text)) continue;
+    const n = note.trim();
+    const h = st.addHighlight({ bookId: m.bookId, category: null, plain: !n, note: n, text: m.text, anchor: m.anchor, locationLabel: m.locationLabel, printedPage: m.printedPage });
+    firstId ??= h.id;
+    added++;
+  }
+  const where = books.size === 1 ? `« ${titleOf([...books][0])} »` : `${books.size} livres`;
+  const msg = added ? `${added} extrait${added > 1 ? 's' : ''} reçu${added > 1 ? 's' : ''} du téléphone, ajouté${added > 1 ? 's' : ''} à ${where}` : 'Ces passages sont déjà dans vos extraits';
+  const id = firstId;
+  if (!rest.length) {
+    if (!(await finish(name))) return rest.join('\n\n');
+    st.toast(msg, 'success', id ? { label: 'Voir', run: () => useStore.getState().jumpToHighlight(id) } : undefined);
+    return 'done';
+  }
+  st.toast(`${msg}. ${rest.length} passage${rest.length > 1 ? 's' : ''} non retrouvé${rest.length > 1 ? 's' : ''} : à voir dans la boîte.`, 'success', id ? { label: 'Voir', run: () => useStore.getState().jumpToHighlight(id) } : undefined);
+  return rest.join('\n\n');
 }
 
 async function search(text: string, bookIds?: string[]): Promise<PassageMatch[]> {
@@ -339,7 +402,8 @@ export async function makeDraft(name: string) {
 
 /** Retire de la boîte sans rien créer (le fichier est rangé dans « Traités »). */
 export async function dismissItem(name: string) {
-  if (await finish(name)) useStore.getState().toast('Retiré de la boîte (rangé dans « Traités »)', 'info');
+  const wifi = get(name)?.source === 'wifi';
+  if (await finish(name)) useStore.getState().toast(wifi ? 'Retiré de la boîte' : 'Retiré de la boîte (rangé dans « Traités »)', 'info');
 }
 
 export function retryItem(name: string) {
@@ -387,7 +451,7 @@ export async function resetInboxDir() {
   void scanInbox();
 }
 
-/** Branché une fois dans l'app : surveillance du dossier tant que la boîte est activée. */
+/** Branché une fois dans l'app : envois par le Wi-Fi toujours lus ; dossier synchronisé surveillé tant que la boîte est activée. */
 export function useInboxSync() {
   const ready = useStore((s) => s.ready);
   const on = useStore((s) => !!s.settings.inbox);
@@ -395,18 +459,17 @@ export function useInboxSync() {
     const api = host.inbox;
     if (!api || !ready) return;
     if (!useInbox.getState().info) void api.info().then((info) => useInbox.setState({ info })).catch(() => undefined);
-    if (!on) {
-      void api.disable().catch(() => undefined);
-      useInbox.setState({ items: [] });
-      return;
-    }
     let alive = true;
     void (async () => {
       try {
-        const info = await api.enable();
-        if (alive) useInbox.setState({ info });
+        if (on) {
+          const info = await api.enable();
+          if (alive) useInbox.setState({ info });
+        } else {
+          await api.disable();
+        }
       } catch (e) {
-        void host.diag?.('boite', 'activation', String((e as Error)?.message ?? e));
+        void host.diag?.('boite', on ? 'activation' : 'désactivation', String((e as Error)?.message ?? e));
       }
       if (alive) void scanInbox();
     })();
@@ -432,9 +495,7 @@ export function useInboxSync() {
  */
 export const needsDecision = (i: InboxItem) => i.status === 'error' || (i.kind === 'book' ? false : i.kind === 'text' ? i.status === 'ready' : true);
 
-/** Nombre d'éléments qui attendent une décision (0 si la boîte est désactivée). */
+/** Nombre d'éléments qui attendent une décision (dossier synchronisé et envois par le Wi-Fi). */
 export function useInboxCount(): number {
-  const on = useStore((s) => !!s.settings.inbox);
-  const n = useInbox((s) => s.items.reduce((k, i) => k + (needsDecision(i) ? 1 : 0), 0));
-  return on ? n : 0;
+  return useInbox((s) => s.items.reduce((k, i) => k + (needsDecision(i) ? 1 : 0), 0));
 }

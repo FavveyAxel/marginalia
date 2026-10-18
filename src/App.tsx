@@ -299,6 +299,8 @@ function Sidebar() {
   });
   const nTrash = useStore((s) => s.trash.length);
   const inboxOn = useStore((s) => !!s.settings.inbox);
+  // Boîte de réception : toujours accessible dans l'app de bureau (réception par le Wi-Fi).
+  const inboxAvail = host.kind === 'electron' && !!host.inbox?.wifiStart;
   const nInbox = useInboxCount();
   const setCommandOpen = useStore((s) => s.setCommandOpen);
   const due = useDueCount();
@@ -371,14 +373,14 @@ function Sidebar() {
           <button className="icon-btn rail-import" onClick={importViaDialog} title={fmtKeys('Importer (⌘O)')} aria-label="Importer">
             <Plus size={16} />
           </button>
-          {inboxOn && <InboxButton n={nInbox} rail />}
+          {(inboxOn || inboxAvail) && <InboxButton n={nInbox} rail />}
         </>
       ) : (
         <div className="import-row">
           <button className="btn import-btn" onClick={importViaDialog}>
             <Plus size={15} /> Importer <span style={{ marginLeft: 'auto' }} /> <Kbd>⌘O</Kbd>
           </button>
-          {inboxOn && <InboxButton n={nInbox} />}
+          {(inboxOn || inboxAvail) && <InboxButton n={nInbox} />}
         </div>
       )}
     </nav>

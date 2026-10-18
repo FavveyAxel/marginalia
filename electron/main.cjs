@@ -25,6 +25,7 @@ const crypto = require('node:crypto');
 const { pathToFileURL } = require('node:url');
 const zipkit = require('./backup.cjs');
 const vault = require('./vault.cjs');
+const wifiKit = require('./wifi.cjs');
 
 const DEV_URL = process.env.VITE_DEV_SERVER_URL || '';
 const APP_ORIGIN = 'app://marginalia';
@@ -907,6 +908,7 @@ async function lockNow(reason) {
     await flushAll();
     await waitSaves();
     await Promise.all([...fileLocks.values()]);
+    wifiReceiver.stop('locked');
     vault.wipe(sec.dek);
     sec.dek = null;
     sec.lockedBy = reason;
@@ -1914,6 +1916,11 @@ async function inboxInfo() {
 
 let inboxWatcher = null;
 let inboxTimer = null;
+// Dossier synchronisé activé (réglage « Boîte de dépôt ») : sinon seuls les envois par le Wi-Fi sont lus.
+let inboxCloudOn = false;
+// Réception par le Wi-Fi : dossier local, dans les données de l'app (jamais synchronisé). Un fichier
+// traité y est effacé (son contenu est dans la bibliothèque ou la base), pas rangé dans « Traités ».
+const wifiDir = () => path.join(userData(), 'wifi-recus');
 function inboxBroadcast() {
   clearTimeout(inboxTimer);
   inboxTimer = setTimeout(() => {
@@ -1964,27 +1971,33 @@ async function switchInboxDir(dir) {
 function inboxSkipped(name) {
   return !name || name.startsWith('.') || name.startsWith('~$') || name === INBOX_DONE_DIR || INBOX_IGNORED.has(name.toLowerCase());
 }
-/** Fichier désigné par le rendu : nom simple, fichier ordinaire (pas un lien) de premier niveau. */
+/** Fichier désigné par le rendu : nom simple, fichier ordinaire (pas un lien) de premier niveau, reçu
+ * par le Wi-Fi (cherché d'abord) ou dans le dossier synchronisé. */
 async function inboxFile(name) {
   if (typeof name !== 'string' || !name || name === '.' || name === '..' || /[/\\\0]/.test(name) || path.basename(name) !== name) {
     throw new Error('Nom de fichier invalide.');
   }
-  const dir = inboxDir();
-  const full = path.join(dir, name);
-  if (!isInside(full, dir) || path.dirname(full) !== path.resolve(dir)) throw new Error('Nom de fichier invalide.');
-  const st = await fsp.lstat(full).catch(() => null);
-  if (!st) throw new Error(`« ${name} » n'est plus dans la Boîte de dépôt.`);
-  if (!st.isFile()) throw new Error(`« ${name} » n'est pas un fichier.`);
-  return { full, st };
+  for (const [dir, wifi] of [[wifiDir(), true], [inboxDir(), false]]) {
+    if (!wifi && !inboxCloudOn) continue;
+    const full = path.join(dir, name);
+    if (!isInside(full, dir) || path.dirname(full) !== path.resolve(dir)) throw new Error('Nom de fichier invalide.');
+    const st = await fsp.lstat(full).catch(() => null);
+    if (!st) continue;
+    if (!st.isFile()) throw new Error(`« ${name} » n'est pas un fichier.`);
+    return { full, st, wifi };
+  }
+  throw new Error(`« ${name} » n'est plus dans la Boîte de dépôt.`);
 }
 const fsReason = (e) => (e && e.code === 'EACCES') || (e && e.code === 'EPERM') ? 'accès refusé' : (e && e.code) || (e && e.message) || String(e);
 
 dataHandle('marginalia:inboxInfo', () => inboxInfo());
 dataHandle('marginalia:inboxEnable', async () => {
   await startInboxWatch();
+  inboxCloudOn = true;
   return inboxInfo();
 });
 dataHandle('marginalia:inboxDisable', async () => {
+  inboxCloudOn = false;
   stopInboxWatch();
 });
 dataHandle('marginalia:inboxChoose', async () => {
@@ -2023,17 +2036,34 @@ function inboxRecheckSoon() {
     for (const w of BrowserWindow.getAllWindows()) if (!w.isDestroyed()) w.webContents.send('marginalia:inboxChanged');
   }, 4000);
 }
+/** Fichiers complets reçus par le Wi-Fi (les envois en cours sont des « .part-… » cachés). */
+async function wifiList() {
+  let entries = [];
+  try {
+    entries = await fsp.readdir(wifiDir(), { withFileTypes: true });
+  } catch {
+    return [];
+  }
+  const out = [];
+  for (const e of entries) {
+    if (!e.isFile() || inboxSkipped(e.name)) continue;
+    const st = await fsp.stat(path.join(wifiDir(), e.name)).catch(() => null);
+    if (st && st.isFile()) out.push({ name: e.name, size: st.size, mtime: st.mtimeMs, source: 'wifi' });
+  }
+  return out;
+}
 dataHandle('marginalia:inboxList', async () => {
+  const wifi = await wifiList();
+  if (!inboxCloudOn) return wifi.sort((a, b) => a.mtime - b.mtime || a.name.localeCompare(b.name, 'fr'));
   const dir = inboxDir();
   let entries = [];
   try {
     entries = await fsp.readdir(dir, { withFileTypes: true });
   } catch (e) {
-    if (e && e.code === 'ENOENT') return [];
-    throw new Error(`Lecture de la Boîte de dépôt impossible (${fsReason(e)}).`);
+    if (!(e && e.code === 'ENOENT')) throw new Error(`Lecture de la Boîte de dépôt impossible (${fsReason(e)}).`);
   }
   const now = Date.now();
-  const files = [];
+  const files = [...wifi];
   const pending = [];
   for (const e of entries) {
     const full = path.join(dir, e.name);
@@ -2078,7 +2108,15 @@ dataHandle('marginalia:inboxRead', async (_e, name) => {
   return { name, data: new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength) };
 });
 dataHandle('marginalia:inboxDone', async (_e, name) => {
-  const { full } = await inboxFile(name);
+  const { full, wifi } = await inboxFile(name);
+  if (wifi) {
+    try {
+      await fsp.rm(full, { force: true });
+    } catch (e) {
+      throw new Error(`Impossible de retirer « ${name} » (${fsReason(e)}).`);
+    }
+    return;
+  }
   const doneDir = path.join(inboxDir(), INBOX_DONE_DIR);
   try {
     await fsp.mkdir(doneDir, { recursive: true });
@@ -2108,6 +2146,33 @@ dataHandle('marginalia:inboxReveal', async () => {
   const err = await shell.openPath(dir);
   if (err) throw new Error(`Impossible d'ouvrir le dossier : ${err}`);
 });
+
+// ── Réception par le Wi-Fi (voir electron/wifi.cjs) ──
+const wifiReceiver = wifiKit.createReceiver({
+  dir: wifiDir,
+  // Nom déjà présent dans le dossier synchronisé : la boîte les mélange, on évite les doublons de nom.
+  taken: (name) => inboxCloudOn && fs.existsSync(path.join(inboxDir(), name)),
+  isLocked: () => isLocked(),
+  pagePath: path.join(__dirname, 'wifi-page.html'),
+  diag: (...a) => diag(...a),
+  emit: (evt) => {
+    for (const w of BrowserWindow.getAllWindows()) {
+      if (w.isDestroyed()) continue;
+      w.webContents.send('marginalia:wifi', evt);
+      if (evt.type === 'received') w.webContents.send('marginalia:inboxChanged');
+    }
+  },
+});
+dataHandle('marginalia:wifiStart', async () => {
+  try {
+    return await wifiReceiver.start();
+  } catch (e) {
+    diag('wifi', 'ouverture', e && e.message);
+    throw new Error(`Impossible d'ouvrir la réception par le Wi-Fi (${(e && e.code) || (e && e.message) || e}).`);
+  }
+});
+dataHandle('marginalia:wifiInfo', () => wifiReceiver.info());
+handle('marginalia:wifiStop', () => wifiReceiver.stop('closed'));
 
 // Windows : familles vues par GDI+ (polices de la machine et de l'utilisateur), repli sur les clés
 // de registre « Fonts » (HKLM et HKCU) dont on retire le type et les noms de style. Sans module natif.
@@ -3090,6 +3155,7 @@ app.on('web-contents-created', (_e, contents) => {
 let appQuitting = false;
 let quitReady = false;
 app.on('before-quit', (event) => {
+  wifiReceiver.stop('quit');
   if (quitReady) return;
   event.preventDefault();
   if (appQuitting) return;

@@ -417,7 +417,7 @@ export function LibraryView() {
                     <span className="lib-chip-count">{filterCounts[k]}</span>
                   </button>
                 ))}
-                {inboxOn && (
+                {(inboxOn || inboxN > 0) && (
                   <button className={`chip lib-inbox-chip ${inboxN ? 'has-items' : ''}`} onClick={() => useStore.getState().navigate({ name: 'inbox' })} title="Ce que vous envoyez depuis le téléphone">
                     <Inbox size={13} /> Reçu du téléphone
                     {inboxN > 0 && <span className="lib-inbox-n">{inboxN}</span>}

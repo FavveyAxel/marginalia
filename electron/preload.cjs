@@ -146,6 +146,14 @@ api.inbox = {
   read: async (name) => toFile(await ipcRenderer.invoke('marginalia:inboxRead', String(name))),
   done: (name) => ipcRenderer.invoke('marginalia:inboxDone', String(name)),
   reveal: () => ipcRenderer.invoke('marginalia:inboxReveal'),
+  wifiStart: () => ipcRenderer.invoke('marginalia:wifiStart'),
+  wifiInfo: () => ipcRenderer.invoke('marginalia:wifiInfo'),
+  wifiStop: () => ipcRenderer.invoke('marginalia:wifiStop'),
+  onWifi: (cb) => {
+    const handler = (_e, evt) => cb(evt);
+    ipcRenderer.on('marginalia:wifi', handler);
+    return () => ipcRenderer.removeListener('marginalia:wifi', handler);
+  },
   onChange: (cb) => {
     const handler = () => cb();
     ipcRenderer.on('marginalia:inboxChanged', handler);

@@ -621,6 +621,11 @@ function trashToastText(e: TrashEntry): string {
   return `« ${e.title} » placé dans la corbeille`;
 }
 
+// Fichiers ouverts avec Marginalia (double-clic, « Ouvrir avec ») pendant cette session : la visite
+// guidée d'un nouvel utilisateur attend alors qu'il revienne à l'accueil, au lieu de l'interrompre.
+let openedFiles = false;
+export const filesOpenedThisSession = () => openedFiles;
+
 export const useStore = create<State>()(tracked((set, get) => ({
   ...emptyDb(),
   ready: false,
@@ -660,6 +665,7 @@ export const useStore = create<State>()(tracked((set, get) => ({
         .purgeExpiredTrash()
         .catch((e) => console.warn('corbeille', e));
       host.onOpenFiles((files) => {
+        openedFiles = true;
         get()
           .importFiles(files)
           .then((books) => {

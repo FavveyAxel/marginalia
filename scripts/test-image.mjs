@@ -398,7 +398,11 @@ try {
     }, idRot);
     ok(cover.h > cover.w, 'miniature droite (orientation EXIF appliquée)', `${cover.w}×${cover.h}`);
     await page.evaluate((id) => window.__store.getState().navigate({ name: 'reader', bookId: id, tab: 'lecture', splitBookId: id }), idRot);
-    await page.waitForFunction(() => document.querySelectorAll('.img-ocr-chip').length === 2, null, { timeout: 20000 }).catch(() => null);
+    // Rien ne démarre seul : chaque volet propose la reconnaissance ; on la lance dans le premier.
+    await page.waitForFunction(() => document.querySelectorAll('[data-testid="img-ocr-offer"]').length === 2, null, { timeout: 20000 }).catch(() => null);
+    ok((await page.$$('[data-testid="img-ocr-offer"]')).length === 2 && !(await page.$('.img-ocr-pct')), 'côte à côte : la reconnaissance est proposée dans les deux volets, sans démarrer');
+    await page.click('[data-testid="img-ocr-offer"] button');
+    await page.waitForSelector('.img-ocr-pct', { timeout: 10000 }).catch(() => null);
     const dims = await page.evaluate(() => [...document.querySelectorAll('.img-page')].map((e) => ({ w: e.clientWidth, h: e.clientHeight })));
     ok(dims.length === 2 && dims.every((d) => d.h > d.w), 'photo affichée droite dans les deux volets', JSON.stringify(dims));
     await page.waitForFunction(() => Number(document.querySelector('.img-ocr-pct')?.textContent.replace(/\D/g, '') || 0) >= 30, null, { timeout: 60000 }).catch(() => null);
@@ -415,7 +419,7 @@ try {
     ok((!!chip2 && pctB >= pctA) || doneMeanwhile, 'lecteur fermé puis rouvert : la reconnaissance continue (pas de nouveau départ)', chip2 ? `${pctA} % → ${pctB} %` : 'terminée pendant la fermeture');
     await page.waitForFunction(() => document.querySelectorAll('.img-text span[data-i]').length > 200, null, { timeout: 120000 });
     const langLoads = requests.filter((u) => u.includes('fra.traineddata.gz')).length;
-    ok(langLoads === 1, 'une seule reconnaissance pour deux volets et une réouverture', `${langLoads} chargement(s) des modèles`);
+    ok(langLoads === 1, 'une seule reconnaissance pour une réouverture', `${langLoads} chargement(s) des modèles`);
     const ocrR = await readOcr(page, idRot);
     const textR = ocrR.paras.map((p) => p.lines.map((l) => l.words.map((w) => w.t).join(' ')).join('\n')).join('\n\n');
     const accR = wordAccuracy(fs.readFileSync(TRUTH, 'utf8'), textR);

@@ -7,7 +7,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { create } from 'zustand';
-import { useStore } from '../../lib/store';
+import { filesOpenedThisSession, useStore } from '../../lib/store';
 import { host } from '../../lib/platform';
 import { fmtKeys } from '../../lib/keys';
 import type { Route } from '../../lib/types';
@@ -170,11 +170,28 @@ export function useAutoTour() {
   useEffect(() => {
     if (!ready || useStore.getState().settings.tourDone || !host.firstRun) return;
     let alive = true;
+    let unsub: (() => void) | null = null;
+    // Ouvert avec un fichier (double-clic sur un livre) : on ne l'interrompt pas ; la visite démarre
+    // quand il revient à l'accueil.
+    const atHome = () => useStore.getState().route.name === 'home' && !filesOpenedThisSession();
+    const go = () => alive && !useStore.getState().settings.tourDone && !useTour.getState().active && startTour();
     void host.firstRun().then((first) => {
-      if (alive && first && !useStore.getState().settings.tourDone) setTimeout(() => alive && startTour(), 600);
+      if (!alive || !first || useStore.getState().settings.tourDone) return;
+      setTimeout(() => {
+        if (!alive) return;
+        if (atHome()) return go();
+        unsub = useStore.subscribe((s, prev) => {
+          if (s.route.name === 'home' && prev.route.name !== 'home') {
+            unsub?.();
+            unsub = null;
+            setTimeout(go, 600);
+          }
+        });
+      }, 1500);
     });
     return () => {
       alive = false;
+      unsub?.();
     };
   }, [ready]);
 }

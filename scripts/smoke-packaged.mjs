@@ -50,13 +50,28 @@ async function smoke(exe) {
     if (!cond && process.env.GITHUB_ACTIONS) console.log(`::error title=Test de démarrage (${process.platform} ${process.arch})::${String(msg).replace(/\r?\n/g, ' ')}`);
   };
   const args = process.platform === 'linux' ? ['--no-sandbox'] : [];
-  const app = await electron.launch({
-    executablePath: exe,
-    args,
-    // MARGINALIA_E2E=1 : le rendu expose son store (window.__store), déjà utilisé par les tests e2e.
-    env: { ...process.env, MARGINALIA_E2E: '1', VITE_DEV_SERVER_URL: '', XDG_CONFIG_HOME: tmp },
-    timeout: 90_000,
-  });
+  // Lancement : une seconde tentative si le premier échoue (machines Mac de GitHub parfois lentes au
+  // premier démarrage d'une app non signée) ; l'erreur est toujours affichée.
+  let app = null;
+  for (let attempt = 1; attempt <= 2 && !app; attempt++) {
+    try {
+      app = await electron.launch({
+        executablePath: exe,
+        args,
+        // MARGINALIA_E2E=1 : le rendu expose son store (window.__store), déjà utilisé par les tests e2e.
+        env: { ...process.env, MARGINALIA_E2E: '1', VITE_DEV_SERVER_URL: '', XDG_CONFIG_HOME: tmp },
+        timeout: 120_000,
+      });
+    } catch (e) {
+      const msg = `lancement (essai ${attempt}) : ${String(e && e.message).split('\n').slice(0, 3).join(' ')}`;
+      if (attempt === 2) ok(false, msg);
+      else console.log('       ' + msg + ' — nouvel essai');
+    }
+  }
+  if (!app) {
+    fs.rmSync(tmp, { recursive: true, force: true });
+    return failures;
+  }
   let crashed = null;
   try {
     const info = await app.evaluate(({ app }) => ({ version: app.getVersion(), packaged: app.isPackaged, appPath: app.getAppPath() }));

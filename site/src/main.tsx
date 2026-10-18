@@ -1,34 +1,55 @@
 import { StrictMode, useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { Sprite, anchorOf, VB_H, VB_W, type Pose } from '../../src/features/mascot/Sprite';
+import { extraPose } from '../../src/features/mascot/activities';
 import { rousseau } from '../../src/features/mascot/characters/rousseau';
 import { DOWNLOADS, VERSION, type Download } from './downloads';
 import './site.css';
 
-// Cadence de chaque pose (images par seconde), comme dans l'app.
-const FPS: Partial<Record<string, number>> = { sitwave: 8, read: 4, herborize: 4, wave: 8, write: 4, think: 3 };
+// Cadence de chaque pose (images par seconde), comme dans l'app ; activités : leur propre cadence.
+const FPS: Partial<Record<string, number>> = { sitwave: 8, read: 4, wave: 8, write: 4, think: 3, jump: 8, walk: 8, doze: 2 };
+const fpsOf = (p: Pose) => FPS[p] ?? extraPose(p)?.fps ?? 4;
 const reduced = () => typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
 
-/** Rousseau, dessiné et animé par le moteur de l'app. `seq` : poses jouées l'une après l'autre (ms). */
-function Rousseau({ seq, size, className }: { seq: [Pose, number][]; size: number; className?: string }) {
+/**
+ * Rousseau, dessiné et animé par le moteur de l'app. `seq` : activités jouées l'une après l'autre (ms).
+ * `poke` : un clic le fait sauter puis passer à l'activité suivante.
+ */
+function Rousseau({ seq, size, className, poke, facing }: { seq: [Pose, number][]; size: number; className?: string; poke?: boolean; facing?: 1 | -1 }) {
   const [i, setI] = useState(0);
   const [frame, setFrame] = useState(0);
-  const pose = seq[i % seq.length][0];
+  const [jumping, setJumping] = useState(false);
+  const pose: Pose = jumping ? 'jump' : seq[i % seq.length][0];
+  const seqKey = JSON.stringify(seq);
+  useEffect(() => { setI(0); setFrame(0); }, [seqKey]);
   useEffect(() => {
     if (reduced()) return;
-    const t = setInterval(() => setFrame((f) => f + 1), 1000 / (FPS[pose] ?? 4));
+    const t = setInterval(() => setFrame((f) => f + 1), 1000 / fpsOf(pose));
     return () => clearInterval(t);
   }, [pose]);
   useEffect(() => {
-    if (seq.length < 2 || reduced()) return;
+    if (seq.length < 2 || reduced() || jumping) return;
     const t = setTimeout(() => { setI((x) => x + 1); setFrame(0); }, seq[i % seq.length][1]);
     return () => clearTimeout(t);
-  }, [i, seq]);
+  }, [i, seqKey, jumping]);
+  useEffect(() => {
+    if (!jumping) return;
+    const t = setTimeout(() => { setJumping(false); setI((x) => x + 1); setFrame(0); }, 900);
+    return () => clearTimeout(t);
+  }, [jumping]);
   const h = (size * VB_H) / VB_W;
+  const style = { width: `${size / 16}rem`, height: `${h / 16}rem`, ['--anchor' as string]: `${(anchorOf(pose) / VB_H) * (h / 16)}rem` };
+  const sprite = <Sprite pose={pose} frame={frame} level={2} character={rousseau} facing={facing} />;
+  // tailles en rem : la mascotte suit l'échelle fluide de la page
+  if (poke && !reduced())
+    return (
+      <button type="button" className={`${className ?? ''} rousseau-poke`} style={style} onClick={() => { setJumping(true); setFrame(0); }} aria-label="Rousseau : cliquez pour qu’il change d’activité">
+        {sprite}
+      </button>
+    );
   return (
-    // tailles en rem : la mascotte suit l'échelle fluide de la page
-    <span className={className} style={{ width: `${size / 16}rem`, height: `${h / 16}rem`, ['--anchor' as string]: `${(anchorOf(pose) / VB_H) * (h / 16)}rem` }} aria-hidden="true">
-      <Sprite pose={pose} frame={frame} level={2} character={rousseau} />
+    <span className={className} style={style} aria-hidden="true">
+      {sprite}
     </span>
   );
 }
@@ -82,7 +103,7 @@ function AnnotatedPage() {
   );
   return (
     <figure className="page" aria-label="Exemple : le début du Contrat social, annoté dans Marginalia">
-      <Rousseau className="page-rousseau" size={150} seq={[['sitwave', 2600], ['read', 7000], ['think', 2600], ['read', 6000]]} />
+      <Rousseau className="page-rousseau" size={150} poke seq={HERO_SEQ} />
       <div className="page-body">
         <p className="page-ref">Rousseau, <cite>Du contrat social</cite>, I, 1</p>
         <p>
@@ -106,6 +127,9 @@ function AnnotatedPage() {
     </figure>
   );
 }
+
+const HERO_SEQ: [Pose, number][] = [['sitwave', 2600], ['read', 6500], ['write', 5500], ['question', 4000], ['coffee', 6000], ['spyglass', 4500], ['juggle', 5000], ['think', 3000]];
+const TAB_SEQS: [Pose, number][][] = [[['read', 60000]], [['classify', 60000]], [['write', 60000]]];
 
 const STEPS = [
   {
@@ -149,6 +173,7 @@ function Showcase() {
   const playing = auto && visible && !reduced();
   return (
     <section className="showcase reveal" id="apercu" aria-label="Aperçu de l’app" ref={ref}>
+      <div className="showcase-head">
       <div className="tabs" role="tablist" aria-label="Étapes du travail">
         {STEPS.map((x, i) => (
           <button key={x.title} role="tab" id={`tab-${x.shot}`} aria-selected={i === k} aria-controls="showcase-panel" className={i === k ? 'is-on' : ''} onClick={() => { setK(i); setAuto(false); }}>
@@ -156,6 +181,8 @@ function Showcase() {
             {i === k && playing && <span className="tab-progress" key={k} style={{ animationDuration: `${AUTO_MS}ms` }} aria-hidden="true" />}
           </button>
         ))}
+      </div>
+      <Rousseau className="showcase-rousseau" size={92} seq={TAB_SEQS[k]} />
       </div>
       <div className="showcase-panel" id="showcase-panel" role="tabpanel" aria-labelledby={`tab-${s.shot}`}>
         <p className="showcase-text" key={s.shot}>{s.text}</p>
@@ -239,6 +266,7 @@ const MORE: { icon: string; title: string; items: string[] }[] = [
       'Plans de dissertation nourris de vos extraits et arguments',
       'Traitement de texte au format Word (.docx)',
       'Notes de bas de page, notes privées, commentaires en marge',
+      'Le livre, les extraits ou le plan ouverts à côté de l’écrit',
       'Citer en écrivant : chaque citation reste reliée à son passage',
       'Correcteur orthographique, pinceau, plan déplaçable',
       'Mode concentration et machine à écrire',
@@ -313,8 +341,26 @@ function App() {
 
         <Showcase />
 
+        <section className="cote reveal" aria-labelledby="cote-title">
+          <div className="cote-text">
+            <h2 id="cote-title">Écrire, le livre ouvert à côté</h2>
+            <p>
+              Pendant que vous écrivez, ouvrez à côté le vrai livre, vos extraits, vos concepts ou votre plan. Sélectionnez un passage et
+              citez-le : la citation reste reliée à sa page, et un ⌘-clic dessus vous y ramène.
+            </p>
+            <p>Le partage de l’écran se règle à la souris, ou d’un clic en deux moitiés égales.</p>
+          </div>
+          <div className="shot-wrap">
+            <img className="cote-shot" src="/captures/cote.png" alt="Une dissertation dans l’éditeur, le Discours de la méthode ouvert à côté" width={1440} height={900} loading="lazy" />
+            <Rousseau className="cote-rousseau" size={100} seq={[['write', 8000], ['read', 6000]]} />
+          </div>
+        </section>
+
         <section className="spaces reveal" aria-labelledby="spaces-title">
-          <img className="spaces-shot" src="/captures/espaces.png" alt="Un espace de travail « Mémoire sur Descartes », avec ses groupes et sous-groupes" width={1440} height={820} loading="lazy" />
+          <div className="shot-wrap">
+            <img className="spaces-shot" src="/captures/espaces.png" alt="Un espace de travail « Dissertation : la liberté », avec ses livres, écrits, plans et cartes rangés en groupes" width={1440} height={900} loading="lazy" />
+            <Rousseau className="spaces-rousseau" size={110} seq={[['juggle', 7000], ['classify', 6000]]} />
+          </div>
           <div className="spaces-text">
             <h2 id="spaces-title">Un espace par cours, par dissertation</h2>
             <p>
@@ -335,7 +381,10 @@ function App() {
             <p>Un livre ajouté sur votre iPhone ou votre iPad arrive tout seul. Rien n’est jamais modifié dans Livres.</p>
             <p className="books-note">Livres achetés avec protection (DRM) exclus.</p>
           </div>
+          <div className="shot-wrap books-wrap">
+          <Rousseau className="books-rousseau" size={100} seq={[['plane', 6500], ['read', 5000]]} />
           <img className="books-shot" src="/captures/livres.png" alt="La fenêtre Livres d’Apple de Marginalia : choix des livres et correspondance des couleurs" width={560} height={503} loading="lazy" />
+          </div>
         </section>
 
         <section className="more reveal" id="fonctions" aria-labelledby="more-title">
@@ -356,7 +405,7 @@ function App() {
         </section>
 
         <section className="private reveal">
-          <Rousseau className="private-rousseau" size={150} seq={[['herborize', 9000], ['read', 6000]]} />
+          <Rousseau className="private-rousseau" size={150} seq={[['herborize', 9000], ['meditate', 7000]]} />
           <div>
             <h2>Rien ne quitte votre ordinateur</h2>
             <p>
@@ -417,6 +466,9 @@ function App() {
         </section>
       </main>
 
+      <div className="walker" aria-hidden="true">
+        <Rousseau className="walker-rousseau" size={70} seq={[['walk', 60000]]} />
+      </div>
       <footer className="foot">
         <p>Marginalia {VERSION}. Fait pour les élèves de terminale, les étudiants et tous les lecteurs de philosophie.</p>
       </footer>

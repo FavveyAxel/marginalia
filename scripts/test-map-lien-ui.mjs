@@ -24,9 +24,9 @@ await withApp(5417, async (page, errors) => {
     s.setMap(id, {
       bookId: id,
       nodes: [
-        { id: 'S', highlightId: null, text: 'Le liberté', x: 420, y: 140, kind: 'subject' },
-        { id: 'A', highlightId: null, text: 'Mentir sous serment trahit la parole donnée', x: 160, y: 520 },
-        { id: 'B', highlightId: null, text: 'Le serment engage devant les autres', x: 760, y: 520 },
+        { id: 'S', highlightId: null, text: 'La liberté', x: 420, y: 140, kind: 'subject' },
+        { id: 'A', highlightId: null, text: 'Obéir à la loi qu’on s’est prescrite est liberté', x: 160, y: 520 },
+        { id: 'B', highlightId: null, text: 'La volonté générale fonde le droit', x: 760, y: 520 },
       ],
       edges: [],
       viewport: { x: 0, y: 0, zoom: 1 },
@@ -59,10 +59,10 @@ await withApp(5417, async (page, errors) => {
   ok('lien { source : centre, cible : nouvelle carte, relation : lien }', e1 && e1.source === 'S' && e1.target === fresh.id && e1.relation === 'lien', JSON.stringify(m.edges));
   await page.waitForFunction(() => document.activeElement?.classList.contains('map-idea-input'));
   await wait(page, 150);
-  await page.keyboard.type('Un liberté ruine la confiance');
+  await page.keyboard.type('Une liberté sans loi se détruit');
   await page.keyboard.press('Escape');
   await wait(page, 200);
-  ok('la nouvelle carte garde son texte', (await mapOf()).nodes.find((n) => n.id === fresh.id).text === 'Un liberté ruine la confiance');
+  ok('la nouvelle carte garde son texte', (await mapOf()).nodes.find((n) => n.id === fresh.id).text === 'Une liberté sans loi se détruit');
   await page.locator('.react-flow__pane').click({ position: { x: 20, y: 300 } });
   await wait(page, 900);
   const g1 = page.locator(`.react-flow__edge[data-id="${e1.id}"] .map-edge`);
@@ -102,7 +102,7 @@ await withApp(5417, async (page, errors) => {
   let e = m.edges.find((x) => x.id === e2.id);
   ok('« soutient » : sens du geste gardé', e.relation === 'soutient' && e.source === 'A' && e.target === 'B');
   let reading = (await menu.locator('[data-testid=map-edge-reading]').innerText()).replace(/\s+/g, ' ');
-  ok('le menu reste ouvert et se lit « A soutient B »', /Mentir sous.*soutient.*Le serment/.test(reading), reading);
+  ok('le menu reste ouvert et se lit « A soutient B »', /Obéir à la loi.*soutient.*La volonté/.test(reading), reading);
   ok('le lien porte une flèche', (await page.locator(`.react-flow__edge[data-id="${e2.id}"] .map-edge-path`).getAttribute('marker-end')) === 'url(#map-arrow-soutient-2)');
   await shot(page, `${OUT}/04-soutient.png`);
 
@@ -113,7 +113,7 @@ await withApp(5417, async (page, errors) => {
   e = m.edges.find((x) => x.id === e2.id);
   ok('« Inverser le sens » : B soutient A', e.source === 'B' && e.target === 'A' && e.relation === 'soutient');
   reading = (await menu.locator('[data-testid=map-edge-reading]').innerText()).replace(/\s+/g, ' ');
-  ok('lecture mise à jour : « B soutient A »', /Le serment.*soutient.*Mentir sous/.test(reading), reading);
+  ok('lecture mise à jour : « B soutient A »', /La volonté.*soutient.*Obéir à la loi/.test(reading), reading);
   await shot(page, `${OUT}/05-inverse.png`);
 
   // ═══ 5. Annuler : une étape par choix ═══

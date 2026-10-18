@@ -40,17 +40,17 @@ const t = (name, fn) => {
   console.log('ok -', name);
 };
 
-// ── Carte de l'enregistrement : « Sujet : Le liberté », trois liens tirés du centre ──
+// ── Carte de l'enregistrement : « Sujet : La liberté », trois liens tirés du centre ──
 const lk = { highlights: [], books: [], studies: [] };
 const N = (id, text, x, y, extra = {}) => ({ id, highlightId: null, text, x, y, ...extra });
 const E = (id, source, target, relation, extra = {}) => ({ id, source, target, relation, groupId: null, ...extra });
 const simple = () => ({
-  id: 'board-p', kind: 'board', bookId: '', title: 'Le liberté', bookIds: [],
+  id: 'board-p', kind: 'board', bookId: '', title: 'La liberté', bookIds: [],
   nodes: [
-    N('S', 'Le liberté', 400, 0, { kind: 'subject' }),
-    N('A', 'Trahir sa parole, c’est se trahir soi-même', 0, 300),
-    N('B', 'Le serment engage devant les autres', 400, 300),
-    N('C', 'Peut-on se liberté par fidélité ?', 800, 300),
+    N('S', 'La liberté', 400, 0, { kind: 'subject' }),
+    N('A', 'Être libre, c’est obéir à la loi qu’on s’est donnée', 0, 300),
+    N('B', 'La volonté générale fonde le droit', 400, 300),
+    N('C', 'Peut-on être forcé d’être libre ?', 800, 300),
   ],
   edges: [E('eA', 'S', 'A', 'lien'), E('eB', 'S', 'B', 'lien'), E('eC', 'S', 'C', 'lien')],
   viewport: null,
@@ -215,10 +215,10 @@ t('lecture guidée : « se rattache au sujet » (et non « à le sujet »)', () 
 });
 t('carte → plan : les cartes tirées du sujet sont les parties, l’idée liée une sous-partie', () => {
   const plan = M.mapToPlan(rich(), lk, { id: (() => { let i = 0; return () => 'p' + ++i; })(), now: 1 });
-  assert.equal(plan.sujet, 'Le liberté');
-  assert.equal(plan.title, 'Plan — Le liberté');
+  assert.equal(plan.sujet, 'La liberté');
+  assert.equal(plan.title, 'Plan — La liberté');
   const titles = plan.parts.map((p) => p.title);
-  assert.deepEqual(titles.slice(0, 4), ['Trahir sa parole, c’est se trahir soi-même', 'Le serment engage devant les autres', 'Peut-on se liberté par fidélité ?', 'Le mensonge']);
+  assert.deepEqual(titles.slice(0, 4), ['Être libre, c’est obéir à la loi qu’on s’est donnée', 'La volonté générale fonde le droit', 'Peut-on être forcé d’être libre ?', 'Le mensonge']);
   const a = plan.parts[0];
   assert.deepEqual(a.children.map((c) => c.title), ['La parole donnée fonde la confiance', 'Ulysse et les sirènes']);
   assert.equal(plan.parts.some((p) => p.title === 'Idées à intégrer'), false);

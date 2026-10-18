@@ -21,20 +21,20 @@ const check = (name, ok, detail = '') => {
 };
 
 const HTML = `<h1>Dissertation sur la liberté</h1>
-<p>Introduction. Jurer, c'est engager sa parole devant témoins<span data-footnote="Arendt, Condition de l'homme moderne."></span>. Le serment lie d'avance l'homme que je ne connais pas encore.</p>
+<p>Introduction. Être libre, est-ce faire ce que l'on veut<span data-footnote="Rousseau, Du contrat social, I, 8."></span> ? La question oppose depuis longtemps la liberté naturelle et la liberté civile.</p>
 <p></p>
 <p>Deuxième paragraphe après une ligne vide.</p>
-<h2>I. Le serment</h2>
-<blockquote><p>« Tout est vrai par Zeus, par Héra et par Poséidon. »</p></blockquote>
-<p>Les siècles ont changé le témoin, sans changer le geste.</p>
-<h2>II. Le liberté</h2>
-<p>Se liberté, c'est l'homme de demain qui lâche la main de l'homme d'hier.</p>
+<h2>I. La liberté naturelle</h2>
+<blockquote><p>« L'homme est né libre, et partout il est dans les fers. »</p></blockquote>
+<p>Les siècles ont changé les chaînes, sans changer la question.</p>
+<h2>II. La liberté civile</h2>
+<p>Obéir à la loi qu'on s'est prescrite, c'est encore être libre.</p>
 <ul><li>premier point</li><li>second point</li></ul>
-<h2>III. Le châtiment</h2>
-<p>Le châtiment n'est pas la foudre.</p>
+<h2>III. L'autonomie</h2>
+<p>La liberté n'est pas l'absence de loi.</p>
 <h2>Conclusion</h2>
-<p>Fin de la planche.</p>`;
-const BREAKS = ['II. Le liberté', 'Conclusion'];
+<p>Fin de la dissertation.</p>`;
+const BREAKS = ['II. La liberté civile', 'Conclusion'];
 
 /** Ouvre l'écrit, insère les sauts de page et la numérotation ; renvoie les pages de l'éditeur. */
 async function prepare(page) {
@@ -105,9 +105,9 @@ async function checks(editor, r, label) {
     const a = editor[k].replace(/\s+/g, '').slice(0, 60), b = (r.printPages[k] ?? '').replace(/\s+/g, '').slice(0, 60);
     check(`${label} : PDF page ${k + 1} commence comme dans l'éditeur`, a === b, `${a} | ${b}`);
   }
-  check(`${label} : PDF page 2 commence par « II. Le liberté »`, startsWith(r.printPages, 1, 'II. Le liberté'), r.printPages[1]?.slice(0, 60));
+  check(`${label} : PDF page 2 commence par « II. La liberté civile »`, startsWith(r.printPages, 1, 'II. La liberté civile'), r.printPages[1]?.slice(0, 60));
   check(`${label} : PDF page 3 commence par « Conclusion »`, startsWith(r.printPages, 2, 'Conclusion'), r.printPages[2]?.slice(0, 60));
-  check(`${label} : note de bas de page sur la page 1`, /Arendt/.test(r.printPages[0] ?? '') && !/Arendt/.test(r.printPages[2] ?? ''));
+  check(`${label} : note de bas de page sur la page 1`, /Rousseau, Du contrat/.test(r.printPages[0] ?? '') && !/Rousseau, Du contrat/.test(r.printPages[2] ?? ''));
   check(`${label} : numéros de page « n / 3 » sur chaque page`, r.printPages.every((t, i) => new RegExp(`\\b${i + 1}\\s*(/|sur|of)\\s*3\\b`).test(t)), r.printPages.map((t) => t.slice(-20)));
   check(`${label} : aucune instance cachée restante`, r.leftovers === 0);
   check(`${label} : mise en page < 5 s`, r.ms < 5000, `${r.ms} ms`);
@@ -115,7 +115,7 @@ async function checks(editor, r, label) {
   check(`${label} : PDF sans curseur ni calque de sélection`, !/<(div|span)[^>]*class="[^"]*(selection-layer|selection-caret|selection-rect)/.test(r.print.split('<body>')[1] ?? ''));
   // formats texte (reconstruits depuis le modèle)
   check(`${label} : Markdown — 2 sauts de page`, (r.md.match(/page-break-after: always/g) || []).length === 2, (r.md.match(/page-break-after: always/g) || []).length);
-  check(`${label} : Markdown — saut juste avant « II. Le liberté »`, /page-break-after: always;?[^\n]*<\/div>\s*\n+## II\. Le liberté/.test(r.md));
+  check(`${label} : Markdown — saut juste avant « II. La liberté civile »`, /page-break-after: always;?[^\n]*<\/div>\s*\n+## II\. La liberté civile/.test(r.md));
   check(`${label} : texte — 2 sauts de page (\\f)`, (r.txt.match(/\f/g) || []).length === 2);
   check(`${label} : HTML de secours — 2 séparateurs de page`, (r.html.match(/class="page-break"/g) || []).length === 2);
   // .docx : sauts et champ PAGE
@@ -142,17 +142,17 @@ async function browserPart() {
     const editor = await prepare(page);
     const r = await exportAll(page);
     const docx = await checks(editor, r, 'Navigateur');
-    fs.writeFileSync(path.join(OUT, 'planche.docx'), docx);
-    fs.writeFileSync(path.join(OUT, 'planche.md'), r.md);
-    fs.writeFileSync(path.join(OUT, 'planche-web.html'), r.web);
+    fs.writeFileSync(path.join(OUT, 'dissertation.docx'), docx);
+    fs.writeFileSync(path.join(OUT, 'dissertation.md'), r.md);
+    fs.writeFileSync(path.join(OUT, 'dissertation-web.html'), r.web);
     // Word (rendu LibreOffice) : mêmes pages ?
-    const lo = spawnSync('soffice', ['--headless', '--convert-to', 'pdf', '--outdir', OUT, path.join(OUT, 'planche.docx')], { encoding: 'utf8', timeout: 120000 });
+    const lo = spawnSync('soffice', ['--headless', '--convert-to', 'pdf', '--outdir', OUT, path.join(OUT, 'dissertation.docx')], { encoding: 'utf8', timeout: 120000 });
     if (lo.status === 0) {
-      const p = path.join(OUT, 'planche.pdf');
+      const p = path.join(OUT, 'dissertation.pdf');
       const n = Number(/Pages:\s+(\d+)/.exec(spawnSync('pdfinfo', [p], { encoding: 'utf8' }).stdout)?.[1]);
       check('Word (rendu LibreOffice) : 3 pages', n === 3, n);
       const t2 = spawnSync('pdftotext', ['-f', '2', '-l', '2', '-layout', p, '-'], { encoding: 'utf8' }).stdout.trim();
-      check('Word (rendu LibreOffice) : page 2 commence par « II. Le liberté »', t2.startsWith('II. Le liberté'), t2.slice(0, 40));
+      check('Word (rendu LibreOffice) : page 2 commence par « II. La liberté civile »', t2.startsWith('II. La liberté civile'), t2.slice(0, 40));
       spawnSync('pdftoppm', ['-png', '-r', '50', p, path.join(OUT, 'word')]);
     } else console.log('— LibreOffice indisponible : rendu Word non vérifié');
     check('Navigateur : aucune erreur de page', errors.length === 0, errors.join(' | '));
@@ -189,7 +189,7 @@ async function electronPart() {
       for (let i = 0; i < buf.length; i += 0x8000) bin += String.fromCharCode(...buf.subarray(i, i + 0x8000));
       return btoa(bin);
     }, r.print);
-    const p = path.join(OUT, 'planche-electron.pdf');
+    const p = path.join(OUT, 'dissertation-electron.pdf');
     fs.writeFileSync(p, Buffer.from(pdf, 'base64'));
     const info = spawnSync('pdfinfo', [p], { encoding: 'utf8' }).stdout;
     const n = Number(/Pages:\s+(\d+)/.exec(info)?.[1]);

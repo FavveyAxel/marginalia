@@ -19,7 +19,7 @@ await withApp(
   PORT,
   async (page, errors) => {
     const S = (fn, arg) => page.evaluate(fn, arg);
-    // ── Base de départ : deux livres, des extraits, la carte du livre de Kant, un espace « liberté » ──
+    // ── Base de départ : deux livres, des extraits, la carte du livre de Kant, un espace « Liberté » ──
     await S(async () => {
       const { host } = await import('/src/lib/platform.ts');
       const s = window.__store.getState();
@@ -49,7 +49,7 @@ await withApp(
           },
         },
         arguments: [], plans: [], drafts: [], cards: [], studies: [], bookmarks: [],
-        workspaces: [{ id: 'wP', name: 'liberté', tint: '--cat-these', order: 0, createdAt: 1 }],
+        workspaces: [{ id: 'wP', name: 'Liberté', tint: '--cat-these', order: 0, createdAt: 1 }],
         groups: [{ id: 'gS', workspaceId: 'wP', parentId: null, name: 'Sources', order: 0, collapsed: false }],
         wsItems: [{ id: 'iK', workspaceId: 'wP', groupId: null, kind: 'book', refId: 'bK', order: 0 }],
         settings: s.settings, trash: [], activity: [],
@@ -72,7 +72,7 @@ await withApp(
     const key = s.route.name === 'board' ? s.route.boardId : null;
     ok('carte libre créée et ouverte', !!key && s.maps[key]?.kind === 'board' && s.maps[key].title === 'Nouvelle carte', JSON.stringify(s.route));
     ok('rangée dans l’espace (racine)', s.wsItems.some((i) => i.workspaceId === 'wP' && i.kind === 'map' && i.refId === key && i.groupId === null));
-    ok('page : titre, retour vers l’espace, panneau Ajouter fermé à la création', (await page.getByTestId('board-title').innerText()).includes('Nouvelle carte') && (await page.getByTestId('board-back').innerText()).includes('liberté') && (await page.getByTestId('board-add').count()) === 0 && (await page.getByTestId('board-add-toggle').getAttribute('aria-pressed')) === 'false');
+    ok('page : titre, retour vers l’espace, panneau Ajouter fermé à la création', (await page.getByTestId('board-title').innerText()).includes('Nouvelle carte') && (await page.getByTestId('board-back').innerText()).includes('Liberté') && (await page.getByTestId('board-add').count()) === 0 && (await page.getByTestId('board-add-toggle').getAttribute('aria-pressed')) === 'false');
     const drawerIds = (await page.locator('[data-testid="map-drawer"] [data-hl]').evaluateAll((els) => els.map((e) => e.dataset.hl))).sort().join();
     ok('« À placer » ouvert avec les extraits des livres de l’espace', drawerIds === 'hK1,hK2,hK3', drawerIds);
     await page.getByTestId('board-add-toggle').click();
@@ -125,7 +125,7 @@ await withApp(
     await panel.locator('.board-add-row input').first().check();
     await panel.getByTestId('board-add-confirm').click();
     await panel.getByRole('tab', { name: 'Idées' }).click();
-    await panel.locator('textarea').fill('Le liberté trahit la confiance\nMentir à l’assassin ?');
+    await panel.locator('textarea').fill('La liberté suppose la loi\nMentir à l’assassin ?');
     await panel.getByTestId('board-add-confirm').click();
     await tick(page, 400);
     m = (await st()).maps[key];
@@ -196,7 +196,7 @@ await withApp(
     s = await st();
     const key2 = s.route.name === 'board' ? s.route.boardId : null;
     ok('menu de groupe : carte créée dans le groupe et ouverte', !!key2 && key2 !== key && s.wsItems.some((i) => i.refId === key2 && i.groupId === 'gS'));
-    ok('retour vers le groupe', (await page.getByTestId('board-back').innerText()).includes('liberté') || (await page.getByTestId('board-back').innerText()).includes('Sources'));
+    ok('retour vers le groupe', (await page.getByTestId('board-back').innerText()).includes('Liberté') || (await page.getByTestId('board-back').innerText()).includes('Sources'));
 
     // ── 9. Sélection multiple : une carte libre se supprime (corbeille), la carte d'un livre non ──
     await S(() => window.__store.getState().navigate({ name: 'workspace', workspaceId: 'wP', groupId: null }));

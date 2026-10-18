@@ -29,7 +29,7 @@ await withApp(PORT, async (page, errors) => {
         'board-2': { id: 'board-2', kind: 'board', bookId: '', title: 'Brouillon', bookIds: [], nodes: [], edges: [], viewport: null, updatedAt: 3 },
       },
       arguments: [], plans: [], drafts: [], cards: [], studies: [], bookmarks: [],
-      workspaces: [{ id: 'wP', name: 'liberté', tint: '--cat-these', order: 0, createdAt: 1 }],
+      workspaces: [{ id: 'wP', name: 'Liberté', tint: '--cat-these', order: 0, createdAt: 1 }],
       groups: [{ id: 'gS', workspaceId: 'wP', parentId: null, name: 'Sources', order: 0, collapsed: false }],
       wsItems: [
         { id: 'i1', workspaceId: 'wP', groupId: 'gS', kind: 'map', refId: 'board-1', order: 0 },
@@ -49,9 +49,9 @@ await withApp(PORT, async (page, errors) => {
   await tick(page, 500);
   ok('vue Cartes ouverte', (await S(() => window.__store.getState().route.name)) === 'maps');
   ok('résumé', (await page.getByTestId('maps-summary').innerText()).includes('3 cartes : 2 libres, 1 de livre'));
-  const liberté = page.getByTestId('maps-section-wP');
-  ok('section liberté : la carte libre et la carte du livre rangé', (await liberté.locator('.mv-card').count()) === 2);
-  ok('lieu affiché avec le groupe', (await liberté.locator('[data-map-key="board-1"] [data-testid="map-places"]').innerText()).includes('liberté › Sources'));
+  const liberte = page.getByTestId('maps-section-wP');
+  ok('section Liberté : la carte libre et la carte du livre rangé', (await liberte.locator('.mv-card').count()) === 2);
+  ok('lieu affiché avec le groupe', (await liberte.locator('[data-map-key="board-1"] [data-testid="map-places"]').innerText()).includes('Liberté › Sources'));
   const loose = page.getByTestId('maps-section-none');
   ok('hors espace : « Brouillon », marqué non rangée', (await loose.locator('[data-map-key="board-2"]').innerText()).includes('Non rangée'));
   await shot(page, 'shots/maps/01-par-espace.png');
@@ -78,7 +78,7 @@ await withApp(PORT, async (page, errors) => {
   ok('ouvre la carte libre', r.name === 'board' && r.boardId === 'board-1');
   await nav.click();
   await tick(page, 400);
-  await page.locator('[data-map-key="board-1"] .mv-place', { hasText: 'liberté' }).click();
+  await page.locator('[data-map-key="board-1"] .mv-place', { hasText: 'Liberté' }).click();
   await tick(page, 400);
   r = await S(() => window.__store.getState().route);
   ok('un clic sur le lieu ouvre l’espace / le groupe', r.name === 'workspace' && r.workspaceId === 'wP' && r.groupId === 'gS');

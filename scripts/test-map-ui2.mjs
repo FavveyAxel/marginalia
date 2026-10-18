@@ -97,7 +97,7 @@ async function seed(page) {
         kind: 'board',
         bookId: '',
         bookIds: [bK, bC],
-        title: 'liberté : Kant et Constant',
+        title: 'Liberté : Kant et Constant',
         nodes: [
           { id: 'K1', highlightId: 'hK1', text: '', x: 0, y: 0 },
           { id: 'K2', highlightId: 'hK2', text: '', x: 0, y: 300 },
@@ -572,7 +572,7 @@ async function main() {
     }
     // Export depuis le thème sombre : fond clair.
     const png2 = await exportVia(page, 'png');
-    check(png2.name === 'liberté  Kant et Constant.png' || png2.name === 'liberté Kant et Constant.png', '18. carte libre : nom de fichier = titre', png2.name);
+    check(png2.name === 'Liberté  Kant et Constant.png' || png2.name === 'Liberté Kant et Constant.png', '18. carte libre : nom de fichier = titre', png2.name);
     check(PNG_SIG.every((v, i) => png2.head[i] === v) && png2.corner[0] > 240 && png2.corner[2] > 230, '18. PNG en thème sombre : fond clair', png2.corner.join(','));
     const svg2 = await exportVia(page, 'svg');
     check(svg2.parsed && svg2.text.includes('fill="#fbf9f4"') && svg2.text.includes('par l’absurde') && (svg2.text.match(/class="zone"/g) ?? []).length === 2, '18. SVG en thème sombre : fond clair, 2 zones, note');

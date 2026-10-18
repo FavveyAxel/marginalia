@@ -409,8 +409,8 @@ t('placeBlock / copyIntoMap : bloc posé sans chevauchement, extraits déjà pr�
   assert.deepEqual(M.freeSpot(M.newBoard('x', { id: () => 'e' })), { x: 0, y: 0 });
 });
 t('idées et concepts : cartes neuves, concept référencé, placement groupé', () => {
-  const idea = M.ideaNode('  Le liberté   trahit la confiance ', { x: 10.4, y: 3 }, () => 'i1');
-  assert.deepEqual(idea, { id: 'i1', highlightId: null, text: 'Le liberté trahit la confiance', x: 10, y: 3 });
+  const idea = M.ideaNode('  La liberté   suppose la loi ', { x: 10.4, y: 3 }, () => 'i1');
+  assert.deepEqual(idea, { id: 'i1', highlightId: null, text: 'La liberté suppose la loi', x: 10, y: 3 });
   const c = M.conceptNode({ id: 'cV', name: 'Véracité', definition: 'Devoir de dire vrai.' }, { x: 0, y: 0 }, () => 'n1');
   assert.equal(c.conceptId, 'cV');
   assert.equal(c.text, 'Véracité — Devoir de dire vrai.');

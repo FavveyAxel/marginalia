@@ -317,7 +317,7 @@ function IdeasTab({ boardKey }: { boardKey: string }) {
         <textarea
           className="textarea"
           rows={8}
-          placeholder={'Une idée par ligne.\nEx. : Le liberté trahit d’abord la confiance, pas la vérité.'}
+          placeholder={'Une idée par ligne.\nEx. : La liberté n’est pas l’absence de loi.'}
           value={text}
           onChange={(e) => setText(e.target.value)}
           onKeyDown={(e) => {

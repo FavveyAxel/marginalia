@@ -74,7 +74,7 @@ try {
   await page.goto(`http://localhost:${PORT}/`);
   await page.waitForFunction(() => window.__store && window.__store.getState().ready, null, { timeout: 60000 });
 
-  // ── Données : espace « liberté » (9 livres + 1 plan à la racine), groupes ; espace « Mémoire » ──
+  // ── Données : espace « Liberté » (9 livres + 1 plan à la racine), groupes ; espace « Mémoire » ──
   await st(() => {
     const now = Date.now();
     const book = (i) => ({
@@ -84,7 +84,7 @@ try {
     });
     const books = Array.from({ length: 9 }, (_, i) => book(i + 1));
     const ws = [
-      { id: 'wP', name: 'liberté', tint: '--cat-these', order: 0, createdAt: now },
+      { id: 'wP', name: 'Liberté', tint: '--cat-these', order: 0, createdAt: now },
       { id: 'wM', name: 'Mémoire', tint: '--cat-concept', order: 1, createdAt: now },
     ];
     const groups = [
@@ -96,14 +96,14 @@ try {
     wsItems.push({ id: 'i10', workspaceId: 'wP', groupId: null, kind: 'plan', refId: 'p1', order: 9 });
     // Livre 9 déjà présent dans « Mémoire » (doublon à ne pas recréer lors d'un déplacement vers cet espace).
     wsItems.push({ id: 'm9', workspaceId: 'wM', groupId: null, kind: 'book', refId: 'b9', order: 0 });
-    const plans = [{ id: 'p1', title: 'Plan du liberté', sujet: 'Le liberté', definitions: '', problematique: '', parts: [], conclusion: '', draftId: null, createdAt: now, updatedAt: now }];
+    const plans = [{ id: 'p1', title: 'Plan sur la liberté', sujet: 'La liberté', definitions: '', problematique: '', parts: [], conclusion: '', draftId: null, createdAt: now, updatedAt: now }];
     window.__store.setState({ books, workspaces: ws, groups, wsItems, plans });
     window.__store.getState().updateSettings({ activeWorkspaceId: 'wP' });
     window.__store.getState().navigate({ name: 'workspace', workspaceId: 'wP', groupId: null });
   });
   await page.waitForSelector('.ws-card');
   await tick(500);
-  ok('10 cartes à la racine de « liberté »', (await page.locator('.ws-card').count()) === 10);
+  ok('10 cartes à la racine de « Liberté »', (await page.locator('.ws-card').count()) === 10);
 
   // ── Clic simple : ouvre toujours (aucune sélection) ──
   // (vérifié plus bas sur le plan ; ici on teste d'abord les gestes de sélection)
@@ -146,14 +146,14 @@ try {
   await page.keyboard.press('Escape');
 
   // ── Retrait groupé + Annuler (toast) ──
-  const before = await wsItemsOf('liberté');
+  const before = await wsItemsOf('Liberté');
   await cardMain('Livre 2').click(meta);
   await cardMain('Livre 5').click(meta);
   await cardMain('Livre 7').click(meta);
   const u0 = await undoCount();
   await page.locator('.ws-selbar').getByRole('button', { name: 'Retirer de l’espace' }).click();
   await tick(300);
-  let items = await wsItemsOf('liberté');
+  let items = await wsItemsOf('Liberté');
   ok('retrait groupé : 3 références retirées', items.length === before.length - 3);
   ok('les livres restent dans la bibliothèque', (await st(() => window.__store.getState().books.length)) === 9);
   ok('un seul pas d’annulation', (await undoCount()) === u0 + 1);
@@ -165,7 +165,7 @@ try {
   await shot('2-retrait-toast.png');
   await toast.locator('.toast-action').click();
   await tick(300);
-  items = await wsItemsOf('liberté');
+  items = await wsItemsOf('Liberté');
   const sameOrder = JSON.stringify(items.map((i) => [i.id, i.order, i.groupId])) === JSON.stringify(before.map((i) => [i.id, i.order, i.groupId]));
   ok('Annuler : les 3 reviennent à leur place exacte', items.length === before.length && sameOrder);
 
@@ -174,11 +174,11 @@ try {
   await cardMain('Livre 9').click(meta);
   await page.locator('.ws-selbar').getByRole('button', { name: 'Retirer de l’espace' }).click();
   await tick(200);
-  ok('retrait de 2', (await wsItemsOf('liberté')).length === before.length - 2);
+  ok('retrait de 2', (await wsItemsOf('Liberté')).length === before.length - 2);
   await page.locator('.ws-title').hover();
   await page.keyboard.press('Meta+z');
   await tick(400);
-  ok('⌘Z : un seul pas restaure les 2', (await wsItemsOf('liberté')).length === before.length);
+  ok('⌘Z : un seul pas restaure les 2', (await wsItemsOf('Liberté')).length === before.length);
 
   // ── Déplacement groupé vers un groupe (barre → Déplacer vers… → Lectures) ──
   await cardMain('Livre 1').click(meta);
@@ -189,7 +189,7 @@ try {
   await page.locator('.ws-menu').getByRole('menuitem', { name: 'Lectures' }).click();
   await tick(300);
   const gL = await groupId('Lectures');
-  items = await wsItemsOf('liberté');
+  items = await wsItemsOf('Liberté');
   ok('déplacement groupé : Livre 1 et 3 dans « Lectures »', items.filter((i) => i.groupId === gL).map((i) => i.refId).sort().join() === 'b1,b3');
   ok('toast de déplacement', (await page.locator('.toast', { hasText: '2 livres déplacés vers « Lectures »' }).count()) === 1);
   ok('journal : « 2 éléments déplacés dans « Lectures » »', (await st(() => window.__store.getState().activity[0].summary)) === '2 éléments déplacés dans « Lectures »');
@@ -197,7 +197,7 @@ try {
   await page.locator('.ws-title').hover();
   await page.keyboard.press('Meta+z');
   await tick(400);
-  items = await wsItemsOf('liberté');
+  items = await wsItemsOf('Liberté');
   ok('⌘Z : déplacement défait d’un coup', items.filter((i) => i.groupId === gL).length === 0 && (await undoCount()) === u1 - 1);
 
   // ── Glisser-déposer multiple dans la vue (vers la tuile « À trier ») ──
@@ -209,7 +209,7 @@ try {
   await card('Livre 4').dragTo(tile, { targetPosition: { x: tb.width / 2, y: tb.height / 2 } });
   await tick(400);
   const gT = await groupId('À trier');
-  items = await wsItemsOf('liberté');
+  items = await wsItemsOf('Liberté');
   ok('glisser multiple : les 3 suivent dans « À trier »', items.filter((i) => i.groupId === gT).map((i) => i.refId).sort().join() === 'b2,b4,b6');
   ok('ordre conservé (2, 4, 6)', items.filter((i) => i.groupId === gT).sort((a, b) => a.order - b.order).map((i) => i.refId).join() === 'b2,b4,b6');
   ok('aperçu de glissement : badge « 3 »', (await st(() => window.__dragBadge)) === '3');
@@ -226,7 +226,7 @@ try {
   await page.keyboard.press('Enter');
   await tick(300);
   const gC = await groupId('Chapitre 1');
-  items = await wsItemsOf('liberté');
+  items = await wsItemsOf('Liberté');
   ok('groupe « Chapitre 1 » créé avec Livre 7 et 8', !!gC && items.filter((i) => i.groupId === gC).map((i) => i.refId).sort().join() === 'b7,b8');
   await shot('4-nouveau-groupe.png');
 
@@ -246,11 +246,11 @@ try {
   await tick(300);
   const mem = await wsItemsOf('Mémoire');
   ok('vers un autre espace : Livre 1 et 3 dans « Mémoire »', mem.map((i) => i.refId).sort().join() === 'b1,b3,b9');
-  ok('… et sortis de « liberté »', (await wsItemsOf('liberté')).every((i) => i.refId !== 'b1' && i.refId !== 'b3'));
+  ok('… et sortis de « Liberté »', (await wsItemsOf('Liberté')).every((i) => i.refId !== 'b1' && i.refId !== 'b3'));
   await page.locator('.ws-title').hover();
   await page.keyboard.press('Meta+z');
   await tick(400);
-  ok('⌘Z : le passage vers un autre espace est défait d’un coup', (await wsItemsOf('Mémoire')).length === 1 && (await wsItemsOf('liberté')).filter((i) => i.refId === 'b1' || i.refId === 'b3').length === 2);
+  ok('⌘Z : le passage vers un autre espace est défait d’un coup', (await wsItemsOf('Mémoire')).length === 1 && (await wsItemsOf('Liberté')).filter((i) => i.refId === 'b1' || i.refId === 'b3').length === 2);
   await page.keyboard.press('Meta+Shift+z');
   await tick(400);
   ok('⌘⇧Z : rétabli', (await wsItemsOf('Mémoire')).map((i) => i.refId).sort().join() === 'b1,b3,b9');
@@ -282,7 +282,7 @@ try {
   ok('⌘Z : les 2 livres reviennent d’un coup', (await st(() => window.__store.getState().books.length)) === 9 && (await st(() => window.__store.getState().trash.length)) === trash0);
 
   // ── Clic simple : ouvre (sans sélection) ──
-  await cardMain('Plan du liberté').click();
+  await cardMain('Plan sur la liberté').click();
   await tick(300);
   ok('clic simple : ouvre l’élément', (await st(() => window.__store.getState().route.name)) === 'plans');
   await st(() => window.__store.getState().navigate({ name: 'workspace', workspaceId: 'wP', groupId: null }));
@@ -293,7 +293,7 @@ try {
   await trow('Livre 5').click(meta);
   await trow('Livre 9').click(shift);
   const treeSel = await page.locator('.ws-tree .ws-row-item.selected').count();
-  // Racine de « liberté » à ce stade : Livre 5, Livre 9, Plan → plage 5→9 = 2 éléments.
+  // Racine de « Liberté » à ce stade : Livre 5, Livre 9, Plan → plage 5→9 = 2 éléments.
   ok('arbre : ⌘-clic puis ⇧-clic (plage 5→9 à la racine)', treeSel === 2, String(treeSel));
   ok('arbre : barre de sélection', /2 sélectionnés/.test(await barText()));
   ok('arbre : aria-selected', (await trow('Livre 5').getAttribute('aria-selected')) === 'true');
@@ -301,7 +301,7 @@ try {
   const lect = page.locator('.ws-tree .ws-row-group', { hasText: 'Lectures' }).first();
   await trow('Livre 9').dragTo(lect);
   await tick(400);
-  items = await wsItemsOf('liberté');
+  items = await wsItemsOf('Liberté');
   const inL = items.filter((i) => i.groupId === gL).map((i) => i.refId).sort().join();
   ok('arbre : glisser multiple vers « Lectures »', inL === 'b5,b9', inL);
   ok('arbre : badge « 2 »', (await st(() => window.__dragBadge)) === '2');

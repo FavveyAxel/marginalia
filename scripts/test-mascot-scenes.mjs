@@ -37,7 +37,7 @@ async function seed(page) {
     const enc = new TextEncoder();
     const books = await st.importFiles(titles.map(([a, t]) => ({ name: `${t}.txt`, data: enc.encode(`${t}\n\n${a}. Un paragraphe de lecture.`).buffer })), { asBook: true });
     books.forEach((b, i) => window.__store.getState().updateBook(b.id, { author: titles[i][0], progress: [0, 0.3, 0.95, 1, 0.5][i % 5] }));
-    const w1 = window.__store.getState().createWorkspace('liberté');
+    const w1 = window.__store.getState().createWorkspace('Liberté');
     const w2 = window.__store.getState().createWorkspace('Écrans du pouvoir');
     books.slice(0, 7).forEach((b) => window.__store.getState().addToWorkspace(w1.id, null, 'book', b.id));
     books.slice(7).forEach((b) => window.__store.getState().addToWorkspace(w2.id, null, 'book', b.id));

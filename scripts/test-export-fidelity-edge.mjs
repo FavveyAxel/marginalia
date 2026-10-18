@@ -19,7 +19,7 @@ const PNG = 'data:image/png;base64,' + Buffer.from(spawnSync('python3', ['-c', `
 from PIL import Image; import io,sys
 b=io.BytesIO(); Image.new('RGB',(400,200),(200,40,40)).save(b,'PNG'); sys.stdout.buffer.write(b.getvalue())`]).stdout).toString('base64');
 
-const para = (i) => `<p>Paragraphe ${i}. ${'Le serment engage la parole devant témoins, et le liberté la reprend. '.repeat(6)}</p>`;
+const para = (i) => `<p>Paragraphe ${i}. ${'La liberté se conquiert sur la nature, et la loi la protège. '.repeat(6)}</p>`;
 const LONG = `<h1>Long document</h1>${Array.from({ length: 60 }, (_, i) => (i % 12 === 0 ? `<h2>Partie ${i / 12 + 1}</h2>` : '') + para(i + 1)).join('')}
 <p>Image ci-dessous.</p><p>ICI-IMAGE</p>
 <table><tr><th>Col A</th><th>Col B</th></tr><tr><td>cellule 1</td><td>cellule 2</td></tr></table><p>FIN-DU-DOCUMENT</p>`;

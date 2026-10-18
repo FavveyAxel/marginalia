@@ -707,3 +707,7 @@
   line-height: 16px;
   text-align: center;
 }
+
+/* Livre reçu sans son fichier (partage) */
+.lib-nofile { display: inline-block; align-self: flex-start; margin-top: 4px; padding: 1px 8px; border-radius: 999px; font-size: var(--fs-sm); line-height: 1.5; color: var(--warning, #b7791f); background: color-mix(in srgb, var(--warning, #b7791f) 13%, var(--bg-panel)); border: 1px solid color-mix(in srgb, var(--warning, #b7791f) 30%, var(--border)); }
+.lib-nofile.inline { margin: 0 0 0 8px; vertical-align: 1px; }

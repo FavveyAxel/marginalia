@@ -34,6 +34,9 @@ const APP_ORIGIN = 'app://marginalia';
 const DIST_DIR = path.join(__dirname, '..', 'dist');
 const IMAGES = ['jpg', 'jpeg', 'png', 'webp', 'heic', 'heif', 'tif', 'tiff'];
 const ACCEPTED = ['epub', 'pdf', 'docx', 'md', 'markdown', 'txt', 'html', 'htm', ...IMAGES];
+// Partage entre deux Marginalia (« .marginalia ») : accepté à l'ouverture et au sélecteur, pas dans l'import d'un dossier.
+const SHARE_EXT = 'marginalia';
+const ACCEPTED_OPEN = [...ACCEPTED, SHARE_EXT];
 // Fichiers dérivés d'un document image (texte reconnu, copie affichable) : supprimés avec la source.
 const DERIVED_FILES = ['ocr.json', 'display.jpg'];
 
@@ -1406,7 +1409,7 @@ dataHandle('marginalia:pickFiles', async () => {
     title: 'Importer des documents',
     properties: ['openFile', 'multiSelections'],
     filters: [
-      { name: 'Documents et images', extensions: ACCEPTED },
+      { name: 'Documents, images et partages', extensions: ACCEPTED_OPEN },
       { name: 'Tous les fichiers', extensions: ['*'] },
     ],
   });
@@ -1528,6 +1531,7 @@ const SAVE_FILTERS = {
   txt: { name: 'Texte', extensions: ['txt'] },
   png: { name: 'Image PNG', extensions: ['png'] },
   svg: { name: 'Image SVG', extensions: ['svg'] },
+  marginalia: { name: 'Partage Marginalia', extensions: ['marginalia'] },
 };
 
 // Polices installées : liste native de macOS (NSFontManager via JavaScript for Automation),
@@ -2542,7 +2546,7 @@ let mainWindow = null;
 let rendererReady = false;
 const pendingOpen = [];
 
-const isAccepted = (f) => ACCEPTED.includes(path.extname(f).slice(1).toLowerCase());
+const isAccepted = (f) => ACCEPTED_OPEN.includes(path.extname(f).slice(1).toLowerCase());
 
 async function deliverOpenFiles() {
   if (!mainWindow || mainWindow.isDestroyed() || !rendererReady || !pendingOpen.length) return;

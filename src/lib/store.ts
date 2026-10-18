@@ -25,7 +25,7 @@ import type {
   WorkspaceItem,
   WorkspaceItemKind,
 } from './types';
-import { host, type PickedFile, extOf } from './platform';
+import { host, isShareFile, type PickedFile, extOf } from './platform';
 import { createDraftFromFile, isDraftFile } from './draftImport';
 import { sniffFile } from './sniff';
 import { extractMetadata } from '../features/library/metadata';
@@ -139,6 +139,11 @@ export interface BookmarkJump {
 }
 
 type Item<C extends CollectionName> = Database[C][number];
+
+/** Collections qu'un module externe (synchro de Livres, partage reçu, document de photos) peut remplacer d'un coup. */
+export type ExternalPatch = Partial<
+  Pick<Database, 'books' | 'highlights' | 'bookmarks' | 'settings' | 'concepts' | 'maps' | 'arguments' | 'studies' | 'plans' | 'drafts' | 'cards' | 'workspaces' | 'groups' | 'wsItems'>
+>;
 
 export interface State extends Database {
   ready: boolean;
@@ -256,7 +261,7 @@ export interface State extends Database {
    * Écriture venue d'une synchro externe (Livres) : hors de ⌘Z et du journal ligne par ligne.
    * `update` reçoit l'état courant et renvoie les collections à remplacer ; `log` : une entrée groupée.
    */
-  applyExternal(update: (s: State) => Partial<Pick<Database, 'books' | 'highlights' | 'bookmarks' | 'settings'>> | null, log?: Omit<ActivityEntry, 'id' | 'at' | 'startedAt'>): void;
+  applyExternal(update: (s: State) => ExternalPatch | null, log?: Omit<ActivityEntry, 'id' | 'at' | 'startedAt'>): void;
 }
 
 export interface RestoreResult {
@@ -741,6 +746,12 @@ export const useStore = create<State>()(tracked((set, get) => ({
             ? { workspaceId: r0.workspaceId, groupId: r0.groupId ?? null }
             : null;
     const added: Book[] = [];
+    // Un partage « .marginalia » n'est jamais un livre : il ouvre la fenêtre « Recevoir » (aperçu, puis import).
+    const shares = files.filter((f) => isShareFile(f.name));
+    if (shares.length) {
+      files = files.filter((f) => !isShareFile(f.name));
+      window.dispatchEvent(new CustomEvent('mg:open-share', { detail: { files: shares } }));
+    }
     set((s) => ({ importing: s.importing + files.length }));
     const drafts: { id: string; title: string }[] = [];
     for (const f of files) {
@@ -750,6 +761,12 @@ export const useStore = create<State>()(tracked((set, get) => ({
           const d = await createDraftFromFile(f.name, f.data);
           drafts.push(d);
           if (target && get().workspaces.some((w) => w.id === target.workspaceId)) get().addToWorkspace(target.workspaceId, target.groupId, 'draft', d.id);
+          continue;
+        }
+        // Livre reçu « sans fichier » : le même fichier (même SHA-256) complète l'entrée au lieu de créer un doublon.
+        const done = await completeMissingBook(f);
+        if (done) {
+          added.push(done);
           continue;
         }
         const meta = await extractMetadata(f);
@@ -1365,6 +1382,29 @@ export const useStore = create<State>()(tracked((set, get) => ({
     if (log) get().logActivity(log);
   },
 })));
+
+/** Livre `missing` dont l'empreinte est celle du fichier donné : il reçoit le fichier (aucun doublon). */
+async function completeMissingBook(f: PickedFile): Promise<Book | null> {
+  const waiting = useStore.getState().books.filter((b) => b.missing && b.sourceSha256 && b.size === f.data.byteLength);
+  if (!waiting.length) return null;
+  const { sha256Hex } = await import('../features/share/sharePackage');
+  const sha = await sha256Hex(f.data);
+  const target = waiting.find((b) => b.sourceSha256 === sha);
+  if (!target) return null;
+  const meta = await extractMetadata(f);
+  const fileName = `source.${sniffFile(f.data).ext ?? (extOf(f.name) || 'bin')}`;
+  await host.storeFile(target.id, fileName, f.data);
+  nextMeta = { action: 'import' };
+  const patch: Partial<Book> = { fileName, format: meta.format, originalName: f.name, ...(target.cover ? {} : { cover: meta.cover }) };
+  useStore.setState((s) => ({
+    books: s.books.map((b) => {
+      if (b.id !== target.id) return b;
+      const { missing: _m, ...rest } = b;
+      return { ...rest, ...patch };
+    }),
+  }));
+  return useStore.getState().books.find((b) => b.id === target.id) ?? null;
+}
 
 function historyEntry(tx: Tx, verb: string): Omit<ActivityEntry, 'id' | 'at' | 'startedAt'> {
   const c = tx.changes.find((x) => x.col !== 'trash') ?? tx.changes[0];

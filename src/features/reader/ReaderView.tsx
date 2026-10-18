@@ -216,8 +216,9 @@ export const ReaderPane = memo(function ReaderPane({
   onBmPopRef.current = onBookmarkPopover;
   const hasBookmarks = !!onBookmarkPopover;
 
+  const missing = !!book?.missing;
   useEffect(() => {
-    if (!book) return;
+    if (!book || missing) return;
     let alive = true;
     setData(null);
     setReady(false);
@@ -228,7 +229,17 @@ export const ReaderPane = memo(function ReaderPane({
     return () => {
       alive = false;
     };
-  }, [book?.id]);
+  }, [book?.id, missing]);
+
+  /** Livre reçu sans fichier : on choisit le même livre, qui complète l'entrée (voir importFiles). */
+  const importMissing = useCallback(async () => {
+    if (!book) return;
+    const files = await host.pickFiles();
+    if (!files.length) return;
+    await useStore.getState().importFiles(files, { toWorkspace: false, asBook: true });
+    if (useStore.getState().books.find((b) => b.id === book.id)?.missing)
+      useStore.getState().toast('Ce fichier n’est pas le même livre que celui du partage : il a été ajouté à la bibliothèque, mais « ' + book.title + ' » reste sans fichier.', 'error');
+  }, [book?.id, book?.title]);
 
   const lastPos = useRef(0);
   const deferSince = useRef(0);
@@ -395,7 +406,15 @@ export const ReaderPane = memo(function ReaderPane({
         </div>
       )}
       <div className="reader-pane-body">
-        {error ? (
+        {missing ? (
+          <div className="empty" style={{ height: '100%' }} data-testid="reader-missing">
+            <h3>Ce livre est arrivé sans son fichier</h3>
+            <p>Il a été reçu par un partage, sans le fichier du livre : ses extraits et ses notes se lisent, mais le texte ne peut pas s’afficher. Importez le même livre (le même fichier) pour le compléter : tout ce qui a été reçu s’y rattachera.</p>
+            <button className="btn btn-primary" onClick={() => void importMissing()} data-testid="reader-import-missing">
+              Importer le livre…
+            </button>
+          </div>
+        ) : error ? (
           <div className="empty" style={{ height: '100%' }}>
             <h3>Lecture impossible</h3>
             <p>{error}</p>

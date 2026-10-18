@@ -29,6 +29,12 @@ export const NEWS: NewsEntry[] = [
         text: 'Cochez des photos dans la Boîte de réception, ou sélectionnez-les dans la bibliothèque, puis « Assembler en un document » : vous choisissez l’ordre et le titre, et le document se lit page par page, avec texte reconnu, extraits et recherche sur toutes les pages.',
         action: { label: 'Voir', run: 'inbox' },
       },
+      {
+        icon: 'phone',
+        title: 'Partager avec un autre Marginalia',
+        text: 'Partagez un espace ou une sélection : un fichier « .marginalia » à donner, ou un envoi direct par le Wi-Fi avec un code à 6 chiffres, sans Internet. L’autre personne reçoit une copie, ajoutée sans rien écraser ; les livres ne partent que si vous le choisissez.',
+        action: { label: 'Importer', run: 'import' },
+      },
     ],
   },
   {

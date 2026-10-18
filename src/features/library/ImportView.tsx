@@ -2,9 +2,10 @@
 // l'ordinateur, recevoir depuis le téléphone (QR code, Wi-Fi), dossier synchronisé, app Livres (Mac).
 // ⌘O / Ctrl+O garde l'ouverture directe du sélecteur de fichiers.
 import { useState, type DragEvent } from 'react';
-import { BookOpen, Check, FileUp, FolderOpen, FolderSync, Inbox, QrCode, Upload } from 'lucide-react';
+import { BookOpen, Check, FileUp, FolderOpen, FolderSync, Inbox, QrCode, Share2, Upload } from 'lucide-react';
 import { useStore } from '../../lib/store';
-import { filesFromDataTransfer, host, type PickedFile } from '../../lib/platform';
+import { filesFromDataTransfer, host, isShareFile, type PickedFile } from '../../lib/platform';
+import { openReceiveDialog } from '../share/shareUi';
 import { fmtKeys } from '../../lib/keys';
 import { openWifiReceive, prettyDir, setInboxEnabled, useInbox, useInboxCount, wifiAvailable } from '../inbox/inbox';
 import './import.css';
@@ -31,8 +32,16 @@ export function ImportView({ workspaceId, groupId = null }: { workspaceId?: stri
   const [result, setResult] = useState<Result | null>(null);
   const mac = host.platform === 'darwin';
 
-  async function importAll(files: PickedFile[], extra: { skipped?: number; truncated?: boolean; folder?: string } = {}) {
+  async function importAll(all: PickedFile[], extra: { skipped?: number; truncated?: boolean; folder?: string } = {}) {
     setResult(null);
+    // Un partage « .marginalia » n'est pas un livre : il ouvre la fenêtre « Recevoir » (aperçu, puis import).
+    const shares = all.filter((f) => isShareFile(f.name));
+    const files = all.filter((f) => !isShareFile(f.name));
+    if (shares.length) {
+      openReceiveDialog({ file: shares[0] });
+      if (shares.length > 1) useStore.getState().toast('Un seul partage s’ouvre à la fois : ouvrez les autres ensuite.', 'info');
+      if (!files.length) return;
+    }
     if (!files.length) {
       useStore.getState().toast(extra.folder ? `Aucun document compatible dans « ${extra.folder} »` : 'Format non pris en charge', 'error');
       return;
@@ -117,7 +126,7 @@ export function ImportView({ workspaceId, groupId = null }: { workspaceId?: stri
                 </button>
               )}
             </div>
-            <p className="imp-formats">EPUB · PDF · Word · Markdown · Texte · HTML · Photos (JPG, PNG, HEIC…)</p>
+            <p className="imp-formats">EPUB · PDF · Word · Markdown · Texte · HTML · Photos (JPG, PNG, HEIC…) · Partage Marginalia</p>
           </section>
 
           {result && (
@@ -163,6 +172,16 @@ export function ImportView({ workspaceId, groupId = null }: { workspaceId?: stri
                 <p>Scannez un code avec l’iPhone ou le téléphone Android : photos de pages, livres, documents et notes copiées arrivent aussitôt, par le Wi-Fi.</p>
                 <button className="btn" onClick={openWifiReceive}>
                   Afficher le QR code
+                </button>
+              </section>
+            )}
+            {host.shareNet && (
+              <section className="imp-way" data-testid="import-share-card">
+                <Share2 size={22} strokeWidth={1.6} />
+                <h3>Depuis un autre Marginalia</h3>
+                <p>Un espace ou une sélection que quelqu’un vous envoie par le Wi-Fi, avec un code à 6 chiffres. Un fichier « .marginalia » se dépose simplement ci-dessus.</p>
+                <button className="btn" onClick={() => openReceiveDialog()} data-testid="import-share-open">
+                  Saisir un code…
                 </button>
               </section>
             )}

@@ -378,7 +378,7 @@ export interface HostApi {
 
 export type ExportFormat = 'docx' | 'pdf' | 'md' | 'html' | 'txt';
 /** Formats d'« Enregistrer sous » binaire (exports de l'éditeur + images de la carte). */
-export type SaveFormat = ExportFormat | 'png' | 'svg';
+export type SaveFormat = ExportFormat | 'png' | 'svg' | 'marginalia';
 
 export const EXPORT_MIME: Record<SaveFormat, string> = {
   docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
@@ -388,6 +388,7 @@ export const EXPORT_MIME: Record<SaveFormat, string> = {
   txt: 'text/plain;charset=utf-8',
   png: 'image/png',
   svg: 'image/svg+xml',
+  marginalia: 'application/zip',
 };
 
 /** Images importées comme documents (photo ou scan d'une page : texte reconnu par OCR). */
@@ -396,7 +397,11 @@ export const IMAGE_EXTENSIONS = ['jpg', 'jpeg', 'png', 'webp', 'heic', 'heif', '
 /** Fichiers dérivés d'un document image, rangés à côté de la source (supprimés avec elle). */
 export const DERIVED_FILES = ['ocr.json', 'display.jpg'];
 
-export const ACCEPTED_EXTENSIONS = ['epub', 'pdf', 'docx', 'md', 'markdown', 'txt', 'html', 'htm', ...IMAGE_EXTENSIONS];
+/** Extension d'un partage entre deux Marginalia (jamais importé comme livre : ouvre la fenêtre « Recevoir »). */
+export const SHARE_FILE_EXT = 'marginalia';
+export const isShareFile = (name: string) => name.toLowerCase().endsWith('.' + SHARE_FILE_EXT);
+
+export const ACCEPTED_EXTENSIONS = ['epub', 'pdf', 'docx', 'md', 'markdown', 'txt', 'html', 'htm', ...IMAGE_EXTENSIONS, SHARE_FILE_EXT];
 
 declare global {
   interface Window {

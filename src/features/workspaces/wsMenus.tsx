@@ -1,9 +1,10 @@
 // Contenu des menus contextuels (identique dans l'arbre et dans la vue).
-import { ArrowRightLeft, ExternalLink, GitCompareArrows, FolderPlus, FolderX, Palette, PackagePlus, Pencil, Trash2, Ungroup, Upload, FilePen, Network } from 'lucide-react';
+import { ArrowRightLeft, ExternalLink, GitCompareArrows, FolderPlus, FolderX, Palette, PackagePlus, Pencil, Trash2, Ungroup, Upload, FilePen, Network, Share2 } from 'lucide-react';
 import { useStore } from '../../lib/store';
 import type { WorkspaceGroup, WorkspaceItem } from '../../lib/types';
 import { TINTS, TINT_LABEL, openItem, ungroup, type DragPayload } from './wsModel';
 import type { MenuEntry } from './wsUi';
+import { openShareDialog } from '../share/shareUi';
 
 export interface MenuCtx {
   newGroup(workspaceId: string, parentId: string | null): void;
@@ -27,6 +28,7 @@ export function workspaceMenu(ctx: MenuCtx, workspaceId: string, tint: string): 
     ...(ctx.newDraftHere ? [{ label: 'Nouvel écrit ici', icon: <FilePen size={14} />, onClick: () => ctx.newDraftHere!(workspaceId, null) }] : []),
     ...(ctx.newBoardHere ? [{ label: 'Nouvelle carte ici', icon: <Network size={14} />, onClick: () => ctx.newBoardHere!(workspaceId, null) }] : []),
     { sep: true },
+    { label: 'Partager l’espace…', icon: <Share2 size={14} />, onClick: () => openShareDialog({ kind: 'workspace', workspaceId }) },
     { label: 'Renommer', icon: <Pencil size={14} />, onClick: () => ctx.rename('ws', workspaceId) },
     {
       label: 'Changer la teinte',

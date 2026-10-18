@@ -20,16 +20,14 @@
 //   de livre ni rien de cassé. readSharePackage(…).alreadyReceived permet à l'interface de prévenir avant.
 // - Chaque élément créé garde `shareOrigin` { shareId, srcId } (voir types.ts) pour une future synchronisation.
 import { host } from '../../lib/platform';
-import { EMPTY_EDITION, uid, useStore, type State } from '../../lib/store';
+import { EMPTY_EDITION, uid, useStore } from '../../lib/store';
 import type {
-  ActivityEntry,
   ArgumentMap,
   ArgumentReconstruction,
   ArgumentStep,
   Book,
   CategoryId,
   Concept,
-  Database,
   Draft,
   EssayPlan,
   Highlight,
@@ -77,9 +75,6 @@ export interface ShareImportResult {
   sentence: string;
 }
 
-/** Collections écrites par l'import. */
-type ImportPatch = Partial<Pick<Database, 'books' | 'highlights' | 'concepts' | 'maps' | 'arguments' | 'studies' | 'plans' | 'drafts' | 'cards' | 'workspaces' | 'groups' | 'wsItems'>>;
-type ApplyAll = (update: (s: State) => ImportPatch | null, log?: Omit<ActivityEntry, 'id' | 'at' | 'startedAt'>) => void;
 
 // ── Garde-fous sur les valeurs reçues ────────────────────────
 // Teintes et couleurs finissent dans des styles (`var(${tint})`) : seules une variable CSS ou une
@@ -444,9 +439,7 @@ export async function importSharePackage(bytes: Uint8Array | ArrayBuffer, opts: 
     groups: groups.length,
   };
   const sentence = describeCounts({ ...created, books: created.books + completedBooks.length, booksWithFile: created.booksWithFile + completedBooks.length }, created.booksWithFile + completedBooks.length > 0);
-  // applyExternal est typé pour la synchro de Livres (livres, extraits, signets, réglages) mais remplace
-  // toute collection qu'on lui donne, hors annulation (⌘Z) : on l'élargit ici plutôt que de toucher au store.
-  const applyAll = useStore.getState().applyExternal as unknown as ApplyAll;
+  const applyAll = useStore.getState().applyExternal;
   try {
     applyAll(
       (cur) => {

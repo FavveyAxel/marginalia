@@ -26,6 +26,7 @@ import { useFormatRepair } from './features/library/formatRepair';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { LockScreen } from './features/security/LockScreen';
 import { SecurityAsk } from './features/security/SecurityAsk';
+import { ShareHost } from './features/share/ShareHost';
 import { refreshSecurity, useSecurity } from './features/security/state';
 import type { SecurityStatus } from './lib/platform';
 
@@ -239,7 +240,7 @@ function AppearanceSwitch() {
 export async function importViaDialog() {
   const files = await host.pickFiles();
   if (!files.length) return;
-  const books = await useStore.getState().importFiles(files);
+  const books = await useStore.getState().importFiles(files); // un « .marginalia » ouvre la fenêtre « Recevoir »
   if (books.length === 1) useStore.getState().openBook(books[0].id);
 }
 
@@ -653,6 +654,7 @@ export function App() {
       <TourLayer />
       <ImportProgress />
       <DropOverlay />
+      <ShareHost />
       <SecurityAsk />
       <Toasts />
     </>

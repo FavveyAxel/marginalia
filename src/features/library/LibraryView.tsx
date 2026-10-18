@@ -27,8 +27,10 @@ import {
   RefreshCw,
   Inbox,
   Layers,
+  Share2,
 } from 'lucide-react';
 import { useStore } from '../../lib/store';
+import { openShareDialog } from '../share/shareUi';
 import { host, ACCEPTED_EXTENSIONS, type AppleBook } from '../../lib/platform';
 import { appleBooksAvailable, importAppleBooks } from './appleBooks';
 import { APPLE_COLORS, annotationToggles, appleBooksAnnotationsAvailable, colorMapOf, reportText, syncAppleBooksAnnotations } from './appleBooksAnnotations';
@@ -259,6 +261,7 @@ export function LibraryView() {
   const multiEntries = (ids: string[]): MenuEntry[] => [
     ...(canAssemble(ids) ? [{ label: 'Assembler en un document…', icon: <Layers size={14} />, onClick: () => setAssembleIds(ids) } as MenuEntry] : []),
     { label: 'Ajouter à un espace…', icon: <FolderPlus size={14} />, onClick: () => setAddIds(ids) },
+    { label: 'Partager…', icon: <Share2 size={14} />, onClick: () => openShareDialog({ kind: 'items', ids }) },
     { label: 'Exporter les notes', icon: <FileDown size={14} />, onClick: () => void exportMany(ids) },
     { sep: true },
     { label: `Supprimer ${ids.length} livres…`, icon: <Trash2 size={14} />, danger: true, onClick: () => deleteMany(ids) },
@@ -394,7 +397,7 @@ export function LibraryView() {
                 ))}
               </div>
               <span className="lib-accept" aria-hidden="true">
-                {ACCEPTED_EXTENSIONS.join(' · ')}
+                {ACCEPTED_EXTENSIONS.filter((e) => e !== 'marginalia').join(' · ')}
               </span>
             </div>
           ) : (
@@ -501,6 +504,11 @@ export function LibraryView() {
                         {b.title}
                       </div>
                       <div className="lib-card-author truncate">{b.author || (b.pages && b.pages.length > 1 ? `Document de ${b.pages.length} photos` : 'Auteur inconnu')}</div>
+                      {b.missing && (
+                        <div className="lib-nofile" title="Reçu sans son fichier : les extraits se lisent, mais le livre ne s’ouvre pas. Importez le même livre pour le compléter." data-testid="lib-nofile">
+                          Sans fichier
+                        </div>
+                      )}
                       <div className="lib-card-meta">
                         <span className="lib-progress" aria-label={`Progression ${pct(b.progress)} %`}>
                           <span style={{ width: `${pct(b.progress)}%` }} />
@@ -551,7 +559,10 @@ export function LibraryView() {
                       ) : (
                         <BookCover book={b} size="xs" />
                       )}
-                      <span className="lib-row-title truncate">{b.title}</span>
+                      <span className="lib-row-title truncate">
+                        {b.title}
+                        {b.missing && <span className="lib-nofile inline" data-testid="lib-nofile">Sans fichier</span>}
+                      </span>
                       <span className="truncate muted">{b.author || '—'}</span>
                       <span className="muted">{formatLabel(b)}</span>
                       <span className="num muted">{counts[b.id] ?? 0}</span>
@@ -601,6 +612,9 @@ export function LibraryView() {
         )}
         <button className="btn btn-ghost btn-sm" onClick={() => setAddIds(sel.ids)}>
           <FolderPlus size={14} /> Ajouter à un espace…
+        </button>
+        <button className="btn btn-ghost btn-sm" onClick={() => openShareDialog({ kind: 'items', ids: sel.ids })} data-testid="lib-share">
+          <Share2 size={14} /> Partager…
         </button>
         <button className="btn btn-ghost btn-sm" onClick={() => void exportMany(sel.ids)}>
           <FileDown size={14} /> Exporter les notes

@@ -184,7 +184,13 @@ try {
   await page.waitForSelector('.img-picture', { timeout: 20000 });
   const tImg = Date.now() - t0;
   ok(true, 'image affichée', `${tImg} ms`);
-  const chip = await page.waitForSelector('.img-ocr-chip', { timeout: 10000 }).catch(() => null);
+  // Pas de reconnaissance automatique : l'image propose de la lancer.
+  const offer = await page.waitForSelector('[data-testid="img-ocr-offer"]', { timeout: 10000 }).catch(() => null);
+  await page.waitForTimeout(1500);
+  ok(!!offer && !(await page.$('.img-ocr-pct')) && (await page.$$('.img-text span[data-i]')).length === 0, 'ouverture : aucune reconnaissance lancée, bouton « Reconnaître le texte » proposé');
+  await shot(page, '00-proposition.png');
+  await page.click('[data-testid="img-ocr-offer"] button');
+  const chip = await page.waitForSelector('.img-ocr-pct', { timeout: 10000 }).catch(() => null);
   ok(!!chip, 'barre de progression pendant la reconnaissance');
   await page.waitForFunction(() => Number(document.querySelector('.img-ocr-pct')?.textContent.replace(/\D/g, '') || 0) >= 30, null, { timeout: 60000 }).catch(() => null);
   await shot(page, '01-ocr-en-cours.png');

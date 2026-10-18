@@ -49,7 +49,9 @@ try {
   const t0 = Date.now();
   await page.waitForSelector('.img-picture', { timeout: 60000 });
   ok(true, 'image importée (argument de lancement) et ouverte', `${Date.now() - t0} ms`);
-  const chip = await page.waitForSelector('.img-ocr-chip', { timeout: 15000 }).catch(() => null);
+  await page.waitForSelector('[data-testid="img-ocr-offer"]', { timeout: 15000 });
+  await page.click('[data-testid="img-ocr-offer"] button');
+  const chip = await page.waitForSelector('.img-ocr-pct', { timeout: 15000 }).catch(() => null);
   ok(!!chip, 'progression de la reconnaissance visible');
   await page.waitForFunction(() => document.querySelectorAll('.img-text span[data-i]').length > 200, null, { timeout: 180000 });
   ok(true, 'texte reconnu sous app:// (worker, cœur WebAssembly, modèles fra + eng)', `${((Date.now() - t0) / 1000).toFixed(1)} s`);

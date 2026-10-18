@@ -30,6 +30,11 @@ export const NEWS: NewsEntry[] = [
         action: { label: 'Lancer la visite', run: 'tour' },
       },
       {
+        icon: 'sparkles',
+        title: 'La reconnaissance du texte, quand vous le décidez',
+        text: 'Une photo ou un scan s’ouvre tout de suite, sans lancer la lecture de son texte. Un bouton « Reconnaître le texte » la lance quand vous en avez besoin, sur l’image comme dans la Boîte de réception.',
+      },
+      {
         icon: 'phone',
         title: 'Vos écrits, sur le téléphone',
         text: 'Dans Écrire, « Exporter › Sur le téléphone » affiche un QR code : scannez-le, et votre écrit se télécharge sur l’iPhone ou le téléphone Android, en PDF ou en Word. Par le Wi-Fi, sans rien qui passe par Internet.',

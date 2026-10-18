@@ -17,6 +17,7 @@ import {
   Link2,
   QrCode,
   RotateCw,
+  ScanText,
   Search,
   Smartphone,
   X,
@@ -31,6 +32,7 @@ import {
   dismissItem,
   makeDraft,
   prettyDir,
+  readPhotoText,
   researchItem,
   retryItem,
   revealInbox,
@@ -336,6 +338,18 @@ function PassageBody({ it }: { it: InboxItem }) {
         )}
         {!ready ? (
           <Step it={it} />
+        ) : it.kind === 'image' && it.text === undefined ? (
+          <>
+            <p className="ib-note">Photo reçue. Lisez son texte pour retrouver le passage dans vos livres, ou ajoutez-la telle quelle à la bibliothèque.</p>
+            <div className="ib-actions">
+              <button className="btn btn-sm btn-primary" onClick={() => void readPhotoText(it.name)} data-testid="ib-read-photo">
+                <ScanText size={14} /> Lire le texte de la photo
+              </button>
+              <button className="btn btn-sm" onClick={() => void addToLibrary(it.name)} title="La photo devient un document de la bibliothèque, où vous pouvez surligner">
+                <ImageIcon size={14} /> Ajouter la photo à la bibliothèque
+              </button>
+            </div>
+          </>
         ) : (
           <>
             {edited && (

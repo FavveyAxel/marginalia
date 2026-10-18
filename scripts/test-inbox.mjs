@@ -99,6 +99,9 @@ await withApp(PORT, async (page, errors) => {
   ok((await page.textContent('.ib-card[data-name="Archive.zip"]')).includes('ne sait pas ouvrir'), 'fichier inconnu : message clair');
 
   const t0 = Date.now();
+  const offerCard = '.ib-card[data-name="IMG_0412.jpg"] [data-testid="ib-read-photo"]';
+  ok(await page.waitForSelector(offerCard, { timeout: 30000 }).then(() => true, () => false), 'photo : affichée, texte lu seulement à la demande');
+  await page.click(offerCard);
   const photoMatched = await page.waitForSelector('.ib-card[data-name="IMG_0412.jpg"] .ib-match', { timeout: 120000 }).then(() => true, () => false);
   ok(photoMatched, 'photo : texte lu et passage retrouvé', `${((Date.now() - t0) / 1000).toFixed(1)} s`);
   if (photoMatched) ok((await page.textContent('.ib-card[data-name="IMG_0412.jpg"] .ib-match-book')).includes('Discours'), 'photo : bon livre proposé', (await page.textContent('.ib-card[data-name="IMG_0412.jpg"] .ib-match-where')) ?? '');

@@ -41,7 +41,7 @@ export const TOUR: TourStep[] = [
   {
     id: 'bibliotheque',
     title: 'La bibliothèque',
-    text: 'Tous vos textes : EPUB, PDF, Word, et même des photos de pages dont le texte est reconnu. Ouvrez un livre pour le lire, surligner en six couleurs et annoter dans la marge.',
+    text: 'Tous vos textes : EPUB, PDF, Word, et même des photos de pages dont vous pouvez faire reconnaître le texte. Ouvrez un livre pour le lire, surligner en six couleurs et annoter dans la marge.',
     pose: 'read',
     route: { name: 'library' },
     target: [nav('Bibliothèque')],

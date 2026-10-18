@@ -281,25 +281,12 @@ async function processItem(name: string) {
         return;
       }
       case 'image': {
-        patch(name, { status: 'working', step: 'Ouverture de la photo…', progress: 0 });
+        // Pas de reconnaissance automatique : la photo s'affiche, et son texte se lit à la demande
+        // (« Lire le texte de la photo »), ou elle rejoint la bibliothèque telle quelle.
+        patch(name, { status: 'working', step: 'Ouverture de la photo…', progress: undefined });
         const f = await read(name);
-        const { recognize } = await import('../reader/image/ocr');
         const { blob } = await displayableBlob(f.data, f.name);
-        patch(name, { preview: URL.createObjectURL(blob), step: 'Lecture du texte de la photo…' });
-        const bmp = await createImageBitmap(blob, ORIENT);
-        let ocr;
-        try {
-          ocr = await recognize(bmp, (p) => patch(name, { progress: p.value }));
-        } finally {
-          bmp.close();
-        }
-        const text = ocr.paras
-          .map((p) => p.lines.map((l) => l.words.map((w) => w.t).join(' ')).join('\n'))
-          .join('\n\n')
-          .trim();
-        patch(name, { text, progress: undefined, step: 'Recherche du passage dans la bibliothèque…' });
-        const matches = text ? await search(text) : [];
-        patch(name, { status: 'ready', step: undefined, matches, searchedText: text, searchedIn: null });
+        patch(name, { status: 'ready', step: undefined, preview: URL.createObjectURL(blob) });
         return;
       }
       case 'web': {
@@ -417,6 +404,35 @@ export async function researchItem(name: string, text: string, bookId: string | 
     patch(name, { status: 'ready', step: undefined, matches, searchedText: text, searchedIn: bookId });
   } catch (e) {
     patch(name, { status: 'ready', step: undefined, error: String((e as Error)?.message ?? e) });
+  }
+}
+
+/** Lit le texte d'une photo reçue (à la demande), puis cherche le passage dans la bibliothèque. */
+export async function readPhotoText(name: string) {
+  const it = get(name);
+  if (!it || it.kind !== 'image' || it.status !== 'ready') return;
+  try {
+    patch(name, { status: 'working', step: 'Lecture du texte de la photo…', progress: 0 });
+    const f = await read(name);
+    const { recognize } = await import('../reader/image/ocr');
+    const { blob } = await displayableBlob(f.data, f.name);
+    const bmp = await createImageBitmap(blob, ORIENT);
+    let ocr;
+    try {
+      ocr = await recognize(bmp, (p) => patch(name, { progress: p.value }));
+    } finally {
+      bmp.close();
+    }
+    const text = ocr.paras
+      .map((p) => p.lines.map((l) => l.words.map((w) => w.t).join(' ')).join('\n'))
+      .join('\n\n')
+      .trim();
+    patch(name, { text, progress: undefined, step: 'Recherche du passage dans la bibliothèque…' });
+    const matches = text ? await search(text) : [];
+    patch(name, { status: 'ready', step: undefined, matches, searchedText: text, searchedIn: null });
+  } catch (e) {
+    console.error('Boîte :', name, e);
+    patch(name, { status: 'error', step: undefined, progress: undefined, error: 'Le texte de la photo n’a pas pu être lu.' });
   }
 }
 

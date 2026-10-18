@@ -182,7 +182,8 @@ export const ImageReader = forwardRef<EngineHandle, EngineProps>(function ImageR
       else if (cached) {
         setOcr(cached);
         setPhase('done');
-      } else runOcr(bmp); // l'image est copiée dans le travail de reconnaissance dès son lancement
+      }
+      // Pas de reconnaissance automatique : elle se lance à la demande (« Reconnaître le texte »).
       bmp.close();
     })().catch((e) => {
       if (!alive) return;
@@ -747,6 +748,14 @@ export const ImageReader = forwardRef<EngineHandle, EngineProps>(function ImageR
             </span>
           </div>
         )}
+        {phase === 'idle' && !ocr && url && !zoneMode && (
+          <div className="img-ocr-chip is-offer anim-in" data-testid="img-ocr-offer">
+            <span className="img-ocr-label">Reconnaître le texte de l’image pour le sélectionner, le surligner et le citer ?</span>
+            <button className="btn btn-sm btn-primary" onClick={rerun}>
+              <ScanText size={13} /> Reconnaître le texte
+            </button>
+          </div>
+        )}
         {phase === 'error' && (
           <div className="img-ocr-chip is-error anim-in" role="alert">
             <span className="img-ocr-label">Le texte de l’image n’a pas pu être reconnu. Réessayez, ou annotez l’image par zones.</span>
@@ -827,7 +836,7 @@ export const ImageReader = forwardRef<EngineHandle, EngineProps>(function ImageR
                       : 'Aucun mot reconnu dans cette image.'
                     : phase === 'error'
                       ? 'La reconnaissance a échoué.'
-                      : ''}
+                      : 'Le texte de cette image n’a pas encore été reconnu.'}
               </p>
             </div>
             <button className="icon-btn sm" onClick={() => setPanel(false)} title="Fermer" aria-label="Fermer le texte reconnu">
@@ -903,7 +912,7 @@ export const ImageReader = forwardRef<EngineHandle, EngineProps>(function ImageR
               </div>
             ) : (
               <button className="btn btn-sm" disabled={phase === 'running' || !nat} onClick={() => (ocr?.editedAt ? setConfirmRerun(true) : rerun())}>
-                <RotateCcw size={13} /> Relancer la reconnaissance
+                {ocr ? <RotateCcw size={13} /> : <ScanText size={13} />} {ocr ? 'Relancer la reconnaissance' : 'Reconnaître le texte'}
               </button>
             )}
           </footer>

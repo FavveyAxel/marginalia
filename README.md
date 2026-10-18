@@ -3,11 +3,11 @@
 App Mac et Windows pour lire, étudier et écrire en philosophie (Electron + React + TypeScript).
 Gratuite, sans compte, tout reste sur l'ordinateur. Site : <https://marginalia-bice.vercel.app>
 
-- Lecture EPUB, PDF, DOCX, Markdown, TXT, HTML, photos et scans (texte reconnu hors ligne) ; deux textes côte à côte
+- Lecture EPUB, PDF, DOCX, Markdown, TXT, HTML, photos et scans (texte reconnu hors ligne, à la demande) ; deux textes côte à côte
 - Synchronisation avec l'app Livres d'Apple (Mac) : livres, surlignages, notes, signets, position de lecture
 - Page « Importer » : glisser-déposer de fichiers ou de dossiers entiers, choix de fichiers ou d'un dossier, QR code, dossier synchronisé, app Livres
 - Depuis le téléphone (iPhone, Android) : par le Wi-Fi en scannant un QR code (photos, livres, documents, passages ou notes
-  de l'app Livres collées, et chaque envoi dit où il est allé), ou par un dossier synchronisé (iCloud Drive, OneDrive) ; texte des photos reconnu et passage retrouvé dans vos livres
+  de l'app Livres collées, et chaque envoi dit où il est allé), ou par un dossier synchronisé (iCloud Drive, OneDrive) ; texte des photos lu à la demande et passage retrouvé dans vos livres
 - Vers le téléphone : un écrit exporté en PDF ou Word se télécharge sur le téléphone en scannant un QR code (Exporter › Sur le téléphone)
 - Visite guidée par la mascotte, lancée d'elle-même pour les nouveaux utilisateurs et depuis l'Aide
 - Surlignage en 6 catégories (problème, thèse, argument, thèse adverse, concept, exemple), notes « ma voix »

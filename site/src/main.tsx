@@ -460,7 +460,7 @@ const MORE: { icon: string; title: string; pose: Pose; line: string; items: stri
     line: 'Ouvrez vos livres, et même une photo de page : je lis tout.',
     items: [
       'EPUB, PDF, Word, Markdown, texte, HTML',
-      'Photos et scans : texte reconnu, sans connexion',
+      'Photos et scans : texte reconnu à la demande, sans connexion',
       'Synchronisation avec l’app Livres d’Apple (Mac)',
       'Depuis le téléphone, par le Wi-Fi (QR code) : photo, livre ou passage copié',
       'Et dans l’autre sens : un écrit envoyé sur le téléphone, en PDF ou Word',
@@ -743,11 +743,11 @@ function App() {
           <div className="photo-text">
             <h2 id="photo-title">Une photo, et le texte est là</h2>
             <p>
-              Importez une photo ou un scan, en JPG, PNG ou HEIC : Marginalia en reconnaît le texte, sur votre ordinateur, sans connexion.
+              Importez une photo ou un scan, en JPG, PNG ou HEIC. Quand vous le décidez, Marginalia en reconnaît le texte, sur votre ordinateur, sans connexion.
               Vous le sélectionnez et le surlignez comme dans un livre, et vous corrigez d’un clic une ligne mal lue.
             </p>
             <p>
-              Depuis le téléphone, il suffit de scanner un QR code et de prendre la photo. Marginalia retrouve le passage dans vos livres et
+              Depuis le téléphone, il suffit de scanner un QR code et de prendre la photo. Lisez son texte, et Marginalia retrouve le passage dans vos livres et
               l’ajoute comme extrait, ou en fait un nouvel écrit.
             </p>
           </div>

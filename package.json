@@ -12,7 +12,9 @@
     "dist:win": "vite build && electron-builder --win --x64 --publish never && electron-builder --win --arm64 --publish never",
     "dist:dir": "vite build && electron-builder --dir --publish never",
     "smoke:packaged": "node scripts/smoke-packaged.mjs",
-    "package": "node scripts/package.mjs"
+    "package": "node scripts/package.mjs",
+    "dev:site": "vite --config site/vite.config.ts",
+    "build:site": "vite build --config site/vite.config.ts"
   },
   "author": "Axel Bierne",
   "devDependencies": {

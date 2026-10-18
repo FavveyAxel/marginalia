@@ -1,1 +1,0 @@
-Déposer ici apple.svg (macOS) et windows.svg (Windows) : le site les affiche à la place des pictogrammes neutres.

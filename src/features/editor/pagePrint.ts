@@ -162,8 +162,9 @@ export async function renderPagesForPrint(docx: ArrayBuffer, opts: PagePrintOpti
     const w = parseFloat(first.style.width) || first.offsetWidth;
     const h = parseFloat(first.style.height) || first.offsetHeight;
     // garde-fou : si des pages manquent au DOM (fenêtre virtuelle), l'export reconstruit prend le relais
-    const total = host.querySelector('.presentation-editor__pages')?.scrollHeight ?? 0;
-    if (total > (pages.length + 1) * h) throw new Error(`Pages manquantes (${pages.length} dans le DOM)`);
+    // (numéros de page 0…n-1 tous présents ; les hauteurs varient avec les sections, d'où pas de calcul de hauteur)
+    const idx = pages.map((p) => Number(p.dataset.pageIndex));
+    if (idx.some((v, k) => Number.isFinite(v) && v !== k)) throw new Error(`Pages manquantes (${pages.length} dans le DOM)`);
     const wrap = document.createElement('div');
     for (const p of pages) {
       const c = p.cloneNode(true) as HTMLElement;

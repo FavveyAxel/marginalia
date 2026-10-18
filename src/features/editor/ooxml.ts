@@ -19,6 +19,12 @@ const DOCX_MIME = 'application/vnd.openxmlformats-officedocument.wordprocessingm
 
 /** Espaces de noms connus (préfixes usuels de Word). */
 export const KNOWN_NS: Record<string, string> = {
+  // docProps/core.xml
+  cp: 'http://schemas.openxmlformats.org/package/2006/metadata/core-properties',
+  dc: 'http://purl.org/dc/elements/1.1/',
+  dcterms: 'http://purl.org/dc/terms/',
+  dcmitype: 'http://purl.org/dc/dcmitype/',
+  xsi: 'http://www.w3.org/2001/XMLSchema-instance',
   w: 'http://schemas.openxmlformats.org/wordprocessingml/2006/main',
   r: 'http://schemas.openxmlformats.org/officeDocument/2006/relationships',
   m: 'http://schemas.openxmlformats.org/officeDocument/2006/math',
@@ -266,6 +272,21 @@ export function fixNamespaces(xml: string): string {
     }
     if (keep.join(' ') !== ign[1]) newRoot = newRoot.replace(ign[0], keep.length ? ` mc:Ignorable="${keep.join(' ')}"` : '');
   }
+  // attributs de la racine liés au même espace de noms sous deux préfixes (ex. mc:Ignorable et
+  // ve:Ignorable, ve = markup-compatibility dans les vieux .docx) : doublon interdit en XML
+  {
+    const nsOf = new Map<string, string>();
+    for (const a of rootTag.matchAll(ATTR_RE)) if (a[1].startsWith('xmlns:')) nsOf.set(a[1].slice(6), a[2] ?? a[3] ?? '');
+    const seen = new Set<string>();
+    for (const a of [...newRoot.matchAll(ATTR_RE)]) {
+      const n = a[1];
+      const q = n.indexOf(':');
+      if (n.startsWith('xmlns') || q < 0) continue;
+      const key = `${nsOf.get(n.slice(0, q)) ?? n.slice(0, q)}|${n.slice(q + 1)}`;
+      if (seen.has(key)) newRoot = newRoot.replace(a[0], '');
+      else seen.add(key);
+    }
+  }
   if (!add.length && newRoot === rootTag) return xml;
   const decl = [...new Set(add)].map((p) => ` xmlns:${p}="${KNOWN_NS[p]}"`).join('');
   newRoot = newRoot.replace(/^(<[^\s/>]+)/, `$1${decl}`);
@@ -480,6 +501,16 @@ export async function normalizeDocx(data: ArrayBuffer): Promise<ArrayBuffer> {
     parts.set('word/fontTable.xml', completeFontTable(ft, used));
   }
   for (const [n, x] of parts) parts.set(n, fixNamespaces(reorderXml(x)));
+  // propriétés du document (SuperDoc y écrit dcterms:created sans déclarer dcterms ni xsi)
+  const core = zip.file('docProps/core.xml');
+  if (core) {
+    const x = await core.async('string');
+    const y = fixNamespaces(x);
+    if (y !== x) {
+      parts.set('docProps/core.xml', y);
+      orig.set('docProps/core.xml', x);
+    }
+  }
   let changed = false;
   for (const [n, x] of parts) {
     if (x !== orig.get(n)) {

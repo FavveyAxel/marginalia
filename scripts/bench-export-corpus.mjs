@@ -83,7 +83,10 @@ await launch();
 for (const f of files) {
   const r = { file: f };
   const t0 = Date.now();
+  let step = 'ouverture';
   try {
+    let timer;
+    await Promise.race([new Promise((_, rej) => { timer = setTimeout(() => rej(new Error(`bloqué plus de 150 s (étape : ${step})`)), 150000); }), (async () => {
     const buf = fs.readFileSync(path.join(DIR, f));
     r.src = await sourceBreaks(buf);
     await page.evaluate(async (b64) => {
@@ -94,8 +97,10 @@ for (const f of files) {
       window.__store.getState().navigate({ name: 'write', draftId: d.id });
     }, buf.toString('base64'));
     await page.waitForFunction(() => window.__ed && window.__ed.engine() && document.querySelector('.ed-engine-in .superdoc-page'), null, { timeout: 60000 });
+    step = 'mise en page de l’éditeur';
     await waitLayout();
     const ed = await editorPages();
+    step = 'exports';
     r.editor = ed.length;
     const ex = await page.evaluate(async () => {
       const { guardedExport } = await import('/src/features/editor/save.ts');
@@ -122,6 +127,7 @@ for (const f of files) {
     Object.assign(r, { layoutMs: ex.ms, fallback: ex.fallback, printPages: ex.pages, mdBreaks: ex.mdBreaks, txtBreaks: ex.txtBreaks, modelBreaks: ex.modelBreaks });
     const base = f.replace(/\.docx$/i, '');
     const pdfPath = path.join(OUT, `${base}.pdf`);
+    step = 'comparaison';
     fs.writeFileSync(pdfPath, Buffer.from(ex.pdf, 'base64'));
     r.pdf = pdfPages(pdfPath);
     {
@@ -140,9 +146,11 @@ for (const f of files) {
       r.loExport = loPages(exDocx, `${base}.lo-export.pdf`);
       sh('pdftoppm', ['-png', '-r', '30', '-l', '6', pdfPath, path.join(OUT, `${base}.pdf`)]);
     }
+    })()]).finally(() => clearTimeout(timer));
   } catch (e) {
     r.error = String(e?.message ?? e).split('\n')[0].slice(0, 200);
-    try { await app.close(); } catch {}
+    try { await Promise.race([app.close(), new Promise((r) => setTimeout(r, 5000))]); } catch {}
+    try { app.process().kill('SIGKILL'); } catch {}
     await launch();
   }
   r.s = Math.round((Date.now() - t0) / 100) / 10;

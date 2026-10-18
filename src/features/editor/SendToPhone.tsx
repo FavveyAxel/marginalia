@@ -149,7 +149,7 @@ export function SendToPhone({ file, onClose }: { file: { name: string; kind: 'pd
         <footer className="wr-foot">
           <Lock size={13} />
           <span>
-            Rien ne passe par Internet : le téléphone télécharge directement depuis cet ordinateur. L’envoi s’arrête quand vous fermez cette fenêtre.
+            Rien ne passe par Internet : le téléphone télécharge directement depuis cet ordinateur, chiffré avec la clé contenue dans le QR code. L’envoi s’arrête quand vous fermez cette fenêtre.
             {host.platform === 'win32' && ' Si Windows demande d’autoriser Marginalia, acceptez pour les réseaux privés.'}
           </span>
         </footer>

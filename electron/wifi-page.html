@@ -83,11 +83,16 @@ body.is-closed .actions, body.is-closed .text-box { opacity: 0.4; pointer-events
 .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
 </style>
 </head>
-<body>
+<body data-check="__CHECK__">
 <main>
   <div class="brand"><img class="brand-mark" src="__ICON__" alt="" width="28" height="28"> Marginalia</div>
   <h1>Envoyer à l’ordinateur</h1>
-  <p class="sub">Vers Marginalia sur <strong>__COMPUTER__</strong>, par le Wi‑Fi.</p>
+  <p class="sub">Vers Marginalia sur <strong id="computer">votre ordinateur</strong>, par le Wi‑Fi.</p>
+
+  <div class="closed" id="nokey" role="alert">
+    <strong>Ce lien est incomplet : scannez le QR code affiché par Marginalia.</strong>
+    <p>Il manque la clé qui chiffre vos envois. Sur l’ordinateur, ouvrez « Recevoir depuis le téléphone » et scannez le code avec l’appareil photo.</p>
+  </div>
 
   <div class="closed" id="closed" role="alert">
     <strong>La réception est fermée sur l’ordinateur.</strong>
@@ -127,12 +132,14 @@ body.is-closed .actions, body.is-closed .text-box { opacity: 0.4; pointer-events
 
   <p class="foot">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="10.5" width="14" height="10" rx="1.6"/><path d="M8 10.5V8a4 4 0 0 1 8 0v2.5"/></svg>
-    <span>Rien ne passe par Internet : l’envoi va directement à votre ordinateur, sur ce réseau Wi‑Fi.</span>
+    <span>Rien ne passe par Internet : l’envoi va directement à votre ordinateur, sur ce réseau Wi‑Fi, chiffré avec la clé contenue dans le QR code.</span>
   </p>
 </main>
+<script nonce="__NONCE__">__CRYPTO__</script>
 <script nonce="__NONCE__">
 (function () {
   'use strict';
+  var C = window.mgCrypt;
   var base = location.pathname.replace(/\/+$/, '');
   var list = document.getElementById('list');
   var empty = document.getElementById('empty');
@@ -140,6 +147,35 @@ body.is-closed .actions, body.is-closed .text-box { opacity: 0.4; pointer-events
   var queue = [];
   var busy = false;
   var closed = false;
+
+  // Clé de la session : dans le fragment de l'adresse du QR code (« #k=… »), que le navigateur
+  // n'envoie jamais. Gardée pour cet onglet (rechargement), puis retirée de la barre d'adresse.
+  // Elle est vérifiée sur le nom de l'ordinateur, chiffré dans la page : sans clé, ou avec une
+  // mauvaise, rien n'est envoyé.
+  var key = null;
+  var hello = null;
+  (function () {
+    var store = 'mg-k:' + base;
+    var check = document.body.getAttribute('data-check');
+    var k = C.keyFromHash(location.hash);
+    if (k) hello = C.open(k, check);
+    if (!hello) {
+      try { k = C.keyFromHash('#k=' + (sessionStorage.getItem(store) || '')); } catch (e) { k = null; }
+      hello = k && C.open(k, check);
+    }
+    if (!hello) return;
+    key = k;
+    try { sessionStorage.setItem(store, C.b64u(k)); } catch (e) {}
+    if (location.hash) {
+      try { history.replaceState(null, '', location.pathname + location.search); } catch (e) {}
+    }
+  })();
+  if (!key) {
+    document.getElementById('nokey').classList.add('show');
+    document.body.classList.add('is-closed');
+    return; // aucune action branchée : rien ne peut partir
+  }
+  document.getElementById('computer').textContent = String(hello.c || 'votre ordinateur');
 
   function setClosed(on) {
     closed = on;
@@ -192,47 +228,85 @@ body.is-closed .actions, body.is-closed .text-box { opacity: 0.4; pointer-events
     });
   }
 
+  /**
+   * Chiffre l'envoi par blocs d'1 Mio (lus un à un dans le fichier), avec un identifiant de flux
+   * neuf à chaque essai ; le nom et la nature voyagent chiffrés à part (paramètre « m »).
+   */
+  function encrypt(job, ui, cb) {
+    var id = C.randomBytes(16);
+    var size = job.bytes ? job.bytes.length : job.file.size;
+    var count = Math.max(1, Math.ceil(size / C.CHUNK));
+    var parts = [];
+    var i = 0;
+    function put(plain) {
+      parts.push(C.sealFrame(key, id, C.DATA, i, i === count - 1, plain));
+      i++;
+      if (count > 1) ui.state.textContent = 'Chiffrement ' + Math.round((i / count) * 100) + ' %';
+      setTimeout(next, 0);
+    }
+    function next() {
+      if (i === count) {
+        return cb(null, { id: C.b64u(id), meta: C.sealMeta(key, id, job.meta), body: new Blob(parts, { type: 'application/octet-stream' }) });
+      }
+      var from = i * C.CHUNK;
+      var to = Math.min(size, from + C.CHUNK);
+      if (job.bytes) return put(job.bytes.subarray(from, to));
+      var r = new FileReader();
+      r.onload = function () { put(new Uint8Array(r.result)); };
+      r.onerror = function () { cb(r.error || new Error('lecture')); };
+      r.readAsArrayBuffer(job.file.slice(from, to));
+    }
+    next();
+  }
+
   function send(job, done) {
     var ui = job.ui;
     ui.li.className = 'li';
     var old = ui.li.querySelector('.li-err');
     if (old) old.remove();
-    ui.state.textContent = 'Envoi…';
-    var xhr = new XMLHttpRequest();
-    xhr.open('POST', base + job.path);
-    xhr.setRequestHeader('X-Marginalia', '1');
-    if (job.type) xhr.setRequestHeader('Content-Type', job.type);
-    xhr.upload.onprogress = function (e) {
-      if (!e.lengthComputable) return;
-      var p = e.loaded / e.total;
-      ui.fill.style.width = Math.round(p * 100) + '%';
-      ui.state.textContent = Math.round(p * 100) + ' %';
-    };
-    xhr.onload = function () {
-      var r = {};
-      try { r = JSON.parse(xhr.responseText); } catch (e) {}
-      if (xhr.status === 200) {
-        ui.li.className = 'li ok';
-        ui.state.textContent = 'Reçu ✓';
-        if (r.name) follow(ui, r.name);
-      } else {
-        if (xhr.status === 404 || xhr.status === 410 || xhr.status === 423) setClosed(true);
-        // Réessayer n'a de sens que pour un incident passager (serveur), pas pour un refus.
-        fail(job, r.error || 'Envoi impossible.', xhr.status >= 500);
+    ui.state.textContent = 'Chiffrement…';
+    encrypt(job, ui, function (err, enc) {
+      if (err) {
+        fail(job, 'Lecture du fichier impossible sur le téléphone.', true);
+        return done();
       }
-      done();
-    };
-    xhr.onerror = function () {
-      fail(job, 'L’ordinateur ne répond pas. Il est peut-être en veille, ou sur un autre Wi‑Fi.', true);
-      done();
-    };
-    xhr.send(job.body);
+      ui.state.textContent = 'Envoi…';
+      var xhr = new XMLHttpRequest();
+      xhr.open('POST', base + '/up?id=' + enc.id + '&m=' + enc.meta);
+      xhr.setRequestHeader('X-Marginalia', '1');
+      xhr.setRequestHeader('Content-Type', 'application/octet-stream');
+      xhr.upload.onprogress = function (e) {
+        if (!e.lengthComputable) return;
+        var p = e.loaded / e.total;
+        ui.fill.style.width = Math.round(p * 100) + '%';
+        ui.state.textContent = Math.round(p * 100) + ' %';
+      };
+      xhr.onload = function () {
+        var r = C.open(key, xhr.responseText) || {};
+        if (xhr.status === 200 && r.ok) {
+          ui.li.className = 'li ok';
+          ui.state.textContent = 'Reçu ✓';
+          follow(ui, enc.id);
+        } else {
+          if (xhr.status === 404 || xhr.status === 410 || xhr.status === 423) setClosed(true);
+          // Réessayer n'a de sens que pour un incident passager (serveur), pas pour un refus.
+          fail(job, r.error || 'Envoi impossible.', xhr.status >= 500);
+        }
+        done();
+      };
+      xhr.onerror = function () {
+        fail(job, 'L’ordinateur ne répond pas. Il est peut-être en veille, ou sur un autre Wi‑Fi.', true);
+        done();
+      };
+      xhr.send(enc.body);
+    });
   }
 
   // Ce que l'ordinateur en a fait (« Ajouté à la bibliothèque… », « Extrait ajouté à… ») :
   // demandé régulièrement jusqu'à la réponse (5 minutes au plus ; une photo se lit en quelques secondes).
+  // La demande ne porte que l'identifiant opaque de l'envoi ; la réponse arrive chiffrée.
   var DONE = { library: 1, extract: 1, extracts: 1, draft: 1, dismissed: 1 };
-  function follow(ui, name) {
+  function follow(ui, id) {
     var res = document.createElement('p');
     res.className = 'li-res working';
     res.textContent = 'Traitement sur l’ordinateur…';
@@ -240,16 +314,15 @@ body.is-closed .actions, body.is-closed .text-box { opacity: 0.4; pointer-events
     var t0 = Date.now();
     (function tick() {
       var x = new XMLHttpRequest();
-      x.open('GET', base + '/result?name=' + encodeURIComponent(name));
+      x.open('GET', base + '/result?id=' + id);
       x.onload = function () {
-        var o = {};
-        try { o = JSON.parse(x.responseText); } catch (e) {}
+        var o = (x.status === 200 && C.open(key, x.responseText)) || {};
         if (x.status === 200 && o.state && o.state !== 'working') {
           res.className = 'li-res ' + (DONE[o.state] ? 'done' : o.state === 'error' ? 'error' : 'waiting');
           res.textContent = o.label || 'Traité sur l’ordinateur.';
           return;
         }
-        if (x.status !== 200) {
+        if (x.status !== 200 || !o.state) {
           res.className = 'li-res waiting';
           res.textContent = 'Reçu sur l’ordinateur : à retrouver dans la Boîte de réception de Marginalia.';
           return;
@@ -293,7 +366,7 @@ body.is-closed .actions, body.is-closed .text-box { opacity: 0.4; pointer-events
   function onFiles(input) {
     var files = Array.prototype.slice.call(input.files || []);
     files.forEach(function (f) {
-      add({ title: f.name + ' · ' + sizeOf(f.size), path: '/file?name=' + encodeURIComponent(f.name || 'photo.jpg'), body: f, type: 'application/octet-stream' });
+      add({ title: f.name + ' · ' + sizeOf(f.size), file: f, meta: { t: 'file', n: f.name || 'photo.jpg' } });
     });
     input.value = '';
   }
@@ -316,7 +389,7 @@ body.is-closed .actions, body.is-closed .text-box { opacity: 0.4; pointer-events
     var t = area.value.trim();
     if (!t) return;
     var first = t.replace(/\s+/g, ' ').replace(/^[“"«‘„\s]+/, '').slice(0, 48);
-    add({ title: '« ' + first + (t.length > 48 ? '…' : '') + ' »', path: '/text', body: new Blob([t], { type: 'text/plain;charset=utf-8' }), type: 'text/plain; charset=utf-8' });
+    add({ title: '« ' + first + (t.length > 48 ? '…' : '') + ' »', bytes: C.utf8(t), meta: { t: 'text' } });
     area.value = '';
     sendBtn.disabled = true;
     openText(false);

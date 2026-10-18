@@ -43,54 +43,200 @@ li { display: grid; grid-template-columns: 2.75rem minmax(0, 1fr); gap: 0.75rem 
 .closed.show { display: block; }
 .closed strong { display: block; margin-bottom: 0.25rem; }
 .closed p { margin: 0; color: var(--ink-2); font-size: 0.9375rem; }
+.f-err { grid-column: 1 / -1; margin: 0; color: var(--err); font-size: 0.875rem; }
 body.is-closed ul { opacity: 0.4; pointer-events: none; }
 .foot { margin-top: 2rem; display: flex; gap: 0.5rem; align-items: flex-start; color: var(--muted); font-size: 0.8125rem; }
 .foot svg { flex: none; width: 1rem; height: 1rem; margin-top: 0.1rem; }
 </style>
 </head>
-<body>
+<body data-check="__CHECK__">
 <main>
   <div class="brand"><img src="__ICON__" alt="" width="28" height="28"> Marginalia</div>
   <h1>Votre écrit, sur le téléphone</h1>
-  <p class="sub">Envoyé par Marginalia sur <strong>__COMPUTER__</strong>, par le Wi&#8209;Fi.</p>
+  <p class="sub">Envoyé par Marginalia sur <strong id="computer">votre ordinateur</strong>, par le Wi&#8209;Fi.</p>
+
+  <div class="closed" id="nokey" role="alert">
+    <strong>Ce lien est incomplet : scannez le QR code affiché par Marginalia.</strong>
+    <p>Il manque la clé qui chiffre le document. Sur l’ordinateur, rouvrez « Exporter › Sur le téléphone » et scannez le code avec l’appareil photo.</p>
+  </div>
 
   <div class="closed" id="closed" role="alert">
     <strong>L’envoi est fermé sur l’ordinateur.</strong>
     <p>Dans Marginalia, rouvrez « Exporter › Sur le téléphone » et scannez le nouveau code.</p>
   </div>
 
-  <ul id="files">__FILES__</ul>
+  <ul id="files"></ul>
 
   <p class="how" id="how"></p>
 
   <p class="foot">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="10.5" width="14" height="10" rx="1.6"/><path d="M8 10.5V8a4 4 0 0 1 8 0v2.5"/></svg>
-    <span>Rien ne passe par Internet : le document vient directement de votre ordinateur, sur ce réseau Wi&#8209;Fi.</span>
+    <span>Rien ne passe par Internet : le document vient directement de votre ordinateur, sur ce réseau Wi&#8209;Fi, chiffré avec la clé contenue dans le QR code.</span>
   </p>
 </main>
+<script nonce="__NONCE__">__CRYPTO__</script>
 <script nonce="__NONCE__">
 (function () {
   'use strict';
+  var C = window.mgCrypt;
   var base = location.pathname.replace(/\/+$/, '');
   var ua = navigator.userAgent;
   var ios = /iPhone|iPad/.test(ua) || (/Macintosh/.test(ua) && 'ontouchend' in document);
+  var box = document.getElementById('closed');
+  var ul = document.getElementById('files');
+
+  // Clé de la session : dans le fragment de l'adresse du QR code (« #k=… »), jamais envoyée sur le
+  // réseau ; vérifiée sur le nom de l'ordinateur, chiffré dans la page (voir wifi-page.html).
+  var key = null;
+  var hello = null;
+  (function () {
+    var store = 'mg-k:' + base;
+    var check = document.body.getAttribute('data-check');
+    var k = C.keyFromHash(location.hash);
+    if (k) hello = C.open(k, check);
+    if (!hello) {
+      try { k = C.keyFromHash('#k=' + (sessionStorage.getItem(store) || '')); } catch (e) { k = null; }
+      hello = k && C.open(k, check);
+    }
+    if (!hello) return;
+    key = k;
+    try { sessionStorage.setItem(store, C.b64u(k)); } catch (e) {}
+    if (location.hash) {
+      try { history.replaceState(null, '', location.pathname + location.search); } catch (e) {}
+    }
+  })();
+  if (!key) {
+    document.getElementById('nokey').classList.add('show');
+    document.body.classList.add('is-closed');
+    return; // rien n'est demandé à l'ordinateur
+  }
+  document.getElementById('computer').textContent = String(hello.c || 'votre ordinateur');
+
   var how = document.getElementById('how');
   how.innerHTML = ios
     ? '<strong>Sur iPhone</strong> : touchez « Télécharger », puis « Télécharger » dans la fenêtre de Safari. Le document arrive dans <strong>Fichiers › Téléchargements</strong>. Pour le lire dans Livres : ouvrez-le, puis Partager › Livres.'
     : /Android/.test(ua)
       ? '<strong>Sur Android</strong> : touchez « Télécharger ». Le document arrive dans le dossier <strong>Téléchargements</strong>, et s’ouvre depuis la notification.'
       : 'Touchez « Télécharger » : le document arrive dans les téléchargements de cet appareil.';
-  Array.prototype.forEach.call(document.querySelectorAll('a[data-i]'), function (a) {
-    a.addEventListener('click', function () {
-      setTimeout(function () { a.className = 'btn done'; a.textContent = 'Téléchargé ✓ (toucher pour recommencer)'; }, 600);
+
+  function setClosed(c) {
+    box.classList.toggle('show', c);
+    document.body.classList.toggle('is-closed', c);
+  }
+  function sizeOf(n) {
+    return n < 1048576 ? Math.max(1, Math.round(n / 1024)) + ' Ko' : (n / 1048576).toFixed(1).replace('.', ',') + ' Mo';
+  }
+  function el(tag, cls, text) {
+    var e = document.createElement(tag);
+    if (cls) e.className = cls;
+    if (text != null) e.textContent = text;
+    return e;
+  }
+
+  /**
+   * Document : demandé chiffré, déchiffré ici bloc par bloc (le moindre bloc altéré, manquant ou
+   * déplacé est refusé), puis proposé à l'enregistrement par un lien « download » vers un blob:.
+   *  - Chrome (Android) : le blob est enregistré dans Téléchargements, avec une notification.
+   *  - Safari (iOS 13 et suivants) : fenêtre « Télécharger ? », puis Fichiers › Téléchargements.
+   *    Un blob PDF, image ou texte peut s'ouvrir dans l'onglet au lieu d'être téléchargé
+   *    (WebKit, bogue 263608) : sur iPhone, le blob est donc typé application/octet-stream ; et
+   *    l'adresse du blob n'est jamais révoquée tout de suite (WebKit, bogue 211234).
+   * Le lien garde le document déchiffré : le toucher à nouveau l'enregistre encore, sans réseau.
+   */
+  function fetchFile(f, a) {
+    a.className = 'btn';
+    a.textContent = 'Réception…';
+    var x = new XMLHttpRequest();
+    x.open('GET', base + '/f/' + f.i);
+    x.responseType = 'arraybuffer';
+    x.onprogress = function (e) {
+      if (e.lengthComputable) a.textContent = 'Réception… ' + Math.round((e.loaded / e.total) * 100) + ' %';
+    };
+    function oops(msg) {
+      a.className = 'btn primary';
+      a.textContent = 'Télécharger';
+      a.removeAttribute('data-busy');
+      var p = a.parentNode.querySelector('.f-err') || a.parentNode.appendChild(el('p', 'f-err'));
+      p.textContent = msg;
+    }
+    x.onload = function () {
+      if (x.status !== 200) {
+        if (x.status === 404 || x.status === 423 || x.status === 503) setClosed(true);
+        return oops('Le document n’est plus proposé par l’ordinateur.');
+      }
+      var all = new Uint8Array(x.response);
+      var plan = C.framesOf(all.length);
+      var sid = C.unb64u(f.sid);
+      var parts = [];
+      var got = 0;
+      var off = 0;
+      for (var i = 0; plan && i < plan.count; i++) {
+        var len = i === plan.count - 1 ? plan.last : C.CHUNK + C.TAG;
+        var plain = C.openFrame(key, sid, C.SDATA, i, i === plan.count - 1, all.subarray(off, off + len));
+        if (!plain) { plan = null; break; }
+        parts.push(plain);
+        got += plain.length;
+        off += len;
+      }
+      if (!plan || got !== f.size) return oops('Le document a été altéré en chemin : touchez « Télécharger » pour réessayer.');
+      var blob = new Blob(parts, { type: ios ? 'application/octet-stream' : f.mime || 'application/octet-stream' });
+      a.href = URL.createObjectURL(blob);
+      a.setAttribute('download', f.name);
+      a.setAttribute('data-ready', '1');
+      a.removeAttribute('data-busy');
+      var err = a.parentNode.querySelector('.f-err');
+      if (err) err.remove();
+      a.click();
+    };
+    x.onerror = function () { oops('L’ordinateur ne répond pas. Il est peut-être en veille, ou sur un autre Wi‑Fi.'); };
+    x.send();
+  }
+
+  function render(files) {
+    files.forEach(function (f) {
+      var li = el('li');
+      li.appendChild(el('span', 'f-ico', f.kind === 'pdf' ? 'PDF' : f.kind === 'docx' ? 'W' : 'T'));
+      var t = el('span', 'f-txt');
+      t.appendChild(el('strong', null, f.name));
+      t.appendChild(el('span', null, (f.label || '') + ' · ' + sizeOf(f.size)));
+      li.appendChild(t);
+      var a = el('a', 'btn primary', 'Télécharger');
+      a.href = '#';
+      a.setAttribute('data-i', String(f.i));
+      a.addEventListener('click', function (e) {
+        if (a.getAttribute('data-ready')) {
+          // Lien vers le blob : le navigateur enregistre le document.
+          setTimeout(function () { a.className = 'btn done'; a.textContent = 'Téléchargé ✓ (toucher pour recommencer)'; }, 600);
+          return;
+        }
+        e.preventDefault();
+        if (a.getAttribute('data-busy')) return;
+        a.setAttribute('data-busy', '1');
+        fetchFile(f, a);
+      });
+      li.appendChild(a);
+      ul.appendChild(li);
     });
-  });
-  var box = document.getElementById('closed');
+  }
+
+  // Liste des documents : manifeste chiffré (noms, tailles, identifiants des flux).
+  (function manifest() {
+    var x = new XMLHttpRequest();
+    x.open('GET', base + '/m');
+    x.onload = function () {
+      var m = x.status === 200 && C.open(key, x.responseText);
+      if (m && m.files) return render(m.files);
+      setClosed(true);
+    };
+    x.onerror = function () { setClosed(true); };
+    x.send();
+  })();
+
   function check() {
     var x = new XMLHttpRequest();
     x.open('GET', base + '/state');
-    x.onload = function () { var c = x.status !== 200; box.classList.toggle('show', c); document.body.classList.toggle('is-closed', c); };
-    x.onerror = function () { box.classList.add('show'); document.body.classList.add('is-closed'); };
+    x.onload = function () { setClosed(x.status !== 200); };
+    x.onerror = function () { setClosed(true); };
     x.send();
   }
   document.addEventListener('visibilitychange', function () { if (!document.hidden) check(); });

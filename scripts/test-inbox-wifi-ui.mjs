@@ -1,10 +1,10 @@
-// Réception par le Wi-Fi, côté interface (hôte simulé du navigateur : window.__inbox.wifi) — port 5297.
+// Réception par le Wi-Fi, côté interface (hôte simulé du navigateur : window.__inbox.wifi) — port 5297 et 5298 (ou PORT=…).
 // Fenêtre « Recevoir depuis le téléphone » (QR code, téléphone connecté, envois reçus, fermeture) ;
 // boîte vide : deux façons de recevoir ; notes d'un livre collées → plusieurs extraits avec leurs notes.
 // Lancer : timeout 300 node scripts/test-inbox-wifi-ui.mjs        Captures : shots/wifi/
 import { withApp, importFixture, shot } from './harness.mjs';
 
-const PORT = 5297;
+const PORT = Number(process.env.PORT || 5297);
 const SHOTS = 'shots/wifi';
 let failed = 0;
 let passed = 0;
@@ -47,6 +47,7 @@ for (const dark of [false, true]) {
       ok(true, 'fenêtre ouverte : QR code affiché');
       ok((await page.locator('.wr-addr').innerText()) === '192.168.1.24:47800', 'adresse courte affichée (sans le jeton)');
       ok((await page.locator('.wr-status').innerText()).includes('En attente du téléphone'), 'en attente du téléphone');
+      ok((await page.locator('.wr-foot').innerText()).includes('chiffré avec la clé contenue dans le QR code'), 'fenêtre : les envois sont chiffrés avec la clé du QR code');
       // Le QR code se lit : les trois repères de position sont là (module du coin sombre, zone calme claire).
       const qr = await st(() => {
         const svg = document.querySelector('.wr-qr');

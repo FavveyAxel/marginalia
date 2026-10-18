@@ -264,7 +264,7 @@ export function WifiReceive({ onClose }: { onClose: () => void }) {
         <footer className="wr-foot">
           <Lock size={13} />
           <span>
-            Rien ne passe par Internet : le téléphone envoie directement à cet ordinateur. La réception s’arrête quand vous fermez cette fenêtre.
+            Rien ne passe par Internet : le téléphone envoie directement à cet ordinateur, chiffré avec la clé contenue dans le QR code. La réception s’arrête quand vous fermez cette fenêtre.
             {isWin && ' Si Windows demande d’autoriser Marginalia, acceptez pour les réseaux privés.'}
           </span>
         </footer>

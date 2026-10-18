@@ -1,4 +1,4 @@
-import { StrictMode, useEffect, useState } from 'react';
+import { StrictMode, useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { Sprite, anchorOf, VB_H, VB_W, type Pose } from '../../src/features/mascot/Sprite';
 import { rousseau } from '../../src/features/mascot/characters/rousseau';
@@ -74,8 +74,9 @@ function DownloadButton({ d }: { d: Download }) {
 /** La page annotée du héros : début du Contrat social (1762), surligné comme dans l'app. */
 function AnnotatedPage() {
   const [hover, setHover] = useState<string | null>(null);
+  let order = 0;
   const hl = (cat: string, label: string, text: string) => (
-    <mark className={`hl hl-${cat}`} data-cat={label} onMouseEnter={() => setHover(label)} onMouseLeave={() => setHover(null)} tabIndex={0} onFocus={() => setHover(label)} onBlur={() => setHover(null)}>
+    <mark style={{ ['--i' as string]: order++ }} className={`hl hl-${cat}`} data-cat={label} onMouseEnter={() => setHover(label)} onMouseLeave={() => setHover(null)} tabIndex={0} onFocus={() => setHover(label)} onBlur={() => setHover(null)}>
       {text}
     </mark>
   );
@@ -125,20 +126,39 @@ const STEPS = [
 ];
 
 /** Aperçu : onglets au-dessus d'une grande capture de l'app. */
+const AUTO_MS = 7000;
 function Showcase() {
   const [k, setK] = useState(0);
+  const [auto, setAuto] = useState(true);
+  const [visible, setVisible] = useState(false);
+  const ref = useRef<HTMLElement>(null);
+  // défilement automatique des onglets quand l'aperçu est à l'écran ; un clic l'arrête
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || reduced()) return;
+    const io = new IntersectionObserver(([e]) => setVisible(e.isIntersecting), { threshold: 0.35 });
+    io.observe(el);
+    return () => io.disconnect();
+  }, []);
+  useEffect(() => {
+    if (!auto || !visible || reduced()) return;
+    const t = setTimeout(() => setK((x) => (x + 1) % STEPS.length), AUTO_MS);
+    return () => clearTimeout(t);
+  }, [k, auto, visible]);
   const s = STEPS[k];
+  const playing = auto && visible && !reduced();
   return (
-    <section className="showcase" id="apercu" aria-label="Aperçu de l’app">
+    <section className="showcase reveal" id="apercu" aria-label="Aperçu de l’app" ref={ref}>
       <div className="tabs" role="tablist" aria-label="Étapes du travail">
         {STEPS.map((x, i) => (
-          <button key={x.title} role="tab" id={`tab-${x.shot}`} aria-selected={i === k} aria-controls="showcase-panel" className={i === k ? 'is-on' : ''} onClick={() => setK(i)}>
+          <button key={x.title} role="tab" id={`tab-${x.shot}`} aria-selected={i === k} aria-controls="showcase-panel" className={i === k ? 'is-on' : ''} onClick={() => { setK(i); setAuto(false); }}>
             {x.title}
+            {i === k && playing && <span className="tab-progress" key={k} style={{ animationDuration: `${AUTO_MS}ms` }} aria-hidden="true" />}
           </button>
         ))}
       </div>
       <div className="showcase-panel" id="showcase-panel" role="tabpanel" aria-labelledby={`tab-${s.shot}`}>
-        <p className="showcase-text">{s.text}</p>
+        <p className="showcase-text" key={s.shot}>{s.text}</p>
         <div className="shot">
           {STEPS.map((x, i) => (
             <img key={x.shot} src={`/captures/${x.shot}.png`} alt={`Marginalia : ${x.title.toLowerCase()}`} className={i === k ? 'is-on' : ''} loading={i === 0 ? 'eager' : 'lazy'} width={1440} height={900} />
@@ -147,6 +167,19 @@ function Showcase() {
       </div>
     </section>
   );
+}
+
+/** Apparition douce des blocs marqués .reveal quand ils entrent à l'écran (une seule fois). */
+function useReveal() {
+  useEffect(() => {
+    const els = Array.from(document.querySelectorAll('.reveal'));
+    if (reduced() || !('IntersectionObserver' in window)) { els.forEach((e) => e.classList.add('is-in')); return; }
+    const io = new IntersectionObserver((entries) => {
+      for (const e of entries) if (e.isIntersecting) { e.target.classList.add('is-in'); io.unobserve(e.target); }
+    }, { threshold: 0.12, rootMargin: '0px 0px -8% 0px' });
+    els.forEach((e) => io.observe(e));
+    return () => io.disconnect();
+  }, []);
 }
 
 const MORE: { icon: string; title: string; items: string[] }[] = [
@@ -244,6 +277,7 @@ function Pict({ name }: { name: string }) {
 }
 
 function App() {
+  useReveal();
   const os = useOs();
   const mine = DOWNLOADS.filter((d) => d.os === (os ?? 'mac'));
   return (
@@ -279,7 +313,19 @@ function App() {
 
         <Showcase />
 
-        <section className="books" aria-labelledby="books-title">
+        <section className="spaces reveal" aria-labelledby="spaces-title">
+          <img className="spaces-shot" src="/captures/espaces.png" alt="Un espace de travail « Mémoire sur Descartes », avec ses groupes et sous-groupes" width={1440} height={820} loading="lazy" />
+          <div className="spaces-text">
+            <h2 id="spaces-title">Un espace par cours, par dissertation</h2>
+            <p>
+              Réunissez dans un espace de travail tout ce qui sert à un même travail : livres, écrits, plans, arguments, cartes et
+              fiches. Rangez-les en groupes et sous-groupes, par glisser-déposer.
+            </p>
+            <p>Un même livre peut servir à plusieurs espaces sans être copié, et chaque espace affiche où vous en êtes : livres, extraits, cartes à réviser.</p>
+          </div>
+        </section>
+
+        <section className="books reveal" aria-labelledby="books-title">
           <div className="books-text">
             <h2 id="books-title">Synchronisé avec l’app Livres</h2>
             <p>
@@ -292,7 +338,7 @@ function App() {
           <img className="books-shot" src="/captures/livres.png" alt="La fenêtre Livres d’Apple de Marginalia : choix des livres et correspondance des couleurs" width={560} height={503} loading="lazy" />
         </section>
 
-        <section className="more" id="fonctions" aria-labelledby="more-title">
+        <section className="more reveal" id="fonctions" aria-labelledby="more-title">
           <h2 id="more-title">Toutes les fonctions</h2>
           <div className="more-grid">
             {MORE.map((m) => (
@@ -309,7 +355,7 @@ function App() {
           </div>
         </section>
 
-        <section className="private">
+        <section className="private reveal">
           <Rousseau className="private-rousseau" size={150} seq={[['herborize', 9000], ['read', 6000]]} />
           <div>
             <h2>Rien ne quitte votre ordinateur</h2>

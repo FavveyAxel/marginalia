@@ -112,13 +112,13 @@ a.btn-primary:hover { background: #3a342b; }
 .page-body p { margin: 0 0 1em; }
 .page-ref { font-family: var(--font-ui); font-size: 0.8125rem; color: var(--muted); }
 .page-ref cite { font-style: italic; }
-.hl { color: inherit; border-radius: 0.125rem; padding: 1px 0; box-decoration-break: clone; -webkit-box-decoration-break: clone; cursor: default; transition: background-color 120ms; }
-.hl-these { background: var(--hl-these); }
-.hl-exemple { background: var(--hl-exemple); }
-.hl-probleme { background: var(--hl-probleme); }
-.hl-objection { background: var(--hl-objection); }
-.hl-argument { background: var(--hl-argument); }
-.hl-concept { background: var(--hl-concept); }
+.hl { color: inherit; background-color: transparent; background-image: linear-gradient(var(--hl-x), var(--hl-x)); background-repeat: no-repeat; background-size: 100% 100%; border-radius: 0.125rem; padding: 1px 0; box-decoration-break: clone; -webkit-box-decoration-break: clone; cursor: default; transition: background-color 120ms; }
+.hl-these { --hl-x: var(--hl-these); }
+.hl-exemple { --hl-x: var(--hl-exemple); }
+.hl-probleme { --hl-x: var(--hl-probleme); }
+.hl-objection { --hl-x: var(--hl-objection); }
+.hl-argument { --hl-x: var(--hl-argument); }
+.hl-concept { --hl-x: var(--hl-concept); }
 .hl:hover, .hl:focus-visible { outline: none; box-shadow: 0 2px 0 currentColor; }
 .hl-these:hover { color: #6e5208; }
 .margin { position: relative; border-left: 1px solid var(--border); padding-left: 1.125rem; font-size: 0.875rem; line-height: 1.45; color: var(--ink-2); font-style: italic; }
@@ -230,3 +230,60 @@ a.btn-primary:hover { background: #3a342b; }
 @media (prefers-reduced-motion: reduce) {
   .hl, .shot img { transition: none; }
 }
+
+/* ── Espaces de travail ── */
+.spaces {
+  max-width: 75rem; margin: 9rem auto 0; padding: 0 var(--gutter);
+  display: grid; grid-template-columns: minmax(0, 7fr) minmax(0, 5fr); gap: 4.5rem; align-items: center;
+}
+.spaces-shot { width: 100%; height: auto; border-radius: 0.75rem; box-shadow: var(--shadow-lg); }
+.spaces h2 { font-size: 3.5rem; }
+.spaces p { margin: 1rem 0 0; color: var(--ink-2); max-width: 42ch; }
+@media (max-width: 900px) {
+  .spaces { grid-template-columns: minmax(0, 1fr); }
+  .spaces-text { order: -1; }
+}
+@media (max-width: 620px) {
+  .spaces { margin-top: 6rem; }
+  .spaces h2 { font-size: 2.5rem; }
+}
+
+/* ── Animations (désactivées si le système demande moins de mouvement) ── */
+@media (prefers-reduced-motion: no-preference) {
+  /* Ouverture : les passages se surlignent l'un après l'autre, puis les notes s'écrivent en marge */
+  .page .hl { animation: hl-paint 0.6s cubic-bezier(0.3, 0.7, 0.3, 1) both; animation-delay: calc(0.7s + var(--i, 0) * 0.5s); }
+  .page .note { animation: note-in 0.6s ease-out both; }
+  .page .n1 { animation-delay: 2.1s; }
+  .page .n2 { animation-delay: 2.5s; }
+  .page { animation: page-in 0.8s cubic-bezier(0.2, 0.8, 0.2, 1) both; }
+  .hero-text > * { animation: rise 0.7s cubic-bezier(0.2, 0.8, 0.2, 1) both; }
+  .hero-text > :nth-child(2) { animation-delay: 0.08s; }
+  .hero-text > :nth-child(3) { animation-delay: 0.16s; }
+
+  /* Apparition des blocs au défilement */
+  .reveal { opacity: 0; transform: translateY(1.5rem); transition: opacity 0.8s ease, transform 0.8s cubic-bezier(0.2, 0.8, 0.2, 1); }
+  .reveal.is-in { opacity: 1; transform: none; }
+  .more.reveal .more-group { opacity: 0; transform: translateY(1rem); transition: opacity 0.6s ease, transform 0.6s ease; }
+  .more.reveal.is-in .more-group { opacity: 1; transform: none; }
+  .more.reveal.is-in .more-group:nth-child(2) { transition-delay: 0.08s; }
+  .more.reveal.is-in .more-group:nth-child(3) { transition-delay: 0.16s; }
+  .more.reveal.is-in .more-group:nth-child(4) { transition-delay: 0.24s; }
+  .more.reveal.is-in .more-group:nth-child(5) { transition-delay: 0.32s; }
+  .more.reveal.is-in .more-group:nth-child(6) { transition-delay: 0.4s; }
+
+  /* Onglets de l'aperçu : progression du passage automatique, texte qui change en fondu */
+  .showcase-text { animation: fade 0.4s ease both; }
+  .btn-primary { transition: background-color 120ms, transform 160ms ease; }
+  a.btn-primary:hover { transform: translateY(-1px); }
+}
+.tabs button { position: relative; }
+.tab-progress {
+  position: absolute; left: 0.875rem; right: 0.875rem; bottom: 0.25rem; height: 2px; border-radius: 1px;
+  background: var(--ink); opacity: 0.35; transform-origin: left center; animation: tab-progress linear both;
+}
+@keyframes tab-progress { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+@keyframes hl-paint { from { background-size: 0% 100%; } to { background-size: 100% 100%; } }
+@keyframes note-in { from { opacity: 0; transform: translateX(-0.5rem); } to { opacity: 1; transform: none; } }
+@keyframes page-in { from { opacity: 0; transform: translateY(1rem) rotate(0.6deg); } to { opacity: 1; transform: none; } }
+@keyframes rise { from { opacity: 0; transform: translateY(0.75rem); } to { opacity: 1; transform: none; } }
+@keyframes fade { from { opacity: 0; } to { opacity: 1; } }

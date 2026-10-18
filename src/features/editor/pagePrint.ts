@@ -133,6 +133,8 @@ export async function renderPagesForPrint(docx: ArrayBuffer, opts: PagePrintOpti
           rulers: false,
           modules: { comments: false },
           zoom: { mode: 'manual', initial: 100 },
+          // toutes les pages dans le DOM (par défaut, seule une fenêtre de ~5 pages autour de la vue y est)
+          layoutEngineOptions: { virtualization: { enabled: false } },
           onReady: () => {
             clearTimeout(timer);
             resolve(sd);
@@ -155,6 +157,9 @@ export async function renderPagesForPrint(docx: ArrayBuffer, opts: PagePrintOpti
     const first = pages[0];
     const w = parseFloat(first.style.width) || first.offsetWidth;
     const h = parseFloat(first.style.height) || first.offsetHeight;
+    // garde-fou : si des pages manquent au DOM (fenêtre virtuelle), l'export reconstruit prend le relais
+    const total = host.querySelector('.presentation-editor__pages')?.scrollHeight ?? 0;
+    if (total > (pages.length + 1) * h) throw new Error(`Pages manquantes (${pages.length} dans le DOM)`);
     const wrap = document.createElement('div');
     for (const p of pages) {
       const c = p.cloneNode(true) as HTMLElement;

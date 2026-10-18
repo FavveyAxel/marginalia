@@ -46,6 +46,11 @@ export interface Book {
   position: ReaderPosition | null;
   cover: string | null;
   edition: Edition;
+  /**
+   * Document de photos (format « image ») à plusieurs pages : fichiers des pages, dans l'ordre
+   * (« page-1.jpg », « page-2.heic »…). `fileName` vaut alors la 1re page. Absent : une seule image.
+   */
+  pages?: string[];
 }
 
 export type ReaderPosition =

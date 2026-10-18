@@ -369,6 +369,9 @@ try {
   // 12. Image sans texte : invitation à tracer une zone
   const idBlank = await importFile(page, BLANK);
   await page.evaluate((id) => window.__store.getState().openBook(id), idBlank);
+  // Reconnaissance à la demande.
+  await page.waitForSelector('[data-testid="img-ocr-offer"] button', { timeout: 20000 });
+  await page.click('[data-testid="img-ocr-offer"] button');
   const empty = await page.waitForSelector('.img-empty', { timeout: 120000 }).catch(() => null);
   ok(!!empty && /Aucun texte reconnu/.test(await empty.textContent()), 'image sans texte : état vide avec « Tracer une zone »');
   await shot(page, '08-sans-texte.png');

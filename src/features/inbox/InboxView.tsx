@@ -16,6 +16,7 @@ import {
   Inbox,
   Link2,
   QrCode,
+  Layers,
   RotateCw,
   ScanText,
   Search,
@@ -33,6 +34,8 @@ import {
   makeDraft,
   prettyDir,
   readPhotoText,
+  inboxPhotoSources,
+  finishAssembled,
   researchItem,
   retryItem,
   revealInbox,
@@ -46,6 +49,7 @@ import {
 } from './inbox';
 import { OcrScan } from '../../components/OcrScan';
 import { WifiReceive } from './WifiReceive';
+import { AssemblePhotos } from '../library/AssemblePhotos';
 import './inbox.css';
 
 const KIND_LABEL: Record<InboxKind, string> = {
@@ -103,6 +107,12 @@ export function InboxView() {
   // Quitter la vue ferme aussi la réception.
   useEffect(() => () => useInbox.setState({ wifiOpen: false }), []);
   const syncName = host.platform === 'darwin' ? 'iCloud Drive' : 'votre dossier synchronisé (OneDrive…)';
+  // Photos à assembler en un seul document : cochées par l'utilisateur, dans l'ordre de la liste.
+  const photos = items.filter((i) => i.kind === 'image' && i.status === 'ready' && !i.pending);
+  const [picked, setPicked] = useState<string[]>([]);
+  const chosen = photos.filter((p) => picked.includes(p.name)).map((p) => p.name);
+  const [assembling, setAssembling] = useState<string[] | null>(null);
+  const togglePick = (name: string) => setPicked((l) => (l.includes(name) ? l.filter((n) => n !== name) : [...l, name]));
 
   return (
     <>
@@ -143,11 +153,43 @@ export function InboxView() {
               <p>La Boîte de réception reçoit ce que vous envoyez depuis le téléphone, par le Wi-Fi ou un dossier synchronisé.</p>
             </div>
           ) : items.length > 0 ? (
-            <ul className="ib-list" aria-label="Éléments reçus">
-              {items.map((it) => (
-                <ItemCard key={it.name} it={it} />
-              ))}
-            </ul>
+            <>
+              {photos.length >= 2 && (
+                <div className={`ib-assemble ${chosen.length ? 'is-on' : ''}`} data-testid="ib-assemble" role="region" aria-label="Assembler des photos">
+                  <Layers size={16} />
+                  <span className="ib-assemble-text">
+                    {chosen.length === 0
+                      ? 'Des pages qui se suivent ? Cochez les photos à réunir en un seul document.'
+                      : chosen.length === 1
+                        ? '1 photo cochée : cochez-en au moins une autre.'
+                        : `${chosen.length} photos cochées`}
+                  </span>
+                  <span className="spacer" />
+                  {chosen.length < photos.length && (
+                    <button className="btn btn-sm btn-ghost" onClick={() => setPicked(photos.map((p) => p.name))}>
+                      Tout cocher
+                    </button>
+                  )}
+                  {chosen.length > 0 && (
+                    <button className="btn btn-sm btn-ghost" onClick={() => setPicked([])}>
+                      Décocher
+                    </button>
+                  )}
+                  <button className="btn btn-sm btn-primary" disabled={chosen.length < 2} onClick={() => setAssembling(chosen)} data-testid="ib-assemble-go">
+                    <Layers size={14} /> Assembler en un document
+                  </button>
+                </div>
+              )}
+              <ul className="ib-list" aria-label="Éléments reçus">
+                {items.map((it) => (
+                  <ItemCard
+                    key={it.name}
+                    it={it}
+                    pick={photos.length >= 2 && photos.some((p) => p.name === it.name) ? { on: chosen.includes(it.name), toggle: () => togglePick(it.name) } : undefined}
+                  />
+                ))}
+              </ul>
+            </>
           ) : on ? (
             <div className="ib-empty">
               <Check size={28} strokeWidth={1.5} />
@@ -193,6 +235,19 @@ export function InboxView() {
         </div>
       </div>
       {wifiOpen && wifi && <WifiReceive onClose={closeWifi} />}
+      {assembling && (
+        <AssemblePhotos
+          sources={inboxPhotoSources(assembling)}
+          origin="inbox"
+          onClose={() => setAssembling(null)}
+          onDone={async ({ book, keys }) => {
+            await finishAssembled(keys, book);
+            setAssembling(null);
+            setPicked([]);
+            useStore.getState().toast(`« ${book.title} » : ${keys.length} pages ajoutées à la bibliothèque`, 'success', { label: 'Ouvrir', run: () => useStore.getState().openBook(book.id) });
+          }}
+        />
+      )}
     </>
   );
 }
@@ -215,12 +270,17 @@ function HowTo({ cloud }: { cloud: 'icloud' | 'onedrive' | null }) {
   );
 }
 
-function ItemCard({ it }: { it: InboxItem }) {
+function ItemCard({ it, pick }: { it: InboxItem; pick?: { on: boolean; toggle(): void } }) {
   const busy = it.status === 'working' || it.status === 'waiting';
   const title = it.kind === 'web' || it.kind === 'link' ? it.title ?? baseName(it.name) : baseName(it.name);
   return (
-    <li className={`ib-card is-${it.kind} ${busy ? 'is-busy' : ''}`} data-name={it.name}>
+    <li className={`ib-card is-${it.kind} ${busy ? 'is-busy' : ''} ${pick?.on ? 'is-picked' : ''}`} data-name={it.name}>
       <div className="ib-card-head">
+        {pick && (
+          <label className="ib-pick-photo" title="Cocher pour assembler avec d’autres photos">
+            <input type="checkbox" checked={pick.on} onChange={pick.toggle} aria-label={`Choisir « ${baseName(it.name)} » pour l’assembler`} data-testid="ib-pick" />
+          </label>
+        )}
         <span className="ib-icon" aria-hidden="true">
           <KindIcon kind={it.kind} />
         </span>

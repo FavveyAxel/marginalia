@@ -16,6 +16,8 @@ import { extOf, host, IMAGE_EXTENSIONS, type InboxFile, type InboxInfo, type Pic
 import type { PassageMatch } from './match';
 import { createDraftFromFile } from '../../lib/draftImport';
 import { displayableBlob, ORIENT } from '../reader/image/decode';
+import type { PhotoSource } from '../library/photoDoc';
+import type { Book } from '../../lib/types';
 
 export type InboxKind = 'book' | 'text' | 'image' | 'web' | 'link' | 'draft' | 'other';
 
@@ -450,6 +452,21 @@ export async function addToLibrary(name: string) {
     } else patch(name, { status: 'ready', step: undefined });
   } catch (e) {
     patch(name, { status: 'error', step: undefined, error: String((e as Error)?.message ?? e) });
+  }
+}
+
+/** Photos de la Boîte, à assembler en un document (fenêtre « Assembler en un document »). */
+export function inboxPhotoSources(names: string[]): PhotoSource[] {
+  return names.map((n) => ({ key: n, name: baseName(n), read: async () => (await read(n)).data }));
+}
+
+/** Après assemblage : chaque photo dit où elle est allée (page n du document), puis quitte la Boîte. */
+export async function finishAssembled(names: string[], book: Book) {
+  for (let i = 0; i < names.length; i++) {
+    const n = names[i];
+    if (!get(n)) continue;
+    setOutcome(n, { state: 'library', label: `Page ${i + 1} de « ${book.title} », dans la bibliothèque`, bookId: book.id });
+    await finish(n);
   }
 }
 

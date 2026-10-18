@@ -1,8 +1,10 @@
 // Moteur de lecture des images (photo ou scan d'une page) : image nette avec zoom, texte reconnu
 // localement (OCR) posé en calque transparent sélectionnable, surlignages en rectangles normalisés
 // (PdfAnchor, page 1), annotation par zone quand l'image n'a pas de texte, recherche, mouvements.
+// Document de photos (book.pages) : une page à la fois, ←/→ ou la barre du bas pour tourner les pages ;
+// texte reconnu, extraits et recherche page par page (ancrages PdfAnchor, page = numéro de la photo).
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as RPointerEvent } from 'react';
-import { Maximize2, Milestone, Minus, Plus, RotateCcw, ScanText, SquareDashed, X } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Maximize2, Milestone, Minus, Plus, RotateCcw, ScanText, SquareDashed, X } from 'lucide-react';
 import { SelectionToolbar } from '../../../components/SelectionToolbar';
 import { Skeleton } from '../../../components/ui';
 import { host } from '../../../lib/platform';
@@ -12,7 +14,7 @@ import type { EngineHandle, EngineProps, SearchHit } from '../engine';
 import { findAll, makeSnippet, normalizeQuery, spanOf } from '../pdf/textindex';
 import { displayableBlob, ImageDecodeError, ORIENT } from './decode';
 import { OcrScan } from '../../../components/OcrScan';
-import { averageConfidence, editLine, loadOcr, runningOcr, saveOcr, startOcr, type OcrData, type OcrJob, type OcrProgress, type OcrWord } from './ocr';
+import { averageConfidence, editLine, loadOcr, ocrKey, runningOcr, saveOcr, startOcr, type OcrData, type OcrJob, type OcrProgress, type OcrWord } from './ocr';
 import { useStore } from '../../../lib/store';
 import { buildTextLayer, readImageSelection, rectsForWords, wordAtRaw, wordModel, wordsInRect, type ImageSelection } from './textlayer';
 import './image-reader.css';
@@ -34,6 +36,8 @@ const LABEL_ZONE = 'Zone de l’image';
 type Zoom = 'fit' | number;
 type OcrPhase = 'idle' | 'running' | 'done' | 'error';
 interface SearchPayload {
+  /** Page du document de photos (1 pour une image seule). */
+  page?: number;
   a: number;
   b: number;
   aOff: number;
@@ -47,13 +51,35 @@ export const ImageReader = forwardRef<EngineHandle, EngineProps>(function ImageR
   const P = useRef(props);
   P.current = props;
   const bookId = props.book.id;
+  const pageFiles = props.book.pages && props.book.pages.length > 1 ? props.book.pages : null;
+  const nPages = pageFiles?.length ?? 1;
+  const nPagesRef = useRef(nPages);
+  nPagesRef.current = nPages;
+  const [pageNo, setPageNo] = useState(() => {
+    const ip = props.initialPosition;
+    return pageFiles && ip && ip.kind === 'pdf' ? clamp(Math.round(ip.page) || 1, 1, nPages) : 1;
+  });
+  const pageNoRef = useRef(pageNo);
+  pageNoRef.current = pageNo;
+  /** Texte reconnu de la page affichée (id du livre pour une image seule). */
+  const pageKey = ocrKey(bookId, pageNo);
+  const labelText = pageFiles ? `Page ${pageNo}` : LABEL_TEXT;
+  const labelZone = pageFiles ? `Zone, page ${pageNo}` : LABEL_ZONE;
+  /** À faire quand la page demandée est affichée (aller à un extrait, à un résultat de recherche). */
+  const pendingRef = useRef<{ page: number; needText?: boolean; run: () => void } | null>(null);
+  /** Position verticale (0..1) où ouvrir la prochaine page affichée. */
+  const startOffRef = useRef<number | null>(null);
+  const everReady = useRef(false);
 
   const rootRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const pageRef = useRef<HTMLDivElement>(null);
   const textHost = useRef<HTMLDivElement>(null);
 
-  const [url, setUrl] = useState<string | null>(null);
+  const [rawUrl, setUrl] = useState<string | null>(null);
+  /** Page de l'image chargée : en tournant la page, l'ancienne image n'est jamais montrée sous le nouveau numéro. */
+  const [urlPage, setUrlPage] = useState(0);
+  const url = rawUrl && urlPage === pageNo ? rawUrl : null;
   const [nat, setNat] = useState<{ w: number; h: number } | null>(null);
   /** Image affichable (Blob) : redécodée seulement pour une nouvelle reconnaissance (pas de bitmap de 50 Mo gardé en mémoire). */
   const blobRef = useRef<Blob | null>(null);
@@ -134,9 +160,9 @@ export const ImageReader = forwardRef<EngineHandle, EngineProps>(function ImageR
   const runOcr = useCallback(
     (bmp: ImageBitmap, restart = false) => {
       const keep = () => useStore.getState().books.some((b) => b.id === bookId);
-      follow(startOcr(bookId, bmp, keep, restart));
+      follow(startOcr(pageKey, bmp, keep, restart));
     },
-    [bookId, follow],
+    [bookId, pageKey, follow],
   );
   useEffect(() => () => jobUnsub.current?.(), []);
 
@@ -149,19 +175,30 @@ export const ImageReader = forwardRef<EngineHandle, EngineProps>(function ImageR
     setNat(null);
     setOcr(null);
     setPhase('idle');
+    setMarks(null);
+    setZone(null);
+    setZoneMode(false);
+    setFocusLine(null);
+    setConfirmRerun(false);
+    selRef.current = null;
+    setSelRect(null);
     (async () => {
       const book = P.current.book;
-      const name = book.originalName || book.fileName;
+      const files = book.pages && book.pages.length > 1 ? book.pages : null;
+      const name = files ? files[pageNo - 1] : book.originalName || book.fileName;
+      const displayFile = pageNo > 1 ? `display-p${pageNo}.jpg` : DISPLAY_FILE;
       let blob: Blob | null = null;
       // Une image déjà convertie (HEIC, TIFF) est relue depuis la bibliothèque.
       if (/\.(heic|heif|tif|tiff)$/i.test(name)) {
-        const cached = await host.readFile(book.id, DISPLAY_FILE).catch(() => null);
+        const cached = await host.readFile(book.id, displayFile).catch(() => null);
         if (cached) blob = new Blob([cached], { type: 'image/jpeg' });
       }
       if (!blob) {
-        const r = await displayableBlob(props.data, name);
+        const data = files && pageNo > 1 ? await host.readFile(book.id, files[pageNo - 1]) : props.data;
+        if (!alive) return;
+        const r = await displayableBlob(data, name);
         blob = r.blob;
-        if (r.converted) host.storeFile(book.id, DISPLAY_FILE, await blob.arrayBuffer()).catch(() => undefined);
+        if (r.converted) host.storeFile(book.id, displayFile, await blob.arrayBuffer()).catch(() => undefined);
       }
       const bmp = await createImageBitmap(blob, ORIENT);
       if (!alive) {
@@ -171,10 +208,11 @@ export const ImageReader = forwardRef<EngineHandle, EngineProps>(function ImageR
       blobRef.current = blob;
       objectUrl = URL.createObjectURL(blob);
       setNat({ w: bmp.width, h: bmp.height });
+      setUrlPage(pageNo);
       setUrl(objectUrl);
       P.current.onToc([]);
-      const job = runningOcr(book.id);
-      const cached = job ? null : await loadOcr(book.id);
+      const job = runningOcr(ocrKey(book.id, pageNo));
+      const cached = job ? null : await loadOcr(ocrKey(book.id, pageNo));
       if (!alive) {
         bmp.close();
         return;
@@ -188,7 +226,7 @@ export const ImageReader = forwardRef<EngineHandle, EngineProps>(function ImageR
       bmp.close();
     })().catch((e) => {
       if (!alive) return;
-      P.current.onError(e instanceof ImageDecodeError ? e.message : `Impossible d’ouvrir cette image${e?.message ? ` (${e.message})` : ''}.`);
+      P.current.onError(e instanceof ImageDecodeError ? e.message : `Impossible d’ouvrir cette image${pageFiles ? ` (page ${pageNo})` : ''}${e?.message ? ` (${e.message})` : ''}.`);
     });
     return () => {
       alive = false;
@@ -197,7 +235,7 @@ export const ImageReader = forwardRef<EngineHandle, EngineProps>(function ImageR
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [bookId, props.data]);
+  }, [bookId, props.data, pageNo]);
 
 
   // ── Géométrie ──
@@ -229,7 +267,11 @@ export const ImageReader = forwardRef<EngineHandle, EngineProps>(function ImageR
     if (!restoredRef.current) {
       restoredRef.current = true;
       const ip = P.current.initialPosition;
-      const off = ip && ip.kind === 'pdf' ? clamp(ip.offset, 0, 1) : 0;
+      let off = ip && ip.kind === 'pdf' && (!pageFiles || ip.page === pageNo) ? clamp(ip.offset, 0, 1) : 0;
+      if (startOffRef.current != null) {
+        off = startOffRef.current;
+        startOffRef.current = null;
+      }
       posRef.current = off;
       if (off > 0) el.scrollTop = Math.max(0, PAD_TOP + off * dispH - READ_LINE * el.clientHeight);
       prevScale.current = scale;
@@ -249,9 +291,12 @@ export const ImageReader = forwardRef<EngineHandle, EngineProps>(function ImageR
     const el = scrollRef.current;
     if (!el || !readyRef.current) return;
     const max = el.scrollHeight - el.clientHeight;
-    const progress = max <= 2 ? 1 : clamp(el.scrollTop / max, 0, 1);
-    const pos: ReaderPosition = { kind: 'pdf', page: 1, offset: Math.round(posRef.current * 10000) / 10000 };
-    P.current.onPosition(pos, progress, LABEL_TEXT);
+    const inPage = max <= 2 ? 1 : clamp(el.scrollTop / max, 0, 1);
+    const n = nPagesRef.current;
+    const pg = pageNoRef.current;
+    const progress = n > 1 ? (pg - 1 + inPage) / n : inPage;
+    const pos: ReaderPosition = { kind: 'pdf', page: pg, offset: Math.round(posRef.current * 10000) / 10000 };
+    P.current.onPosition(pos, progress, n > 1 ? `Page ${pg} / ${n}` : LABEL_TEXT);
   }, []);
 
   const onScroll = () => {
@@ -274,10 +319,30 @@ export const ImageReader = forwardRef<EngineHandle, EngineProps>(function ImageR
     if (readyRef.current) return;
     readyRef.current = true;
     requestAnimationFrame(() => {
-      P.current.onReady();
+      if (!everReady.current) {
+        everReady.current = true;
+        P.current.onReady();
+      }
       emit();
+      runPending();
     });
   };
+
+  // ── Pages (document de photos) ──
+  const goPage = useCallback((n: number) => {
+    const t = clamp(n, 1, nPagesRef.current);
+    if (t === pageNoRef.current) return;
+    startOffRef.current = 0;
+    setPageNo(t);
+  }, []);
+  /** Action en attente d'une page : exécutée quand cette page est affichée (et son texte chargé si besoin). */
+  function runPending() {
+    const pd = pendingRef.current;
+    if (!pd || pd.page !== pageNoRef.current || !readyRef.current) return;
+    if (pd.needText && !modelRef.current.words.length) return;
+    pendingRef.current = null;
+    pd.run();
+  }
 
   // ── Zoom ──
   const applyZoom = useCallback((z: Zoom) => setZoom(z === 'fit' ? 'fit' : clamp(z, MIN_ZOOM, MAX_ZOOM)), []);
@@ -306,6 +371,15 @@ export const ImageReader = forwardRef<EngineHandle, EngineProps>(function ImageR
       }
       if (typing || e.altKey) return;
       if (!root.contains(document.activeElement) && document.activeElement !== document.body) return;
+      // Document de photos : ← / → tournent les pages (sauf image zoomée plus large que la fenêtre).
+      if (nPagesRef.current > 1 && (e.key === 'ArrowLeft' || e.key === 'ArrowRight') && !e.shiftKey) {
+        const sc = scrollRef.current;
+        if (!sc || sc.scrollWidth <= sc.clientWidth + 1) {
+          e.preventDefault();
+          goPage(pageNoRef.current + (e.key === 'ArrowRight' ? 1 : -1));
+          return;
+        }
+      }
       if (e.key.toLowerCase() === 'z' && !selRef.current && !zone) {
         e.preventDefault();
         setZoneMode((v) => !v);
@@ -313,7 +387,7 @@ export const ImageReader = forwardRef<EngineHandle, EngineProps>(function ImageR
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [zoomIn, zoomOut, applyZoom, zoneMode, zone]);
+  }, [zoomIn, zoomOut, applyZoom, zoneMode, zone, goPage]);
 
   useEffect(() => {
     const el = scrollRef.current;
@@ -402,7 +476,7 @@ export const ImageReader = forwardRef<EngineHandle, EngineProps>(function ImageR
 
   const printedPage = () => {
     const off = P.current.book.edition.pageOffset;
-    return off ? String(1 + off) : '';
+    return off ? String(pageNoRef.current + off) : '';
   };
 
   /** Sélection de texte, ou zone tracée, prête à devenir un extrait. */
@@ -410,11 +484,11 @@ export const ImageReader = forwardRef<EngineHandle, EngineProps>(function ImageR
     if (zone) {
       const inside = wordsInRect(modelRef.current, zone);
       const text = inside.map((w) => w.t).join(' ').trim() || ZONE_TEXT;
-      return { anchor: { kind: 'pdf', page: 1, rects: [zone] }, text, label: LABEL_ZONE };
+      return { anchor: { kind: 'pdf', page: pageNo, rects: [zone] }, text, label: labelZone };
     }
     const layer = textHost.current?.firstElementChild;
     const s = (layer && readImageSelection(layer, modelRef.current)) || selRef.current;
-    return s ? { anchor: { kind: 'pdf', page: 1, rects: s.rects }, text: s.text, label: LABEL_TEXT } : null;
+    return s ? { anchor: { kind: 'pdf', page: pageNo, rects: s.rects }, text: s.text, label: labelText } : null;
   };
 
   const onPick = (category: CategoryId | null, withNote: boolean, plain?: boolean) => {
@@ -484,15 +558,18 @@ export const ImageReader = forwardRef<EngineHandle, EngineProps>(function ImageR
   const hlList = useMemo(
     () =>
       props.highlights
-        .filter((h) => h.anchor.kind === 'pdf' && h.anchor.page === 1)
-        .map((h) => ({ id: h.id, category: h.category, plain: h.plain, rects: (h.anchor as PdfAnchor).rects, zone: h.locationLabel === LABEL_ZONE })),
-    [props.highlights],
+        .filter((h) => h.anchor.kind === 'pdf' && h.anchor.page === pageNo)
+        .map((h) => ({ id: h.id, category: h.category, plain: h.plain, rects: (h.anchor as PdfAnchor).rects, zone: h.locationLabel === LABEL_ZONE || h.locationLabel.startsWith('Zone, page') })),
+    [props.highlights, pageNo],
   );
   const hlRef = useRef(hlList);
   hlRef.current = hlList;
   const mvList = useMemo(
-    () => props.movements.filter((m) => m.anchor.kind === 'pdf' && m.anchor.rects.length).map((m) => ({ id: m.id, title: m.title, y: (m.anchor as PdfAnchor).rects[0].y })),
-    [props.movements],
+    () =>
+      props.movements
+        .filter((m) => m.anchor.kind === 'pdf' && m.anchor.rects.length && (m.anchor.page || 1) === pageNo)
+        .map((m) => ({ id: m.id, title: m.title, y: (m.anchor as PdfAnchor).rects[0].y })),
+    [props.movements, pageNo],
   );
 
   useEffect(() => {
@@ -550,6 +627,28 @@ export const ImageReader = forwardRef<EngineHandle, EngineProps>(function ImageR
     if (!el) return;
     el.scrollTo({ top: Math.max(0, PAD_TOP + ny * dispH - el.clientHeight * ratio), behavior: 'smooth' });
   }, [dispH]);
+  const scrollToNormRef = useRef(scrollToNorm);
+  scrollToNormRef.current = scrollToNorm;
+  // Le texte d'une page arrive après l'image : une recherche en attente part dès qu'il est là.
+  useEffect(() => {
+    if (pendingRef.current) runPending();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [model, dispH]);
+
+  /** Va à un endroit (page, hauteur) : tourne la page d'abord s'il le faut. */
+  const goToPlace = (page: number, run: () => void, needText = false) => {
+    const pg = clamp(page || 1, 1, nPagesRef.current);
+    if (pg === pageNoRef.current) return run();
+    pendingRef.current = { page: pg, needText, run };
+    goPage(pg);
+  };
+  const showSearchHit = (p: SearchPayload) => {
+    const m = modelRef.current;
+    if (!m.words[p.a] || !m.words[p.b]) return;
+    const rects = rectsForWords(m, { i: p.a, off: clamp(p.aOff, 0, m.words[p.a].t.length) }, { i: p.b, off: clamp(p.bOff, 0, m.words[p.b].t.length) });
+    setMarks(rects);
+    if (rects[0]) scrollToNormRef.current(rects[0].y, 0.35);
+  };
 
   // ── Poignée moteur ──
   useImperativeHandle(
@@ -559,13 +658,16 @@ export const ImageReader = forwardRef<EngineHandle, EngineProps>(function ImageR
         scrollRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
       },
       goToHighlight(h) {
-        if (h.anchor.kind !== 'pdf') return;
-        scrollToNorm(h.anchor.rects[0]?.y ?? 0);
-        setPulse((p) => ({ id: h.id, k: (p?.k ?? 0) + 1 }));
-        setTimeout(() => setPulse((p) => (p && p.id === h.id ? null : p)), 2800);
+        const a = h.anchor;
+        if (a.kind !== 'pdf') return;
+        goToPlace(a.page, () => {
+          scrollToNormRef.current(a.rects[0]?.y ?? 0);
+          setPulse((p) => ({ id: h.id, k: (p?.k ?? 0) + 1 }));
+          setTimeout(() => setPulse((p) => (p && p.id === h.id ? null : p)), 2800);
+        });
       },
       goToAnchor(anchor) {
-        if (anchor.kind === 'pdf') scrollToNorm(anchor.rects[0]?.y ?? 0);
+        if (anchor.kind === 'pdf') goToPlace(anchor.page, () => scrollToNormRef.current(anchor.rects[0]?.y ?? 0));
       },
       getHighlightRect(id) {
         const els = Array.from(pageRef.current?.querySelectorAll(`.hl[data-hl-id="${CSS.escape(id)}"]`) ?? []);
@@ -577,30 +679,34 @@ export const ImageReader = forwardRef<EngineHandle, EngineProps>(function ImageR
       },
       async search(query) {
         const q = normalizeQuery(query);
-        const m = modelRef.current;
-        if (!q || !m.words.length) return [];
-        return findAll(m.index, q, 500).map((ns, nth) => {
-          const sp = spanOf(m.index, ns, q.length);
-          const sn = makeSnippet(m.index.clean, sp.cleanStart, sp.cleanEnd);
-          const a = wordAtRaw(m, sp.rawStart);
-          const b = wordAtRaw(m, Math.max(sp.rawStart, sp.rawEnd - 1));
-          return {
-            id: `img:${nth}`,
-            snippet: sn.snippet,
-            matchStart: sn.matchStart,
-            matchLength: sn.matchLength,
-            locationLabel: LABEL_TEXT,
-            payload: { a, b, aOff: sp.rawStart - m.starts[a], bOff: sp.rawEnd - m.starts[b] } satisfies SearchPayload,
-          };
-        });
+        if (!q) return [];
+        const n = nPagesRef.current;
+        const out: SearchHit[] = [];
+        // Toutes les pages d'un document de photos (texte reconnu enregistré ; la page affichée telle quelle).
+        for (let pg = 1; pg <= n && out.length < 500; pg++) {
+          const m = pg === pageNoRef.current ? modelRef.current : wordModel(await loadOcr(ocrKey(bookId, pg)));
+          if (!m.words.length) continue;
+          findAll(m.index, q, 500 - out.length).forEach((ns, nth) => {
+            const sp = spanOf(m.index, ns, q.length);
+            const sn = makeSnippet(m.index.clean, sp.cleanStart, sp.cleanEnd);
+            const a = wordAtRaw(m, sp.rawStart);
+            const b = wordAtRaw(m, Math.max(sp.rawStart, sp.rawEnd - 1));
+            out.push({
+              id: `img:${pg}:${nth}`,
+              snippet: sn.snippet,
+              matchStart: sn.matchStart,
+              matchLength: sn.matchLength,
+              locationLabel: n > 1 ? `Page ${pg}` : LABEL_TEXT,
+              payload: { page: pg, a, b, aOff: sp.rawStart - m.starts[a], bOff: sp.rawEnd - m.starts[b] } satisfies SearchPayload,
+            });
+          });
+        }
+        return out;
       },
       goToSearchHit(hit: SearchHit) {
         const p = hit.payload as SearchPayload | undefined;
-        const m = modelRef.current;
-        if (!p || !m.words[p.a] || !m.words[p.b]) return;
-        const rects = rectsForWords(m, { i: p.a, off: clamp(p.aOff, 0, m.words[p.a].t.length) }, { i: p.b, off: clamp(p.bOff, 0, m.words[p.b].t.length) });
-        setMarks(rects);
-        if (rects[0]) scrollToNorm(rects[0].y, 0.35);
+        if (!p) return;
+        goToPlace(p.page ?? 1, () => showSearchHit(p), true);
       },
       clearSearch() {
         setMarks(null);
@@ -641,7 +747,7 @@ export const ImageReader = forwardRef<EngineHandle, EngineProps>(function ImageR
     if (!changed) return;
     const next: OcrData = { ...ocr, paras, confidence: averageConfidence(paras), editedAt: Date.now() };
     setOcr(next);
-    saveOcr(bookId, next).catch((e) => console.warn('[image] cache OCR', e));
+    saveOcr(pageKey, next).catch((e) => console.warn('[image] cache OCR', e));
   };
 
   // Animation de lecture : posée sur la partie VISIBLE de l'image (une page plus haute que la fenêtre
@@ -782,7 +888,7 @@ export const ImageReader = forwardRef<EngineHandle, EngineProps>(function ImageR
         )}
         {phase === 'idle' && !ocr && url && !zoneMode && (
           <div className="img-ocr-chip is-offer anim-in" data-testid="img-ocr-offer">
-            <span className="img-ocr-label">Reconnaître le texte de l’image pour le sélectionner, le surligner et le citer ?</span>
+            <span className="img-ocr-label">{pageFiles ? `Reconnaître le texte de la page ${pageNo} pour le sélectionner, le surligner et le citer ?` : 'Reconnaître le texte de l’image pour le sélectionner, le surligner et le citer ?'}</span>
             <button className="btn btn-sm btn-primary" onClick={rerun}>
               <ScanText size={13} /> Reconnaître le texte
             </button>
@@ -813,6 +919,20 @@ export const ImageReader = forwardRef<EngineHandle, EngineProps>(function ImageR
 
         {url && (
           <div className="img-zoombar" role="toolbar" aria-label="Zoom et outils">
+            {pageFiles && (
+              <>
+                <button className="icon-btn sm" onClick={() => goPage(pageNo - 1)} disabled={pageNo <= 1} title="Page précédente (←)" aria-label="Page précédente" data-testid="img-prev">
+                  <ChevronLeft size={15} />
+                </button>
+                <span className="img-page-val" data-testid="img-page" aria-live="polite">
+                  {pageNo} / {nPages}
+                </span>
+                <button className="icon-btn sm" onClick={() => goPage(pageNo + 1)} disabled={pageNo >= nPages} title="Page suivante (→)" aria-label="Page suivante" data-testid="img-next">
+                  <ChevronRight size={15} />
+                </button>
+                <span className="img-zoom-sep" />
+              </>
+            )}
             <button className="icon-btn sm" onClick={zoomOut} title={fmtKeys("Zoom arrière (⌘−)")} aria-label="Zoom arrière">
               <Minus size={14} />
             </button>
@@ -858,7 +978,7 @@ export const ImageReader = forwardRef<EngineHandle, EngineProps>(function ImageR
         <aside className="img-panel anim-slide" aria-label="Texte reconnu">
           <header className="img-panel-head">
             <div>
-              <h3>Texte reconnu</h3>
+              <h3>Texte reconnu{pageFiles ? ` · page ${pageNo}` : ''}</h3>
               <p className="muted">
                 {phase === 'running'
                   ? 'Reconnaissance en cours…'

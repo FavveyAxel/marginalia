@@ -1,7 +1,7 @@
 // Reconnaissance de texte (OCR) locale et hors ligne : tesseract.js 7.0.0 (Apache-2.0),
 // cœur WebAssembly et modèles fra + eng embarqués dans public/ocr/ (aucun CDN).
 // Le résultat (mots + boîtes normalisées) est mis en cache dans la bibliothèque, à côté du
-// fichier source : library/<id>/ocr.json. Il n'est jamais recalculé sans demande explicite.
+// fichier source : library/<id>/ocr.json (ocr-p2.json… pour les pages suivantes d'un document de photos). Il n'est jamais recalculé sans demande explicite.
 import type { Worker } from 'tesseract.js';
 import { host } from '../../../lib/platform';
 
@@ -52,9 +52,20 @@ export interface OcrProgress {
 
 const round = (v: number) => Math.round(v * 100000) / 100000;
 
-export async function loadOcr(bookId: string): Promise<OcrData | null> {
+/**
+ * Clé de texte reconnu d'une page : l'id du livre pour une image seule (et la 1re page d'un document
+ * de photos), « id#p2 », « id#p3 »… pour les pages suivantes (library/<id>/ocr-p2.json…).
+ */
+export const ocrKey = (bookId: string, page = 1) => (page > 1 ? `${bookId}#p${page}` : bookId);
+function ocrPlace(key: string): { id: string; file: string } {
+  const m = /^(.*)#p(\d+)$/.exec(key);
+  return m ? { id: m[1], file: `ocr-p${m[2]}.json` } : { id: key, file: OCR_FILE };
+}
+
+export async function loadOcr(key: string): Promise<OcrData | null> {
   try {
-    const buf = await host.readFile(bookId, OCR_FILE);
+    const { id, file } = ocrPlace(key);
+    const buf = await host.readFile(id, file);
     const data = JSON.parse(new TextDecoder().decode(buf)) as OcrData;
     return data && data.v === 1 && Array.isArray(data.paras) ? data : null;
   } catch {
@@ -62,9 +73,10 @@ export async function loadOcr(bookId: string): Promise<OcrData | null> {
   }
 }
 
-export async function saveOcr(bookId: string, data: OcrData): Promise<void> {
+export async function saveOcr(key: string, data: OcrData): Promise<void> {
   const bytes = new TextEncoder().encode(JSON.stringify(data));
-  await host.storeFile(bookId, OCR_FILE, bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer);
+  const { id, file } = ocrPlace(key);
+  await host.storeFile(id, file, bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer);
 }
 
 export const allWords = (d: OcrData | null): OcrWord[] => (d ? d.paras.flatMap((p) => p.lines.flatMap((l) => l.words)) : []);

@@ -389,6 +389,14 @@
   white-space: nowrap;
   user-select: none;
 }
+.img-page-val {
+  min-width: 52px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  color: var(--ink);
+  white-space: nowrap;
+}
 .img-zoom-val {
   min-width: 46px;
   text-align: center;

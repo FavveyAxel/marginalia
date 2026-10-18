@@ -538,7 +538,20 @@ function recascade(d: UndoData): void {
 
 /** Fichiers à effacer au vidage. */
 function filesOf(kind: TrashKind, root: any): TrashEntry['files'] {
-  if (kind === 'book') return [{ ownerId: root.id, fileName: root.fileName }];
+  if (kind === 'book') {
+    // Document de photos : toutes les pages, et le texte reconnu / la copie affichable de chacune.
+    const pages: string[] = Array.isArray(root.pages) && root.pages.length > 1 ? root.pages : [];
+    if (!pages.length) return [{ ownerId: root.id, fileName: root.fileName }];
+    return [
+      ...pages.map((f) => ({ ownerId: root.id, fileName: f })),
+      { ownerId: root.id, fileName: 'ocr.json' },
+      { ownerId: root.id, fileName: 'display.jpg' },
+      ...pages.slice(1).flatMap((_, i) => [
+        { ownerId: root.id, fileName: `ocr-p${i + 2}.json` },
+        { ownerId: root.id, fileName: `display-p${i + 2}.jpg` },
+      ]),
+    ];
+  }
   // L'éditeur garde aussi une copie de la version précédente (document.prev.docx).
   // … et son historique de versions (versions/*.docx), effacé avec lui au vidage.
   if (kind === 'draft')

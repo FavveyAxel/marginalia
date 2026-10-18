@@ -160,3 +160,35 @@
 .stp-file > span:last-child { display: flex; flex-direction: column; min-width: 0; }
 .stp-file strong { font-weight: 600; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-md); }
 .stp-file strong + span { font-size: var(--fs-sm); color: var(--muted); }
+
+/* Assembler plusieurs photos en un document */
+.ib-assemble {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: var(--sp-3);
+  padding: 10px 12px 10px 14px;
+  border-radius: var(--radius-md);
+  border: 1px dashed var(--border-strong, var(--border));
+  color: var(--muted);
+  font-size: var(--fs-sm);
+}
+.ib-assemble.is-on {
+  border-style: solid;
+  border-color: color-mix(in srgb, var(--focus) 45%, var(--border));
+  background: color-mix(in srgb, var(--focus) 6%, var(--bg-panel));
+  color: var(--ink);
+}
+.ib-assemble-text { min-width: 0; }
+.ib-pick-photo {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  margin-right: 2px;
+  cursor: pointer;
+}
+.ib-pick-photo input { width: 16px; height: 16px; margin: 0; accent-color: var(--focus); cursor: pointer; }
+.ib-card.is-picked { border-color: color-mix(in srgb, var(--focus) 55%, var(--border)); box-shadow: 0 0 0 1px color-mix(in srgb, var(--focus) 30%, transparent); }
+.ib-card-head:has(> .ib-pick-photo) { grid-template-columns: 22px 30px minmax(0, 1fr) auto; }
+.ib-assemble > .spacer { flex: 1; }

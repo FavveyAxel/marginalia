@@ -21,6 +21,17 @@ export interface NewsEntry {
 
 export const NEWS: NewsEntry[] = [
   {
+    version: '3.28',
+    items: [
+      {
+        icon: 'sparkles',
+        title: 'Plusieurs photos, un seul document',
+        text: 'Cochez des photos dans la Boîte de réception, ou sélectionnez-les dans la bibliothèque, puis « Assembler en un document » : vous choisissez l’ordre et le titre, et le document se lit page par page, avec texte reconnu, extraits et recherche sur toutes les pages.',
+        action: { label: 'Voir', run: 'inbox' },
+      },
+    ],
+  },
+  {
     version: '3.27',
     items: [
       {

@@ -26,6 +26,7 @@ import {
   CheckSquare,
   RefreshCw,
   Inbox,
+  Layers,
 } from 'lucide-react';
 import { useStore } from '../../lib/store';
 import { host, ACCEPTED_EXTENSIONS, type AppleBook } from '../../lib/platform';
@@ -41,6 +42,8 @@ import { useMultiSelect, useLasso, useSelectionKeys, LassoBox } from '../../lib/
 import { SelectionActionBar, SelectCheck, AddToWorkspaceDialog, selectedLabel } from '../../components/MultiSelect';
 import { ContextMenu, type MenuEntry } from '../workspaces/wsUi';
 import './library.css';
+import { AssemblePhotos } from './AssemblePhotos';
+import { sourcesOfBook } from './photoDoc';
 import { OS_TEXT, fmtKeys } from '../../lib/keys';
 
 type SortKey = 'recent' | 'title' | 'author' | 'added';
@@ -55,6 +58,8 @@ const SORTS: { id: SortKey; label: string }[] = [
 ];
 
 const FORMAT_LABEL: Record<BookFormat, string> = { epub: 'EPUB', pdf: 'PDF', docx: 'DOCX', md: 'MD', txt: 'TXT', html: 'HTML', image: 'Image' };
+/** Format affiché : « 5 photos » pour un document de photos. */
+const formatLabel = (b: Book) => (b.format === 'image' && b.pages && b.pages.length > 1 ? `${b.pages.length} photos` : FORMAT_LABEL[b.format]);
 
 const fold = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
 
@@ -183,6 +188,10 @@ export function LibraryView() {
   };
   useSelectionKeys(sel, { onEscape: selectMode ? () => setSelectMode(false) : undefined });
   const showChecks = selectMode || sel.size > 0;
+  // Photos (et documents de photos) sélectionnées : « Assembler en un document ».
+  const [assembleIds, setAssembleIds] = useState<string[] | null>(null);
+  const photoIds = (ids: string[]) => ids.filter((id) => books.find((b) => b.id === id)?.format === 'image');
+  const canAssemble = (ids: string[]) => ids.length >= 2 && photoIds(ids).length === ids.length;
 
   const resume = useMemo(
     () => books.filter((b) => b.lastOpenedAt && b.format !== 'image').sort((a, b) => (b.lastOpenedAt ?? 0) - (a.lastOpenedAt ?? 0))[0] ?? null,
@@ -248,6 +257,7 @@ export function LibraryView() {
     openMenu(b.id, e.clientX, e.clientY);
   };
   const multiEntries = (ids: string[]): MenuEntry[] => [
+    ...(canAssemble(ids) ? [{ label: 'Assembler en un document…', icon: <Layers size={14} />, onClick: () => setAssembleIds(ids) } as MenuEntry] : []),
     { label: 'Ajouter à un espace…', icon: <FolderPlus size={14} />, onClick: () => setAddIds(ids) },
     { label: 'Exporter les notes', icon: <FileDown size={14} />, onClick: () => void exportMany(ids) },
     { sep: true },
@@ -490,7 +500,7 @@ export function LibraryView() {
                       <div className="lib-card-title" title={b.title}>
                         {b.title}
                       </div>
-                      <div className="lib-card-author truncate">{b.author || 'Auteur inconnu'}</div>
+                      <div className="lib-card-author truncate">{b.author || (b.pages && b.pages.length > 1 ? `Document de ${b.pages.length} photos` : 'Auteur inconnu')}</div>
                       <div className="lib-card-meta">
                         <span className="lib-progress" aria-label={`Progression ${pct(b.progress)} %`}>
                           <span style={{ width: `${pct(b.progress)}%` }} />
@@ -543,7 +553,7 @@ export function LibraryView() {
                       )}
                       <span className="lib-row-title truncate">{b.title}</span>
                       <span className="truncate muted">{b.author || '—'}</span>
-                      <span className="muted">{FORMAT_LABEL[b.format]}</span>
+                      <span className="muted">{formatLabel(b)}</span>
                       <span className="num muted">{counts[b.id] ?? 0}</span>
                       <span className="muted truncate">{b.lastOpenedAt ? relativeTime(b.lastOpenedAt) : '—'}</span>
                       <span className="lib-row-progress">
@@ -584,6 +594,11 @@ export function LibraryView() {
       )}
       {lasso.box && <LassoBox box={lasso.box} />}
       <SelectionActionBar count={sel.size} label={sel.size > 1 ? 'livres sélectionnés' : 'livre sélectionné'} onClear={exitSelect}>
+        {canAssemble(sel.ids) && (
+          <button className="btn btn-ghost btn-sm" onClick={() => setAssembleIds(sel.ids)} data-testid="lib-assemble">
+            <Layers size={14} /> Assembler en un document
+          </button>
+        )}
         <button className="btn btn-ghost btn-sm" onClick={() => setAddIds(sel.ids)}>
           <FolderPlus size={14} /> Ajouter à un espace…
         </button>
@@ -596,6 +611,27 @@ export function LibraryView() {
       </SelectionActionBar>
       {multiMenu && sel.size > 1 && (
         <ContextMenu x={multiMenu.x} y={multiMenu.y} entries={multiEntries(sel.ids)} onClose={() => setMultiMenu(null)} label={selectedLabel(sel.size, 'livre', 'livres')} />
+      )}
+      {assembleIds && (
+        <AssemblePhotos
+          sources={assembleIds.flatMap((id) => {
+            const b = books.find((x) => x.id === id);
+            return b ? sourcesOfBook(b) : [];
+          })}
+          origin="library"
+          onClose={() => setAssembleIds(null)}
+          onDone={({ book, trashOriginals }) => {
+            const st = useStore.getState();
+            if (trashOriginals) st.trashDeleteMany('book', assembleIds, { silent: true });
+            setAssembleIds(null);
+            exitSelect();
+            st.toast(
+              trashOriginals ? `« ${book.title} » créé ; les photos d’origine sont dans la corbeille` : `« ${book.title} » créé`,
+              'success',
+              { label: 'Ouvrir', run: () => useStore.getState().openBook(book.id) },
+            );
+          }}
+        />
       )}
       {addIds && <AddToWorkspaceDialog kind="book" refIds={addIds} onClose={() => setAddIds(null)} />}
       {deleteIds && (
@@ -819,7 +855,7 @@ function InfoDialog({ book, onClose }: { book: Book; onClose(): void }) {
       footer={
         <>
           <span className="lib-foot-note muted truncate">
-            {FORMAT_LABEL[book.format]} · {(book.size / 1024 / 1024).toFixed(book.size > 1048576 ? 1 : 2)} Mo · {book.originalName}
+            {formatLabel(book)} · {(book.size / 1024 / 1024).toFixed(book.size > 1048576 ? 1 : 2)} Mo · {book.originalName}
           </span>
           <button className="btn" onClick={onClose}>
             Annuler

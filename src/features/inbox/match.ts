@@ -207,8 +207,8 @@ interface Detail {
   printedPageAt?: (pages: PageMark[], chapter: number, offset: number) => string;
   /** PDF : géométrie par page et libellés imprimés (null : inutilisables). */
   pdf?: { geo: PdfPageGeo[]; pageLabels: string[] | null };
-  /** Image : modèle de mots de l'OCR. */
-  image?: { model: WordModel };
+  /** Image : modèle de mots de l'OCR, par page (une seule pour une image). */
+  image?: { models: WordModel[] };
 }
 
 interface Built {
@@ -378,11 +378,19 @@ async function buildPdf(book: Book, signal?: AbortSignal): Promise<Built> {
 }
 
 async function buildImage(book: Book): Promise<Built | null> {
-  const [{ loadOcr }, { wordModel }] = await Promise.all([import('../reader/image/ocr'), import('../reader/image/textlayer')]);
-  const ocr = await loadOcr(book.id);
-  if (!ocr) return null;
-  const model = wordModel(ocr);
-  return pack('image', [tokenize(model.raw)], [model.raw], ['Image'], { image: { model } });
+  const [{ loadOcr, ocrKey }, { wordModel }] = await Promise.all([import('../reader/image/ocr'), import('../reader/image/textlayer')]);
+  // Document de photos : une unité par page (texte reconnu de chaque page, s'il existe).
+  const n = book.pages && book.pages.length > 1 ? book.pages.length : 1;
+  const models: WordModel[] = [];
+  let any = false;
+  for (let pg = 1; pg <= n; pg++) {
+    const ocr = await loadOcr(ocrKey(book.id, pg));
+    if (ocr) any = true;
+    models.push(wordModel(ocr));
+  }
+  if (!any) return null;
+  const labels = n > 1 ? models.map((_, i) => `Page ${i + 1}`) : ['Image'];
+  return pack('image', models.map((m) => tokenize(m.raw)), models.map((m) => m.raw), labels, { image: { models } });
 }
 
 async function build(book: Book, signal?: AbortSignal): Promise<Built | null> {
@@ -771,14 +779,15 @@ function toMatch(book: Book, ix: LightIndex, d: Detail, f: Found, q: Query): Pas
     };
   }
   if (ix.kind === 'image' && d.image) {
-    return imageMatch(book, d.image.model, cs, ce, score);
+    const model = d.image.models[f.unit];
+    return model ? imageMatch(book, model, f.unit + 1, d.labels[f.unit] ?? 'Image', cs, ce, score) : null;
   }
   return null;
 }
 
 let textlayerMod: typeof import('../reader/image/textlayer') | null = null;
 
-function imageMatch(book: Book, model: WordModel, cs: number, ce: number, score: number): PassageMatch | null {
+function imageMatch(book: Book, model: WordModel, page: number, label: string, cs: number, ce: number, score: number): PassageMatch | null {
   const tl = textlayerMod;
   if (!tl || !model.words.length) return null;
   const ai = tl.wordAtRaw(model, cs);
@@ -789,7 +798,7 @@ function imageMatch(book: Book, model: WordModel, cs: number, ce: number, score:
   const text = tl.textForWords(model, a, b);
   if (!rects.length || !text) return null;
   const off = book.edition?.pageOffset ?? 0;
-  return { bookId: book.id, anchor: { kind: 'pdf', page: 1, rects }, text, locationLabel: 'Image', printedPage: off ? String(1 + off) : '', score };
+  return { bookId: book.id, anchor: { kind: 'pdf', page, rects }, text, locationLabel: label, printedPage: off ? String(page + off) : '', score };
 }
 
 // ── API ──────────────────────────────────────────────────────

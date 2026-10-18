@@ -910,6 +910,7 @@ async function lockNow(reason) {
     await waitSaves();
     await Promise.all([...fileLocks.values()]);
     wifiReceiver.stop('locked');
+    wifiSender.stop('locked');
     vault.wipe(sec.dek);
     sec.dek = null;
     sec.lockedBy = reason;
@@ -2354,6 +2355,35 @@ dataHandle('marginalia:wifiInfo', () => wifiReceiver.info());
 handle('marginalia:wifiStop', () => wifiReceiver.stop('closed'));
 dataHandle('marginalia:wifiReport', (_e, name, result) => wifiReceiver.report(name, result));
 
+// ── Envoi vers le téléphone (export d'un écrit, chemin inverse du QR code) ──
+const wifiSender = wifiKit.createSender({
+  isLocked: () => isLocked(),
+  pagePath: path.join(__dirname, 'wifi-send.html'),
+  diag: (...a) => diag(...a),
+  emit: (evt) => {
+    for (const w of BrowserWindow.getAllWindows()) if (!w.isDestroyed()) w.webContents.send('marginalia:send', evt);
+  },
+});
+const SEND_MIME = { pdf: 'application/pdf', docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', md: 'text/markdown; charset=utf-8', txt: 'text/plain; charset=utf-8', html: 'text/html; charset=utf-8', epub: 'application/epub+zip' };
+dataHandle('marginalia:sendStart', async (_e, files) => {
+  if (!Array.isArray(files) || !files.length || files.length > 10) throw new Error('Aucun document à envoyer.');
+  const list = files.map((f) => {
+    const kind = String((f && f.kind) || '').toLowerCase();
+    if (!SEND_MIME[kind]) throw new Error('Format non pris en charge.');
+    const data = toBuffer(f.data);
+    if (!data.length || data.length > 200 * 1024 * 1024) throw new Error('Document vide ou trop volumineux.');
+    const base = wifiKit.cleanName(String(f.name || ''), 'Écrit').base;
+    return { name: `${base}.${kind}`, kind, mime: SEND_MIME[kind], label: String(f.label || kind.toUpperCase()).slice(0, 40), data };
+  });
+  try {
+    return await wifiSender.start(list);
+  } catch (e) {
+    diag('wifi', 'envoi : ouverture', e && e.message);
+    throw new Error(`Impossible d'ouvrir l'envoi par le Wi-Fi (${(e && e.code) || (e && e.message) || e}).`);
+  }
+});
+handle('marginalia:sendStop', () => wifiSender.stop('closed'));
+
 handle('marginalia:listFonts', async () => {
   if (fontCache) return fontCache;
   const { execFile } = require('child_process');
@@ -3306,6 +3336,7 @@ let appQuitting = false;
 let quitReady = false;
 app.on('before-quit', (event) => {
   wifiReceiver.stop('quit');
+  wifiSender.stop('quit');
   if (quitReady) return;
   event.preventDefault();
   if (appQuitting) return;

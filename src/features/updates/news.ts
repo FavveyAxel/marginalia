@@ -29,6 +29,11 @@ export const NEWS: NewsEntry[] = [
         text: 'Votre compagnon présente tous les outils un par un, chacun mis en lumière dans l’interface. Elle démarre d’elle-même pour les nouveaux utilisateurs, et se relance quand vous voulez depuis l’Aide.',
         action: { label: 'Lancer la visite', run: 'tour' },
       },
+      {
+        icon: 'phone',
+        title: 'Vos écrits, sur le téléphone',
+        text: 'Dans Écrire, « Exporter › Sur le téléphone » affiche un QR code : scannez-le, et votre écrit se télécharge sur l’iPhone ou le téléphone Android, en PDF ou en Word. Par le Wi-Fi, sans rien qui passe par Internet.',
+      },
     ],
   },
   {

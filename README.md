@@ -8,6 +8,8 @@ Gratuite, sans compte, tout reste sur l'ordinateur. Site : <https://marginalia-b
 - Page « Importer » : glisser-déposer de fichiers ou de dossiers entiers, choix de fichiers ou d'un dossier, QR code, dossier synchronisé, app Livres
 - Depuis le téléphone (iPhone, Android) : par le Wi-Fi en scannant un QR code (photos, livres, documents, passages ou notes
   de l'app Livres collées, et chaque envoi dit où il est allé), ou par un dossier synchronisé (iCloud Drive, OneDrive) ; texte des photos reconnu et passage retrouvé dans vos livres
+- Vers le téléphone : un écrit exporté en PDF ou Word se télécharge sur le téléphone en scannant un QR code (Exporter › Sur le téléphone)
+- Visite guidée par la mascotte, lancée d'elle-même pour les nouveaux utilisateurs et depuis l'Aide
 - Surlignage en 6 catégories (problème, thèse, argument, thèse adverse, concept, exemple), notes « ma voix »
 - Fiche-texte et mouvements, reconstruction prémisses → conclusion
 - Cartes pour organiser sa pensée : carte d'argument de chaque livre, cartes libres sur plusieurs livres,
@@ -77,7 +79,7 @@ Tout fonctionne en local sur l'ordinateur : aucun compte, aucun serveur. Les liv
 (`~/Library/Application Support/Marginalia` sur Mac, `%APPDATA%\Marginalia` sur Windows). La reconnaissance du texte des images (tesseract.js) et le correcteur tournent hors ligne,
 la télémétrie de l'éditeur (SuperDoc) est désactivée, et l'app bloque toute requête réseau sortante, sauf la vérification
 des mises à jour au lancement (lecture de la dernière Release GitHub, sans aucune donnée envoyée ; désactivable dans les Réglages).
-La réception par le Wi-Fi (QR code) n'accepte que des connexions du réseau local, et seulement pendant que sa fenêtre est
+La réception et l'envoi par le Wi-Fi (QR code) n'acceptent que des connexions du réseau local, et seulement pendant que leur fenêtre est
 ouverte. Seuls les liens cliqués s'ouvrent dans votre navigateur.
 
 En option (Réglages › Confidentialité et sécurité, désactivées par défaut) :

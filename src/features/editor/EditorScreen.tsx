@@ -1,6 +1,7 @@
 // Éditeur pleine page d'un écrit (route { name: 'write', draftId }).
 import { useCallback, useEffect, useMemo, useRef, useState, type MutableRefObject } from 'react';
-import { AlertTriangle, ChevronLeft, ChevronDown, Download, FileDown, FileText, PanelRight, SearchCheck } from 'lucide-react';
+import { AlertTriangle, ChevronLeft, ChevronDown, Download, FileDown, FileText, PanelRight, SearchCheck, Smartphone } from 'lucide-react';
+import { SendToPhone } from './SendToPhone';
 import { registerFlusher, useStore } from '../../lib/store';
 import { host, type ExportFormat } from '../../lib/platform';
 import type { Book, Draft, Highlight } from '../../lib/types';
@@ -802,57 +803,66 @@ function Editor({ draft }: { draft: Draft }) {
   };
 
   // ── Exports ──
+  /** Produit le document exporté (sans l'enregistrer) ; null si l'export a échoué (message déjà affiché). */
+  const buildExport = useCallback(
+    async (format: ExportFormat): Promise<{ data: ArrayBuffer; name: string } | null> => {
+      const e = engineRef.current;
+      if (!e) return null;
+      const g = await guardedExport(e);
+      if (!g.ok || !g.model) {
+        setBlocked(g);
+        toast('Export annulé : le fichier produit était incomplet. Votre écrit n’a pas changé.', 'error');
+        return null;
+      }
+      const d = draftRef.current;
+      const name = safeFileName(d.title);
+      let data: ArrayBuffer;
+      // notes privées : retirées du .docx ; absentes du modèle (parseDocx) pour PDF, MD, HTML, TXT
+      if (format === 'docx') data = (await stripForExport(g.data)).data;
+      else if (format === 'pdf') {
+        try {
+          // polices fournies avec l'app (Literata…) incluses : la fenêtre d'impression n'a pas accès au réseau
+          const fontCss = await bundledFontFaceCss(usedFonts(g.model));
+          // Pages de l'éditeur imprimées telles quelles (sauts de page, notes en bas de page, numéros…) ;
+          // si la mise en page échoue, PDF reconstruit à partir du texte.
+          const paged = await renderPagesForPrint((await stripForExport(g.data)).data, { fontCss }).catch((err) => {
+            console.warn('Mise en page pour le PDF impossible :', err);
+            return null;
+          });
+          data = await host.printToPdf(paged ? paged.html : toPrintHtml(g.model, d.title, { fontCss }));
+        } catch (err) {
+          console.warn(err);
+          toast(host.kind === 'browser' ? `L’export PDF n’est disponible que dans l’app ${isMac ? 'Mac' : 'de bureau'}. Essayez Word ou Page web.` : 'L’export PDF a échoué. Réessayez, ou exportez en Word.', 'error');
+          return null;
+        }
+      } else {
+        const fontCss = format === 'html' ? await bundledFontFaceCss(usedFonts(g.model)) : '';
+        // Page web : les pages telles qu'à l'écran ; Markdown et texte : le texte, sauts de page compris.
+        const paged =
+          format === 'html'
+            ? await renderPagesForPrint((await stripForExport(g.data)).data, { fontCss, mode: 'web', title: d.title }).catch((err) => {
+                console.warn('Mise en page pour la page web impossible :', err);
+                return null;
+              })
+            : null;
+        const text = paged ? paged.html : exportText(g.model, format, d.title, { fontCss });
+        data = new TextEncoder().encode(text).buffer as ArrayBuffer;
+      }
+      patch('drafts', d.id, { wordCount: g.editorWords });
+      return { data, name };
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [toast, patch],
+  );
+
   const exportAs = useCallback(
     async (format: ExportFormat) => {
-      const e = engineRef.current;
-      if (!e) return;
       exportPop.close();
       setBusyExport(true);
       try {
-        const g = await guardedExport(e);
-        if (!g.ok || !g.model) {
-          setBlocked(g);
-          toast('Export annulé : le fichier produit était incomplet. Votre écrit n’a pas changé.', 'error');
-          return;
-        }
-        const d = draftRef.current;
-        const name = safeFileName(d.title);
-        let path: string | null = null;
-        // notes privées : retirées du .docx ; absentes du modèle (parseDocx) pour PDF, MD, HTML, TXT
-        if (format === 'docx') path = await host.saveBinary(`${name}.docx`, (await stripForExport(g.data)).data, 'docx');
-        else if (format === 'pdf') {
-          let pdf: ArrayBuffer;
-          try {
-            // polices fournies avec l'app (Literata…) incluses : la fenêtre d'impression n'a pas accès au réseau
-            const fontCss = await bundledFontFaceCss(usedFonts(g.model));
-            // Pages de l'éditeur imprimées telles quelles (sauts de page, notes en bas de page, numéros…) ;
-            // si la mise en page échoue, PDF reconstruit à partir du texte.
-            const paged = await renderPagesForPrint((await stripForExport(g.data)).data, { fontCss }).catch((err) => {
-              console.warn('Mise en page pour le PDF impossible :', err);
-              return null;
-            });
-            pdf = await host.printToPdf(paged ? paged.html : toPrintHtml(g.model, d.title, { fontCss }));
-          } catch (err) {
-            console.warn(err);
-            toast(host.kind === 'browser' ? `L’export PDF n’est disponible que dans l’app ${isMac ? 'Mac' : 'de bureau'}. Essayez Word ou Page web.` : 'L’export PDF a échoué. Réessayez, ou exportez en Word.', 'error');
-            return;
-          }
-          path = await host.saveBinary(`${name}.pdf`, pdf, 'pdf');
-        } else {
-          const fontCss = format === 'html' ? await bundledFontFaceCss(usedFonts(g.model)) : '';
-          // Page web : les pages telles qu'à l'écran ; Markdown et texte : le texte, sauts de page compris.
-          const paged =
-            format === 'html'
-              ? await renderPagesForPrint((await stripForExport(g.data)).data, { fontCss, mode: 'web', title: d.title }).catch((err) => {
-                  console.warn('Mise en page pour la page web impossible :', err);
-                  return null;
-                })
-              : null;
-          const text = paged ? paged.html : exportText(g.model, format, d.title, { fontCss });
-          const bytes = new TextEncoder().encode(text);
-          path = await host.saveBinary(`${name}.${format}`, bytes.buffer as ArrayBuffer, format);
-        }
-        patch('drafts', d.id, { wordCount: g.editorWords });
+        const out = await buildExport(format);
+        if (!out) return;
+        const path = await host.saveBinary(`${out.name}.${format}`, out.data, format);
         if (path) toast(`Exporté : ${baseName(path)}`, 'success');
       } catch (err) {
         console.error(err);
@@ -862,7 +872,27 @@ function Editor({ draft }: { draft: Draft }) {
       }
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [toast, patch],
+    [toast, buildExport],
+  );
+
+  /** Envoi sur le téléphone : le document est préparé, puis proposé par QR code (réseau local). */
+  const [phoneFile, setPhoneFile] = useState<{ name: string; kind: 'pdf' | 'docx'; data: ArrayBuffer } | null>(null);
+  const sendToPhone = useCallback(
+    async (format: 'pdf' | 'docx') => {
+      exportPop.close();
+      setBusyExport(true);
+      try {
+        const out = await buildExport(format);
+        if (out) setPhoneFile({ name: out.name, kind: format, data: out.data });
+      } catch (err) {
+        console.error(err);
+        toast('La préparation du document a échoué. Réessayez.', 'error');
+      } finally {
+        setBusyExport(false);
+      }
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [toast, buildExport],
   );
 
   /** Copie du fichier tel qu'il est stocké (sans passer par le moteur). */
@@ -1050,7 +1080,24 @@ function Editor({ draft }: { draft: Draft }) {
             <span className="ed-menu-ext">{x.ext}</span>
           </button>
         ))}
+        {host.sendToPhone && (
+          <>
+            <div className="divider" />
+            <div className="ed-pop-title">Sur le téléphone, par QR code</div>
+            <button className="menu-item" onClick={() => void sendToPhone('pdf')} data-phone="pdf">
+              <Smartphone size={14} />
+              <span>PDF, à lire ou à imprimer</span>
+              <span className="ed-menu-ext">.pdf</span>
+            </button>
+            <button className="menu-item" onClick={() => void sendToPhone('docx')} data-phone="docx">
+              <Smartphone size={14} />
+              <span>Word, à continuer ailleurs</span>
+              <span className="ed-menu-ext">.docx</span>
+            </button>
+          </>
+        )}
       </Popover>
+      {phoneFile && <SendToPhone file={phoneFile} onClose={() => setPhoneFile(null)} />}
 
       {loadGuard && (
         <div className="ed-banner warn" role="alert">

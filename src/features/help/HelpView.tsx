@@ -152,7 +152,7 @@ const GUIDES: Record<string, Guide> = {
     how: [
       'Ouvrez « Écrits » puis « Nouveau » (un modèle : vide, dissertation, explication de texte, fiche…) ou ouvrez un .docx existant.',
       'Écrivez ; ouvrez le panneau de droite pour afficher un livre, vos extraits, vos concepts ou un plan, et cliquez « Citer » pour insérer une citation référencée.',
-      'Enregistrez (⌘S) ; exportez en Word, PDF, Markdown, page web ou texte.',
+      'Enregistrez (⌘S) ; exportez en Word, PDF, Markdown, page web ou texte, ou sur votre téléphone par un QR code (Exporter › Sur le téléphone).',
     ],
     example: 'Explication de texte sur Descartes : nouveau modèle « Explication de texte », panneau de droite sur « Livre », vous sélectionnez « je pense, donc je suis » et cliquez « Citer » : la citation et sa référence (édition, page) s’insèrent ; ⌘-clic dessus vous ramène au passage.',
     tip: 'Les versions se créent toutes seules : en cas de mauvaise manipulation, ouvrez « Versions » pour comparer et revenir en arrière.',

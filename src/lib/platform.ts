@@ -105,6 +105,13 @@ export interface UpdateInfo {
   error?: string;
 }
 
+/** Envoi d'un document vers le téléphone (QR code, réseau local) : chemin inverse de la réception. */
+export interface SendToPhoneApi {
+  start(files: { name: string; kind: 'pdf' | 'docx' | 'md' | 'txt' | 'html' | 'epub'; label: string; data: ArrayBuffer }[]): Promise<WifiInfo & { path?: string }>;
+  stop(): Promise<void>;
+  onEvent(cb: (e: { type: 'device'; device: string; at: number } | { type: 'downloaded'; name: string; device: string; at: number } | { type: 'stopped'; reason: string }) => void): () => void;
+}
+
 /** Mac : autorisation « Accès complet au disque » (lecture des données de l'app Livres). */
 export interface DiskAccessApi {
   status(): Promise<{ status: 'granted' | 'denied' | 'nobooks' }>;
@@ -277,6 +284,7 @@ export interface HostApi {
   inbox?: InboxApi;
   /** Version de l'app et vérification des mises à jour (app de bureau). */
   updates?: UpdatesApi;
+  sendToPhone?: SendToPhoneApi;
   /** Tout premier lancement sur cet ordinateur (aucune donnée de Marginalia avant ce lancement). */
   firstRun?(): Promise<boolean>;
   diskAccess?: DiskAccessApi;

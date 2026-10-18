@@ -463,6 +463,7 @@ const MORE: { icon: string; title: string; pose: Pose; line: string; items: stri
       'Photos et scans : texte reconnu, sans connexion',
       'Synchronisation avec l’app Livres d’Apple (Mac)',
       'Depuis le téléphone, par le Wi-Fi (QR code) : photo, livre ou passage copié',
+      'Et dans l’autre sens : un écrit envoyé sur le téléphone, en PDF ou Word',
       'Notes de l’app Livres ou de Play Livres collées : un extrait par passage',
       'Un dossier entier importé d’un coup, ou glissé dans la fenêtre',
       'Le texte d’une photo : en extrait, ou en nouvel écrit',
@@ -821,6 +822,10 @@ function App() {
             <p>
               Chaque envoi arrive aussitôt, et vous savez où il est allé, sur l’ordinateur comme sur le téléphone : dans la bibliothèque, en extrait au bon
               endroit du livre, ou dans la Boîte de réception pour que vous décidiez.
+            </p>
+            <p>
+              Et dans l’autre sens : dans Écrire, « Exporter › Sur le téléphone » affiche un QR code, et votre écrit se télécharge sur le téléphone, en
+              PDF pour le relire ou en Word pour le continuer ailleurs.
             </p>
             <p className="qr-note">Par le Wi-Fi de la maison, sans compte : rien ne passe par Internet, et la réception se ferme avec sa fenêtre.</p>
           </div>

@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
+<meta name="robots" content="noindex">
+<title>Marginalia : votre écrit</title>
+<link rel="icon" href="__ICON__">
+<link rel="apple-touch-icon" href="__ICON__">
+<style nonce="__NONCE__">
+:root {
+  --bg: #efebe3; --panel: #fbf9f4; --page: #fffdf8; --ink: #1d1a15; --ink-2: #4a443a; --muted: #7a7266;
+  --border: rgba(40, 32, 20, 0.12); --accent: #1d1a15; --accent-ink: #fbf9f4; --ok: #3b9a5f; --err: #c4405a;
+  --ui: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', Roboto, system-ui, sans-serif;
+  --serif: 'Iowan Old Style', 'Palatino Linotype', Palatino, Georgia, serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #1b1916; --panel: #24211d; --page: #2a2622; --ink: #ede7dc; --ink-2: #c9c1b3; --muted: #978e80;
+    --border: rgba(255, 245, 230, 0.12); --accent: #ede7dc; --accent-ink: #1b1916; }
+}
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+html { -webkit-text-size-adjust: 100%; }
+body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--ui); font-size: 16px; line-height: 1.45; }
+main { max-width: 34rem; margin: 0 auto; padding: max(1.25rem, env(safe-area-inset-top)) 1rem max(2rem, env(safe-area-inset-bottom)); }
+.brand { display: flex; align-items: center; gap: 0.5rem; font-family: var(--serif); font-size: 1.05rem; color: var(--ink-2); }
+.brand img { width: 1.75rem; height: 1.75rem; display: block; }
+h1 { font-family: var(--serif); font-weight: 500; font-size: 2rem; line-height: 1.1; margin: 1.25rem 0 0.35rem; letter-spacing: -0.01em; }
+.sub { margin: 0; color: var(--muted); font-size: 0.95rem; }
+.sub strong { color: var(--ink-2); font-weight: 600; }
+ul { list-style: none; margin: 1.5rem 0 0; padding: 0; display: grid; gap: 0.625rem; }
+li { display: grid; grid-template-columns: 2.75rem minmax(0, 1fr); gap: 0.75rem 0.875rem; align-items: center; padding: 1rem; border-radius: 1rem; background: var(--panel); border: 1px solid var(--border); }
+.f-ico { width: 2.75rem; height: 3.25rem; border-radius: 0.375rem; display: grid; place-items: center; background: var(--page); border: 1px solid var(--border); font: 700 0.75rem var(--ui); color: var(--ink-2); }
+.f-txt { display: flex; flex-direction: column; min-width: 0; }
+.f-txt strong { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.f-txt span { color: var(--muted); font-size: 0.875rem; }
+.btn { grid-column: 1 / -1; display: block; text-align: center; text-decoration: none; padding: 0.8rem 1rem; border-radius: 0.75rem; font: 600 1rem var(--ui); border: 1px solid var(--border); background: var(--page); color: var(--ink); }
+.btn.primary { background: var(--accent); color: var(--accent-ink); border-color: transparent; }
+.btn.done { background: transparent; color: var(--ok); border-color: color-mix(in srgb, var(--ok) 40%, transparent); }
+.how { margin: 1.25rem 0 0; padding: 0.875rem 1rem; border-radius: 0.875rem; background: var(--panel); border: 1px solid var(--border); color: var(--ink-2); font-size: 0.9rem; }
+.how strong { color: var(--ink); }
+.closed { display: none; margin-top: 1.25rem; padding: 1rem; border-radius: 1rem; background: var(--panel); border: 1px solid var(--err); }
+.closed.show { display: block; }
+.closed strong { display: block; margin-bottom: 0.25rem; }
+.closed p { margin: 0; color: var(--ink-2); font-size: 0.9375rem; }
+body.is-closed ul { opacity: 0.4; pointer-events: none; }
+.foot { margin-top: 2rem; display: flex; gap: 0.5rem; align-items: flex-start; color: var(--muted); font-size: 0.8125rem; }
+.foot svg { flex: none; width: 1rem; height: 1rem; margin-top: 0.1rem; }
+</style>
+</head>
+<body>
+<main>
+  <div class="brand"><img src="__ICON__" alt="" width="28" height="28"> Marginalia</div>
+  <h1>Votre écrit, sur le téléphone</h1>
+  <p class="sub">Envoyé par Marginalia sur <strong>__COMPUTER__</strong>, par le Wi&#8209;Fi.</p>
+
+  <div class="closed" id="closed" role="alert">
+    <strong>L’envoi est fermé sur l’ordinateur.</strong>
+    <p>Dans Marginalia, rouvrez « Exporter › Sur le téléphone » et scannez le nouveau code.</p>
+  </div>
+
+  <ul id="files">__FILES__</ul>
+
+  <p class="how" id="how"></p>
+
+  <p class="foot">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="10.5" width="14" height="10" rx="1.6"/><path d="M8 10.5V8a4 4 0 0 1 8 0v2.5"/></svg>
+    <span>Rien ne passe par Internet : le document vient directement de votre ordinateur, sur ce réseau Wi&#8209;Fi.</span>
+  </p>
+</main>
+<script nonce="__NONCE__">
+(function () {
+  'use strict';
+  var base = location.pathname.replace(/\/+$/, '');
+  var ua = navigator.userAgent;
+  var ios = /iPhone|iPad/.test(ua) || (/Macintosh/.test(ua) && 'ontouchend' in document);
+  var how = document.getElementById('how');
+  how.innerHTML = ios
+    ? '<strong>Sur iPhone</strong> : touchez « Télécharger », puis « Télécharger » dans la fenêtre de Safari. Le document arrive dans <strong>Fichiers › Téléchargements</strong>. Pour le lire dans Livres : ouvrez-le, puis Partager › Livres.'
+    : /Android/.test(ua)
+      ? '<strong>Sur Android</strong> : touchez « Télécharger ». Le document arrive dans le dossier <strong>Téléchargements</strong>, et s’ouvre depuis la notification.'
+      : 'Touchez « Télécharger » : le document arrive dans les téléchargements de cet appareil.';
+  Array.prototype.forEach.call(document.querySelectorAll('a[data-i]'), function (a) {
+    a.addEventListener('click', function () {
+      setTimeout(function () { a.className = 'btn done'; a.textContent = 'Téléchargé ✓ (toucher pour recommencer)'; }, 600);
+    });
+  });
+  var box = document.getElementById('closed');
+  function check() {
+    var x = new XMLHttpRequest();
+    x.open('GET', base + '/state');
+    x.onload = function () { var c = x.status !== 200; box.classList.toggle('show', c); document.body.classList.toggle('is-closed', c); };
+    x.onerror = function () { box.classList.add('show'); document.body.classList.add('is-closed'); };
+    x.send();
+  }
+  document.addEventListener('visibilitychange', function () { if (!document.hidden) check(); });
+  setInterval(function () { if (!document.hidden) check(); }, 15000);
+})();
+</script>
+</body>
+</html>

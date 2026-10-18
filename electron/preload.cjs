@@ -193,6 +193,15 @@ api.diskAccess = {
   revealApp: () => ipcRenderer.invoke('marginalia:revealApp'),
   relaunch: () => ipcRenderer.invoke('marginalia:relaunch'),
 };
+api.sendToPhone = {
+  start: (files) => ipcRenderer.invoke('marginalia:sendStart', files),
+  stop: () => ipcRenderer.invoke('marginalia:sendStop'),
+  onEvent: (cb) => {
+    const handler = (_e, evt) => cb(evt);
+    ipcRenderer.on('marginalia:send', handler);
+    return () => ipcRenderer.removeListener('marginalia:send', handler);
+  },
+};
 api.firstRun = () => ipcRenderer.invoke('marginalia:firstRun');
 api.updates = {
   version: () => ipcRenderer.invoke('marginalia:appVersion'),

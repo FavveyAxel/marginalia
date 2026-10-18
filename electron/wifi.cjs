@@ -53,7 +53,10 @@ const VIRTUAL_IFACE = /^(vEthernet|VirtualBox|VMware|vmnet|vboxnet|docker|br-|ve
 const PREFERRED_IFACE = /^(en0|en1|wlan|wlp|wl|Wi-?Fi|WLAN|Ethernet|eth|enp|eno)/i;
 
 /** Adresses IPv4 du réseau local de l'ordinateur, la plus probable d'abord. */
-function lanAddresses(nets = os.networkInterfaces()) {
+function lanAddresses(nets) {
+  // Tests seulement : réseau local simulé (le conteneur de test n'a pas de Wi-Fi).
+  if (!nets && process.env.MARGINALIA_E2E === '1' && process.env.MARGINALIA_E2E_LAN) return [{ address: process.env.MARGINALIA_E2E_LAN, iface: 'en0' }];
+  nets = nets || os.networkInterfaces();
   const out = [];
   for (const [iface, list] of Object.entries(nets || {})) {
     if (VIRTUAL_IFACE.test(iface)) continue;
@@ -384,4 +387,178 @@ function createReceiver(o) {
   return { start, stop, info, report, isOpen: () => !!s };
 }
 
-module.exports = { createReceiver, isLocalAddress, lanAddresses, cleanName, ACCEPT_EXT };
+// ─────────────────────────────────────────────────────────────
+// Envoi vers le téléphone (le chemin inverse) : un document exporté (PDF, Word…) est proposé au
+// téléchargement le temps que la fenêtre « Envoyer sur le téléphone » est ouverte. Mêmes garde-fous :
+// jeton de session, réseau local seulement, page sans ressource externe, fichiers en mémoire seulement.
+// ─────────────────────────────────────────────────────────────
+const SEND_PORT = 47801;
+
+/** En-tête Content-Disposition avec un nom de fichier accentué (RFC 6266 / 5987). */
+function disposition(name) {
+  const ascii = String(name).normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^\x20-\x7e]/g, '_').replace(/["\\]/g, '_');
+  return `attachment; filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(name)}`;
+}
+
+/**
+ * @param {object} o
+ * @param {() => boolean} o.isLocked
+ * @param {(evt: object) => void} o.emit  appareil connecté, document téléchargé, arrêt
+ * @param {string} o.pagePath page HTML servie au téléphone
+ * @param {(...a: any[]) => void} [o.diag]
+ */
+function createSender(o) {
+  let s = null; // { server, token, port, sockets, timer, files, devices }
+  const diag = o.diag || (() => {});
+  const touch = () => {
+    if (!s) return;
+    clearTimeout(s.timer);
+    s.timer = setTimeout(() => stop('idle'), IDLE_MS);
+    s.timer.unref?.();
+  };
+  const deviceOf = (req) => {
+    const ua = String(req.headers['user-agent'] || '');
+    if (/iPhone/.test(ua)) return 'iPhone';
+    if (/iPad/.test(ua) || (/Macintosh/.test(ua) && /Mobile/.test(ua))) return 'iPad';
+    if (/Android/.test(ua)) return /Mobile/.test(ua) ? 'Téléphone Android' : 'Tablette Android';
+    return 'Appareil';
+  };
+  const head = { 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'no-referrer', 'X-Frame-Options': 'DENY' };
+  const text = (res, code, body) => {
+    res.writeHead(code, { ...head, 'Content-Type': 'text/plain; charset=utf-8' });
+    res.end(body);
+  };
+  const sizeOf = (n) => (n < 1024 * 1024 ? `${Math.max(1, Math.round(n / 1024))} Ko` : `${(n / 1024 / 1024).toFixed(1).replace('.', ',')} Mo`);
+  const esc = (t) => String(t).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+
+  function page(res) {
+    const nonce = crypto.randomBytes(16).toString('base64');
+    let html;
+    try {
+      html = fs.readFileSync(o.pagePath, 'utf8');
+    } catch (e) {
+      diag('wifi', 'page d’envoi introuvable', e && e.message);
+      return text(res, 500, 'Page indisponible.');
+    }
+    let icon = '';
+    try {
+      icon = 'data:image/png;base64,' + fs.readFileSync(path.join(__dirname, 'wifi-icon.png')).toString('base64');
+    } catch {
+      /* sans icône */
+    }
+    const items = s.files
+      .map(
+        (f, i) =>
+          `<li><span class="f-ico">${f.kind === 'pdf' ? 'PDF' : f.kind === 'docx' ? 'W' : 'T'}</span><span class="f-txt"><strong>${esc(f.name)}</strong><span>${esc(f.label)} · ${sizeOf(f.data.length)}</span></span><a class="btn primary" href="${s.base}/f/${i}" download="${esc(f.name)}" data-i="${i}">Télécharger</a></li>`,
+      )
+      .join('');
+    const host = os.hostname().replace(/\.local$/i, '').slice(0, 60).replace(/[<>&"']/g, '');
+    html = html.replace(/__ICON__/g, icon).replace(/__NONCE__/g, nonce).replace(/__COMPUTER__/g, host).replace('__FILES__', items);
+    res.writeHead(200, {
+      ...head,
+      'Content-Type': 'text/html; charset=utf-8',
+      'Content-Security-Policy': `default-src 'none'; script-src 'nonce-${nonce}'; style-src 'nonce-${nonce}'; img-src data:; connect-src 'self'; form-action 'none'; base-uri 'none'; frame-ancestors 'none'`,
+    });
+    res.end(html);
+  }
+
+  function handler(req, res) {
+    if (!s) return text(res, 503, 'Fermé.');
+    if (!isLocalAddress(req.socket.remoteAddress)) {
+      req.resume();
+      return text(res, 403, 'Interdit.');
+    }
+    let url;
+    try {
+      url = new URL(req.url || '/', 'http://local');
+    } catch {
+      return text(res, 400, 'Requête invalide.');
+    }
+    const parts = url.pathname.split('/').filter(Boolean);
+    const okToken = parts[0] === 's' && parts[1] && parts[1].length === s.token.length && crypto.timingSafeEqual(Buffer.from(parts[1]), Buffer.from(s.token));
+    req.resume();
+    if (!okToken || req.method !== 'GET') return text(res, 404, 'Ce lien n’est plus valable. Sur l’ordinateur, rouvrez « Envoyer sur le téléphone » et scannez le nouveau code.');
+    if (o.isLocked()) return text(res, 423, 'Marginalia est verrouillée sur l’ordinateur.');
+    touch();
+    if (parts.length === 2) {
+      const dev = deviceOf(req);
+      const key = `${req.socket.remoteAddress}|${dev}`;
+      if (!s.devices.has(key)) {
+        s.devices.add(key);
+        o.emit({ type: 'device', device: dev, at: Date.now() });
+      }
+      return page(res);
+    }
+    if (parts[2] === 'state' && parts.length === 3) {
+      res.writeHead(200, { ...head, 'Content-Type': 'application/json' });
+      return res.end('{"open":true}');
+    }
+    if (parts[2] === 'f' && parts.length === 4 && /^\d+$/.test(parts[3])) {
+      const f = s.files[Number(parts[3])];
+      if (!f) return text(res, 404, 'Introuvable.');
+      res.writeHead(200, { ...head, 'Content-Type': f.mime, 'Content-Length': f.data.length, 'Content-Disposition': disposition(f.name) });
+      res.end(f.data);
+      o.emit({ type: 'downloaded', name: f.name, device: deviceOf(req), at: Date.now() });
+      return;
+    }
+    return text(res, 404, 'Introuvable.');
+  }
+
+  /** files : [{ name, mime, kind, label, data: Buffer }] ; remplace la session en cours. */
+  async function start(files) {
+    stop('replaced');
+    const token = crypto.randomBytes(16).toString('base64url');
+    const server = http.createServer(handler);
+    server.headersTimeout = 20000;
+    server.keepAliveTimeout = 5000;
+    const sockets = new Set();
+    server.on('connection', (sock) => {
+      sockets.add(sock);
+      sock.on('close', () => sockets.delete(sock));
+    });
+    const listen = (port) =>
+      new Promise((resolve, reject) => {
+        const onErr = (e) => {
+          server.off('listening', onOk);
+          reject(e);
+        };
+        const onOk = () => {
+          server.off('error', onErr);
+          resolve();
+        };
+        server.once('error', onErr);
+        server.once('listening', onOk);
+        server.listen(port, '0.0.0.0');
+      });
+    try {
+      await listen(SEND_PORT);
+    } catch {
+      await listen(0);
+    }
+    s = { server, token, port: server.address().port, sockets, timer: null, files, devices: new Set(), base: `/s/${token}` };
+    touch();
+    diag('wifi', 'envoi ouvert', files.map((f) => f.name).join(', '));
+    return info();
+  }
+  function info() {
+    if (!s) return { open: false };
+    return { open: true, port: s.port, path: s.base, urls: lanAddresses().map((a) => ({ ...a, url: `http://${a.address}:${s.port}${s.base}` })), idleMs: IDLE_MS };
+  }
+  function stop(reason = 'closed') {
+    if (!s) return;
+    const cur = s;
+    s = null;
+    clearTimeout(cur.timer);
+    try {
+      cur.server.close();
+    } catch {
+      /* déjà fermé */
+    }
+    for (const sock of cur.sockets) sock.destroy();
+    cur.files.length = 0;
+    if (reason !== 'replaced') o.emit({ type: 'stopped', reason });
+  }
+  return { start, stop, info, isOpen: () => !!s };
+}
+
+module.exports = { createReceiver, createSender, disposition, isLocalAddress, lanAddresses, cleanName, ACCEPT_EXT };

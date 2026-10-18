@@ -12,7 +12,7 @@ import { host, type WifiEvent, type WifiInfo } from '../../lib/platform';
 type Received = Extract<WifiEvent, { type: 'received' }>;
 
 /** QR code en SVG (modules sombres sur fond clair, toujours : les lecteurs l'exigent). */
-function QrSvg({ text, size = 208 }: { text: string; size?: number }) {
+export function QrSvg({ text, size = 208 }: { text: string; size?: number }) {
   const { d, n } = useMemo(() => {
     const qr = qrcode(0, 'M');
     qr.addData(text, 'Byte');

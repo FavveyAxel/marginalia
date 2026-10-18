@@ -373,3 +373,7 @@ a.btn-primary:hover { background: #3a342b; }
 .traveler-hit > .book-seat { position: absolute; inset: 0; }
 .presenter-slot { flex: none; }
 .bubble.is-away { visibility: hidden; }
+
+.perched { position: absolute !important; z-index: 2; }
+.perched.traveler-hit { width: auto; height: auto; }
+[data-perch] { position: relative; }

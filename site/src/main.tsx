@@ -1,5 +1,6 @@
 import { StrictMode, useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
+import { createPortal } from 'react-dom';
 import { Sprite, anchorOf, isSeated, VB_H, VB_W, type Pose } from '../../src/features/mascot/Sprite';
 import { extraPose } from '../../src/features/mascot/activities';
 import { rousseau } from '../../src/features/mascot/characters/rousseau';
@@ -7,7 +8,7 @@ import { DOWNLOADS, VERSION, type Download } from './downloads';
 import './site.css';
 
 // Cadence de chaque pose (images par seconde), comme dans l'app ; activités : leur propre cadence.
-const FPS: Partial<Record<string, number>> = { sitwave: 8, read: 4, wave: 8, write: 4, think: 3, jump: 8, walk: 8, doze: 2 };
+const FPS: Partial<Record<string, number>> = { puff: 10, sitwave: 8, read: 4, wave: 8, write: 4, think: 3, jump: 8, walk: 8, doze: 2 };
 const fpsOf = (p: Pose) => FPS[p] ?? extraPose(p)?.fps ?? 4;
 const reduced = () => typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
 
@@ -123,19 +124,23 @@ const PERCHES: Record<string, PerchDef> = {
 
 function Traveler() {
   const b = useBus();
-  const box = useRef<HTMLDivElement>(null);
-  const [state, setState] = useState<{ at: string; mode: 'perch' | 'jump' | 'walk'; facing: 1 | -1 }>({ at: 'hero', mode: 'perch', facing: 1 });
+  const [at, setAt] = useState('hero');
+  const [trip, setTrip] = useState<null | { how: 'jump' | 'walk' | 'tele'; facing: 1 | -1; x: number; y: number; phase?: 'out' | 'in' }>(null);
   const [i, setI] = useState(0);
   const [frame, setFrame] = useState(0);
   const [poke, setPoke] = useState(false);
-  const def = PERCHES[state.at];
+  const [host, setHost] = useState<HTMLElement | null>(null);
+  const fly = useRef<HTMLDivElement>(null);
+  const perched = useRef<HTMLButtonElement>(null);
+  const def = PERCHES[at];
   const seq = def.seq(b);
-  const seqKey = state.at + JSON.stringify(seq);
-  const pose: Pose = state.mode === 'jump' || poke ? 'jump' : state.mode === 'walk' ? 'walk' : seq[i % seq.length][0];
-  const seated = isSeated(pose);
-  const w = ROUSSEAU_SIZE, h = (ROUSSEAU_SIZE * VB_H) / VB_W; // unités du dessin → rem
-  const live = useRef({ pose, at: state.at, mode: state.mode });
-  live.current = { pose, at: state.at, mode: state.mode };
+  const seqKey = at + JSON.stringify(seq);
+  const pose: Pose = trip ? (trip.how === 'tele' ? 'puff' : trip.how) : poke ? 'jump' : seq[i % seq.length][0];
+  const W = ROUSSEAU_SIZE, H = (ROUSSEAU_SIZE * VB_H) / VB_W;
+  const atRef = useRef(at);
+  atRef.current = at;
+  const tripRef = useRef(false);
+  tripRef.current = !!trip;
 
   useEffect(() => { setI(0); setFrame(0); }, [seqKey]);
   useEffect(() => {
@@ -143,90 +148,118 @@ function Traveler() {
     return () => clearInterval(t);
   }, [pose]);
   useEffect(() => {
-    if (state.mode !== 'perch' || seq.length < 2 || poke) return;
+    if (trip || seq.length < 2 || poke) return;
     const t = setTimeout(() => { setI((x) => x + 1); setFrame(0); }, seq[i % seq.length][1]);
     return () => clearTimeout(t);
-  }, [i, seqKey, state.mode, poke]);
+  }, [i, seqKey, trip, poke]);
   useEffect(() => {
     if (!poke) return;
-    const t = setTimeout(() => { setPoke(false); setI((x) => x + 1); setFrame(0); }, 900);
+    const t = setTimeout(() => { setPoke(false); setI((x) => x + 1); setFrame(0); }, 800);
     return () => clearTimeout(t);
   }, [poke]);
-  useEffect(() => { setBus({ at: state.mode === 'perch' ? state.at : null }); }, [state.at, state.mode]);
+  useEffect(() => { setBus({ at: trip ? null : at }); }, [at, trip]);
+  // posé : rendu DANS l'encadré (il défile avec lui, sans retard)
+  useEffect(() => { setHost(document.querySelector<HTMLElement>(`[data-perch="${at}"]`)); }, [at]);
 
   useEffect(() => {
     const rem = () => parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
-    // point où poser la boîte du dessin (coin haut gauche, coordonnées de l'écran) pour un perchoir
-    const spot = (name: string, p: Pose) => {
+    const spot = (name: string) => {
       const el = document.querySelector<HTMLElement>(`[data-perch="${name}"]`);
       if (!el) return null;
       const r = el.getBoundingClientRect();
-      const R = rem(), W = (w / 16) * R, H = (h / 16) * R;
-      const d = PERCHES[name];
-      if (d.side === 'slot') return { x: r.left + (r.width - W) / 2, y: r.top + r.height - H, r };
-      const x = d.side === 'right' ? r.right - d.inset * R - W : r.left + d.inset * R;
-      return { x, y: r.top - (anchorOf(p) / VB_H) * H, r };
+      const R = rem(), w = (W / 16) * R, h = (H / 16) * R, d = PERCHES[name];
+      if (d.side === 'slot') return { x: r.left + (r.width - w) / 2, y: r.top + r.height - h };
+      return { x: d.side === 'right' ? r.right - d.inset * R - w : r.left + d.inset * R, y: r.top - (anchorOf('jump') / VB_H) * h };
     };
-    let raf = 0;
-    let cur = { x: -999, y: -999 };
-    let trip: { from: { x: number; y: number }; to: string; t0: number; dur: number; jump: boolean; arc: number } | null = null;
-    let at = 'hero';
     const order = Object.keys(PERCHES);
-    const pick = () => {
+    const rectOf = (n: string) => document.querySelector<HTMLElement>(`[data-perch="${n}"]`)?.getBoundingClientRect() ?? null;
+    let pending: string | null = null, pendingSince = 0, raf = 0;
+    let travel: null | { from: { x: number; y: number }; to: string; t0: number; dur: number; how: 'jump' | 'walk' | 'tele'; arc: number; phase: 'out' | 'in' } = null;
+    const choose = (now: number) => {
       const vh = window.innerHeight;
+      const cur = rectOf(atRef.current);
+      // on reste tant que l'encadré actuel est bien à l'écran
+      const curOk = cur && cur.top > vh * 0.06 && cur.top < vh * 0.7;
+      if (curOk) { pending = null; return null; }
       let best: string | null = null, bestD = Infinity;
-      for (const name of order) {
-        const el = document.querySelector<HTMLElement>(`[data-perch="${name}"]`);
-        if (!el) continue;
-        const r = el.getBoundingClientRect();
-        if (r.bottom < vh * 0.12 || r.top > vh * 0.82) continue;
-        const d = Math.abs(r.top - vh * 0.32);
-        if (d < bestD) { bestD = d; best = name; }
+      for (const n of order) {
+        const r = rectOf(n);
+        if (!r || r.top < vh * 0.08 || r.top > vh * 0.62) continue;
+        const d = Math.abs(r.top - vh * 0.3);
+        if (d < bestD) { bestD = d; best = n; }
       }
-      return best;
+      if (!best || best === atRef.current) { pending = null; return null; }
+      if (pending !== best) { pending = best; pendingSince = now; return null; }
+      return now - pendingSince > 120 ? best : null; // choix stable un instant avant de partir
     };
     const tick = (now: number) => {
       raf = requestAnimationFrame(tick);
-      const want = pick();
-      if (want && want !== at && !trip) {
-        const target = spot(want, 'jump');
-        if (target) {
-          const dx = target.x - cur.x, dy = target.y - cur.y;
-          const dist = Math.hypot(dx, dy);
-          const jump = Math.abs(dy) > 60;
-          trip = { from: { ...cur }, to: want, t0: now, dur: Math.min(1400, Math.max(650, dist * 1.1)), jump, arc: Math.min(220, 70 + Math.abs(dy) * 0.12) };
-          setState({ at: want, mode: jump ? 'jump' : 'walk', facing: dx >= 0 ? 1 : -1 });
+      if (!travel) {
+        const next = tripRef.current ? null : choose(now);
+        if (next) {
+          const fromR = perched.current?.getBoundingClientRect();
+          const to = spot(next);
+          if (fromR && to) {
+            const dx = to.x - fromR.left, dy = to.y - fromR.top;
+            // loin : il se téléporte (nuage de fumée au départ, puis à l'arrivée) ; sinon il saute, ou marche à même hauteur
+            const how = Math.abs(dy) > window.innerHeight * 0.5 ? 'tele' : Math.abs(dy) > 50 ? 'jump' : 'walk';
+            const dur = how === 'tele' ? 600 : Math.min(600, Math.max(350, Math.hypot(dx, dy) * 0.55));
+            travel = { from: { x: fromR.left, y: fromR.top }, to: next, t0: now, dur, how, arc: Math.min(140, 50 + Math.abs(dy) * 0.08), phase: 'out' };
+            setTrip({ how, facing: dx >= 0 ? 1 : -1, x: fromR.left, y: fromR.top, phase: 'out' });
+            setFrame(0);
+          } else {
+            setAt(next);
+          }
         }
-        at = want;
+        return;
       }
-      let pos = spot(at, trip ? 'jump' : live.current.pose);
-      if (!pos) return;
-      if (trip) {
-        const t = Math.min(1, (now - trip.t0) / trip.dur);
-        const e = t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
-        const x = trip.from.x + (pos.x - trip.from.x) * e;
-        let y = trip.from.y + (pos.y - trip.from.y) * e;
-        if (trip.jump) y -= trip.arc * 4 * t * (1 - t);
-        pos = { ...pos, x, y };
-        if (t >= 1) { trip = null; setState((s) => ({ ...s, mode: 'perch' })); }
+      const to = spot(travel.to);
+      if (!to) return;
+      const t = Math.min(1, (now - travel.t0) / travel.dur);
+      let x: number, y: number;
+      if (travel.how === 'tele') {
+        // première moitié : nuage à l'endroit quitté ; seconde moitié : nuage à l'arrivée
+        if (t >= 0.5 && travel.phase === 'out') { travel.phase = 'in'; setTrip((tr) => (tr ? { ...tr, phase: 'in' } : tr)); setFrame(0); }
+        ({ x, y } = travel.phase === 'out' ? travel.from : to);
+      } else {
+        const e = 1 - Math.pow(1 - t, 3);
+        x = travel.from.x + (to.x - travel.from.x) * e;
+        y = travel.from.y + (to.y - travel.from.y) * e;
+        if (travel.how === 'jump') y -= travel.arc * 4 * t * (1 - t);
       }
-      cur = { x: pos.x, y: pos.y };
-      if (box.current) box.current.style.transform = `translate3d(${pos.x.toFixed(1)}px, ${pos.y.toFixed(1)}px, 0)`;
+      if (fly.current) fly.current.style.transform = `translate3d(${x.toFixed(1)}px, ${y.toFixed(1)}px, 0)`;
+      if (t >= 1) { const dest = travel.to; travel = null; setAt(dest); setTrip(null); }
     };
-    // départ : posé sur la page annotée
-    const first = spot('hero', live.current.pose);
-    if (first) cur = { x: first.x, y: first.y };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
   }, []);
 
+  const sprite = (facing: 1 | -1) => (
+    <>
+      {def.seat && !trip && isSeated(pose) && <BookSeat />}
+      <Sprite pose={pose} frame={frame} level={2} character={rousseau} facing={facing} />
+    </>
+  );
+  const size = { width: `${W / 16}rem`, height: `${H / 16}rem` };
+  const place: React.CSSProperties =
+    def.side === 'slot'
+      ? { left: 0, bottom: 0 }
+      : { top: `${-((anchorOf(pose) / VB_H) * H) / 16}rem`, [def.side]: `${def.inset}rem` };
   return (
-    <div className="traveler" ref={box} style={{ width: `${w / 16}rem`, height: `${h / 16}rem` }}>
-      <button type="button" className="traveler-hit" onClick={() => { setPoke(true); setFrame(0); }} aria-label="Rousseau : cliquez pour qu’il change d’activité">
-        {def.seat && seated && state.mode === 'perch' && <BookSeat />}
-        <Sprite pose={pose} frame={frame} level={2} character={rousseau} facing={state.mode === 'perch' ? 1 : state.facing} />
-      </button>
-    </div>
+    <>
+      {trip && (
+        <div className="traveler" ref={fly} style={{ ...size, transform: `translate3d(${trip.x}px, ${trip.y}px, 0)` }} aria-hidden="true">
+          <div className="traveler-hit">{sprite(trip.facing)}</div>
+        </div>
+      )}
+      {!trip && host &&
+        createPortal(
+          <button type="button" ref={perched} className="perched traveler-hit" style={{ ...size, ...place }} onClick={() => { setPoke(true); setFrame(0); }} aria-label="Rousseau : cliquez pour qu’il change d’activité">
+            {sprite(1)}
+          </button>,
+          host,
+        )}
+    </>
   );
 }
 
@@ -364,10 +397,12 @@ function Showcase() {
       </div>
       <div className="showcase-panel" id="showcase-panel" role="tabpanel" aria-labelledby={`tab-${s.shot}`}>
         <p className="showcase-text" key={s.shot}>{s.text}</p>
-        <div className="shot" data-perch="apercu">
+        <div className="shot-perch" data-perch="apercu">
+        <div className="shot">
           {STEPS.map((x, i) => (
             <img key={x.shot} src={`/captures/${x.shot}.png`} alt={`Marginalia : ${x.title.toLowerCase()}`} className={i === k ? 'is-on' : ''} loading={i === 0 ? 'eager' : 'lazy'} width={1440} height={900} />
           ))}
+        </div>
         </div>
       </div>
     </section>

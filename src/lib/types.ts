@@ -30,6 +30,16 @@ export interface Edition {
   pageOffset: number;
 }
 
+/**
+ * Provenance d'un élément reçu par un partage « .marginalia » (src/features/share) : identifiant du
+ * partage (stable d'un envoi à l'autre du même espace) et id de l'élément chez l'expéditeur. Sert à
+ * reconnaître le même élément lors d'une future synchronisation ; absent pour tout ce qui a été créé ici.
+ */
+export interface ShareOrigin {
+  shareId: string;
+  srcId: string;
+}
+
 export interface Book {
   id: string;
   title: string;
@@ -40,6 +50,16 @@ export interface Book {
   /** Nom d'origine du fichier importé. */
   originalName: string;
   size: number;
+  /**
+   * Livre reçu par un partage sans son fichier (et absent de cette bibliothèque) : seules les
+   * métadonnées existent, les extraits restent lisibles avec leur texte. Le lecteur ne peut pas
+   * l'ouvrir ; un partage ultérieur qui joint le fichier le complète. Absent : fichier présent.
+   */
+  missing?: boolean;
+  /** Empreinte SHA-256 (hex) du fichier d'origine, notée pour un livre reçu (reconnaissance sans le fichier). */
+  sourceSha256?: string;
+  /** Livre reçu par un partage (voir ShareOrigin). */
+  shareOrigin?: ShareOrigin;
   addedAt: number;
   lastOpenedAt: number | null;
   progress: number;
@@ -193,6 +213,8 @@ export interface Highlight {
   updatedAt: number;
   /** Extrait venu de Livres (synchro). */
   source?: ExternalSource;
+  /** Extrait reçu par un partage (voir ShareOrigin). */
+  shareOrigin?: ShareOrigin;
 }
 
 /** Un sens d'un concept, propre à un auteur / un livre. */
@@ -223,6 +245,8 @@ export interface Concept {
   programme: 'notion' | 'repere' | null;
   createdAt: number;
   updatedAt: number;
+  /** Concept reçu par un partage (voir ShareOrigin). */
+  shareOrigin?: ShareOrigin;
 }
 
 export interface MapNode {
@@ -325,6 +349,8 @@ export interface ArgumentMap {
   centralId?: string;
   createdAt?: number;
   updatedAt?: number;
+  /** Carte reçue par un partage (voir ShareOrigin ; srcId = clé de la carte chez l'expéditeur). */
+  shareOrigin?: ShareOrigin;
 }
 
 /** Reconstruction d'argument en forme standard : P1, P2… ⇒ C. */
@@ -347,6 +373,8 @@ export interface ArgumentReconstruction {
   comment: string;
   createdAt: number;
   updatedAt: number;
+  /** Argument reçu par un partage (voir ShareOrigin). */
+  shareOrigin?: ShareOrigin;
 }
 
 /** Mouvement d'un texte étudié (explication de texte). */
@@ -373,6 +401,8 @@ export interface TextStudy {
   movements: Movement[];
   createdAt: number;
   updatedAt: number;
+  /** Fiche-texte reçue par un partage (voir ShareOrigin). */
+  shareOrigin?: ShareOrigin;
 }
 
 /** Élément déposé dans un plan de dissertation. */
@@ -405,6 +435,8 @@ export interface EssayPlan {
   draftId: string | null;
   createdAt: number;
   updatedAt: number;
+  /** Plan reçu par un partage (voir ShareOrigin). */
+  shareOrigin?: ShareOrigin;
 }
 
 /**
@@ -441,6 +473,8 @@ export interface Draft {
   versions?: DraftVersion[];
   createdAt: number;
   updatedAt: number;
+  /** Écrit reçu par un partage (voir ShareOrigin ; ses versions ne sont pas transmises). */
+  shareOrigin?: ShareOrigin;
 }
 
 /** Carte de révision (répétition espacée FSRS). */
@@ -467,6 +501,8 @@ export interface ReviewCard {
     last_review: number | null;
   };
   createdAt: number;
+  /** Carte reçue par un partage (voir ShareOrigin ; son état de révision repart de zéro). */
+  shareOrigin?: ShareOrigin;
 }
 
 /** Espace de travail : regroupe des éléments dans des groupes et sous-groupes. */
@@ -477,6 +513,8 @@ export interface Workspace {
   tint: string;
   order: number;
   createdAt: number;
+  /** Espace reçu par un partage (voir ShareOrigin). */
+  shareOrigin?: ShareOrigin;
 }
 
 export interface WorkspaceGroup {
@@ -486,6 +524,8 @@ export interface WorkspaceGroup {
   name: string;
   order: number;
   collapsed: boolean;
+  /** Groupe reçu par un partage (voir ShareOrigin). */
+  shareOrigin?: ShareOrigin;
 }
 
 export type WorkspaceItemKind = 'book' | 'draft' | 'plan' | 'argument' | 'study' | 'map';
@@ -499,6 +539,8 @@ export interface WorkspaceItem {
   /** Id de l'élément (bookId, draftId, planId, argumentId, studyId ; pour 'map' : bookId). */
   refId: string;
   order: number;
+  /** Référence reçue par un partage (voir ShareOrigin). */
+  shareOrigin?: ShareOrigin;
 }
 
 export type ThemeId = 'system' | 'light' | 'sepia' | 'dark';

@@ -1406,6 +1406,69 @@ dataHandle('marginalia:pickFiles', async () => {
   return Promise.all(r.filePaths.map(readPicked));
 });
 
+// Importer un dossier : tout son contenu compatible, sous-dossiers compris (fichiers cachés,
+// paquets d'apps et dossiers système écartés). Plafonds : nombre de fichiers et taille totale.
+const FOLDER_MAX_FILES = 300;
+const FOLDER_MAX_BYTES = 1.5 * 1024 * 1024 * 1024;
+const FOLDER_MAX_DEPTH = 6;
+const FOLDER_SKIP = /^(node_modules|\$RECYCLE\.BIN|System Volume Information|__MACOSX|Traités)$|\.(app|photoslibrary|bundle)$/i;
+async function collectFolder(root) {
+  const out = [];
+  let bytes = 0;
+  let skipped = 0;
+  let truncated = false;
+  async function walk(dir, depth) {
+    if (truncated || depth > FOLDER_MAX_DEPTH) return;
+    let entries = [];
+    try {
+      entries = await fsp.readdir(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    entries.sort((a, b) => a.name.localeCompare(b.name, 'fr', { numeric: true }));
+    for (const e of entries) {
+      if (truncated) return;
+      if (e.name.startsWith('.') || e.name.startsWith('~$')) continue;
+      const full = path.join(dir, e.name);
+      if (e.isDirectory()) {
+        if (!FOLDER_SKIP.test(e.name)) await walk(full, depth + 1);
+        continue;
+      }
+      if (!e.isFile()) continue;
+      const ext = path.extname(e.name).slice(1).toLowerCase();
+      if (!ACCEPTED.includes(ext)) {
+        skipped++;
+        continue;
+      }
+      const st = await fsp.stat(full).catch(() => null);
+      if (!st || !st.size) continue;
+      if (out.length >= FOLDER_MAX_FILES || bytes + st.size > FOLDER_MAX_BYTES) {
+        truncated = true;
+        return;
+      }
+      bytes += st.size;
+      out.push(full);
+    }
+  }
+  await walk(root, 0);
+  return { paths: out, skipped, truncated };
+}
+dataHandle('marginalia:pickFolder', async () => {
+  const r = await dialog.showOpenDialog(parentWindow(), { title: 'Importer un dossier', properties: ['openDirectory'] });
+  if (r.canceled || !r.filePaths.length) return null;
+  const root = r.filePaths[0];
+  const { paths, skipped, truncated } = await collectFolder(root);
+  const files = [];
+  for (const p of paths) {
+    try {
+      files.push(await readPicked(p));
+    } catch {
+      /* fichier illisible : ignoré */
+    }
+  }
+  return { folder: path.basename(root), files, skipped, truncated };
+});
+
 dataHandle('marginalia:saveText', async (_e, defaultName, content) => {
   const ext = path.extname(String(defaultName)).slice(1).toLowerCase() || 'md';
   const r = await dialog.showSaveDialog(parentWindow(), {

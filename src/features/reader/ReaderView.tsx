@@ -98,6 +98,7 @@ useStore.subscribe((s, prev) => {
 const RETURN_LABEL: Record<Exclude<Route['name'], 'reader'>, string> = {
   home: 'Accueil',
   library: 'Bibliothèque',
+  import: 'Importer',
   workspace: 'Espace',
   concepts: 'Concepts',
   extracts: 'Extraits',

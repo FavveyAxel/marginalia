@@ -3,7 +3,7 @@ import './styles/cascade';
 import { Suspense, useEffect, useState } from 'react';
 import { BookOpen, Brain, CircleHelp, Settings2, PanelLeftClose, PanelLeftOpen, Coffee, FilePen, Highlighter, History, Home, Inbox, Laptop, Lightbulb, ListTree, Moon, Network, Plus, Search, Sigma, Sun, Trash2, Upload } from 'lucide-react';
 import { useStore } from './lib/store';
-import { host, filesFromDrop } from './lib/platform';
+import { host, filesFromDataTransfer } from './lib/platform';
 import { UpdatesLayer } from './features/updates/Updates';
 import type { Route, ThemeId } from './lib/types';
 import { Kbd, PageSkeleton } from './components/ui';
@@ -30,7 +30,7 @@ import type { SecurityStatus } from './lib/platform';
 
 // Vues chargées à la demande (découpage du code) : l'accueil et la bibliothèque sont dans le paquet
 // principal, le reste (lecteur, éditeur, carte, révision…) est préchargé en arrière-plan après l'affichage.
-const { ReaderView, ConceptsView, AllExtractsView, ArgumentsView, RevisionView, PlansView, WriteView, WorkspaceView, TrashView, InboxView, HistoryView, HelpView, BoardView, MapsView, SettingsView } = lazyViews;
+const { ReaderView, ConceptsView, AllExtractsView, ArgumentsView, RevisionView, PlansView, WriteView, WorkspaceView, TrashView, InboxView, ImportView, HistoryView, HelpView, BoardView, MapsView, SettingsView } = lazyViews;
 
 // Thème choisi, gardé aussi hors de la base (préférence d'affichage, sans donnée personnelle) :
 // l'écran de verrouillage s'affiche avant que la base soit lisible.
@@ -242,6 +242,12 @@ export async function importViaDialog() {
   if (books.length === 1) useStore.getState().openBook(books[0].id);
 }
 
+/** Bouton « Importer » : ouvre la page Importer (en gardant l'espace d'où l'on vient). */
+export function openImport() {
+  const r = useStore.getState().route;
+  useStore.getState().navigate(r.name === 'workspace' ? { name: 'import', workspaceId: r.workspaceId, groupId: r.groupId } : { name: 'import' });
+}
+
 /** Outil du bas de la barre : icône seule (libellé en infobulle), pastille si besoin. */
 function FootItem({ route, icon, label, count, match }: { route: Route; icon: JSX.Element; label: string; count?: number; match: Route['name'] }) {
   const current = useStore((s) => s.route.name);
@@ -300,6 +306,7 @@ function Sidebar() {
   });
   const nTrash = useStore((s) => s.trash.length);
   const inboxOn = useStore((s) => !!s.settings.inbox);
+  const routeName = useStore((s) => s.route.name);
   // Boîte de réception : toujours accessible dans l'app de bureau (réception par le Wi-Fi).
   const inboxAvail = host.kind === 'electron' && !!host.inbox?.wifiStart;
   const nInbox = useInboxCount();
@@ -371,14 +378,14 @@ function Sidebar() {
       {!collapsed && <AppearanceSwitch />}
       {collapsed ? (
         <>
-          <button className="icon-btn rail-import" onClick={importViaDialog} title={fmtKeys('Importer (⌘O)')} aria-label="Importer">
+          <button className="icon-btn rail-import" onClick={openImport} title="Importer" aria-label="Importer">
             <Plus size={16} />
           </button>
           {(inboxOn || inboxAvail) && <InboxButton n={nInbox} rail />}
         </>
       ) : (
         <div className="import-row">
-          <button className="btn import-btn" onClick={importViaDialog}>
+          <button className={`btn import-btn ${routeName === 'import' ? 'active' : ''}`} onClick={openImport} aria-current={routeName === 'import' ? 'page' : undefined}>
             <Plus size={15} /> Importer <span style={{ marginLeft: 'auto' }} /> <Kbd>⌘O</Kbd>
           </button>
           {(inboxOn || inboxAvail) && <InboxButton n={nInbox} />}
@@ -425,6 +432,8 @@ function ImportProgress() {
 
 function DropOverlay() {
   const [over, setOver] = useState(false);
+  // Page « Importer » : sa propre zone de dépôt (le calque la masquerait).
+  const onImportPage = useStore((s) => s.route.name === 'import');
   useEffect(() => {
     let depth = 0;
     const hasFiles = (e: DragEvent) => Array.from(e.dataTransfer?.types ?? []).includes('Files');
@@ -446,7 +455,7 @@ function DropOverlay() {
       e.preventDefault();
       depth = 0;
       setOver(false);
-      const files = await filesFromDrop(e.dataTransfer!.files);
+      const { files } = await filesFromDataTransfer(e.dataTransfer!);
       if (!files.length) {
         useStore.getState().toast('Format non pris en charge', 'error');
         return;
@@ -465,13 +474,13 @@ function DropOverlay() {
       window.removeEventListener('drop', drop);
     };
   }, []);
-  if (!over) return null;
+  if (!over || onImportPage) return null;
   return (
     <div className="drop-overlay">
       <div className="drop-card">
         <Upload size={28} />
         <strong>Déposez pour importer</strong>
-        <span className="muted">EPUB, PDF, Word, Markdown, TXT ou HTML</span>
+        <span className="muted">Fichiers ou dossiers : EPUB, PDF, Word, Markdown, TXT, HTML, photos</span>
       </div>
     </div>
   );
@@ -626,6 +635,7 @@ export function App() {
             {route.name === 'write' && <WriteView key={route.draftId ?? 'list'} draftId={route.draftId} />}
             {route.name === 'trash' && <TrashView />}
             {route.name === 'inbox' && <InboxView />}
+            {route.name === 'import' && <ImportView key={route.workspaceId ?? ''} workspaceId={route.workspaceId} />}
             {route.name === 'history' && <HistoryView />}
             {route.name === 'help' && <HelpView />}
             {route.name === 'board' && <BoardView key={route.boardId} boardId={route.boardId} />}

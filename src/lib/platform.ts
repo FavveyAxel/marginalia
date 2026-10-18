@@ -10,6 +10,14 @@ export interface PickedFile {
   data: ArrayBuffer;
 }
 
+/** Dossier choisi : fichiers compatibles trouvés, fichiers d'autres formats ignorés, plafond atteint. */
+export interface PickedFolder {
+  folder: string;
+  files: PickedFile[];
+  skipped: number;
+  truncated: boolean;
+}
+
 export interface AppleBook {
   path: string;
   name: string;
@@ -238,6 +246,8 @@ export interface HostApi {
   onFlushRequest?(cb: () => Promise<void>): () => void;
   /** Ouvre le sélecteur de fichiers natif (multi-sélection, formats acceptés). */
   pickFiles(): Promise<PickedFile[]>;
+  /** Sélecteur de dossier : son contenu compatible, sous-dossiers compris ; null si annulé. */
+  pickFolder?(): Promise<PickedFolder | null>;
   /** Copie le fichier source dans la bibliothèque de l'app. */
   storeFile(bookId: string, fileName: string, data: ArrayBuffer): Promise<void>;
   readFile(bookId: string, fileName: string): Promise<ArrayBuffer>;
@@ -542,6 +552,56 @@ const browserHost: HostApi = {
 export const host: HostApi = typeof window !== 'undefined' && window.marginalia ? window.marginalia : browserHost;
 
 /** Convertit des File (glisser-déposer) en PickedFile. */
+/**
+ * Fichiers d'un glisser-déposer, dossiers compris (lus récursivement, comme « Choisir un dossier »).
+ * `skipped` : fichiers d'un autre format ; `folders` : nombre de dossiers déposés.
+ */
+export async function filesFromDataTransfer(dt: DataTransfer): Promise<{ files: PickedFile[]; skipped: number; folders: number }> {
+  type Entry = { isFile: boolean; isDirectory: boolean; name: string; file?: (cb: (f: File) => void, err: (e: unknown) => void) => void; createReader?: () => { readEntries: (cb: (e: Entry[]) => void, err: (e: unknown) => void) => void } };
+  const entries: Entry[] = [];
+  for (const it of Array.from(dt.items ?? [])) {
+    const e = (it as unknown as { webkitGetAsEntry?: () => Entry | null }).webkitGetAsEntry?.();
+    if (e) entries.push(e);
+  }
+  // Sans l'API des entrées : simple liste de fichiers.
+  if (!entries.length) {
+    const all = Array.from(dt.files ?? []);
+    const files = await filesFromDrop(all);
+    return { files, skipped: all.length - files.length, folders: 0 };
+  }
+  const found: File[] = [];
+  let skipped = 0;
+  let folders = 0;
+  const MAX = 300;
+  const readAll = (dir: Entry): Promise<Entry[]> =>
+    new Promise((resolve) => {
+      const r = dir.createReader!();
+      const acc: Entry[] = [];
+      const next = () => r.readEntries((batch) => (batch.length ? (acc.push(...batch), next()) : resolve(acc)), () => resolve(acc));
+      next();
+    });
+  const walk = async (e: Entry, depth: number): Promise<void> => {
+    if (found.length >= MAX || e.name.startsWith('.') || e.name.startsWith('~$')) return;
+    if (e.isDirectory) {
+      if (depth > 6 || /^(node_modules|__MACOSX)$|\.(app|photoslibrary)$/i.test(e.name)) return;
+      for (const c of (await readAll(e)).sort((a, b) => a.name.localeCompare(b.name, 'fr', { numeric: true }))) await walk(c, depth + 1);
+      return;
+    }
+    if (!ACCEPTED_EXTENSIONS.includes(extOf(e.name))) {
+      skipped++;
+      return;
+    }
+    const f = await new Promise<File | null>((res) => e.file!((x) => res(x), () => res(null)));
+    if (f && f.size) found.push(f);
+  };
+  for (const e of entries) {
+    if (e.isDirectory) folders++;
+    await walk(e, 0);
+  }
+  const files = await Promise.all(found.map(async (f) => ({ name: f.name, data: await f.arrayBuffer() })));
+  return { files, skipped, folders };
+}
+
 export async function filesFromDrop(list: FileList | File[]): Promise<PickedFile[]> {
   const files = Array.from(list).filter((f) => ACCEPTED_EXTENSIONS.includes(extOf(f.name)));
   return Promise.all(files.map(async (f) => ({ name: f.name, data: await f.arrayBuffer() })));

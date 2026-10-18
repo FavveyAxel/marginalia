@@ -129,6 +129,12 @@ export function LibraryView() {
   const [infoId, setInfoId] = useState<string | null>(null);
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [booksOpen, setBooksOpen] = useState(false);
+  // Page « Importer » › « Choisir dans Livres… » : ouvre la fenêtre de l'app Livres ici.
+  useEffect(() => {
+    const open = () => setBooksOpen(true);
+    window.addEventListener('mg:open-apple-books', open);
+    return () => window.removeEventListener('mg:open-apple-books', open);
+  }, []);
   // Sélection multiple
   const [selectMode, setSelectMode] = useState(false);
   const [multiMenu, setMultiMenu] = useState<{ x: number; y: number } | null>(null);

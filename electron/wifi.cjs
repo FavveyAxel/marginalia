@@ -155,7 +155,14 @@ function createReceiver(o) {
       return send(res, 500, 'Page indisponible.');
     }
     const host = os.hostname().replace(/\.local$/i, '').slice(0, 60);
-    html = html.replace(/__NONCE__/g, nonce).replace(/__COMPUTER__/g, host.replace(/[<>&"']/g, ''));
+    // Icône de l'app, intégrée à la page (aucune requête de plus ; la CSP n'autorise que data:).
+    let icon = '';
+    try {
+      icon = 'data:image/png;base64,' + fs.readFileSync(path.join(__dirname, 'wifi-icon.png')).toString('base64');
+    } catch {
+      /* page sans icône */
+    }
+    html = html.replace(/__ICON__/g, icon).replace(/__NONCE__/g, nonce).replace(/__COMPUTER__/g, host.replace(/[<>&"']/g, ''));
     send(res, 200, html, 'text/html; charset=utf-8', {
       'Content-Security-Policy': `default-src 'none'; script-src 'nonce-${nonce}'; style-src 'nonce-${nonce}'; img-src blob: data:; connect-src 'self'; form-action 'none'; base-uri 'none'; frame-ancestors 'none'`,
     });

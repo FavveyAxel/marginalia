@@ -724,6 +724,8 @@ export type Route =
   | { name: 'trash' }
   /** Boîte de réception : ce qui arrive du téléphone par la Boîte de dépôt. */
   | { name: 'inbox' }
+  /** Page « Importer » ; workspaceId : espace d'où l'on vient (les documents y sont rangés). */
+  | { name: 'import'; workspaceId?: string; groupId?: string | null }
   | { name: 'history' }
   | { name: 'help' }
   /** Réglages (confidentialité et sécurité). */

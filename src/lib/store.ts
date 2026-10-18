@@ -713,7 +713,14 @@ export const useStore = create<State>()(tracked((set, get) => ({
 
   async importFiles(files, opts) {
     const r0 = get().route;
-    const target = opts?.toWorkspace !== false && r0.name === 'workspace' ? { workspaceId: r0.workspaceId, groupId: r0.groupId } : null;
+    const target =
+      opts?.toWorkspace === false
+        ? null
+        : r0.name === 'workspace'
+          ? { workspaceId: r0.workspaceId, groupId: r0.groupId }
+          : r0.name === 'import' && r0.workspaceId
+            ? { workspaceId: r0.workspaceId, groupId: r0.groupId ?? null }
+            : null;
     const added: Book[] = [];
     set((s) => ({ importing: s.importing + files.length }));
     const drafts: { id: string; title: string }[] = [];

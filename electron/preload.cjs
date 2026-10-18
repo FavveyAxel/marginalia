@@ -47,6 +47,10 @@ const api = {
   },
 
   pickFiles: async () => (await ipcRenderer.invoke('marginalia:pickFiles')).map(toFile),
+  pickFolder: async () => {
+    const r = await ipcRenderer.invoke('marginalia:pickFolder');
+    return r ? { folder: r.folder, files: r.files.map(toFile), skipped: r.skipped, truncated: r.truncated } : null;
+  },
 
   storeFile: (bookId, fileName, data) => ipcRenderer.invoke('marginalia:storeFile', bookId, fileName, data),
   readFile: async (bookId, fileName) => toArrayBuffer(await ipcRenderer.invoke('marginalia:readFile', bookId, fileName)),

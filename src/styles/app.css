@@ -853,6 +853,10 @@ textarea {
   flex: 1;
   min-width: 0;
 }
+.import-row .import-btn.active {
+  background: var(--bg-active);
+  border-color: var(--border-strong);
+}
 .inbox-btn {
   position: relative;
   flex: none;

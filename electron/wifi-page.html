@@ -6,6 +6,8 @@
 <meta name="color-scheme" content="light dark">
 <meta name="robots" content="noindex">
 <title>Envoyer à Marginalia</title>
+<link rel="icon" href="__ICON__">
+<link rel="apple-touch-icon" href="__ICON__">
 <style nonce="__NONCE__">
 :root {
   --bg: #efebe3; --panel: #fbf9f4; --page: #fffdf8; --ink: #1d1a15; --ink-2: #4a443a; --muted: #7a7266;
@@ -23,7 +25,7 @@ html { -webkit-text-size-adjust: 100%; }
 body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--ui); font-size: 16px; line-height: 1.45; }
 main { max-width: 34rem; margin: 0 auto; padding: max(1.25rem, env(safe-area-inset-top)) 1rem max(2rem, env(safe-area-inset-bottom)); }
 .brand { display: flex; align-items: center; gap: 0.5rem; font-family: var(--serif); font-size: 1.05rem; color: var(--ink-2); }
-.brand-mark { width: 1.6rem; height: 1.6rem; border-radius: 0.4rem; background: var(--page); border: 1px solid var(--border); display: grid; place-items: center; font-style: italic; font-weight: 600; color: var(--ink); }
+.brand-mark { width: 1.75rem; height: 1.75rem; display: block; }
 h1 { font-family: var(--serif); font-weight: 500; font-size: 2rem; line-height: 1.1; margin: 1.25rem 0 0.35rem; letter-spacing: -0.01em; }
 .sub { margin: 0; color: var(--muted); font-size: 0.95rem; }
 .sub strong { color: var(--ink-2); font-weight: 600; }
@@ -83,9 +85,9 @@ body.is-closed .actions, body.is-closed .text-box { opacity: 0.4; pointer-events
 </head>
 <body>
 <main>
-  <div class="brand"><span class="brand-mark">M</span> Marginalia</div>
+  <div class="brand"><img class="brand-mark" src="__ICON__" alt="" width="28" height="28"> Marginalia</div>
   <h1>Envoyer à l’ordinateur</h1>
-  <p class="sub">Vers Marginalia sur <strong>__COMPUTER__</strong>, par le Wi-Fi.</p>
+  <p class="sub">Vers Marginalia sur <strong>__COMPUTER__</strong>, par le Wi‑Fi.</p>
 
   <div class="closed" id="closed" role="alert">
     <strong>La réception est fermée sur l’ordinateur.</strong>
@@ -125,7 +127,7 @@ body.is-closed .actions, body.is-closed .text-box { opacity: 0.4; pointer-events
 
   <p class="foot">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="10.5" width="14" height="10" rx="1.6"/><path d="M8 10.5V8a4 4 0 0 1 8 0v2.5"/></svg>
-    <span>Rien ne passe par Internet : l’envoi va directement à votre ordinateur, sur ce réseau Wi-Fi.</span>
+    <span>Rien ne passe par Internet : l’envoi va directement à votre ordinateur, sur ce réseau Wi‑Fi.</span>
   </p>
 </main>
 <script nonce="__NONCE__">
@@ -221,7 +223,7 @@ body.is-closed .actions, body.is-closed .text-box { opacity: 0.4; pointer-events
       done();
     };
     xhr.onerror = function () {
-      fail(job, 'L’ordinateur ne répond pas. Il est peut-être en veille, ou sur un autre Wi-Fi.', true);
+      fail(job, 'L’ordinateur ne répond pas. Il est peut-être en veille, ou sur un autre Wi‑Fi.', true);
       done();
     };
     xhr.send(job.body);

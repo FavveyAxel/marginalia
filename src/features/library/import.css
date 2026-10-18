@@ -1,0 +1,41 @@
+/* Page « Importer » — préfixe .imp- */
+.imp-scroll { flex: 1; min-height: 0; overflow-y: auto; }
+.imp-page { max-width: var(--page-max); margin: 0 auto; padding: var(--page-top) var(--page-x) 96px; display: flex; flex-direction: column; gap: var(--sp-5); }
+.imp-page > * { width: 100%; max-width: 880px; }
+.imp-head { display: flex; flex-direction: column; gap: var(--sp-2); }
+.imp-lede { margin: 0; color: var(--ink-2); font-size: var(--fs-lg); line-height: 1.5; max-width: 64ch; }
+.imp-lede strong { color: var(--ink); font-weight: 500; }
+
+.imp-drop {
+  display: flex; flex-direction: column; align-items: center; text-align: center; gap: 10px;
+  padding: 44px 24px 30px; border-radius: var(--radius-lg);
+  border: 1.5px dashed var(--border-strong); background: var(--bg-panel);
+  transition: border-color 140ms, background-color 140ms, transform 160ms var(--ease-out);
+}
+.imp-drop.is-over { border-color: var(--primary); background: color-mix(in srgb, var(--primary) 6%, var(--bg-panel)); transform: scale(1.005); }
+.imp-drop.is-busy { opacity: 0.75; }
+.imp-drop-icon { width: 56px; height: 56px; border-radius: 16px; display: grid; place-items: center; background: var(--bg-inset); color: var(--ink); }
+.imp-drop.is-over .imp-drop-icon { animation: imp-bob 0.9s ease-in-out infinite; }
+@keyframes imp-bob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-4px); } }
+.imp-drop h2 { margin: 6px 0 0; font-family: var(--font-display); font-weight: 400; font-size: 28px; color: var(--ink); }
+.imp-drop p { margin: 0; color: var(--muted); font-size: var(--fs-md); }
+.imp-drop-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; margin-top: 8px; }
+.imp-drop-actions .btn { display: inline-flex; align-items: center; gap: 6px; }
+.imp-formats { margin-top: 8px !important; font-size: var(--fs-sm) !important; letter-spacing: 0.02em; }
+
+.imp-result { display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-radius: var(--radius-md, 10px); background: color-mix(in srgb, #3b9a5f 10%, var(--bg-panel)); border: 1px solid color-mix(in srgb, #3b9a5f 30%, var(--border)); animation: rise-in var(--dur-med) var(--ease-out) both; }
+.imp-result > svg { color: #3b9a5f; flex: none; }
+.imp-result div { display: flex; flex-direction: column; gap: 2px; }
+.imp-result strong { font-weight: 600; color: var(--ink); font-size: var(--fs-md); }
+.imp-result span { font-size: var(--fs-sm); color: var(--muted); }
+.imp-result .spacer { flex: 1; }
+
+.imp-sub { margin: var(--sp-3) 0 0; font-size: var(--fs-sm); font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; color: var(--muted); }
+.imp-ways { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: var(--sp-3); }
+.imp-way { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; padding: 18px; border-radius: var(--radius-lg); background: var(--bg-panel); border: 1px solid var(--border); }
+.imp-way > svg { color: var(--ink-2); }
+.imp-way h3 { margin: 4px 0 0; font-size: var(--fs-lg); font-weight: 600; color: var(--ink); }
+.imp-way p { margin: 0 0 6px; color: var(--ink-2); line-height: 1.5; font-size: var(--fs-md); }
+.imp-way p strong { color: var(--ink); font-weight: 500; }
+.imp-way .btn { margin-top: auto; display: inline-flex; align-items: center; gap: 6px; }
+@media (prefers-reduced-motion: reduce) { .imp-drop, .imp-drop.is-over .imp-drop-icon { transition: none; animation: none; } }

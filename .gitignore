@@ -8,3 +8,8 @@ scripts/.probe-*.mjs
 
 # Copies de travail temporaires des agents
 .claude/worktrees/
+
+# Notes de recherche et installeurs locaux : hors du dépôt
+research/
+downloads/
+site/dist/

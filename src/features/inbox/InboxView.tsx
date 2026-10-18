@@ -44,6 +44,7 @@ import {
   type InboxItem,
   type InboxKind,
 } from './inbox';
+import { OcrScan } from '../../components/OcrScan';
 import { WifiReceive } from './WifiReceive';
 import './inbox.css';
 
@@ -327,6 +328,7 @@ function PassageBody({ it }: { it: InboxItem }) {
       {it.preview && (
         <a className="ib-photo" href={it.preview} target="_blank" rel="noreferrer" title="Voir la photo en grand">
           <img src={it.preview} alt="" />
+          {it.status === 'working' && it.progress != null && <OcrScan />}
         </a>
       )}
       <div className="ib-passage-main">

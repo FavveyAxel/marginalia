@@ -11,6 +11,7 @@ import { hlClass } from '../../../lib/categories';
 import type { EngineHandle, EngineProps, SearchHit } from '../engine';
 import { findAll, makeSnippet, normalizeQuery, spanOf } from '../pdf/textindex';
 import { displayableBlob, ImageDecodeError, ORIENT } from './decode';
+import { OcrScan } from '../../../components/OcrScan';
 import { averageConfidence, editLine, loadOcr, runningOcr, saveOcr, startOcr, type OcrData, type OcrJob, type OcrProgress, type OcrWord } from './ocr';
 import { useStore } from '../../../lib/store';
 import { buildTextLayer, readImageSelection, rectsForWords, wordAtRaw, wordModel, wordsInRect, type ImageSelection } from './textlayer';
@@ -643,6 +644,32 @@ export const ImageReader = forwardRef<EngineHandle, EngineProps>(function ImageR
     saveOcr(bookId, next).catch((e) => console.warn('[image] cache OCR', e));
   };
 
+  // Animation de lecture : posée sur la partie VISIBLE de l'image (une page plus haute que la fenêtre
+  // garderait sinon le faisceau hors champ la plupart du temps). Suivie pendant le défilement et le zoom.
+  const [scanBox, setScanBox] = useState<{ l: number; t: number; w: number; h: number } | null>(null);
+  useEffect(() => {
+    if (phase !== 'running') {
+      setScanBox(null);
+      return;
+    }
+    let raf = 0;
+    const tick = () => {
+      const p = pageRef.current;
+      const sc = scrollRef.current;
+      if (p && sc) {
+        const a = p.getBoundingClientRect();
+        const b = sc.getBoundingClientRect();
+        const l = Math.max(a.left, b.left);
+        const t = Math.max(a.top, b.top);
+        const box = { l: Math.round(l - b.left), t: Math.round(t - b.top), w: Math.round(Math.min(a.right, b.right) - l), h: Math.round(Math.min(a.bottom, b.bottom) - t) };
+        setScanBox((prev) => (prev && prev.l === box.l && prev.t === box.t && prev.w === box.w && prev.h === box.h ? prev : box));
+      }
+      raf = requestAnimationFrame(tick);
+    };
+    tick();
+    return () => cancelAnimationFrame(raf);
+  }, [phase]);
+
   const rerun = () => {
     setConfirmRerun(false);
     const blob = blobRef.current;
@@ -709,7 +736,7 @@ export const ImageReader = forwardRef<EngineHandle, EngineProps>(function ImageR
                   </div>
                 )}
                 <div className="img-text-host" ref={textHost} />
-                {phase === 'running' && <div className="img-scan" aria-hidden="true" />}
+                
                 {(draft || zone) && (
                   <div
                     className={`img-zone${zone ? ' is-set' : ''}`}
@@ -739,6 +766,11 @@ export const ImageReader = forwardRef<EngineHandle, EngineProps>(function ImageR
           )}
         </div>
 
+        {phase === 'running' && scanBox && scanBox.w > 0 && scanBox.h > 0 && (
+          <div className="img-scan-box" style={{ left: scanBox.l, top: scanBox.t, width: scanBox.w, height: scanBox.h }}>
+            <OcrScan />
+          </div>
+        )}
         {phase === 'running' && (
           <div className="img-ocr-chip anim-in" role="status" aria-live="polite">
             <span className="img-ocr-label">{progress.label}…</span>

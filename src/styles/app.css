@@ -914,3 +914,82 @@ textarea {
   font-size: 0;
   background: color-mix(in srgb, var(--primary) 70%, transparent);
 }
+
+/* ── Reconnaissance du texte d'une image : animation de lecture (lecteur, Boîte de réception) ── */
+.ocr-scan {
+  --ocr: var(--focus);
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  pointer-events: none;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--ocr) 6%, transparent);
+  animation: ocr-veil 420ms var(--ease-out, ease-out) both;
+}
+/* Bande qui balaie la page de haut en bas et retour (centrée sur le faisceau : la même dans les deux sens). */
+.ocr-scan-band {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: -14%;
+  height: 28%;
+  animation: ocr-sweep 2.8s cubic-bezier(0.45, 0, 0.55, 1) infinite alternate;
+  will-change: transform;
+}
+/* Lignes de texte « reconnues » : barres courtes, éclairées autour du faisceau. */
+.ocr-scan-band::before {
+  content: '';
+  position: absolute;
+  inset: 0 9%;
+  background: repeating-linear-gradient(to bottom, transparent 0 9px, color-mix(in srgb, var(--ocr) 42%, transparent) 9px 12px);
+  -webkit-mask-image: linear-gradient(to bottom, transparent, #000 45%, #000 55%, transparent), repeating-linear-gradient(to right, #000 0 64px, transparent 64px 74px, #000 74px 102px, transparent 102px 110px);
+  -webkit-mask-composite: source-in;
+  mask-image: linear-gradient(to bottom, transparent, #000 45%, #000 55%, transparent), repeating-linear-gradient(to right, #000 0 64px, transparent 64px 74px, #000 74px 102px, transparent 102px 110px);
+  mask-composite: intersect;
+  border-radius: 2px;
+}
+/* Le faisceau lui-même : un trait lumineux. */
+.ocr-scan-band::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  height: 2px;
+  margin-top: -1px;
+  background: linear-gradient(to right, transparent, var(--ocr) 12%, var(--ocr) 88%, transparent);
+  box-shadow: 0 0 10px 2px color-mix(in srgb, var(--ocr) 55%, transparent), 0 0 34px 6px color-mix(in srgb, var(--ocr) 22%, transparent);
+}
+/* Coins de visée. */
+.ocr-scan-corners {
+  --c: color-mix(in srgb, var(--ocr) 85%, transparent);
+  --l: clamp(14px, 7%, 28px);
+  position: absolute;
+  inset: clamp(6px, 3%, 14px);
+  background:
+    linear-gradient(var(--c), var(--c)) top left / var(--l) 2px no-repeat,
+    linear-gradient(var(--c), var(--c)) top left / 2px var(--l) no-repeat,
+    linear-gradient(var(--c), var(--c)) top right / var(--l) 2px no-repeat,
+    linear-gradient(var(--c), var(--c)) top right / 2px var(--l) no-repeat,
+    linear-gradient(var(--c), var(--c)) bottom left / var(--l) 2px no-repeat,
+    linear-gradient(var(--c), var(--c)) bottom left / 2px var(--l) no-repeat,
+    linear-gradient(var(--c), var(--c)) bottom right / var(--l) 2px no-repeat,
+    linear-gradient(var(--c), var(--c)) bottom right / 2px var(--l) no-repeat;
+  animation: ocr-corners 1.4s ease-in-out infinite alternate;
+}
+@keyframes ocr-sweep {
+  to {
+    transform: translateY(357%); /* 100 % de l'image / 28 % de hauteur de bande */
+  }
+}
+@keyframes ocr-corners {
+  from { opacity: 0.45; transform: scale(1); }
+  to { opacity: 1; transform: scale(0.985); }
+}
+@keyframes ocr-veil {
+  from { opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ocr-scan-band { animation: none; top: 36%; }
+  .ocr-scan-corners { animation: none; }
+}

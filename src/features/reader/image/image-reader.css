@@ -179,34 +179,11 @@
 }
 
 /* ── Reconnaissance en cours : un trait de lecture parcourt la page ── */
-.img-scan {
+/* Cadre de l'animation de lecture : partie visible de l'image (au-dessus du défilement). */
+.img-scan-box {
   position: absolute;
-  inset: 0;
   z-index: 5;
   pointer-events: none;
-  overflow: hidden;
-}
-.img-scan::before {
-  content: '';
-  position: absolute;
-  left: 0;
-  right: 0;
-  top: 0;
-  height: 18%;
-  transform: translateY(-100%);
-  background: linear-gradient(180deg, transparent, color-mix(in srgb, var(--focus) 10%, transparent) 70%, color-mix(in srgb, var(--focus) 55%, transparent) 100%);
-  border-bottom: 1px solid color-mix(in srgb, var(--focus) 70%, transparent);
-  animation: img-scan 2.4s var(--ease) infinite;
-}
-@keyframes img-scan {
-  to {
-    transform: translateY(556%);
-  }
-}
-@media (prefers-reduced-motion: reduce) {
-  .img-scan::before {
-    display: none;
-  }
 }
 
 /* Puce d'état de l'OCR (en haut, centrée) */

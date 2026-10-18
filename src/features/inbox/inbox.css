@@ -61,7 +61,7 @@
 /* Passage (texte ou photo) */
 .ib-passage { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--sp-4); }
 .ib-passage.has-photo { grid-template-columns: 132px minmax(0, 1fr); }
-.ib-photo { display: block; align-self: start; border-radius: var(--radius-sm); overflow: hidden; border: 1px solid var(--border); background: var(--bg-inset); aspect-ratio: 3 / 4; }
+.ib-photo { position: relative; display: block; align-self: start; border-radius: var(--radius-sm); overflow: hidden; border: 1px solid var(--border); background: var(--bg-inset); aspect-ratio: 3 / 4; }
 .ib-photo img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .ib-photo:hover { border-color: var(--border-strong); }
 .ib-passage-main { min-width: 0; display: flex; flex-direction: column; gap: var(--sp-3); }

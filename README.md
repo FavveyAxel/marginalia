@@ -1,18 +1,32 @@
 # Marginalia
 
 App Mac et Windows pour lire, étudier et écrire en philosophie (Electron + React + TypeScript).
+Gratuite, sans compte, tout reste sur l'ordinateur. Site : <https://marginalia-bice.vercel.app>
 
-- Lecture EPUB, PDF, DOCX, Markdown, TXT, HTML ; deux textes côte à côte
+- Lecture EPUB, PDF, DOCX, Markdown, TXT, HTML, photos et scans (texte reconnu hors ligne) ; deux textes côte à côte
+- Synchronisation avec l'app Livres d'Apple (Mac) : livres, surlignages, notes, signets, position de lecture
+- Depuis le téléphone : photo d'une page ou passage copié, déposés dans un dossier iCloud
 - Surlignage en 6 catégories (problème, thèse, argument, thèse adverse, concept, exemple), notes « ma voix »
-- Fiche-texte et mouvements, carte d'argument, reconstruction prémisses → conclusion
+- Fiche-texte et mouvements, reconstruction prémisses → conclusion
+- Cartes pour organiser sa pensée : carte d'argument de chaque livre, cartes libres sur plusieurs livres,
+  problématique au centre, rangements automatiques, présentation, plan tiré de la carte
 - Concepts (sens par auteur, distinctions, programme de terminale), révision espacée (FSRS)
-- Plans de dissertation, éditeur .docx (SuperDoc) avec export .docx / PDF / Markdown / HTML / TXT
-- Espaces de travail avec groupes et sous-groupes
+- Plans de dissertation, éditeur .docx (SuperDoc) avec export .docx / PDF / page web / Markdown / TXT
+  fidèle à la mise en page de l'éditeur (sauts de page, numéros, notes de bas de page)
+- Espaces de travail avec groupes et sous-groupes, historique et corbeille
+- Chiffrement et verrouillage (mot de passe ou Touch ID) en option ; compagnons animés (Rousseau, Socrate…)
 
 ## Télécharger
 
-Les versions sont sur la page **Releases** du dépôt (privé : il faut être connecté à GitHub avec un compte
-qui y a accès) : <https://github.com/FavveyAxel/marginalia/releases>. Dans la dernière version, ouvrez « Assets » :
+Le plus simple : le site <https://marginalia-bice.vercel.app>, qui propose la bonne version pour votre ordinateur.
+
+Liens directs vers la dernière version :
+[Mac Apple Silicon](https://github.com/FavveyAxel/marginalia/releases/latest/download/Marginalia-mac-arm64.dmg) ·
+[Mac Intel](https://github.com/FavveyAxel/marginalia/releases/latest/download/Marginalia-mac-x64.dmg) ·
+[Windows](https://github.com/FavveyAxel/marginalia/releases/latest/download/Marginalia-win-x64-setup.exe) ·
+[Windows ARM](https://github.com/FavveyAxel/marginalia/releases/latest/download/Marginalia-win-arm64-setup.exe)
+
+Toutes les versions sont sur la page [Releases](https://github.com/FavveyAxel/marginalia/releases). Dans une version, ouvrez « Assets » :
 
 | Fichier | Pour |
 | --- | --- |
@@ -89,5 +103,18 @@ sans aucun `node_modules` (toutes les dépendances sont donc des `devDependencie
 `build/icon.png` (Windows, converti en .ico).
 
 Les tests visuels sont dans `scripts/test-*.mjs` (Chromium headless via playwright-core).
+Fidélité des exports : `scripts/test-export-fidelity.mjs` et `scripts/test-export-fidelity-edge.mjs` ; banc d'essai sur
+un dossier de .docx : `node scripts/bench-export-corpus.mjs <dossier>` (pages de l'éditeur, du PDF et du .docx réexporté).
+
+## Site de présentation
+
+Le site (`site/`) réutilise la mascotte de l'app. Il est publié sur Vercel à chaque mise à jour de `main`
+(réglages dans `vercel.json`). Ses boutons pointent vers les copies à nom fixe de la dernière version
+(`Marginalia-mac-arm64.dmg`…), créées par le workflow de publication.
+
+```bash
+npm run dev:site     # http://localhost:5180
+npm run build:site   # site/dist
+```
 
 Licence : l'éditeur s'appuie sur SuperDoc 1.47.2 (AGPL-3.0) — usage personnel.

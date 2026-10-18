@@ -22,6 +22,8 @@ import {
   Upload,
   X,
 } from 'lucide-react';
+import { Sparkles as SparklesIcon } from 'lucide-react';
+import { startTour } from '../tour/Tour';
 import { useStore } from '../../lib/store';
 import type { Route } from '../../lib/types';
 import { importViaDialog } from '../../App';
@@ -552,6 +554,9 @@ export function HelpView() {
           )}
         </label>
         <span className="spacer" />
+        <button className="btn btn-sm btn-primary" onClick={startTour} data-testid="help-tour">
+          <SparklesIcon size={14} /> Visite guidée
+        </button>
       </header>
       <div className="help-body">
         <nav className="help-index" aria-label="Sommaire de l’aide">
@@ -574,6 +579,18 @@ export function HelpView() {
           <div className="help-page anim-view">
             <h1 className="page-title">Aide</h1>
             <p className="help-lead">Comment fonctionne Marginalia, et tout ce que vous pouvez y faire.</p>
+            {!q.trim() && (
+              <div className="help-tour-card">
+                <SparklesIcon size={18} />
+                <div>
+                  <strong>Découvrir Marginalia en deux minutes</strong>
+                  <span>Votre compagnon vous présente tous les outils, un par un. Vous pouvez avancer, revenir ou passer à tout moment.</span>
+                </div>
+                <button className="btn btn-sm" onClick={startTour}>
+                  Lancer la visite
+                </button>
+              </div>
+            )}
             {sections.length === 0 && <p className="muted">Rien ne correspond à « {q} ».</p>}
             {sections.map((s) => (
               <section key={s.id} id={`help-${s.id}`} className="help-section">

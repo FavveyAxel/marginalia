@@ -115,6 +115,7 @@ function runAction(a: NewsAction) {
   else if (a === 'settings') s.navigate({ name: 'settings' });
   else if (a === 'maps') s.navigate({ name: 'maps' });
   else if (a === 'import') s.navigate({ name: 'import' });
+  else if (a === 'tour') void import('../tour/Tour').then((m) => m.startTour());
 }
 
 function useEscape(onClose: () => void) {

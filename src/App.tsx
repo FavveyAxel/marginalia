@@ -5,6 +5,7 @@ import { BookOpen, Brain, CircleHelp, Settings2, PanelLeftClose, PanelLeftOpen, 
 import { useStore } from './lib/store';
 import { host, filesFromDataTransfer } from './lib/platform';
 import { UpdatesLayer } from './features/updates/Updates';
+import { TourLayer } from './features/tour/Tour';
 import type { Route, ThemeId } from './lib/types';
 import { Kbd, PageSkeleton } from './components/ui';
 import { lazyViews, loadAllViews, preloadViews } from './lazyViews';
@@ -649,6 +650,7 @@ export function App() {
       <Mascot route={route.name} workspaceId={route.name === 'workspace' ? route.workspaceId : undefined} />
       <CommandPalette />
       <UpdatesLayer />
+      <TourLayer />
       <ImportProgress />
       <DropOverlay />
       <SecurityAsk />

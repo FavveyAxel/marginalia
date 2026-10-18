@@ -3227,7 +3227,20 @@ handle('marginalia:popupMenu', async (e) => {
 });
 
 // ── Cycle de vie ─────────────────────────────────────────────
+// Tout premier lancement sur cet ordinateur : aucune donnée de Marginalia (base, copie, trousseau,
+// sauvegardes). Une mise à jour ou une réinstallation garde ce dossier : ce n'est vrai que pour un
+// nouvel utilisateur (sert à proposer la visite guidée). Calculé avant toute écriture.
+let firstRun = false;
+function computeFirstRun() {
+  // Tests : jamais « premier lancement » (la visite gênerait les autres tests), sauf demande explicite.
+  if (E2E) return process.env.MARGINALIA_E2E_FIRST_RUN === '1';
+  const d = userData();
+  return !['db.json', 'db.json.bak', 'keystore.json', 'backups'].some((n) => fs.existsSync(path.join(d, n)));
+}
+handle('marginalia:firstRun', () => firstRun);
+
 app.whenReady().then(async () => {
+  firstRun = computeFirstRun();
   // Chiffrement (option) : clé débloquée par le trousseau, ou écran de verrouillage dans la fenêtre.
   await initSecurity().catch((e) => diag('securite', 'initialisation', e));
   app.setAboutPanelOptions({ applicationName: 'Marginalia', copyright: '© Axel Bierne' });

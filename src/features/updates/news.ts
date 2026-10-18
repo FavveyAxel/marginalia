@@ -5,7 +5,7 @@
 // ─────────────────────────────────────────────────────────────
 
 export type NewsIcon = 'phone' | 'notes' | 'update' | 'map' | 'lock' | 'sparkles';
-export type NewsAction = 'wifi' | 'inbox' | 'settings' | 'maps' | 'import';
+export type NewsAction = 'wifi' | 'inbox' | 'settings' | 'maps' | 'import' | 'tour';
 
 export interface NewsItem {
   icon: NewsIcon;
@@ -20,6 +20,17 @@ export interface NewsEntry {
 }
 
 export const NEWS: NewsEntry[] = [
+  {
+    version: '3.25',
+    items: [
+      {
+        icon: 'sparkles',
+        title: 'Une visite guidée, par votre compagnon',
+        text: 'Votre compagnon présente tous les outils un par un, chacun mis en lumière dans l’interface. Elle démarre d’elle-même pour les nouveaux utilisateurs, et se relance quand vous voulez depuis l’Aide.',
+        action: { label: 'Lancer la visite', run: 'tour' },
+      },
+    ],
+  },
   {
     version: '3.24',
     items: [

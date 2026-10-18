@@ -277,6 +277,8 @@ export interface HostApi {
   inbox?: InboxApi;
   /** Version de l'app et vérification des mises à jour (app de bureau). */
   updates?: UpdatesApi;
+  /** Tout premier lancement sur cet ordinateur (aucune donnée de Marginalia avant ce lancement). */
+  firstRun?(): Promise<boolean>;
   diskAccess?: DiskAccessApi;
   /** Déplacement de la fenêtre par la barre du haut (app de bureau). */
   windowDragStart?(): Promise<void>;

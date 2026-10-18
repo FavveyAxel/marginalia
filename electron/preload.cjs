@@ -193,6 +193,7 @@ api.diskAccess = {
   revealApp: () => ipcRenderer.invoke('marginalia:revealApp'),
   relaunch: () => ipcRenderer.invoke('marginalia:relaunch'),
 };
+api.firstRun = () => ipcRenderer.invoke('marginalia:firstRun');
 api.updates = {
   version: () => ipcRenderer.invoke('marginalia:appVersion'),
   check: () => ipcRenderer.invoke('marginalia:checkUpdate'),

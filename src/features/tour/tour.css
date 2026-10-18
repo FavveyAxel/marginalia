@@ -1,0 +1,41 @@
+/* Visite guidée — préfixe .tour- */
+.tour { position: fixed; inset: 0; z-index: 400; }
+.tour-veil { position: fixed; inset: 0; background: rgba(20, 16, 10, 0.42); animation: fade-in var(--dur-med) var(--ease-out) both; }
+.tour-hole {
+  position: fixed; border-radius: 12px; pointer-events: none;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 55%, transparent), 0 0 0 200vmax rgba(20, 16, 10, 0.42);
+  transition: left 320ms var(--ease-out), top 320ms var(--ease-out), width 320ms var(--ease-out), height 320ms var(--ease-out);
+  animation: tour-pulse 2.2s ease-in-out infinite;
+}
+@keyframes tour-pulse {
+  0%, 100% { box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 55%, transparent), 0 0 0 200vmax rgba(20, 16, 10, 0.42); }
+  50% { box-shadow: 0 0 0 6px color-mix(in srgb, var(--primary) 30%, transparent), 0 0 0 200vmax rgba(20, 16, 10, 0.42); }
+}
+/* Les clics ne passent pas à l'interface pendant la visite (sauf sur la carte). */
+.tour-block { position: fixed; inset: 0; }
+.tour-card {
+  position: fixed; width: min(440px, calc(100vw - 32px)); display: grid; grid-template-columns: 92px minmax(0, 1fr); gap: 14px;
+  padding: 18px 18px 14px 12px; background: var(--bg-panel); border: 1px solid var(--border); border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg); opacity: 0;
+}
+.tour-card.is-placed { opacity: 1; animation: tour-in 360ms var(--ease-spring) both; }
+@keyframes tour-in { from { opacity: 0; transform: translateY(8px) scale(0.98); } to { opacity: 1; transform: none; } }
+.tour-mascot { width: 92px; height: 120px; align-self: end; color: var(--ink); }
+.tour-mascot svg { width: 100%; height: 100%; display: block; overflow: visible; }
+.tour-body { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.tour-count { margin: 0; font-size: var(--fs-sm); color: var(--muted); font-variant-numeric: tabular-nums; }
+.tour-body h2 { margin: 0; font-family: var(--font-display); font-weight: 400; font-size: 26px; line-height: 1.1; color: var(--ink); }
+.tour-body p#tour-text { margin: 2px 0 0; color: var(--ink-2); line-height: 1.5; font-size: var(--fs-md); }
+.tour-dots { display: flex; gap: 4px; margin-top: 8px; flex-wrap: wrap; }
+.tour-dots span { width: 6px; height: 6px; border-radius: 50%; background: var(--border-strong); transition: background 200ms, width 200ms; }
+.tour-dots span.done { background: color-mix(in srgb, var(--primary) 45%, var(--border-strong)); }
+.tour-dots span.on { width: 16px; border-radius: 3px; background: var(--primary); }
+.tour-actions { display: flex; align-items: center; gap: 6px; margin-top: 10px; }
+.tour-actions .spacer { flex: 1; }
+.tour-skip { color: var(--muted); padding-left: 4px; padding-right: 4px; }
+/* Pendant la visite, le compagnon de l'interface laisse la place à celui de la carte. */
+body:has(.tour) .mascot-layer { display: none; }
+@media (prefers-reduced-motion: reduce) {
+  .tour-hole { animation: none; transition: none; }
+  .tour-card.is-placed { animation: none; }
+}

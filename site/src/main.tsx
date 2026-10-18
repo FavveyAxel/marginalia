@@ -128,8 +128,7 @@ function AnnotatedPage() {
   );
 }
 
-const HERO_SEQ: [Pose, number][] = [['sitwave', 2600], ['read', 6500], ['write', 5500], ['question', 4000], ['coffee', 6000], ['spyglass', 4500], ['juggle', 5000], ['think', 3000]];
-const TAB_SEQS: [Pose, number][][] = [[['read', 60000]], [['classify', 60000]], [['write', 60000]]];
+const HERO_SEQ: [Pose, number][] = [['wave', 2600], ['read', 6500], ['spyglass', 4500], ['juggle', 5500], ['think', 3200], ['herborize', 6000]];
 
 const STEPS = [
   {
@@ -182,7 +181,6 @@ function Showcase() {
           </button>
         ))}
       </div>
-      <Rousseau className="showcase-rousseau" size={92} seq={TAB_SEQS[k]} />
       </div>
       <div className="showcase-panel" id="showcase-panel" role="tabpanel" aria-labelledby={`tab-${s.shot}`}>
         <p className="showcase-text" key={s.shot}>{s.text}</p>
@@ -209,10 +207,12 @@ function useReveal() {
   }, []);
 }
 
-const MORE: { icon: string; title: string; items: string[] }[] = [
+const MORE: { icon: string; title: string; pose: Pose; line: string; items: string[] }[] = [
   {
     icon: 'book',
     title: 'Importer et lire',
+    pose: 'read' as Pose,
+    line: 'Ouvrez vos livres, et même une photo de page : je lis tout.',
     items: [
       'EPUB, PDF, Word, Markdown, texte, HTML',
       'Photos et scans : texte reconnu, sans connexion',
@@ -227,6 +227,8 @@ const MORE: { icon: string; title: string; items: string[] }[] = [
   {
     icon: 'mark',
     title: 'Surligner et étudier',
+    pose: 'paint' as Pose,
+    line: 'Six couleurs pour six rôles : la thèse, l’objection, l’exemple…',
     items: [
       'Six catégories : problème, thèse, argument, thèse adverse, concept, exemple',
       'Notes sur chaque extrait',
@@ -238,6 +240,8 @@ const MORE: { icon: string; title: string; items: string[] }[] = [
   {
     icon: 'map',
     title: 'Cartes pour organiser sa pensée',
+    pose: 'geometry' as Pose,
+    line: 'Mettez la question au centre et rangez vos idées autour.',
     items: [
       'Carte d’argument de chaque livre, cartes libres sur plusieurs livres',
       'Problématique ou sujet au centre, branches repliables',
@@ -252,6 +256,8 @@ const MORE: { icon: string; title: string; items: string[] }[] = [
   {
     icon: 'cards',
     title: 'Concepts, arguments, révision',
+    pose: 'question' as Pose,
+    line: 'Ce qu’on revoit au bon moment ne s’oublie plus.',
     items: [
       'Lexique personnel : sens selon les auteurs, distinctions',
       'Notions et repères du programme de terminale',
@@ -262,6 +268,8 @@ const MORE: { icon: string; title: string; items: string[] }[] = [
   {
     icon: 'doc',
     title: 'Plans et écriture',
+    pose: 'write' as Pose,
+    line: 'Le livre ouvert à côté, la plume à la main.',
     items: [
       'Plans de dissertation nourris de vos extraits et arguments',
       'Traitement de texte au format Word (.docx)',
@@ -277,6 +285,8 @@ const MORE: { icon: string; title: string; items: string[] }[] = [
   {
     icon: 'lock',
     title: 'Organiser et protéger',
+    pose: 'meditate' as Pose,
+    line: 'Tout reste chez vous. J’y tiens : je me suis toujours méfié du monde.',
     items: [
       'Espaces de travail par cours ou dissertation, avec groupes',
       'Historique : revenir à l’état d’avant chaque action',
@@ -302,6 +312,73 @@ function Pict({ name }: { name: string }) {
     figure: <><circle cx="12" cy="7" r="3.2" {...p} /><path d="M6.5 21c.5-4.5 2.5-7 5.5-7s5 2.5 5.5 7" {...p} /><path d="M8.6 6.2c-1.4-.2-1.8 1.4-.6 2M15.4 6.2c1.4-.2 1.8 1.4.6 2" {...p} /></>,
   };
   return <svg className="pict" viewBox="0 0 24 24" aria-hidden="true">{d[name]}</svg>;
+}
+
+/** Toutes les fonctions, présentées par Rousseau : il change d'activité selon le groupe lu ou survolé. */
+function Features() {
+  const [row, setRow] = useState(0);
+  const [side, setSide] = useState(0);
+  const [hover, setHover] = useState<number | null>(null);
+  const refs = useRef<(HTMLElement | null)[]>([]);
+  // rangée lue : la dernière dont le haut a passé le tiers de l'écran
+  useEffect(() => {
+    let raf = 0;
+    const update = () => {
+      raf = 0;
+      const line = window.innerHeight * 0.38;
+      let r = 0;
+      refs.current.forEach((el, i) => { if (el && el.getBoundingClientRect().top < line) r = Math.max(r, Math.floor(i / 2)); });
+      setRow(r);
+    };
+    const onScroll = () => { if (!raf) raf = requestAnimationFrame(update); };
+    update();
+    window.addEventListener('scroll', onScroll, { passive: true });
+    window.addEventListener('resize', onScroll);
+    return () => { window.removeEventListener('scroll', onScroll); window.removeEventListener('resize', onScroll); if (raf) cancelAnimationFrame(raf); };
+  }, []);
+  // les deux groupes de la rangée, à tour de rôle
+  useEffect(() => { setSide(0); }, [row]);
+  useEffect(() => {
+    if (hover !== null) return;
+    const t = setTimeout(() => setSide((x) => 1 - x), 5500);
+    return () => clearTimeout(t);
+  }, [side, row, hover]);
+  const active = Math.min(MORE.length - 1, row * 2 + side);
+  const k = hover ?? active;
+  const m = MORE[k];
+  return (
+    <section className="more reveal" id="fonctions" aria-labelledby="more-title">
+      <h2 id="more-title">Toutes les fonctions</h2>
+      <div className="more-layout">
+        <aside className="presenter" aria-hidden="true">
+          <div className="presenter-inner">
+            <p className="bubble" key={k}>{m.line}</p>
+            <Rousseau className="presenter-rousseau" size={150} seq={[[m.pose, 600000]]} />
+          </div>
+        </aside>
+        <div className="more-grid">
+          {MORE.map((g, i) => (
+            <section
+              key={g.title}
+              ref={(el) => { refs.current[i] = el; }}
+              className={`more-group ${i === k ? 'is-on' : ''}`}
+              aria-label={g.title}
+              onMouseEnter={() => setHover(i)}
+              onMouseLeave={() => setHover(null)}
+            >
+              <Pict name={g.icon} />
+              <h3>{g.title}</h3>
+              <ul>
+                {g.items.map((x) => (
+                  <li key={x}>{x}</li>
+                ))}
+              </ul>
+            </section>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
 }
 
 function App() {
@@ -352,14 +429,12 @@ function App() {
           </div>
           <div className="shot-wrap">
             <img className="cote-shot" src="/captures/cote.png" alt="Une dissertation dans l’éditeur, le Discours de la méthode ouvert à côté" width={1440} height={900} loading="lazy" />
-            <Rousseau className="cote-rousseau" size={100} seq={[['write', 8000], ['read', 6000]]} />
           </div>
         </section>
 
         <section className="spaces reveal" aria-labelledby="spaces-title">
           <div className="shot-wrap">
             <img className="spaces-shot" src="/captures/espaces.png" alt="Un espace de travail « Dissertation : la liberté », avec ses livres, écrits, plans et cartes rangés en groupes" width={1440} height={900} loading="lazy" />
-            <Rousseau className="spaces-rousseau" size={110} seq={[['juggle', 7000], ['classify', 6000]]} />
           </div>
           <div className="spaces-text">
             <h2 id="spaces-title">Un espace par cours, par dissertation</h2>
@@ -382,30 +457,13 @@ function App() {
             <p className="books-note">Livres achetés avec protection (DRM) exclus.</p>
           </div>
           <div className="shot-wrap books-wrap">
-          <Rousseau className="books-rousseau" size={100} seq={[['plane', 6500], ['read', 5000]]} />
           <img className="books-shot" src="/captures/livres.png" alt="La fenêtre Livres d’Apple de Marginalia : choix des livres et correspondance des couleurs" width={560} height={503} loading="lazy" />
           </div>
         </section>
 
-        <section className="more reveal" id="fonctions" aria-labelledby="more-title">
-          <h2 id="more-title">Toutes les fonctions</h2>
-          <div className="more-grid">
-            {MORE.map((m) => (
-              <section key={m.title} className="more-group" aria-label={m.title}>
-                <Pict name={m.icon} />
-                <h3>{m.title}</h3>
-                <ul>
-                  {m.items.map((x) => (
-                    <li key={x}>{x}</li>
-                  ))}
-                </ul>
-              </section>
-            ))}
-          </div>
-        </section>
+        <Features />
 
         <section className="private reveal">
-          <Rousseau className="private-rousseau" size={150} seq={[['herborize', 9000], ['meditate', 7000]]} />
           <div>
             <h2>Rien ne quitte votre ordinateur</h2>
             <p>
@@ -466,9 +524,6 @@ function App() {
         </section>
       </main>
 
-      <div className="walker" aria-hidden="true">
-        <Rousseau className="walker-rousseau" size={70} seq={[['walk', 60000]]} />
-      </div>
       <footer className="foot">
         <p>Marginalia {VERSION}. Fait pour les élèves de terminale, les étudiants et tous les lecteurs de philosophie.</p>
       </footer>

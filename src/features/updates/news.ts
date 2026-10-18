@@ -21,6 +21,17 @@ export interface NewsEntry {
 
 export const NEWS: NewsEntry[] = [
   {
+    version: '3.26',
+    items: [
+      {
+        icon: 'sparkles',
+        title: 'Tous les boutons « Importer » mènent à la page Importer',
+        text: 'Dans la bibliothèque et sur l’accueil aussi, « Importer » ouvre la page où choisir : fichiers ou dossier de l’ordinateur, QR code du téléphone, dossier synchronisé ou app Livres. ⌘O / Ctrl+O ouvre toujours directement le choix de fichiers.',
+        action: { label: 'Voir', run: 'import' },
+      },
+    ],
+  },
+  {
     version: '3.25',
     items: [
       {

@@ -45,6 +45,18 @@ try {
   ok(JSON.stringify(picked.names.sort()) === JSON.stringify(['Discours (PDF).pdf', 'Discours.epub', 'Fiche Descartes.md', 'Première partie.txt'].sort()), 'contenu compatible, sous-dossiers compris', picked.names);
   ok(picked.skipped === 2 && !picked.truncated, 'autres formats comptés (exe, Thumbs.db), cachés et dossiers système écartés', picked.skipped);
 
+  // Les autres boutons « Importer » (accueil, bibliothèque) ouvrent la même page.
+  await page.evaluate(() => window.__store.getState().navigate({ name: 'home' }));
+  await page.click('.home-step button:has-text("Importer un texte"), .home-shortcuts button:has-text("Importer")');
+  ok((await page.evaluate(() => window.__store.getState().route.name)) === 'import', 'accueil : « Importer » ouvre la page Importer');
+  await page.evaluate(() => window.__store.getState().navigate({ name: 'library' }));
+  await page.click('.lib-drop button:has-text("Importer"), [data-testid="lib-import"]');
+  ok((await page.evaluate(() => window.__store.getState().route.name)) === 'import', 'bibliothèque : « Importer » ouvre la page Importer');
+  await page.evaluate(() => window.__store.getState().navigate({ name: 'library' }));
+  await page.click('[data-testid="lib-import"]');
+  ok((await page.evaluate(() => window.__store.getState().route.name)) === 'import', 'bibliothèque, en haut à droite : « Importer » ouvre la page Importer');
+  await page.evaluate(() => window.__store.getState().navigate({ name: 'home' }));
+
   // Bouton Importer → page
   await page.click('.import-btn');
   await page.waitForSelector('[data-testid="import-drop"]');

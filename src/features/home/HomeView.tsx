@@ -3,7 +3,6 @@
 import { useMemo, useState } from 'react';
 import { BookOpen, Brain, FilePen, Lightbulb, ListTree, Plus, Search, Upload, FolderKanban } from 'lucide-react';
 import { useStore, uid } from '../../lib/store';
-import { host } from '../../lib/platform';
 import type { EssayPlan } from '../../lib/types';
 import { kindColor, kindLabel, kindOf } from '../../lib/categories';
 import { Kbd, relativeTime } from '../../components/ui';
@@ -22,11 +21,9 @@ function greeting(now = new Date()) {
   return h >= 18 || h < 4 ? 'Bonsoir' : 'Bonjour';
 }
 
+/** Ouvre la page Importer (fichiers, dossier, QR code du téléphone, dossier synchronisé, Livres). */
 async function importFirst() {
-  const files = await host.pickFiles();
-  if (!files.length) return;
-  const books = await useStore.getState().importFiles(files);
-  if (books.length === 1) useStore.getState().openBook(books[0].id);
+  useStore.getState().navigate({ name: 'import' });
 }
 
 async function newDraft() {

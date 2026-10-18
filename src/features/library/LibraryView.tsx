@@ -35,7 +35,6 @@ import { CATEGORIES } from '../../lib/categories';
 import type { AppleBooksColorTarget } from '../../lib/types';
 import type { Book, BookFormat, Database } from '../../lib/types';
 import { relativeTime } from '../../components/ui';
-import { importViaDialog } from '../../App';
 import { bookToMarkdown } from '../../lib/exportMarkdown';
 import { BookCover } from './BookCover';
 import { useMultiSelect, useLasso, useSelectionKeys, LassoBox } from '../../lib/useMultiSelect';
@@ -341,7 +340,7 @@ export function LibraryView() {
             <LibraryIcon size={14} /> Depuis Livres
           </button>
         )}
-        <button className="btn btn-primary" onClick={() => importViaDialog()}>
+        <button className="btn btn-primary" onClick={() => useStore.getState().navigate({ name: 'import' })} data-testid="lib-import">
           <Plus size={14} /> Importer
         </button>
       </header>
@@ -351,7 +350,7 @@ export function LibraryView() {
           <h1 className="page-title lib-title">Bibliothèque</h1>
 
           {empty ? (
-            <div className="lib-drop" onClick={() => importViaDialog()} role="button" tabIndex={0} onKeyDown={(e) => e.key === 'Enter' && importViaDialog()}>
+            <div className="lib-drop" onClick={() => useStore.getState().navigate({ name: 'import' })} role="button" tabIndex={0} onKeyDown={(e) => e.key === 'Enter' && useStore.getState().navigate({ name: 'import' })}>
               <div className="lib-drop-icon">
                 <Upload size={22} />
               </div>
@@ -361,7 +360,7 @@ export function LibraryView() {
                 className="btn btn-primary"
                 onClick={(e) => {
                   e.stopPropagation();
-                  importViaDialog();
+                  useStore.getState().navigate({ name: 'import' });
                 }}
               >
                 <Plus size={14} /> Importer

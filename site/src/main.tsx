@@ -8,7 +8,7 @@ import { DOWNLOADS, VERSION, type Download } from './downloads';
 import './site.css';
 
 // Cadence de chaque pose (images par seconde), comme dans l'app ; activités : leur propre cadence.
-const FPS: Partial<Record<string, number>> = { flex: 6, puff: 10, sitwave: 8, read: 4, wave: 8, write: 4, think: 3, jump: 8, walk: 8, doze: 2 };
+const FPS: Partial<Record<string, number>> = { guitar: 6, flex: 6, puff: 10, sitwave: 8, read: 4, wave: 8, write: 4, think: 3, jump: 8, walk: 8, doze: 2 };
 const fpsOf = (p: Pose) => FPS[p] ?? extraPose(p)?.fps ?? 4;
 const reduced = () => typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
 
@@ -116,7 +116,7 @@ const PERCHES: Record<string, PerchDef> = {
   hero: { side: 'right', inset: 2, seq: () => HERO_SEQ },
   apercu: { side: 'right', inset: 3, seq: (b) => [[TAB_POSES[b.tab] ?? 'wave', 600000]] },
   cote: { side: 'right', inset: 2.5, seq: () => [['question', 4500], ['wave', 2500]] },
-  photo: { side: 'right', inset: 2.5, seq: () => [['flex', 2500], ['wave', 2500]] },
+  photo: { side: 'right', inset: 2.5, seq: () => [['guitar', 7000], ['coffee', 6000]] },
   espaces: { side: 'right', inset: 2, seq: () => [['juggle', 600000]] },
   livres: { side: 'right', inset: 2, seq: () => [['plane', 600000]] },
   fonctions: { side: 'slot', inset: 0, seat: true, seq: (b) => [[MORE[b.group]?.pose ?? 'read', 600000]] },

@@ -120,6 +120,7 @@ const PERCHES: Record<string, PerchDef> = {
   carte: { side: 'right', inset: 2.5, seq: () => [['classify', 600000]] },
   espaces: { side: 'right', inset: 2, seq: () => [['juggle', 600000]] },
   livres: { side: 'right', inset: 2, seq: () => [['plane', 600000]] },
+  qr: { side: 'right', inset: 2.5, seq: () => [['spyglass', 600000]] },
   fonctions: { side: 'slot', inset: 0, seat: true, seq: (b) => [[MORE[b.group]?.pose ?? 'read', 600000]] },
   telecharger: { side: 'right', inset: 1, seq: () => [['wave', 3000], ['whistle', 5000]] },
 };
@@ -463,6 +464,7 @@ const MORE: { icon: string; title: string; pose: Pose; line: string; items: stri
       'Synchronisation avec l’app Livres d’Apple (Mac)',
       'Depuis le téléphone, par le Wi-Fi (QR code) : photo, livre ou passage copié',
       'Notes de l’app Livres ou de Play Livres collées : un extrait par passage',
+      'Un dossier entier importé d’un coup, ou glissé dans la fenêtre',
       'Le texte d’une photo : en extrait, ou en nouvel écrit',
       'Défilement continu ou page par page, comme un livre',
       'Deux textes côte à côte',
@@ -744,9 +746,8 @@ function App() {
               Vous le sélectionnez et le surlignez comme dans un livre, et vous corrigez d’un clic une ligne mal lue.
             </p>
             <p>
-              Depuis le téléphone, c’est encore plus simple : scannez le QR code affiché par Marginalia et prenez la photo. Elle arrive par
-              le Wi-Fi, sans câble ni compte, sur iPhone comme sur Android. Marginalia retrouve le passage dans vos livres et l’ajoute comme
-              extrait, ou en fait un nouvel écrit.
+              Depuis le téléphone, il suffit de scanner un QR code et de prendre la photo. Marginalia retrouve le passage dans vos livres et
+              l’ajoute comme extrait, ou en fait un nouvel écrit.
             </p>
           </div>
           <div className="photo-stack">
@@ -801,6 +802,27 @@ function App() {
           </div>
           <div className="shot-wrap books-wrap" data-perch="livres">
           <img className="books-shot" src="/captures/livres.png" alt="La fenêtre Livres d’Apple de Marginalia : choix des livres et correspondance des couleurs" width={560} height={503} loading="lazy" />
+          </div>
+        </section>
+
+        <section className="qr reveal" id="qr" aria-labelledby="qr-title">
+          <div className="qr-stack">
+            <div className="shot-wrap" data-perch="qr">
+              <img className="qr-shot" src="/captures/qr-app.png" alt="La fenêtre « Recevoir depuis le téléphone » de Marginalia : un QR code, l’iPhone connecté, et pour chaque envoi ce qu’il est devenu" width={1280} height={1152} loading="lazy" />
+            </div>
+            <img className="qr-phone" src="/captures/qr-telephone.png" alt="La page « Envoyer à l’ordinateur » sur l’iPhone : prendre une photo, choisir des fichiers, coller du texte, et les envois reçus" width={780} height={1688} loading="lazy" />
+          </div>
+          <div className="qr-text">
+            <h2 id="qr-title">Du téléphone à l’ordinateur, par un QR code</h2>
+            <p>
+              Dans Marginalia, « Importer » affiche un QR code. Scannez-le avec l’appareil photo de votre iPhone ou de votre téléphone Android : une page
+              s’ouvre, sans rien installer. Prenez en photo une page de livre, envoyez un PDF, un EPUB, un document Word, ou collez toutes vos notes d’un livre.
+            </p>
+            <p>
+              Chaque envoi arrive aussitôt, et vous savez où il est allé, sur l’ordinateur comme sur le téléphone : dans la bibliothèque, en extrait au bon
+              endroit du livre, ou dans la Boîte de réception pour que vous décidiez.
+            </p>
+            <p className="qr-note">Par le Wi-Fi de la maison, sans compte : rien ne passe par Internet, et la réception se ferme avec sa fenêtre.</p>
           </div>
         </section>
 

@@ -114,6 +114,7 @@ function runAction(a: NewsAction) {
   else if (a === 'inbox') s.navigate({ name: 'inbox' });
   else if (a === 'settings') s.navigate({ name: 'settings' });
   else if (a === 'maps') s.navigate({ name: 'maps' });
+  else if (a === 'import') s.navigate({ name: 'import' });
 }
 
 function useEscape(onClose: () => void) {

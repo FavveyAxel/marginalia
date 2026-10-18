@@ -113,6 +113,11 @@ try {
   await app.close();
   // Version suivante (3.24) installée par-dessus : macOS a « oublié » l'autorisation.
   ({ app, page } = await launch('3.24', { MARGINALIA_E2E_DISK_ACCESS: 'denied' }));
+  // « Quoi de neuf » de la 3.24 d'abord, puis l'autorisation.
+  await page.waitForSelector('[data-testid="whats-new"]', { timeout: 15000 });
+  ok((await page.locator('[data-testid="whats-new"]').innerText()).includes('Une page « Importer »'), '3.24 : « Quoi de neuf » d’abord');
+  ok(!(await page.$('[data-testid="disk-access"]')), 'l’autorisation attend la fermeture de « Quoi de neuf »');
+  await page.click('[data-testid="whats-new"] button:has-text("Continuer")');
   await page.waitForSelector('[data-testid="disk-access"]', { timeout: 15000 });
   let da = await page.locator('[data-testid="disk-access"]').innerText();
   ok(da.includes('Une autorisation à redonner') && da.includes('ne reconnaît plus l’autorisation donnée à l’ancienne version') && da.includes('« − »') && da.includes('« + »'), 'après mise à jour : « à redonner », retirer puis remettre');

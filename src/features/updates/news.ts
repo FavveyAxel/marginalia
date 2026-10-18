@@ -5,7 +5,7 @@
 // ─────────────────────────────────────────────────────────────
 
 export type NewsIcon = 'phone' | 'notes' | 'update' | 'map' | 'lock' | 'sparkles';
-export type NewsAction = 'wifi' | 'inbox' | 'settings' | 'maps';
+export type NewsAction = 'wifi' | 'inbox' | 'settings' | 'maps' | 'import';
 
 export interface NewsItem {
   icon: NewsIcon;
@@ -20,6 +20,32 @@ export interface NewsEntry {
 }
 
 export const NEWS: NewsEntry[] = [
+  {
+    version: '3.24',
+    items: [
+      {
+        icon: 'sparkles',
+        title: 'Une page « Importer »',
+        text: 'Le bouton Importer ouvre une page où glisser des fichiers ou un dossier entier (sous-dossiers compris), choisir sur l’ordinateur, afficher le QR code du téléphone, ou passer par un dossier synchronisé et l’app Livres.',
+        action: { label: 'Voir', run: 'import' },
+      },
+      {
+        icon: 'phone',
+        title: 'Vous savez où va chaque envoi',
+        text: 'Après un envoi par QR code, l’ordinateur et le téléphone disent ce qu’il est devenu : ajouté à la bibliothèque, extrait au bon endroit du livre, ou à valider dans la Boîte de réception. Un bouton y mène directement.',
+      },
+      {
+        icon: 'lock',
+        title: 'Sur Mac, l’autorisation de Livres guidée',
+        text: 'Après une mise à jour, macOS oublie l’autorisation « Accès complet au disque » donnée à l’ancienne version. Marginalia le détecte et vous guide pas à pas pour la redonner.',
+      },
+      {
+        icon: 'update',
+        title: 'Sur Windows, plus d’alerte d’antivirus',
+        text: 'La liste des polices est lue directement dans les fichiers de polices, sans lancer de programme : les antivirus n’ont plus rien à signaler.',
+      },
+    ],
+  },
   {
     version: '3.23',
     items: [

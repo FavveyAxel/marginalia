@@ -447,3 +447,29 @@ a.btn-primary:hover { background: #3a342b; }
   .carte { margin-top: 6rem; }
   .carte h2 { font-size: 2.5rem; }
 }
+
+/* ── Du téléphone à l'ordinateur, par un QR code ── */
+.qr {
+  max-width: 75rem; margin: 9rem auto 0; padding: 0 var(--gutter);
+  display: grid; grid-template-columns: minmax(0, 7fr) minmax(0, 5fr); gap: 4.5rem; align-items: center;
+}
+.qr h2 { font-size: 3.5rem; }
+.qr p { margin: 1rem 0 0; color: var(--ink-2); max-width: 42ch; }
+.qr .qr-note { font-family: var(--font-ui); font-size: 0.875rem; color: var(--muted); }
+.qr-stack { position: relative; padding: 0 4.5rem 3rem 0; }
+.qr-shot { display: block; width: 100%; height: auto; border-radius: 0.875rem; box-shadow: var(--shadow-lg); }
+.qr-phone {
+  position: absolute; right: 0; bottom: 0; width: 34%; height: auto; border-radius: 1.4rem;
+  border: 0.375rem solid #1d1a15; box-shadow: 0 1px 2px rgba(30, 24, 14, 0.1), 0 28px 56px -18px rgba(30, 24, 14, 0.45);
+}
+@media (max-width: 900px) {
+  .qr { grid-template-columns: minmax(0, 1fr); gap: 1.75rem; }
+  .qr-text { order: -1; }
+  .qr-stack { padding: 0 2.5rem 2rem 0; }
+  .qr .shot-wrap { margin-top: 0; }
+}
+@media (max-width: 620px) {
+  .qr { margin-top: 6rem; }
+  .qr h2 { font-size: 2.5rem; }
+  .qr-phone { width: 40%; border-width: 0.25rem; border-radius: 1rem; }
+}

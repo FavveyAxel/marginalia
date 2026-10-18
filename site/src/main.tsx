@@ -142,7 +142,7 @@ function Showcase() {
         <p className="showcase-text">{s.text}</p>
         <div className="shot">
           {STEPS.map((x, i) => (
-            <img key={x.shot} src={`/shots/${x.shot}.png`} alt={`Marginalia : ${x.title.toLowerCase()}`} className={i === k ? 'is-on' : ''} loading={i === 0 ? 'eager' : 'lazy'} width={1440} height={900} />
+            <img key={x.shot} src={`/captures/${x.shot}.png`} alt={`Marginalia : ${x.title.toLowerCase()}`} className={i === k ? 'is-on' : ''} loading={i === 0 ? 'eager' : 'lazy'} width={1440} height={900} />
           ))}
         </div>
       </div>

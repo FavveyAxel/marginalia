@@ -1,5 +1,7 @@
-// Liens de téléchargement des installeurs : à renseigner une fois l'hébergement choisi
-// (dépôt public de versions, Vercel Blob…). Laisser vide affiche « Lien bientôt disponible ».
+// Liens de téléchargement directs : la dernière version publiée sur GitHub (copies à nom fixe créées
+// par .github/workflows/release.yml). Le dépôt doit être public pour que ces liens marchent.
+// Laisser une URL vide affiche « Bientôt ».
+const BASE = 'https://github.com/FavveyAxel/marginalia/releases/latest/download';
 export const VERSION = '3.22';
 
 export interface Download {
@@ -12,8 +14,8 @@ export interface Download {
 }
 
 export const DOWNLOADS: Download[] = [
-  { id: 'mac-arm64', os: 'mac', label: 'Mac Apple Silicon', detail: 'M1, M2, M3, M4 et suivants', url: '', size: '96 Mo' },
-  { id: 'mac-x64', os: 'mac', label: 'Mac Intel', detail: 'Mac d’avant 2021', url: '', size: '104 Mo' },
-  { id: 'win-x64', os: 'win', label: 'Windows', detail: 'PC classique, Windows 10 et 11', url: '', size: '73 Mo' },
-  { id: 'win-arm64', os: 'win', label: 'Windows ARM', detail: 'Surface Pro X / 11, Snapdragon', url: '', size: '69 Mo' },
+  { id: 'mac-arm64', os: 'mac', label: 'Mac Apple Silicon', detail: 'M1, M2, M3, M4 et suivants', url: `${BASE}/Marginalia-mac-arm64.dmg`, size: '96 Mo' },
+  { id: 'mac-x64', os: 'mac', label: 'Mac Intel', detail: 'Mac d’avant 2021', url: `${BASE}/Marginalia-mac-x64.dmg`, size: '104 Mo' },
+  { id: 'win-x64', os: 'win', label: 'Windows', detail: 'PC classique, Windows 10 et 11', url: `${BASE}/Marginalia-win-x64-setup.exe`, size: '73 Mo' },
+  { id: 'win-arm64', os: 'win', label: 'Windows ARM', detail: 'Surface Pro X / 11, Snapdragon', url: `${BASE}/Marginalia-win-arm64-setup.exe`, size: '69 Mo' },
 ];

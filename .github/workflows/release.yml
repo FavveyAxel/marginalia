@@ -156,6 +156,18 @@ jobs:
         shell: bash
         run: v="${RELEASE_VERSION#v}"; echo "name=v$v" >> "$GITHUB_OUTPUT"
 
+      # Copies à nom fixe (sans version) : le site de présentation y pointe toujours
+      # (…/releases/latest/download/Marginalia-mac-arm64.dmg = dernière version).
+      - name: Copies à nom fixe pour les liens de téléchargement
+        shell: bash
+        run: |
+          cd out
+          for f in Marginalia-*-mac-arm64.dmg Marginalia-*-mac-x64.dmg Marginalia-*-win-x64-setup.exe Marginalia-*-win-arm64-setup.exe; do
+            [ -f "$f" ] || { echo "manquant : $f"; exit 1; }
+            cp "$f" "$(echo "$f" | sed -E 's/^Marginalia-[^-]+-/Marginalia-/')"
+          done
+          ls -la
+
       - name: Créer la Release
         uses: softprops/action-gh-release@v2
         with:

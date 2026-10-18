@@ -24,6 +24,9 @@ export function Kbd({ children }: { children: ReactNode }) {
  * Calcule la position (fixed) d'un élément flottant de taille (w,h) ancré à `rect`.
  * Place au-dessus si possible, sinon en dessous ; reste dans la fenêtre.
  */
+/** Hauteur de la barre de titre (Windows, Linux : boutons natifs de la fenêtre et zone de déplacement). */
+const TITLEBAR_H = 52;
+
 export function placeFloating(
   rect: { left: number; top: number; width: number; height: number; bottom: number },
   w: number,
@@ -35,11 +38,32 @@ export function placeFloating(
   const vh = window.innerHeight;
   let left = rect.left + rect.width / 2 - w / 2;
   left = Math.max(8, Math.min(vw - w - 8, left));
-  const above = rect.top - h - gap;
+  // Windows / Linux : la barre de titre ne sert qu'à déplacer la fenêtre (le système y prend les
+  // clics) et ses boutons natifs couvrent le coin : un menu ouvert sous la barre ne doit pas y monter.
+  const root = typeof document !== 'undefined' ? document.documentElement.classList : null;
+  const winLike = !!root && (root.contains('platform-win') || root.contains('platform-linux'));
+  const minTop = winLike && rect.top >= TITLEBAR_H ? TITLEBAR_H + gap : 8;
   const below = rect.bottom + gap;
-  let top = prefer === 'above' ? (above >= 8 ? above : below) : below + h <= vh - 8 ? below : above;
-  top = Math.max(8, Math.min(vh - h - 8, top));
-  return { left, top };
+  const roomBelow = vh - 8 - below;
+  const roomAbove = rect.top - gap - minTop;
+  const fitsBelow = h <= roomBelow;
+  const fitsAbove = h <= roomAbove;
+  let top: number;
+  let maxHeight: number | undefined;
+  if (prefer === 'above' ? fitsAbove : !fitsBelow && fitsAbove) top = rect.top - gap - h;
+  else if (fitsBelow) top = below;
+  else {
+    // Ni dessus ni dessous : du côté le plus grand, avec défilement (sans recouvrir le bouton).
+    if (roomBelow >= roomAbove) {
+      top = below;
+      maxHeight = Math.max(120, roomBelow);
+    } else {
+      maxHeight = Math.max(120, roomAbove);
+      top = rect.top - gap - maxHeight;
+    }
+  }
+  top = Math.max(minTop, Math.min(vh - Math.min(h, maxHeight ?? h) - 8, top));
+  return maxHeight ? { left, top, maxHeight, overflowY: 'auto' } : { left, top };
 }
 
 /** Mesure un élément après rendu pour le positionner via placeFloating. */

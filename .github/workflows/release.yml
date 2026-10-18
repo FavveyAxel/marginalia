@@ -168,13 +168,29 @@ jobs:
           done
           ls -la
 
+      # Récap en français (affiché par l'app : « Voir les nouveautés ») : release-notes/<version>.md du dépôt.
+      - name: Récupérer le récap
+        uses: actions/checkout@v4
+        with:
+          sparse-checkout: release-notes
+          path: src
+
+      - name: Texte de la Release
+        shell: bash
+        run: |
+          v="${RELEASE_VERSION#v}"
+          if [ -f "src/release-notes/$v.md" ]; then cp "src/release-notes/$v.md" notes.md
+          else printf 'Nouvelle version de Marginalia.\n\nTéléchargez-la sur [le site](https://marginalia-bice.vercel.app/#telecharger) et installez-la par-dessus l’ancienne : vos données sont conservées.\n' > notes.md; fi
+          cat notes.md
+
       - name: Créer la Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.tag.outputs.name }}
           target_commitish: ${{ github.sha }}
           name: Marginalia ${{ steps.tag.outputs.name }}
-          generate_release_notes: true
+          body_path: notes.md
+          generate_release_notes: false
           # v4.0.0-beta.1 → pré-version
           prerelease: ${{ contains(steps.tag.outputs.name, '-') }}
           fail_on_unmatched_files: true

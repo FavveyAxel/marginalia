@@ -642,7 +642,7 @@ function Features({ travel }: { travel: boolean }) {
 }
 
 const PRIVACY = [
-  { icon: 'offline', title: 'Hors ligne, par construction', text: 'L’app bloque toute connexion sortante vers Internet. Elle fonctionne aussi bien en mode avion qu’au bureau.' },
+  { icon: 'offline', title: 'Hors ligne, par construction', text: 'L’app bloque toute connexion vers Internet, sauf pour vérifier au lancement s’il existe une nouvelle version (désactivable, aucune donnée envoyée). Elle fonctionne aussi bien en mode avion qu’au bureau.' },
   { icon: 'noacc', title: 'Ni compte, ni pistage', text: 'Pas d’inscription, pas de publicité, pas de statistiques d’utilisation. Personne ne sait ce que vous lisez ni ce que vous écrivez.' },
   { icon: 'scan', title: 'La reconnaissance de texte reste chez vous', text: 'Le moteur et ses modèles sont livrés avec l’app : vos photos et vos scans ne sont envoyés nulle part.' },
   { icon: 'lock', title: 'Chiffrement AES-256', text: 'En option, toutes vos données sont chiffrées sur le disque. La clé est gardée par le Trousseau du Mac ou par Windows.' },

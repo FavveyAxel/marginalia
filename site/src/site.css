@@ -422,12 +422,9 @@ a.btn-primary:hover { background: #3a342b; }
   .photo { grid-template-columns: minmax(0, 7fr) minmax(0, 4fr); }
   .photo .photo-stack { order: -1; }
   .photo .photo-card { left: auto; right: -2.5rem; }
-  /* 3. Espaces : texte à gauche */
-  .spaces { grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); }
-  .spaces .spaces-text { order: -1; }
-  /* 4. Livres : capture à gauche */
-  .books { grid-template-columns: minmax(0, 6fr) minmax(0, 5fr); }
-  .books .books-wrap { order: -1; justify-self: start; }
+  /* 3. Carte mentale : texte à gauche (ordre du code) */
+  /* 4. Espaces : capture à gauche (ordre du code) */
+  /* 5. Livres : texte à gauche (ordre du code) */
 }
 /* Téléphone : seulement la capture principale (image, texte reconnu, extraits) */
 @media (max-width: 900px) {
@@ -436,4 +433,21 @@ a.btn-primary:hover { background: #3a342b; }
 @media (max-width: 620px) {
   .private-grid { grid-template-columns: minmax(0, 1fr); }
   .private h2 { font-size: 2.25rem; }
+}
+
+/* ── Carte mentale libre ── */
+.carte {
+  max-width: 75rem; margin: 9rem auto 0; padding: 0 var(--gutter);
+  display: grid; grid-template-columns: minmax(0, 4fr) minmax(0, 7fr); gap: 4.5rem; align-items: center;
+}
+.carte h2 { font-size: 3.5rem; }
+.carte p { margin: 1rem 0 0; color: var(--ink-2); max-width: 42ch; }
+.carte-shot { display: block; width: 100%; height: auto; border-radius: 0.75rem; box-shadow: var(--shadow-lg); }
+@media (max-width: 900px) {
+  .carte { grid-template-columns: minmax(0, 1fr); gap: 1.75rem; }
+  .carte .shot-wrap { margin-top: 0; }
+}
+@media (max-width: 620px) {
+  .carte { margin-top: 6rem; }
+  .carte h2 { font-size: 2.5rem; }
 }

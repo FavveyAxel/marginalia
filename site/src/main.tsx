@@ -117,6 +117,7 @@ const PERCHES: Record<string, PerchDef> = {
   apercu: { side: 'right', inset: 3, seq: (b) => [[TAB_POSES[b.tab] ?? 'wave', 600000]] },
   cote: { side: 'right', inset: 2.5, seq: () => [['question', 4500], ['wave', 2500]] },
   photo: { side: 'right', inset: 2.5, seq: () => [['guitar', 7000], ['coffee', 6000]] },
+  carte: { side: 'right', inset: 2.5, seq: () => [['classify', 600000]] },
   espaces: { side: 'right', inset: 2, seq: () => [['juggle', 600000]] },
   livres: { side: 'right', inset: 2, seq: () => [['plane', 600000]] },
   fonctions: { side: 'slot', inset: 0, seat: true, seq: (b) => [[MORE[b.group]?.pose ?? 'read', 600000]] },
@@ -469,7 +470,8 @@ const MORE: { icon: string; title: string; pose: Pose; line: string; items: stri
     pose: 'geometry' as Pose,
     line: 'Mettez la question au centre et rangez vos idées autour.',
     items: [
-      'Carte d’argument de chaque livre, cartes libres sur plusieurs livres',
+      'Cartes libres pour vos idées, avec ou sans livre',
+      'Carte d’argument de chaque livre, ou de plusieurs à la fois',
       'Problématique ou sujet au centre, branches repliables',
       'Rangement en arbre, débat, chronologie ou étoile',
       'Zones, liens nommés, points à revoir signalés',
@@ -509,16 +511,17 @@ const MORE: { icon: string; title: string; pose: Pose; line: string; items: stri
     ],
   },
   {
-    icon: 'lock',
-    title: 'Organiser et protéger',
+    icon: 'search',
+    title: 'Retrouver, ne rien perdre',
     pose: 'herborize' as Pose,
-    line: 'Tout reste chez vous. J’y tiens : moi, j’herborisais loin du monde.',
+    line: 'Rien ne se perd ici. J’aurais aimé ça pour mes manuscrits.',
     items: [
-      'Espaces de travail par cours ou dissertation, avec groupes',
+      'Recherche partout (⌘K) : livres, extraits, concepts, plans, écrits, signets',
       'Historique : revenir à l’état d’avant chaque action',
       'Corbeille de 30 jours',
+      'Sauvegardes automatiques, et sauvegarde complète en .zip',
+      'Bibliothèque triée, filtrée, export de toutes vos notes',
       'Thèmes clair, sépia et sombre',
-      'Tout en local ; chiffrement et verrouillage (mot de passe ou Touch ID) en option',
       'Un compagnon : Rousseau, Socrate, Platon, Aristote ou le cerveau',
     ],
   },
@@ -540,6 +543,7 @@ function Pict({ name }: { name: string }) {
     scan: <><path d="M4 8V5.5A1.5 1.5 0 0 1 5.5 4H8M16 4h2.5A1.5 1.5 0 0 1 20 5.5V8M20 16v2.5a1.5 1.5 0 0 1-1.5 1.5H16M8 20H5.5A1.5 1.5 0 0 1 4 18.5V16" {...p} /><path d="M8 9.5h8M8 12.5h8M8 15.5h5" {...p} /></>,
     shield: <><path d="M12 3l7 2.8v5.4c0 4.4-2.9 8-7 9.8-4.1-1.8-7-5.4-7-9.8V5.8z" {...p} /><path d="M9 12l2.2 2.2L15.5 10" {...p} /></>,
     folder: <><path d="M3.5 7.5A1.5 1.5 0 0 1 5 6h4.2l2 2H19a1.5 1.5 0 0 1 1.5 1.5v8A1.5 1.5 0 0 1 19 19H5a1.5 1.5 0 0 1-1.5-1.5z" {...p} /><path d="M12 11v5M9.8 13.8L12 16l2.2-2.2" {...p} /></>,
+    search: <><circle cx="10.5" cy="10.5" r="6" {...p} /><path d="M15 15l5 5" {...p} /></>,
     figure: <><circle cx="12" cy="7" r="3.2" {...p} /><path d="M6.5 21c.5-4.5 2.5-7 5.5-7s5 2.5 5.5 7" {...p} /><path d="M8.6 6.2c-1.4-.2-1.8 1.4-.6 2M15.4 6.2c1.4-.2 1.8 1.4.6 2" {...p} /></>,
   };
   return <svg className="pict" viewBox="0 0 24 24" aria-hidden="true">{d[name]}</svg>;
@@ -730,6 +734,24 @@ function App() {
               <img className="photo-shot" src="/captures/photo-texte.png" alt="Une photo de page dans Marginalia : un passage surligné, et le texte reconnu ligne par ligne" width={1440} height={900} loading="lazy" />
             </div>
             <img className="photo-card" src="/captures/photo-telephone.png" alt="Une photo reçue du téléphone : le texte lu, le passage retrouvé dans le Discours de la méthode, et les boutons Ajouter comme extrait et Créer un écrit" width={760} height={605} loading="lazy" />
+          </div>
+        </section>
+
+        <section className="carte reveal" id="carte" aria-labelledby="carte-title">
+          <div className="carte-text">
+            <h2 id="carte-title">Mettre ses idées à plat</h2>
+            <p>
+              Une carte mentale libre, sans livre&nbsp;: posez votre sujet ou votre problématique au centre et lancez vos idées autour,
+              comme sur un tableau blanc. Reliez-les, colorez-les, regroupez-les en zones («&nbsp;À faire&nbsp;», «&nbsp;À creuser&nbsp;»),
+              repliez une branche pour y voir clair. Un clic la range en arbre ou en étoile.
+            </p>
+            <p>
+              Pour un mémoire, un exposé ou un projet&nbsp;: la carte vit dans son espace de travail, à côté de vos écrits et de vos sources.
+              Quand un livre s’en mêle, glissez-y un extrait&nbsp;; et quand tout est en place, tirez-en un plan ou un premier jet.
+            </p>
+          </div>
+          <div className="shot-wrap" data-perch="carte">
+            <img className="carte-shot" src="/captures/carte.png" alt="Une carte mentale libre « Idées pour le mémoire » : la problématique sur le télétravail au centre, quatre branches en couleur et une zone « À faire en mars »" width={1440} height={900} loading="lazy" />
           </div>
         </section>
 

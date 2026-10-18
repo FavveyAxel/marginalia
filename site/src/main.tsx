@@ -421,13 +421,31 @@ function Showcase() {
 }
 
 /** Apparition douce des blocs marqués .reveal quand ils entrent à l'écran (une seule fois). */
+/**
+ * Apparition au défilement, élément par élément : titres, paragraphes, lignes de liste et captures
+ * arrivent l'un après l'autre (en cascade quand plusieurs entrent ensemble). Sur téléphone, où une
+ * section est haute, chaque paragraphe apparaît ainsi au moment où on l'atteint.
+ */
+const RV_SEL = 'h2, h3, p, li, .shot-wrap, .photo-card, .pict, .dl-group';
 function useReveal() {
   useEffect(() => {
-    const els = Array.from(document.querySelectorAll('.reveal'));
-    if (reduced() || !('IntersectionObserver' in window)) { els.forEach((e) => e.classList.add('is-in')); return; }
+    const all = Array.from(document.querySelectorAll<HTMLElement>('.reveal')).flatMap((sec) => Array.from(sec.querySelectorAll<HTMLElement>(RV_SEL)));
+    const set = new Set(all);
+    // un élément contenu dans un autre élément animé suit son parent (ex. le titre d'une carte de la grille)
+    const els = all.filter((el) => { if (el.closest('details')) return false; for (let p = el.parentElement; p; p = p.parentElement) if (set.has(p)) return false; return true; });
+    document.querySelectorAll('.reveal').forEach((s) => s.classList.add('rv-on'));
+    if (reduced() || !('IntersectionObserver' in window)) { els.forEach((e) => e.classList.add('rv', 'is-in')); return; }
+    els.forEach((e) => e.classList.add('rv'));
     const io = new IntersectionObserver((entries) => {
-      for (const e of entries) if (e.isIntersecting) { e.target.classList.add('is-in'); io.unobserve(e.target); }
-    }, { threshold: 0.12, rootMargin: '0px 0px -8% 0px' });
+      const fresh = entries.filter((e) => e.isIntersecting).map((e) => e.target as HTMLElement);
+      fresh.sort((x, y) => x.getBoundingClientRect().top - y.getBoundingClientRect().top || x.getBoundingClientRect().left - y.getBoundingClientRect().left);
+      fresh.forEach((el, i) => {
+        el.style.transitionDelay = `${Math.min(i * 70, 420)}ms`;
+        el.classList.add('is-in');
+        io.unobserve(el);
+        el.addEventListener('transitionend', () => { el.style.transitionDelay = ''; }, { once: true });
+      });
+    }, { threshold: 0.2, rootMargin: '0px 0px -6% 0px' });
     els.forEach((e) => io.observe(e));
     return () => io.disconnect();
   }, []);
@@ -788,7 +806,7 @@ function App() {
 
         <Privacy />
 
-        <section className="download" id="telecharger">
+        <section className="download reveal" id="telecharger">
           <h2>Télécharger Marginalia {VERSION}</h2>
           <div className="dl-groups" data-perch="telecharger">
             {(['mac', 'win'] as const).map((g) => (

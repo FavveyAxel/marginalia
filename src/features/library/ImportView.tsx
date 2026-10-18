@@ -20,8 +20,9 @@ interface Result {
 /** Ouvre la fenêtre de l'app Livres (bibliothèque). */
 export const OPEN_APPLE_BOOKS = 'mg:open-apple-books';
 
-export function ImportView({ workspaceId }: { workspaceId?: string }) {
+export function ImportView({ workspaceId, groupId = null }: { workspaceId?: string; groupId?: string | null }) {
   const ws = useStore((s) => (workspaceId ? s.workspaces.find((w) => w.id === workspaceId) : null));
+  const group = useStore((s) => (groupId ? s.groups.find((g) => g.id === groupId) : null));
   const inboxOn = useStore((s) => !!s.settings.inbox);
   const info = useInbox((s) => s.info);
   const waiting = useInboxCount();
@@ -81,7 +82,13 @@ export function ImportView({ workspaceId }: { workspaceId?: string }) {
             <h1 className="page-title">Importer</h1>
             <p className="imp-lede">
               Livres, documents et photos de pages. Les livres (EPUB, PDF, photos) rejoignent la bibliothèque ; les documents Word et Markdown deviennent des
-              écrits{ws ? <> rangés dans l’espace <strong>« {ws.name} »</strong></> : null}.
+              écrits.{ws ? (
+                <>
+                  {' '}
+                  Tout sera rangé dans l’espace <strong>« {ws.name} »</strong>
+                  {group ? <>, groupe <strong>« {group.name} »</strong></> : null}.
+                </>
+              ) : null}
             </p>
           </div>
 
@@ -135,11 +142,11 @@ export function ImportView({ workspaceId }: { workspaceId?: string }) {
               </div>
               <span className="spacer" />
               {result.books > 0 && (
-                <button className="btn btn-sm" onClick={() => useStore.getState().navigate(ws ? { name: 'workspace', workspaceId: ws.id, groupId: null } : { name: 'library' })}>
+                <button className="btn btn-sm" onClick={() => useStore.getState().navigate(ws ? { name: 'workspace', workspaceId: ws.id, groupId: groupId ?? null } : { name: 'library' })}>
                   {ws ? 'Voir l’espace' : 'Voir la bibliothèque'}
                 </button>
               )}
-              {result.drafts > 0 && !result.books && (
+              {result.drafts > 0 && !result.books && !ws && (
                 <button className="btn btn-sm" onClick={() => useStore.getState().navigate({ name: 'write', draftId: null })}>
                   Voir les écrits
                 </button>

@@ -635,7 +635,7 @@ export function App() {
             {route.name === 'write' && <WriteView key={route.draftId ?? 'list'} draftId={route.draftId} />}
             {route.name === 'trash' && <TrashView />}
             {route.name === 'inbox' && <InboxView />}
-            {route.name === 'import' && <ImportView key={route.workspaceId ?? ''} workspaceId={route.workspaceId} />}
+            {route.name === 'import' && <ImportView key={`${route.workspaceId ?? ''}:${route.groupId ?? ''}`} workspaceId={route.workspaceId} groupId={route.groupId ?? null} />}
             {route.name === 'history' && <HistoryView />}
             {route.name === 'help' && <HelpView />}
             {route.name === 'board' && <BoardView key={route.boardId} boardId={route.boardId} />}

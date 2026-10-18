@@ -25,9 +25,9 @@ export async function importFromDrop(list: FileList, workspaceId: string, groupI
   return importIntoWorkspace(files, workspaceId, groupId);
 }
 
+/** « Importer ici » : la page Importer (fichiers, dossier, QR code…), rangement dans cet espace / ce groupe. */
 export async function importHere(workspaceId: string, groupId: string | null) {
-  const files = await host.pickFiles();
-  return importIntoWorkspace(files, workspaceId, groupId);
+  useStore.getState().navigate({ name: 'import', workspaceId, groupId });
 }
 
 export async function newDraftHere(workspaceId: string, groupId: string | null) {

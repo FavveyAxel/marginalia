@@ -380,3 +380,6 @@ a.btn-primary:hover { background: #3a342b; }
 @media (max-width: 900px) {
   .cote, .spaces, .books { gap: 1.75rem; }
 }
+
+.os-logo { object-fit: contain; }
+.btn-primary .os-logo { filter: invert(1) brightness(1.2); }

@@ -273,7 +273,16 @@ function useOs(): 'mac' | 'win' | null {
 }
 
 /** Pictogrammes neutres : un portable (Mac) et un écran de bureau (Windows). */
+/**
+ * Logo du système s'il a été déposé dans site/public/logos/ (apple.svg, windows.svg) ; à défaut, le
+ * pictogramme neutre ci-dessous.
+ */
 function OsIcon({ os }: { os: 'mac' | 'win' }) {
+  const [logoOk, setLogoOk] = useState(true);
+  if (logoOk)
+    return (
+      <img className="os-icon os-logo" src={`/logos/${os === 'mac' ? 'apple' : 'windows'}.svg`} alt="" aria-hidden="true" onError={() => setLogoOk(false)} />
+    );
   return os === 'mac' ? (
     <svg className="os-icon" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round">
       <rect x="4.5" y="5" width="15" height="10.5" rx="1.4" />

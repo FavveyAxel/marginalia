@@ -667,11 +667,13 @@ export async function parseDocx(data: ArrayBuffer): Promise<DocModel> {
       });
     }
     parts.push({ inlines: cur, pageBreak: brk });
-    // un saut tout au début ou tout à la fin ne crée pas de paragraphe vide
+    // un saut tout au début ou tout à la fin ne crée pas de paragraphe vide, sauf si la page qu'il
+    // ferme est déjà vide (deux sauts de suite = une page blanche, gardée comme paragraphe vide)
     const hasText = (x: Inline[]) => x.some((i) => i.t !== 'text' || i.text.trim() !== '');
     parts.forEach((part, k) => {
-      if (!hasText(part.inlines) && (k === 0 || k === parts.length - 1) && parts.length > 1) {
-        if (k === parts.length - 1) breakNext = breakNext || part.pageBreak;
+      const last = k === parts.length - 1;
+      if (!hasText(part.inlines) && parts.length > 1 && !(part.pageBreak && !last)) {
+        if (last) breakNext = breakNext || part.pageBreak;
         else parts[k + 1].pageBreak = parts[k + 1].pageBreak || part.pageBreak;
         return;
       }

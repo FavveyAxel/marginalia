@@ -132,6 +132,28 @@ try {
   spawnSync('pdftoppm', ['-png', '-r', '20', '-f', '1', '-l', '1', e.f, path.join(OUT, 'sombre-px')]);
   const px = spawnSync('python3', ['-c', `from PIL import Image; im=Image.open('${path.join(OUT, 'sombre-px-01.png').replace(/-01/, (m) => fs.existsSync(path.join(OUT, 'sombre-px-01.png')) ? m : '-1')}').convert('L'); print(sum(im.getdata())/len(im.getdata()))`], { encoding: 'utf8' });
   check('thème sombre : fond du PDF clair', Number(px.stdout) > 200, px.stdout.trim() || px.stderr.slice(0, 200));
+  // champs PAGE / NUMPAGES regroupés dans un seul run (docx-js, convertisseurs) : numéros affichés
+  {
+    const JSZip = (await import('jszip')).default;
+    const W = 'xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"';
+    const z = new JSZip();
+    z.file('[Content_Types].xml', '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/><Override PartName="/word/footer1.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.footer+xml"/></Types>');
+    z.file('_rels/.rels', '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>');
+    z.file('word/_rels/document.xml.rels', '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId9" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/footer" Target="footer1.xml"/></Relationships>');
+    z.file('word/footer1.xml', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:ftr ${W}><w:p><w:pPr><w:jc w:val="center"/></w:pPr><w:r><w:t xml:space="preserve">Page </w:t><w:fldChar w:fldCharType="begin"/><w:instrText xml:space="preserve">PAGE</w:instrText><w:fldChar w:fldCharType="separate"/><w:fldChar w:fldCharType="end"/><w:t xml:space="preserve"> / </w:t><w:fldChar w:fldCharType="begin"/><w:instrText xml:space="preserve">NUMPAGES</w:instrText><w:fldChar w:fldCharType="separate"/><w:fldChar w:fldCharType="end"/></w:r></w:p></w:ftr>`);
+    z.file('word/document.xml', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:document ${W}><w:body><w:p><w:r><w:t>Première page.</w:t></w:r></w:p><w:p><w:r><w:br w:type="page"/><w:t>Deuxième page.</w:t></w:r></w:p><w:sectPr><w:footerReference w:type="default" r:id="rId9"/><w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="1440" w:right="1440" w:bottom="1440" w:left="1440" w:header="708" w:footer="708" w:gutter="0"/></w:sectPr></w:body></w:document>`);
+    const b64 = (await z.generateAsync({ type: 'nodebuffer' })).toString('base64');
+    await page.evaluate(async (b64) => {
+      window.__store.getState().navigate({ name: 'home' });
+      const docx = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0)).buffer;
+      const d = await (await import('/src/features/editor/api.ts')).createDraft({ title: 'Champs', docx });
+      window.__store.getState().navigate({ name: 'write', draftId: d.id });
+    }, b64);
+    await page.waitForFunction(() => document.querySelectorAll('.ed-engine-in .superdoc-page').length === 2, null, { timeout: 60000 });
+    await page.waitForTimeout(1500);
+    const foot = await page.evaluate(() => [...document.querySelectorAll('.ed-engine-in .superdoc-page-footer')].map((f) => f.innerText.replace(/\s+/g, ' ').trim()));
+    check('champs dans un seul run : « Page 1 / 2 », « Page 2 / 2 » dans l’éditeur', foot[0] === 'Page 1 / 2' && foot[1] === 'Page 2 / 2', foot);
+  }
   // parcours réel : menu Exporter → PDF (dialogue d'enregistrement simulé dans le processus principal)
   const saved = path.join(OUT, 'via-menu.pdf');
   fs.rmSync(saved, { force: true });
@@ -141,7 +163,7 @@ try {
   for (let i = 0; i < 60 && !fs.existsSync(saved); i++) await page.waitForTimeout(500);
   await page.waitForTimeout(500);
   const nMenu = Number(/Pages:\s+(\d+)/.exec(spawnSync('pdfinfo', [saved], { encoding: 'utf8' }).stdout)?.[1]);
-  check('menu Exporter → PDF : même nombre de pages que l’éditeur', nMenu === e.ed.length, `${nMenu} / ${e.ed.length}`);
+  check('menu Exporter → PDF : même nombre de pages que l’éditeur', nMenu === 2, `${nMenu} / 2 (écrit « Champs »)`);
   check('aucune erreur de page', errors.length === 0, errors.join(' | '));
 } finally {
   await app.close();

@@ -25,6 +25,7 @@ import {
   styleRunProps,
   ensureStylesXml,
   normalizeDocx,
+  prepareDocxForEditor,
   patchStylesXml,
   readStylesXml,
   replaceThemeFonts,
@@ -474,7 +475,8 @@ export async function openDocEngine(host: HTMLElement, data: ArrayBuffer, opts: 
   /** Suivi des transactions du corps pour annuler / rétablir la police du document (défini plus bas). */
   let docFontOnTransaction: ((ed: Any, tr: Any) => void) | null = null;
 
-  const create = (buf: ArrayBuffer): Promise<Any> => {
+  const create = async (raw: ArrayBuffer): Promise<Any> => {
+    const buf = await prepareDocxForEditor(raw);
     const file = new File([buf], 'document.docx', {
       type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
     });

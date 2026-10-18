@@ -8,6 +8,7 @@
 // n'a ni sélection, ni curseur, ni soulignés d'orthographe, ni teinte de l'interface.
 // ─────────────────────────────────────────────────────────────
 import { loadSuperDoc } from './engine';
+import { prepareDocxForEditor } from './ooxml';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 type Any = any;
@@ -118,7 +119,7 @@ export async function renderPagesForPrint(docx: ArrayBuffer, opts: PagePrintOpti
   document.body.appendChild(host);
   let inst: Any = null;
   try {
-    const file = new File([docx], 'document.docx', { type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' });
+    const file = new File([await prepareDocxForEditor(docx)], 'document.docx', { type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' });
     inst = await new Promise<Any>((resolve, reject) => {
       const timer = setTimeout(() => reject(new Error('Mise en page trop longue')), opts.timeout ?? 45000);
       try {

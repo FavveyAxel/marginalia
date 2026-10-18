@@ -419,6 +419,44 @@ export function completeFontTable(fontXml: string, fonts: string[]): string {
   return fontXml.replace(/<\/w:fonts>\s*$/, `${el}</w:fonts>`);
 }
 
+// ── Champs (PAGE, NUMPAGES…) écrits dans un seul run ──
+// Word met chaque fldChar / instrText dans son propre run ; certains générateurs (docx-js, outils
+// de conversion) les regroupent dans un seul run avec du texte. Le moteur d'édition ne reconnaît
+// alors pas le champ (« Page  / » au lieu de « Page 3 / 12 ») : on redécoupe ces runs à l'ouverture.
+const RUN_RE = /<w:r(\s[^>]*)?>((?:(?!<w:r[\s>])[\s\S])*?)<\/w:r>/g;
+const CHILD_RE = /<(w:[A-Za-z]+)\b[^>]*\/>|<(w:[A-Za-z]+)\b[^>]*>[\s\S]*?<\/\2>/g;
+export function splitFieldRuns(xml: string): string {
+  if (!/<w:(fldChar|instrText)\b/.test(xml)) return xml;
+  return xml.replace(RUN_RE, (whole, attrs: string | undefined, inner: string) => {
+    if (!/<w:(fldChar|instrText)\b/.test(inner)) return whole;
+    const rPr = /^\s*(<w:rPr\s*\/>|<w:rPr\b[^>]*>[\s\S]*?<\/w:rPr>)/.exec(inner)?.[1] ?? '';
+    const rest = rPr ? inner.slice(inner.indexOf(rPr) + rPr.length) : inner;
+    const kids = rest.match(CHILD_RE) ?? [];
+    if (kids.length < 2 || kids.join('').replace(/\s+/g, '') !== rest.replace(/\s+/g, '')) return whole;
+    return kids.map((k) => `<w:r${attrs ?? ''}>${rPr}${k}</w:r>`).join('');
+  });
+}
+
+/** Prépare un .docx à l'ouverture dans l'éditeur. Renvoie les octets d'origine si rien n'est à faire. */
+export async function prepareDocxForEditor(data: ArrayBuffer): Promise<ArrayBuffer> {
+  try {
+    const zip = await JSZip.loadAsync(data);
+    let changed = false;
+    for (const n of Object.keys(zip.files)) {
+      if (zip.files[n].dir || !/^word\/(document|header\d*|footer\d*|footnotes|endnotes)\.xml$/.test(n)) continue;
+      const x = await zip.file(n)!.async('string');
+      const y = splitFieldRuns(x);
+      if (y !== x) {
+        zip.file(n, y);
+        changed = true;
+      }
+    }
+    return changed ? await zip.generateAsync({ type: 'arraybuffer', compression: 'DEFLATE', mimeType: DOCX_MIME }) : data;
+  } catch {
+    return data;
+  }
+}
+
 // ── Point d'entrée ──
 const XML_PART = /^(word\/(?:[^/]+|_rels\/[^/]+)\.(?:xml|rels)|\[Content_Types\]\.xml|docProps\/[^/]+\.xml|_rels\/\.rels|customXml\/[^/]+\.xml)$/;
 

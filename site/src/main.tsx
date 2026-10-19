@@ -652,9 +652,9 @@ function Features({ travel }: { travel: boolean }) {
 
 // ── Travailler à plusieurs : la table des philosophes ──
 const CREW: { who: string; color: string; character: CharacterDef; seq: [Pose, number][] }[] = [
-  { who: 'Socrate', color: '#c2410c', character: socrate, seq: [['wave', 2600], ['think', 5200]] },
-  { who: 'Platon', color: '#1d4ed8', character: platon, seq: [['write', 6000], ['think', 3600]] },
-  { who: 'Aristote', color: '#15803d', character: aristote, seq: [['classify', 6500], ['read', 4200]] },
+  { who: 'Socrate', color: '#c2410c', character: socrate, seq: [['question', 5200], ['wave', 2600], ['stand', 1800]] },
+  { who: 'Platon', color: '#1d4ed8', character: platon, seq: [['write', 6500], ['stand', 2200]] },
+  { who: 'Aristote', color: '#15803d', character: aristote, seq: [['read', 6500], ['look', 2400]] },
 ];
 
 function Together() {
@@ -676,7 +676,7 @@ function Together() {
           <img className="together-shot" src="/captures/ensemble-carte.png" alt="Une carte partagée dans l’espace « Parjure » : les pointeurs de Léa et d’Inès, et la carte que Léa déplace, entourée de sa couleur" width={1040} height={760} loading="lazy" />
         </div>
         <img className="together-card" src="/captures/ensemble-code.png" alt="La fenêtre « Travailler à plusieurs » : le code 324-508, les trois étapes sur l’autre ordinateur, et les six places" width={640} height={476} loading="lazy" />
-        <ul className="crew" aria-label="Trois philosophes travaillent ensemble">
+        <ul className="crew" aria-label="Trois philosophes travaillent ensemble : l’un discute, l’autre écrit, le troisième lit">
           {CREW.map((c) => (
             <li key={c.who} className="crew-one" style={{ ['--who' as string]: c.color }}>
               <span className="crew-tag" aria-hidden="true">

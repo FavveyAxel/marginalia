@@ -167,6 +167,8 @@ export interface SharePreview {
     included: boolean;
     /** Même livre déjà dans cette bibliothèque (même empreinte) : ses extraits s'y rattacheront. */
     local: { id: string; title: string; missing: boolean } | null;
+    /** Livre papier (jamais de fichier : il n'est pas « sans fichier »). */
+    paper?: boolean;
   }[];
   /** Livres déjà présents ici (aucun doublon ne sera créé). */
   booksHere: number;
@@ -209,8 +211,9 @@ export async function sha256Hex(data: ArrayBuffer | Uint8Array | string): Promis
   return toHex(await crypto.subtle.digest('SHA-256', bytes));
 }
 
-/** Fichiers source d'un livre : les pages d'un document de photos, sinon son fichier. */
+/** Fichiers source d'un livre : les pages d'un document de photos, sinon son fichier (livre papier : aucun). */
 export function bookSourceFiles(b: Book): string[] {
+  if (b.format === 'paper') return [];
   const pages = (b as BookWithPages).pages;
   return Array.isArray(pages) && pages.length > 1 ? pages : [b.fileName];
 }
@@ -237,6 +240,7 @@ const fpKey = (b: Book) => `${b.id}|${bookSourceFiles(b).join('/')}|${b.size}`;
 /** Empreinte d'un livre de la bibliothèque (lue à la demande, gardée en mémoire) ; null si le fichier est illisible. */
 export function bookFingerprint(b: Book): Promise<{ sha256: string; size: number } | null> {
   if (b.missing) return Promise.resolve(b.sourceSha256 ? { sha256: b.sourceSha256, size: b.size } : null);
+  if (b.format === 'paper') return Promise.resolve(null);
   const key = fpKey(b);
   let p = fpCache.get(key);
   if (!p) {
@@ -253,6 +257,25 @@ export function bookFingerprint(b: Book): Promise<{ sha256: string; size: number
   return p;
 }
 
+const foldKey = (s: unknown) => (typeof s === 'string' ? s : '').normalize('NFD').replace(/\p{M}/gu, '').toLowerCase().replace(/\s+/g, ' ').trim();
+/**
+ * Livre papier de cette bibliothèque identique à un livre papier du paquet : même ISBN, sinon même
+ * titre, auteur, éditeur et année (un livre papier n'a pas de fichier, donc pas d'empreinte).
+ */
+export function findLocalPaperBook(src: { title?: unknown; author?: unknown; isbn?: unknown; edition?: unknown }, books: Book[]): Book | null {
+  const papers = books.filter((b) => b.format === 'paper');
+  if (typeof src.isbn === 'string' && src.isbn) {
+    const hit = papers.find((b) => b.isbn === src.isbn);
+    if (hit) return hit;
+  }
+  const ed = (src.edition && typeof src.edition === 'object' ? src.edition : {}) as { publisher?: unknown; year?: unknown };
+  return (
+    papers.find(
+      (b) => foldKey(b.title) === foldKey(src.title) && foldKey(b.author) === foldKey(src.author) && foldKey(b.edition.publisher) === foldKey(ed.publisher) && foldKey(b.edition.year) === foldKey(ed.year),
+    ) ?? null
+  );
+}
+
 /**
  * Livre de cette bibliothèque identique à un livre du paquet : même empreinte notée (livre déjà reçu),
  * sinon même taille puis même SHA-256 du fichier (calculé seulement pour les livres de même taille).
@@ -260,6 +283,7 @@ export function bookFingerprint(b: Book): Promise<{ sha256: string; size: number
  */
 export async function findLocalBook(entry: { sha256: string | null; size: number }, books: Book[]): Promise<Book | null> {
   if (!entry.sha256) return null;
+  books = books.filter((b) => b.format !== 'paper');
   const noted = books.filter((b) => b.sourceSha256 === entry.sha256);
   const withFile = noted.find((b) => !b.missing);
   if (withFile) return withFile;
@@ -550,7 +574,8 @@ export async function buildSharePackage(sel: ShareSelection, opts: { includeBook
   // ── data.json ──
   const inSet = <T extends { id: string }>(arr: T[], set: Set<string>) => arr.filter((x) => set.has(x.id));
   const books = inSet(s.books, p.books).map((b) => ({ ...b, position: null, progress: 0, lastOpenedAt: null }));
-  const highlights = inSet(s.highlights, p.highlights).map(({ source: _source, ...h }) => h as Highlight);
+  // Photo d'une page de livre papier : fichier local, jamais partagée (le texte de l'extrait suffit).
+  const highlights = inSet(s.highlights, p.highlights).map(({ source: _source, photo: _photo, ...h }) => h as Highlight);
   const concepts = inSet(s.concepts, p.concepts).map((c) => ({
     ...c,
     links: c.links.filter((l) => p.concepts.has(l.conceptId)),
@@ -595,6 +620,8 @@ export async function buildSharePackage(sel: ShareSelection, opts: { includeBook
   for (const b of books) {
     const entry: ShareBookEntry = { id: b.id, sha256: null, size: b.size, title: b.title, author: b.author, format: b.format, included: false };
     entries.push(entry);
+    // Livre papier : voyage sans fichier (métadonnées et couverture, dans data.json).
+    if (b.format === 'paper') continue;
     if (b.missing) {
       // Livre lui-même reçu sans fichier : on transmet l'empreinte notée.
       entry.sha256 = b.sourceSha256 ?? null;
@@ -666,7 +693,7 @@ const isStr = (x: unknown): x is string => typeof x === 'string';
 const isNum = (x: unknown): x is number => typeof x === 'number' && Number.isFinite(x);
 const isId = (x: unknown): x is string => isStr(x) && x.length > 0 && x.length <= 200;
 const isOptId = (x: unknown) => x == null || isId(x);
-const FORMATS: BookFormat[] = ['epub', 'pdf', 'docx', 'md', 'txt', 'html', 'image'];
+const FORMATS: BookFormat[] = ['epub', 'pdf', 'docx', 'md', 'txt', 'html', 'image', 'paper'];
 
 /** Nom d'entrée de l'archive acceptable : manifest.json, data.json ou files/<id>/<fichier>. */
 function safeEntryName(name: string, dir: boolean): boolean {
@@ -695,7 +722,7 @@ function validateData(raw: unknown): ShareData | null {
   for (const [k, m] of Object.entries(maps)) if (!isId(k) || !isObj(m) || !Array.isArray(m.nodes) || !Array.isArray(m.edges) || !m.nodes.every((n) => isObj(n) && isId(n.id))) return null;
   const ok =
     (out.books as Record<string, unknown>[]).every(
-      (b) => isStr(b.title) && isStr(b.author) && FORMATS.includes(b.format as BookFormat) && isSafeSegment(b.fileName) && isNum(b.size) && (b.pages === undefined || (Array.isArray(b.pages) && b.pages.every(isSafeSegment))),
+      (b) => isStr(b.title) && isStr(b.author) && FORMATS.includes(b.format as BookFormat) && (b.format === 'paper' ? b.fileName === '' : isSafeSegment(b.fileName)) && isNum(b.size) && (b.pages === undefined || (Array.isArray(b.pages) && b.pages.every(isSafeSegment))),
     ) &&
     (out.highlights as Record<string, unknown>[]).every((h) => isId(h.bookId) && isStr(h.text) && isObj(h.anchor) && (h.anchor.kind === 'html' || h.anchor.kind === 'pdf') && Array.isArray(h.conceptIds)) &&
     (out.concepts as Record<string, unknown>[]).every((c) => isStr(c.name) && Array.isArray(c.senses) && Array.isArray(c.links)) &&
@@ -836,8 +863,9 @@ export async function readSharePackage(bytes: Uint8Array | ArrayBuffer): Promise
   const s = useStore.getState();
   const books: SharePreview['books'] = [];
   for (const e of manifest.books) {
-    const local = await findLocalBook(e, s.books);
-    books.push({ id: e.id, title: e.title, author: e.author ?? '', size: e.size, included: e.included, local: local ? { id: local.id, title: local.title, missing: !!local.missing } : null });
+    const paper = e.format === 'paper';
+    const local = paper ? findLocalPaperBook(data.books.find((b) => b.id === e.id) ?? e, s.books) : await findLocalBook(e, s.books);
+    books.push({ id: e.id, title: e.title, author: e.author ?? '', size: e.size, included: e.included, local: local ? { id: local.id, title: local.title, missing: !!local.missing } : null, ...(paper ? { paper: true } : {}) });
   }
   const counts = countsOf(data, manifest.books.filter((b) => b.included).length);
   return {
@@ -850,7 +878,7 @@ export async function readSharePackage(bytes: Uint8Array | ArrayBuffer): Promise
     booksIncluded: manifest.booksIncluded,
     books,
     booksHere: books.filter((b) => b.local && !b.local.missing).length,
-    booksWithoutFile: books.filter((b) => !b.included && (!b.local || b.local.missing)).length,
+    booksWithoutFile: books.filter((b) => !b.paper && !b.included && (!b.local || b.local.missing)).length,
     alreadyReceived: alreadyReceived(s, manifest.shareId),
     sentence: describeCounts(counts, manifest.booksIncluded),
   };

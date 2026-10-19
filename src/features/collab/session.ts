@@ -374,7 +374,8 @@ async function onFetch(from: string, head: Head) {
     }
     const fp = await bookFingerprint(b);
     const { list, body } = joinFiles(files);
-    const meta = { title: b.title, author: b.author, format: b.format, fileName: b.fileName, originalName: b.originalName, size: b.size, edition: b.edition, cover: b.cover, pages: b.pages, sha256: fp?.sha256 ?? null };
+    // Livre papier : aucun fichier, seulement ses métadonnées et sa couverture.
+    const meta = { title: b.title, author: b.author, format: b.format, fileName: b.fileName, originalName: b.originalName, size: b.size, edition: b.edition, cover: b.cover, pages: b.pages, sha256: fp?.sha256 ?? null, ...(b.format === 'paper' ? { paper: true, isbn: b.isbn ?? '' } : {}) };
     send(from, { t: 'files', c, g, rec: meta, list }, body);
   } else {
     const d = st.drafts.find((x) => x.id === id);
@@ -410,14 +411,16 @@ async function onFiles(head: Head, body: Uint8Array) {
     const local = typeof meta.sha256 === 'string' ? await findLocalBook({ sha256: meta.sha256, size: Number(meta.size) || 0 }, st.books) : null;
     if (local && !local.missing) s.records.addAlias('book', g, local.id);
     else {
-      for (const f of files) await host.storeFile(id, f.name, f.data);
+      const paper = meta.format === 'paper';
+      if (!paper) for (const f of files) await host.storeFile(id, f.name, f.data);
       const now = Date.now();
-      const fileName = SAFE.test(String(meta.fileName)) ? String(meta.fileName) : files[0]?.name ?? 'source.bin';
+      const fileName = paper ? '' : SAFE.test(String(meta.fileName)) ? String(meta.fileName) : files[0]?.name ?? 'source.bin';
       const book: Book = {
         id,
         title: String(meta.title ?? 'Sans titre').slice(0, 500),
         author: String(meta.author ?? '').slice(0, 500),
-        format: ['epub', 'pdf', 'docx', 'md', 'txt', 'html', 'image'].includes(meta.format) ? meta.format : 'txt',
+        format: ['epub', 'pdf', 'docx', 'md', 'txt', 'html', 'image', 'paper'].includes(meta.format) ? meta.format : 'txt',
+        ...(paper ? { paper: true as const, ...(typeof meta.isbn === 'string' && /^97[89]\d{10}$/.test(meta.isbn) ? { isbn: meta.isbn } : {}) } : {}),
         fileName,
         originalName: String(meta.originalName ?? fileName),
         size: Number(meta.size) || files.reduce((n, f) => n + f.data.byteLength, 0),

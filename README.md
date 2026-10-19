@@ -77,8 +77,12 @@ dans les « Artifacts » de l'exécution (gardés 7 jours).
 
 Tout fonctionne en local sur l'ordinateur : aucun compte, aucun serveur. Les livres, notes et écrits restent dans le dossier de l'app
 (`~/Library/Application Support/Marginalia` sur Mac, `%APPDATA%\Marginalia` sur Windows). La reconnaissance du texte des images (tesseract.js) et le correcteur tournent hors ligne,
-la télémétrie de l'éditeur (SuperDoc) est désactivée, et l'app bloque toute requête réseau sortante, sauf la vérification
-des mises à jour au lancement (lecture de la dernière Release GitHub, sans aucune donnée envoyée ; désactivable dans les Réglages).
+la télémétrie de l'éditeur (SuperDoc) est désactivée, et l'app bloque toute requête réseau sortante, sauf deux, toutes deux
+désactivables dans les Réglages : la vérification des mises à jour au lancement (lecture de la dernière Release GitHub, sans aucune
+donnée envoyée) et la recherche des **livres papier** (seul le texte tapé, ou l'ISBN lu sur le code-barres, part vers
+`www.googleapis.com/books/v1/volumes` et `openlibrary.org` ; les couvertures viennent de `covers.openlibrary.org` (et d'archive.org
+quand Open Library y redirige), `books.google.com` ou `*.googleusercontent.com`, et sont rangées avec le livre). Ces requêtes partent
+du processus principal, jamais de l'interface ; aucune photo ni aucun texte de photo n'est jamais envoyé.
 Sur Mac et Windows installés, la nouvelle version est ensuite téléchargée depuis la Release et installée au redémarrage ou à la
 fermeture, seulement si le manifeste `latest.json` est signé (Ed25519, clé publique dans `electron/update-key.cjs`, clé privée dans
 le secret `MARGINALIA_UPDATE_KEY` de la CI) et si la taille et l'empreinte SHA-256 du fichier correspondent ; sinon l'app propose

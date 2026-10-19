@@ -814,7 +814,8 @@ export async function findPassage(text: string, opts: FindOptions = {}): Promise
   const n = q.ids.length;
   if (n < 2 || (n < SHORT_WORDS && q.chars < SHORT_MIN_CHARS)) return [];
 
-  let books = useStore.getState().books;
+  // Livres sans texte à fouiller : livres papier, livres reçus sans leur fichier.
+  let books = useStore.getState().books.filter((b) => b.format !== 'paper' && !b.missing);
   if (opts.bookIds) {
     const want = new Set(opts.bookIds);
     books = books.filter((b) => want.has(b.id));

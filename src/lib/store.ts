@@ -542,7 +542,12 @@ function recascade(d: UndoData): void {
 }
 
 /** Fichiers à effacer au vidage. */
-function filesOf(kind: TrashKind, root: any): TrashEntry['files'] {
+function filesOf(kind: TrashKind, root: any, s?: { highlights: Highlight[] }): TrashEntry['files'] {
+  // Livre papier : aucun fichier source, seulement les photos de pages de ses extraits.
+  if (kind === 'book' && root.format === 'paper')
+    return (s?.highlights ?? []).filter((h) => h.bookId === root.id && h.photo).map((h) => ({ ownerId: root.id, fileName: h.photo! }));
+  // Extrait d'un livre papier tiré d'une photo : la photo part au vidage.
+  if (kind === 'highlight' && typeof root.photo === 'string' && root.photo) return [{ ownerId: root.bookId, fileName: root.photo }];
   if (kind === 'book') {
     // Document de photos : toutes les pages, et le texte reconnu / la copie affichable de chacune.
     const pages: string[] = Array.isArray(root.pages) && root.pages.length > 1 ? root.pages : [];
@@ -1104,7 +1109,7 @@ export const useStore = create<State>()(tracked((set, get) => ({
       deletedAt: Date.now(),
       ...(mode ? { mode } : {}),
       changes,
-      files: filesOf(kind, root),
+      files: filesOf(kind, root, s),
     };
     nextMeta = { action: 'delete', kind, refId: id, title: entry.title, bookId: entry.bookId, summary: entry.detail || 'Placé dans la corbeille', trashId: entry.id };
     const patch: Partial<State> = { trash: [entry, ...s.trash] };

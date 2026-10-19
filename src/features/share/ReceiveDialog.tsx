@@ -45,6 +45,7 @@ async function viewFromMeta(meta: Record<string, unknown>, size: number, from: s
   let here = 0;
   let without = 0;
   for (const b of books) {
+    if (b.format === 'paper') continue; // livre papier : jamais de fichier, reconnu à l'import
     const local = await findLocalBook({ sha256: typeof b.sha256 === 'string' ? b.sha256 : null, size: num(b.size) }, state.books);
     if (local && !local.missing) here++;
     else if (!b.included) without++;

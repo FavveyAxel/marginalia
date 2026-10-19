@@ -30,10 +30,13 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 const { Transform } = require('node:stream');
 const W = require('./wifi-crypto.cjs');
+const { normalizeIsbn } = require('./books-net.cjs');
 
 const IDLE_MS = 15 * 60 * 1000;
 const MAX_FILE_BYTES = 200 * 1024 * 1024;
 const MAX_TEXT_BYTES = 2 * 1024 * 1024;
+/** ISBN lu sur un code-barres (page « Scanner un livre ») : quelques chiffres seulement. */
+const MAX_ISBN_BYTES = 64;
 const MAX_FILES = 200;
 const PREFERRED_PORT = 47800;
 const BOOK_EXT = ['epub', 'pdf'];
@@ -120,6 +123,14 @@ function fill(html, values) {
   return out;
 }
 
+// Lecteur de codes-barres (page « Scanner un livre ») : @zxing/library, servi par l'app avec la page,
+// sous le nonce CSP (le téléphone n'a pas besoin d'Internet). Lu une fois.
+let pageZxing = null;
+function zxingScript() {
+  if (pageZxing == null) pageZxing = fs.readFileSync(path.join(__dirname, 'zxing.min.js'), 'utf8').replace(/<\/script/gi, '<\\/script');
+  return pageZxing;
+}
+
 const kindOf = (ext) => (BOOK_EXT.includes(ext) ? 'book' : IMAGE_EXT.includes(ext) ? 'image' : ext === 'docx' ? 'draft' : 'text');
 
 /**
@@ -129,6 +140,7 @@ const kindOf = (ext) => (BOOK_EXT.includes(ext) ? 'book' : IMAGE_EXT.includes(ex
  * @param {() => boolean} o.isLocked app verrouillée : tout est refusé
  * @param {(evt: object) => void} o.emit événements pour l'interface (reçu, appareil, arrêt)
  * @param {string} o.pagePath page HTML servie au téléphone
+ * @param {string} [o.scanPagePath] page « Scanner un livre » (code-barres → ISBN), servie à …/scan
  * @param {(...a: any[]) => void} [o.diag]
  */
 function createReceiver(o) {
@@ -175,11 +187,12 @@ function createReceiver(o) {
   // Réponses chiffrées avec la clé de la session (seul le code HTTP reste lisible).
   const json = (res, code, obj, key = s && s.key) => send(res, code, key ? W.seal(key, obj) : '', 'text/plain; charset=utf-8');
 
-  function page(res) {
+  function page(res, scan = false) {
     const nonce = crypto.randomBytes(16).toString('base64');
     let html;
     try {
-      html = fs.readFileSync(o.pagePath, 'utf8');
+      html = fs.readFileSync(scan ? o.scanPagePath : o.pagePath, 'utf8');
+      if (scan) html = fill(html, { ZXING: zxingScript() });
     } catch (e) {
       diag('wifi', 'page introuvable', e && e.message);
       return send(res, 500, 'Page indisponible.');
@@ -196,7 +209,8 @@ function createReceiver(o) {
     // page (mauvaise clé ou lien sans fragment : message, et rien n'est envoyé).
     html = fill(html, { ICON: icon, NONCE: nonce, CHECK: W.seal(s.key, { c: host }), CRYPTO: cryptoScript() });
     send(res, 200, html, 'text/html; charset=utf-8', {
-      'Content-Security-Policy': `default-src 'none'; script-src 'nonce-${nonce}'; style-src 'nonce-${nonce}'; img-src blob: data:; connect-src 'self'; form-action 'none'; base-uri 'none'; frame-ancestors 'none'`,
+      // Page de scan : la vidéo de la caméra (si le navigateur l'autorise) s'affiche depuis un flux local (media-src blob:/mediastream:).
+      'Content-Security-Policy': `default-src 'none'; script-src 'nonce-${nonce}'; style-src 'nonce-${nonce}'; img-src blob: data:; ${scan ? "media-src blob: mediastream:; " : ''}connect-src 'self'; form-action 'none'; base-uri 'none'; frame-ancestors 'none'`,
     });
   }
 
@@ -305,8 +319,9 @@ function createReceiver(o) {
     if (!id || id.length !== 16) return reply(400, { error: 'Envoi invalide.' });
     if (cur.ids.has(idTxt)) return reply(409, { error: 'Cet envoi a déjà été reçu.' });
     const meta = W.openMeta(cur.key, id, url.searchParams.get('m'));
-    if (!meta || (meta.t !== 'file' && meta.t !== 'text')) return reply(400, { error: 'Envoi refusé : il ne vient pas de la page de ce QR code.' });
+    if (!meta || (meta.t !== 'file' && meta.t !== 'text' && meta.t !== 'isbn')) return reply(400, { error: 'Envoi refusé : il ne vient pas de la page de ce QR code.' });
     cur.ids.set(idTxt, null); // réservé dès maintenant : un double de cette requête est refusé
+    if (meta.t === 'isbn') return onIsbn(req, cur, idTxt, id, reply);
     const isText = meta.t === 'text';
     let base, ext;
     if (isText) {
@@ -356,6 +371,31 @@ function createReceiver(o) {
     return reply(200, { ok: true, name });
   }
 
+  /**
+   * ISBN lu sur le code-barres d'un livre papier (page « Scanner un livre ») : chiffré comme tout
+   * envoi ; rien n'est écrit dans la boîte, l'interface le reçoit aussitôt pour proposer l'édition.
+   */
+  async function onIsbn(req, cur, idTxt, id, reply) {
+    let got;
+    try {
+      got = await receiveBody(req, MAX_ISBN_BYTES, cur.key, id);
+    } catch (e) {
+      return reply(e.code && e.code >= 400 ? e.code : 400, { error: e.message || 'Envoi impossible.' });
+    }
+    const raw = await fsp.readFile(got.tmp, 'utf8').catch(() => '');
+    await fsp.rm(got.tmp, { force: true }).catch(() => {});
+    if (s !== cur || o.isLocked()) return reply(410, { error: 'La réception a été fermée sur l’ordinateur.' });
+    const isbn = normalizeIsbn(raw);
+    if (!isbn) return reply(400, { error: 'Ce code n’est pas un ISBN valide.' });
+    const name = `isbn:${idTxt}`;
+    cur.count++;
+    cur.names.add(name);
+    cur.ids.set(idTxt, name);
+    touch();
+    o.emit({ type: 'isbn', isbn, name, device: deviceOf(req), at: Date.now() });
+    return reply(200, { ok: true, isbn });
+  }
+
   function handler(req, res) {
     if (!s) return send(res, 503, 'Fermé.');
     // Réseau local uniquement.
@@ -389,6 +429,17 @@ function createReceiver(o) {
         o.emit({ type: 'device', device: dev, at: Date.now() });
       }
       return page(res);
+    }
+    // Page « Scanner un livre » : même session (même jeton, même clé), lecture du code-barres.
+    if (req.method === 'GET' && action === 'scan' && parts.length === 3 && o.scanPagePath) {
+      touch();
+      const dev = deviceOf(req);
+      const key = `${req.socket.remoteAddress}|${dev}`;
+      if (!s.devices.has(key)) {
+        s.devices.add(key);
+        o.emit({ type: 'device', device: dev, at: Date.now() });
+      }
+      return page(res, true);
     }
     if (req.method === 'GET' && action === 'state') return json(res, 200, { open: true });
     // Devenir d'un envoi de cette session (« Ajouté à la bibliothèque… ») : le téléphone le demande

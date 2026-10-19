@@ -45,7 +45,7 @@ import type {
 } from '../../lib/types';
 import { CITE_BOOKMARK_PREFIX } from '../editor/privateNotes';
 import { newFsrs } from '../revision/fsrs';
-import { alreadyReceived, bookExtraFiles, bookSourceFiles, describeCounts, findLocalBook, openSharePackage, rewriteDocxXml, ShareError, type ShareCounts } from './sharePackage';
+import { alreadyReceived, bookExtraFiles, bookSourceFiles, describeCounts, findLocalBook, findLocalPaperBook, openSharePackage, rewriteDocxXml, ShareError, type ShareCounts } from './sharePackage';
 
 export interface ShareImportOptions {
   /** Avancement de l'écriture des fichiers reçus. */
@@ -132,7 +132,9 @@ export async function importSharePackage(bytes: Uint8Array | ArrayBuffer, opts: 
   const titleOfBook = new Map<string, string>();
   for (const src of data.books) {
     const e = entryOf.get(src.id)!;
-    const local = await findLocalBook(e, s0.books);
+    // Livre papier : reconnu par son ISBN (ou titre, auteur, éditeur, année), jamais « sans fichier ».
+    const paper = src.format === 'paper';
+    const local = paper ? findLocalPaperBook(src, [...s0.books, ...newBooks]) : await findLocalBook(e, s0.books);
     const fileNames = [...bookSourceFiles(src), ...bookExtraFiles(src)];
     if (local) {
       bookId.set(src.id, local.id);
@@ -169,7 +171,13 @@ export async function importSharePackage(bytes: Uint8Array | ArrayBuffer, opts: 
       ...(e.sha256 ? { sourceSha256: e.sha256 } : {}),
       shareOrigin: origin(src, src.id),
     };
-    if (e.included) {
+    if (paper) {
+      book.paper = true;
+      book.fileName = '';
+      book.originalName = '';
+      book.size = 0;
+      if (typeof src.isbn !== 'string' || !/^97[89]\d{10}$/.test(src.isbn)) delete book.isbn;
+    } else if (e.included) {
       for (const f of fileNames) {
         const b = fileOf(src.id, f);
         if (b) writes.push({ ownerId: id, fileName: f, data: toBuffer(b) });
@@ -222,7 +230,8 @@ export async function importSharePackage(bytes: Uint8Array | ArrayBuffer, opts: 
 
   // ── 3. Objets, références remappées ──
   const highlights: Highlight[] = data.highlights.map((h) => {
-    const { source: _s, shareOrigin: _o, ...rest } = h;
+    // La photo d'une page (livre papier) reste chez l'expéditeur : seul l'extrait voyage.
+    const { source: _s, shareOrigin: _o, photo: _p, ...rest } = h;
     const category = CATEGORIES.includes(h.category as CategoryId) ? h.category : null;
     return {
       ...rest,

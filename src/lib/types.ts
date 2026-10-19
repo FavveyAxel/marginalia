@@ -2,7 +2,8 @@
 // Marginalia — modèle de données v2 (FIGÉ : ne pas modifier sans l'intégrateur)
 // ─────────────────────────────────────────────────────────────
 
-export type BookFormat = 'epub' | 'pdf' | 'docx' | 'md' | 'txt' | 'html' | 'image';
+/** 'paper' : livre papier (pas de fichier ; métadonnées, couverture et extraits seulement). */
+export type BookFormat = 'epub' | 'pdf' | 'docx' | 'md' | 'txt' | 'html' | 'image' | 'paper';
 
 /** Catégories de surlignage (ce que le passage FAIT dans le texte). */
 export type CategoryId = 'probleme' | 'these' | 'argument' | 'objection' | 'concept' | 'exemple';
@@ -66,6 +67,14 @@ export interface Book {
   position: ReaderPosition | null;
   cover: string | null;
   edition: Edition;
+  /**
+   * Livre papier (format « paper ») : aucun fichier (`fileName` vide, `size` 0) ; l'édition (éditeur,
+   * année) est dans `edition`, la couverture dans `cover`. Ses extraits sont tapés ou viennent de
+   * photos de pages (ancrage « page » : { kind: 'pdf', page, rects: [] }).
+   */
+  paper?: true;
+  /** ISBN-13 de l'édition (livre papier), s'il est connu. */
+  isbn?: string;
   /**
    * Document de photos (format « image ») à plusieurs pages : fichiers des pages, dans l'ordre
    * (« page-1.jpg », « page-2.heic »…). `fileName` vaut alors la 1re page. Absent : une seule image.
@@ -215,6 +224,8 @@ export interface Highlight {
   source?: ExternalSource;
   /** Extrait reçu par un partage (voir ShareOrigin). */
   shareOrigin?: ShareOrigin;
+  /** Livre papier : photo de la page d'où vient l'extrait (fichier dans le dossier du livre, « photos/<id>.jpg »). */
+  photo?: string;
 }
 
 /** Un sens d'un concept, propre à un auteur / un livre. */
@@ -626,6 +637,8 @@ export interface Settings {
   inbox?: boolean;
   /** Vérifier au lancement s'il existe une nouvelle version (Release GitHub). Défaut : oui. */
   updateCheck?: boolean;
+  /** Livres papier : chercher les éditions sur Internet (Google Books, Open Library). Défaut : oui. */
+  paperOnline?: boolean;
   /** Version dont l'annonce « nouvelle version disponible » a été écartée (« Plus tard »). */
   updateDismissed?: string;
   /** Mise à jour téléchargée : installée d'elle-même à la fermeture ('auto', défaut) ou seulement sur demande ('ask'). */

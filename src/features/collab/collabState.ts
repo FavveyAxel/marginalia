@@ -46,6 +46,8 @@ export interface CollabState {
   code: string | null;
   codeState: 'open' | 'tries';
   addresses: string[];
+  /** Écrits ouverts en direct : salle (gid de l'écrit) → personnes qui y écrivent. */
+  rooms: Record<string, string[]>;
   /** Avancement de l'arrivée de l'espace chez un invité. */
   progress: string | null;
   /** Fenêtres. */
@@ -66,6 +68,7 @@ export const useCollab = create<CollabState>(() => ({
   code: null,
   codeState: 'open',
   addresses: [],
+  rooms: {},
   progress: null,
   panelFor: null,
   joinOpen: false,

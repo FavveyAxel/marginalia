@@ -85,6 +85,7 @@ function makeRooms(role: 'host' | 'guest'): Rooms {
       return d?.shareOrigin?.srcId ?? id;
     },
   });
+  rooms.onView = () => useCollab.setState({ rooms: { ...rooms.view } });
   return rooms;
 }
 
@@ -501,7 +502,7 @@ function endLocal(_reason: string) {
   s.rooms.stop();
   for (const t of s.fetchTimers.values()) clearTimeout(t);
   void import('./reunion').then((m) => m.rememberSession(s.shareId, s.workspaceId, s.records, s.role === 'host' ? null : s.hostName)).catch(() => undefined);
-  useCollab.setState({ role: null, phase: 'idle', workspaceId: null, shareId: null, me: null, members: [], requests: [], code: null, progress: null, panelFor: useCollab.getState().panelFor });
+  useCollab.setState({ role: null, phase: 'idle', workspaceId: null, shareId: null, me: null, members: [], requests: [], code: null, progress: null, rooms: {} });
 }
 
 /** « Arrêter le partage » (hôte : pour tous, après le dernier enregistrement de chacun) ou « Quitter » (invité). */

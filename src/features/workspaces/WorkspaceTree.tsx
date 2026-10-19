@@ -18,6 +18,7 @@ import {
 } from './wsModel';
 import { ContextMenu, InlineName, ItemIcon, dragSource, dropProps, useMenu, type DropArgs, type DropMark, type MenuEntry } from './wsUi';
 import { groupMenu, itemMenu, workspaceMenu } from './wsMenus';
+import { CollabBadge, useCollabMark } from '../collab/SidebarCollab';
 import { useWsDialogs } from './wsDialogs';
 import { importHere, newBoardHere, newDraftHere } from './wsActions';
 import { SelectionBar, useSelOwner, useSelectionActions } from './wsSelection';
@@ -307,6 +308,7 @@ function WsNode({ id }: { id: string }) {
   const env = useContext(EnvCtx);
   const ws = useStore((s) => s.workspaces.find((w) => w.id === id));
   const items = useResolvedItems(id);
+  const collab = useCollabMark(id);
   const open = !env.collapsedWs.has(id);
   const rowRef = useRef<HTMLDivElement>(null);
   const dh = useDropHandlers({
@@ -338,7 +340,7 @@ function WsNode({ id }: { id: string }) {
   };
 
   return (
-    <div className="ws-node" role="none">
+    <div className={`ws-node ${collab ? 'ws-collab' : ''} ${collab?.reconnecting ? 'reconnecting' : ''}`} role="none" style={collab ? ({ '--collab-color': collab.color } as React.CSSProperties) : undefined} data-collab={collab ? 'live' : undefined} title={collab ? `En direct : ${collab.names}` : undefined}>
       <div
         ref={rowRef}
         role="treeitem"
@@ -384,7 +386,8 @@ function WsNode({ id }: { id: string }) {
         ) : (
           <span className="ws-name truncate">{ws.name}</span>
         )}
-        {!editing && <span className="ws-count">{items.length || ''}</span>}
+        {!editing && collab && <CollabBadge mark={collab} />}
+        {!editing && !collab && <span className="ws-count">{items.length || ''}</span>}
         {!editing && <MoreButton label={`Actions de l’espace ${ws.name}`} onOpen={(el) => env.menuFrom(el, entries(), `Menu de l’espace ${ws.name}`)} />}
       </div>
       <Collapse open={open}>

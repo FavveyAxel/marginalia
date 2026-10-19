@@ -1,5 +1,6 @@
 // Contenu des menus contextuels (identique dans l'arbre et dans la vue).
-import { ArrowRightLeft, ExternalLink, GitCompareArrows, FolderPlus, FolderX, Palette, PackagePlus, Pencil, Trash2, Ungroup, Upload, FilePen, Network, Share2 } from 'lucide-react';
+import { ArrowRightLeft, ExternalLink, GitCompareArrows, FolderPlus, FolderX, Palette, PackagePlus, Pencil, Trash2, Ungroup, Upload, FilePen, Network, Share2, Users, UserX } from 'lucide-react';
+import { collabAvailable, isLiveIn, openCollabPanel, stopCollab, useCollab } from '../collab/collabState';
 import { useStore } from '../../lib/store';
 import type { WorkspaceGroup, WorkspaceItem } from '../../lib/types';
 import { TINTS, TINT_LABEL, openItem, ungroup, type DragPayload } from './wsModel';
@@ -27,6 +28,7 @@ export function workspaceMenu(ctx: MenuCtx, workspaceId: string, tint: string): 
     { label: 'Ajouter un élément…', icon: <PackagePlus size={14} />, onClick: () => ctx.openAdd(workspaceId, null) },
     ...(ctx.newDraftHere ? [{ label: 'Nouvel écrit ici', icon: <FilePen size={14} />, onClick: () => ctx.newDraftHere!(workspaceId, null) }] : []),
     ...(ctx.newBoardHere ? [{ label: 'Nouvelle carte ici', icon: <Network size={14} />, onClick: () => ctx.newBoardHere!(workspaceId, null) }] : []),
+    ...collabEntry(workspaceId),
     { sep: true },
     { label: 'Partager l’espace…', icon: <Share2 size={14} />, onClick: () => openShareDialog({ kind: 'workspace', workspaceId }) },
     { label: 'Renommer', icon: <Pencil size={14} />, onClick: () => ctx.rename('ws', workspaceId) },
@@ -38,6 +40,14 @@ export function workspaceMenu(ctx: MenuCtx, workspaceId: string, tint: string): 
     { sep: true },
     { label: 'Supprimer l’espace', icon: <Trash2 size={14} />, danger: true, onClick: () => ctx.askDeleteWs(workspaceId) },
   ];
+}
+
+/** « Travailler à plusieurs… », qui devient « Arrêter le partage » pendant la session (« Quitter le partage » chez un invité). */
+function collabEntry(workspaceId: string): MenuEntry[] {
+  if (!collabAvailable()) return [];
+  const c = useCollab.getState();
+  if (isLiveIn(c, workspaceId)) return [{ label: c.role === 'host' ? 'Arrêter le partage' : 'Quitter le partage', icon: <UserX size={14} />, onClick: () => void stopCollab() }];
+  return [{ label: 'Travailler à plusieurs…', icon: <Users size={14} />, onClick: () => openCollabPanel(workspaceId) }];
 }
 
 export function groupMenu(ctx: MenuCtx, g: WorkspaceGroup): MenuEntry[] {

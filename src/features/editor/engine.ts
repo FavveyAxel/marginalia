@@ -241,6 +241,8 @@ export interface DocEngine {
   setEditable(on: boolean): void;
   focus(): void;
   destroy(): void;
+  /** Écrit partagé en direct (travail à plusieurs) ? */
+  isLive(): boolean;
   /** Développement / tests uniquement : éditeur brut du moteur. */
   debugEditor(): unknown;
   // ── Notes privées (privateNotes.ts) et plan déplaçable (outlineMove.ts) ──
@@ -370,6 +372,29 @@ export interface EngineOptions {
   onSelection?: () => void;
   /** Le document vient d'être rouvert (modification de style, annulation de mise en page). */
   onReload?: () => void;
+  /**
+   * Travailler à plusieurs (src/features/collab/rooms.ts) : écrit partagé en direct. 'seed' : ce document
+   * amorce la salle ; 'sync' : le contenu vient de la salle (Y.Doc de la copie de yjs du moteur).
+   */
+  collab?: CollabLink | null;
+}
+
+/** Lien de l'éditeur avec une session de travail à plusieurs (voir CollabBinding, collab/rooms.ts). */
+export interface CollabLink {
+  mode: 'seed' | 'sync';
+  ydoc: unknown;
+  provider: unknown;
+  user: { name: string; color: string };
+  detached: boolean;
+  release(): void;
+}
+
+/** Opération impossible pendant le travail à plusieurs (elle rouvrirait le document pour tous). */
+export class CollabBlockedError extends Error {
+  constructor() {
+    super('Indisponible pendant le travail à plusieurs : ce réglage rouvre le document. Arrêtez le partage, puis réessayez.');
+    this.name = 'CollabBlockedError';
+  }
 }
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -475,6 +500,10 @@ export async function openDocEngine(host: HTMLElement, data: ArrayBuffer, opts: 
   /** Suivi des transactions du corps pour annuler / rétablir la police du document (défini plus bas). */
   let docFontOnTransaction: ((ed: Any, tr: Any) => void) | null = null;
 
+  // Travail à plusieurs : seule la première ouverture se branche sur la salle (une réouverture est refusée).
+  let firstCreate = true;
+  const collabNow = () => !!opts.collab && !opts.collab.detached && opts.collab.mode === 'sync' && firstCreate;
+  const collabActive = () => !!opts.collab && !opts.collab.detached;
   const create = async (raw: ArrayBuffer): Promise<Any> => {
     const buf = await prepareDocxForEditor(raw);
     const file = new File([buf], 'document.docx', {
@@ -497,7 +526,7 @@ export async function openDocEngine(host: HTMLElement, data: ArrayBuffer, opts: 
           // près de la sélection) est coupée — elle décalait la page. Les données restent gérées par
           // le moteur (converter.comments, API documentaire `doc.comments`, w:comments à l'export) ;
           // l'interface est celle de comments.tsx.
-          modules: { comments: false },
+          modules: collabNow() ? { comments: false, collaboration: { ydoc: opts.collab!.ydoc, provider: opts.collab!.provider } } : { comments: false },
           user: { name: COMMENT_AUTHOR, email: '' },
           zoom:
             zoomValue === 'fit'
@@ -567,11 +596,38 @@ export async function openDocEngine(host: HTMLElement, data: ArrayBuffer, opts: 
   let sd: Any = await create(data).catch((e) => {
     dropPick();
     for (const ev of INPUT_EVENTS) document.removeEventListener(ev, onUserInput, true);
+    opts.collab?.release();
     throw e;
   });
+  firstCreate = false;
   liveEngines++;
   let counted = true;
   await waitPainted();
+  if (opts.collab && !opts.collab.detached) {
+    const c = opts.collab;
+    const prov = c.provider as Any;
+    try {
+      if (c.mode === 'seed') await sd.upgradeToCollaboration({ ydoc: c.ydoc, provider: prov });
+      else
+        await new Promise<void>((resolve) => {
+          // Contenu de la salle : attendu (8 s au plus) avant de mesurer le document.
+          if (prov.synced) return resolve();
+          const t = setTimeout(done, 8000);
+          function done() {
+            clearTimeout(t);
+            prov.off?.('sync', onSync);
+            resolve();
+          }
+          const onSync = (v: boolean) => v !== false && done();
+          prov.on?.('sync', onSync);
+        });
+      // Prénom et couleur montrés aux autres (curseur) ; les commentaires gardent leur auteur.
+      prov.awareness?.setLocalStateField('user', { name: c.user.name, color: c.user.color });
+      await new Promise((r) => setTimeout(r, 120));
+    } catch (e) {
+      console.warn('travail à plusieurs', e);
+    }
+  }
 
   /** Éditeur du corps (pas la session de note éventuellement active). */
   const body = (): Any => {
@@ -772,6 +828,7 @@ export async function openDocEngine(host: HTMLElement, data: ArrayBuffer, opts: 
 
   /** Rouvre `buf` dans le même hôte en gardant la position du curseur et le défilement. */
   const reload = async (buf: ArrayBuffer) => {
+    if (collabActive()) throw new CollabBlockedError();
     const ed = body();
     const pos = ed?.state.selection.from ?? 1;
     const scroller = host.closest('.ed-scroll') as HTMLElement | null;
@@ -2442,9 +2499,13 @@ export async function openDocEngine(host: HTMLElement, data: ArrayBuffer, opts: 
       } catch (e) {
         console.warn(e);
       }
+      opts.collab?.release();
       dropStray();
       if (counted) liveEngines--;
       counted = false;
+    },
+    isLive() {
+      return collabActive();
     },
     debugEditor() {
       return { editor: body(), superdoc: sd, stylesXml };

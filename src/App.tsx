@@ -27,6 +27,8 @@ import { ErrorBoundary } from './components/ErrorBoundary';
 import { LockScreen } from './features/security/LockScreen';
 import { SecurityAsk } from './features/security/SecurityAsk';
 import { ShareHost } from './features/share/ShareHost';
+import { CollabHost } from './features/collab/CollabHost';
+import { RailCollab } from './features/collab/SidebarCollab';
 import { refreshSecurity, useSecurity } from './features/security/state';
 import type { SecurityStatus } from './lib/platform';
 
@@ -354,17 +356,22 @@ function Sidebar() {
           <>
             {workspaces.length > 0 && <div className="sidebar-section" aria-hidden="true" />}
             {workspaces.map((w) => (
-              <button
-                key={w.id}
-                className={`nav-item rail-ws ${route.name === 'workspace' && route.workspaceId === w.id ? 'active' : ''}`}
-                title={w.name}
-                aria-label={`Espace ${w.name}`}
-                onClick={() => useStore.getState().navigate({ name: 'workspace', workspaceId: w.id, groupId: null })}
-              >
-                <span className="rail-dot" style={{ background: `var(${w.tint})` }}>
-                  {w.name.trim().charAt(0).toUpperCase()}
-                </span>
-              </button>
+              <RailCollab key={w.id} workspaceId={w.id}>
+                {(collab) => (
+                  <button
+                    className={`nav-item rail-ws ${route.name === 'workspace' && route.workspaceId === w.id ? 'active' : ''} ${collab ? 'rail-collab' : ''}`}
+                    title={collab ? `${w.name} — en direct : ${collab.names}` : w.name}
+                    aria-label={collab ? `Espace ${w.name}, partagé en direct avec ${collab.count} personnes` : `Espace ${w.name}`}
+                    style={collab ? ({ '--collab-color': collab.color } as React.CSSProperties) : undefined}
+                    onClick={() => useStore.getState().navigate({ name: 'workspace', workspaceId: w.id, groupId: null })}
+                  >
+                    <span className="rail-dot" style={{ background: `var(${w.tint})` }}>
+                      {w.name.trim().charAt(0).toUpperCase()}
+                    </span>
+                    {collab && <span className="rail-collab-n">{collab.count}</span>}
+                  </button>
+                )}
+              </RailCollab>
             ))}
           </>
         ) : (
@@ -655,6 +662,7 @@ export function App() {
       <ImportProgress />
       <DropOverlay />
       <ShareHost />
+      <CollabHost />
       <SecurityAsk />
       <Toasts />
     </>

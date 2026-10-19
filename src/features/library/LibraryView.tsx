@@ -47,10 +47,12 @@ import './library.css';
 import { AssemblePhotos } from './AssemblePhotos';
 import { sourcesOfBook } from './photoDoc';
 import { OS_TEXT, fmtKeys } from '../../lib/keys';
+import { PaperAddButton } from '../paper/PaperAdd';
+import { prettyIsbn } from '../paper/paper';
 
 type SortKey = 'recent' | 'title' | 'author' | 'added';
 type ViewMode = 'grid' | 'list';
-type FilterKey = 'all' | 'epub' | 'pdf' | 'docs';
+type FilterKey = 'all' | 'epub' | 'pdf' | 'docs' | 'paper';
 
 const SORTS: { id: SortKey; label: string }[] = [
   { id: 'recent', label: 'Récents' },
@@ -59,7 +61,7 @@ const SORTS: { id: SortKey; label: string }[] = [
   { id: 'added', label: 'Ajout' },
 ];
 
-const FORMAT_LABEL: Record<BookFormat, string> = { epub: 'EPUB', pdf: 'PDF', docx: 'DOCX', md: 'MD', txt: 'TXT', html: 'HTML', image: 'Image' };
+const FORMAT_LABEL: Record<BookFormat, string> = { epub: 'EPUB', pdf: 'PDF', docx: 'DOCX', md: 'MD', txt: 'TXT', html: 'HTML', image: 'Image', paper: 'Papier' };
 /** Format affiché : « 5 photos » pour un document de photos. */
 const formatLabel = (b: Book) => (b.format === 'image' && b.pages && b.pages.length > 1 ? `${b.pages.length} photos` : FORMAT_LABEL[b.format]);
 
@@ -70,7 +72,7 @@ const fraction = (p: number) => Math.max(0, Math.min(1, !p ? 0 : p > 1 ? p / 100
 const pct = (p: number) => Math.round(fraction(p) * 100);
 
 const inFilter = (b: Book, f: FilterKey) =>
-  f === 'all' ? true : f === 'epub' ? b.format === 'epub' : f === 'pdf' ? b.format === 'pdf' : ['docx', 'md', 'txt', 'html', 'image'].includes(b.format);
+  f === 'all' ? true : f === 'epub' ? b.format === 'epub' : f === 'pdf' ? b.format === 'pdf' : f === 'paper' ? b.format === 'paper' : ['docx', 'md', 'txt', 'html', 'image'].includes(b.format);
 
 function readPref<T extends string>(key: string, allowed: T[], fallback: T): T {
   try {
@@ -160,6 +162,7 @@ export function LibraryView() {
       epub: books.filter((b) => inFilter(b, 'epub')).length,
       pdf: books.filter((b) => inFilter(b, 'pdf')).length,
       docs: books.filter((b) => inFilter(b, 'docs')).length,
+      paper: books.filter((b) => inFilter(b, 'paper')).length,
     }),
     [books],
   );
@@ -169,7 +172,7 @@ export function LibraryView() {
     const list = books.filter((b) => {
       if (!inFilter(b, filter)) return false;
       if (!q) return true;
-      const hay = fold([b.title, b.author, b.edition.publisher, b.edition.translator, b.originalName].join(' '));
+      const hay = fold([b.title, b.author, b.edition.publisher, b.edition.translator, b.originalName, b.isbn ?? ''].join(' '));
       return q.split(/\s+/).every((w) => hay.includes(w));
     });
     const cmp: Record<SortKey, (a: Book, b: Book) => number> = {
@@ -196,7 +199,7 @@ export function LibraryView() {
   const canAssemble = (ids: string[]) => ids.length >= 2 && photoIds(ids).length === ids.length;
 
   const resume = useMemo(
-    () => books.filter((b) => b.lastOpenedAt && b.format !== 'image').sort((a, b) => (b.lastOpenedAt ?? 0) - (a.lastOpenedAt ?? 0))[0] ?? null,
+    () => books.filter((b) => b.lastOpenedAt && b.format !== 'image' && b.format !== 'paper').sort((a, b) => (b.lastOpenedAt ?? 0) - (a.lastOpenedAt ?? 0))[0] ?? null,
     [books],
   );
 
@@ -353,6 +356,7 @@ export function LibraryView() {
             <LibraryIcon size={14} /> Depuis Livres
           </button>
         )}
+        <PaperAddButton />
         <button className="btn btn-primary" onClick={() => useStore.getState().navigate({ name: 'import' })} data-testid="lib-import">
           <Plus size={14} /> Importer
         </button>
@@ -428,6 +432,7 @@ export function LibraryView() {
                     ['epub', 'EPUB'],
                     ['pdf', 'PDF'],
                     ['docs', 'Documents'],
+                    ['paper', 'Papier'],
                   ] as [FilterKey, string][]
                 ).map(([k, label]) => (
                   <button key={k} className={`chip ${filter === k ? 'active' : ''}`} onClick={() => setFilter(k)}>
@@ -510,10 +515,18 @@ export function LibraryView() {
                         </div>
                       )}
                       <div className="lib-card-meta">
-                        <span className="lib-progress" aria-label={`Progression ${pct(b.progress)} %`}>
-                          <span style={{ width: `${pct(b.progress)}%` }} />
-                        </span>
-                        <span>{pct(b.progress)} %</span>
+                        {b.format === 'paper' ? (
+                          <span className="lib-paper-tag" title={['Livre papier', b.edition.publisher, b.edition.year].filter(Boolean).join(' · ')} data-testid="lib-paper-tag">
+                            Papier
+                          </span>
+                        ) : (
+                          <>
+                            <span className="lib-progress" aria-label={`Progression ${pct(b.progress)} %`}>
+                              <span style={{ width: `${pct(b.progress)}%` }} />
+                            </span>
+                            <span>{pct(b.progress)} %</span>
+                          </>
+                        )}
                         <span className="lib-dot">·</span>
                         <span>
                           {counts[b.id] ?? 0} extrait{(counts[b.id] ?? 0) > 1 ? 's' : ''}
@@ -562,16 +575,23 @@ export function LibraryView() {
                       <span className="lib-row-title truncate">
                         {b.title}
                         {b.missing && <span className="lib-nofile inline" data-testid="lib-nofile">Sans fichier</span>}
+                        {b.format === 'paper' && <span className="lib-paper-tag inline">Papier</span>}
                       </span>
                       <span className="truncate muted">{b.author || '—'}</span>
                       <span className="muted">{formatLabel(b)}</span>
                       <span className="num muted">{counts[b.id] ?? 0}</span>
                       <span className="muted truncate">{b.lastOpenedAt ? relativeTime(b.lastOpenedAt) : '—'}</span>
                       <span className="lib-row-progress">
-                        <span className="lib-progress">
-                          <span style={{ width: `${pct(b.progress)}%` }} />
-                        </span>
-                        <span className="muted">{pct(b.progress)} %</span>
+                        {b.format === 'paper' ? (
+                          <span className="muted">—</span>
+                        ) : (
+                          <>
+                            <span className="lib-progress">
+                              <span style={{ width: `${pct(b.progress)}%` }} />
+                            </span>
+                            <span className="muted">{pct(b.progress)} %</span>
+                          </>
+                        )}
                       </span>
                       <button
                         className="icon-btn sm lib-row-more"
@@ -719,7 +739,8 @@ function BookMenu({
     onClose();
     fn();
   };
-  const others = books.filter((b) => b.id !== book.id);
+  // Côte à côte : deux textes à lire ; un livre papier n'a pas de texte à afficher.
+  const others = book.format === 'paper' ? [] : books.filter((b) => b.id !== book.id && b.format !== 'paper');
 
   return (
     <div ref={ref} className="floating lib-menu" style={{ left: pos.left, top: pos.top, visibility: pos.ready ? 'visible' : 'hidden' }} role="menu">
@@ -842,12 +863,16 @@ function InfoDialog({ book, onClose }: { book: Book; onClose(): void }) {
   const [translator, setTranslator] = useState(book.edition.translator);
   const [place, setPlace] = useState(book.edition.place);
   const [offset, setOffset] = useState(String(book.edition.pageOffset || 0));
+  const [isbn, setIsbn] = useState(book.isbn ?? '');
   const isPdf = book.format === 'pdf';
+  const isPaperBook = book.format === 'paper';
   const off = Number.parseInt(offset, 10);
   const offValid = Number.isFinite(off);
 
   const save = () => {
+    const digits = isbn.replace(/[\s-]/g, '').toUpperCase();
     useStore.getState().updateBook(book.id, {
+      ...(isPaperBook ? { isbn: /^(97[89]\d{10}|\d{9}[\dX])$/.test(digits) ? digits : undefined } : {}),
       title: title.trim() || book.title,
       author: author.trim(),
       edition: {
@@ -869,7 +894,7 @@ function InfoDialog({ book, onClose }: { book: Book; onClose(): void }) {
       footer={
         <>
           <span className="lib-foot-note muted truncate">
-            {formatLabel(book)} · {(book.size / 1024 / 1024).toFixed(book.size > 1048576 ? 1 : 2)} Mo · {book.originalName}
+            {isPaperBook ? `Livre papier${book.isbn ? ` · ISBN ${prettyIsbn(book.isbn)}` : ''}` : `${formatLabel(book)} · ${(book.size / 1024 / 1024).toFixed(book.size > 1048576 ? 1 : 2)} Mo · ${book.originalName}`}
           </span>
           <button className="btn" onClick={onClose}>
             Annuler
@@ -906,6 +931,11 @@ function InfoDialog({ book, onClose }: { book: Book; onClose(): void }) {
           <input className="input" value={place} onChange={(e) => setPlace(e.target.value)} placeholder="Paris" />
         </Field>
       </div>
+      {isPaperBook && (
+        <Field label="ISBN" hint="10 ou 13 chiffres (facultatif).">
+          <input className="input" value={isbn} onChange={(e) => setIsbn(e.target.value)} inputMode="numeric" />
+        </Field>
+      )}
       {isPdf && (
         <Field
           label="Décalage de pagination"

@@ -238,6 +238,13 @@ api.collabNet = {
   },
 };
 api.firstRun = () => ipcRenderer.invoke('marginalia:firstRun');
+// Livres papier : recherche d'éditions par le processus principal (Google Books, Open Library).
+api.paper = {
+  setOnline: (on) => ipcRenderer.invoke('marginalia:paperOnline', on !== false),
+  search: (q) => ipcRenderer.invoke('marginalia:paperSearch', String(q || '')),
+  isbn: (isbn) => ipcRenderer.invoke('marginalia:paperIsbn', String(isbn || '')),
+  cover: (url) => ipcRenderer.invoke('marginalia:paperCover', String(url || '')),
+};
 api.updates = {
   version: () => ipcRenderer.invoke('marginalia:appVersion'),
   check: () => ipcRenderer.invoke('marginalia:checkUpdate'),

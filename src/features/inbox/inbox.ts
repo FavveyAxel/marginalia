@@ -11,13 +11,14 @@
 // ─────────────────────────────────────────────────────────────
 import { useEffect } from 'react';
 import { create } from 'zustand';
-import { useStore } from '../../lib/store';
+import { useStore, uid } from '../../lib/store';
 import { extOf, host, IMAGE_EXTENSIONS, type InboxFile, type InboxInfo, type PickedFile } from '../../lib/platform';
 import type { PassageMatch } from './match';
 import { createDraftFromFile } from '../../lib/draftImport';
 import { displayableBlob, ORIENT } from '../reader/image/decode';
 import type { PhotoSource } from '../library/photoDoc';
 import type { Book } from '../../lib/types';
+import type { PaperGuess } from './paperGuess';
 
 export type InboxKind = 'book' | 'text' | 'image' | 'web' | 'link' | 'draft' | 'other';
 
@@ -48,6 +49,8 @@ export interface InboxItem {
   /** Aperçu d'une photo (blob: URL). */
   preview?: string;
   error?: string;
+  /** Photo d'une page de livre papier : livre et page devinés en local, à confirmer. */
+  paper?: PaperGuess;
 }
 
 interface InboxState {
@@ -59,6 +62,11 @@ interface InboxState {
   wifiOpen: boolean;
   /** Ce qu'est devenu chaque élément (par nom de fichier) : affiché dans la fenêtre de réception et renvoyé au téléphone. */
   outcomes: Record<string, Outcome>;
+  /**
+   * Série de photos pour un livre papier (« Ajouter par photo » sur sa page, ou dernier rattachement) :
+   * les photos qui arrivent sont lues aussitôt et proposées pour ce livre.
+   */
+  paperSeries: { bookId: string; at: number } | null;
 }
 
 /**
@@ -75,7 +83,17 @@ export interface Outcome {
   draftId?: string;
 }
 
-export const useInbox = create<InboxState>(() => ({ info: null, items: [], scannedAt: null, wifiOpen: false, outcomes: {} }));
+export const useInbox = create<InboxState>(() => ({ info: null, items: [], scannedAt: null, wifiOpen: false, outcomes: {}, paperSeries: null }));
+
+/** Série de photos en cours pour ce livre papier (photos lues et proposées pour lui pendant une heure). */
+export function startPaperSeries(bookId: string) {
+  useInbox.setState({ paperSeries: { bookId, at: Date.now() } });
+}
+const seriesActive = () => {
+  const s = useInbox.getState().paperSeries;
+  return !!s && Date.now() - s.at < 3_600_000 && useStore.getState().books.some((b) => b.id === s.bookId && b.format === 'paper');
+};
+const hasPaperBooks = () => useStore.getState().books.some((b) => b.format === 'paper');
 
 /** Enregistre le devenir d'un élément ; un envoi par le Wi-Fi le renvoie aussi au téléphone. */
 function setOutcome(name: string, o: Outcome, wifi = get(name)?.source === 'wifi') {
@@ -89,6 +107,7 @@ function waitingLabel(it: InboxItem): string {
   const m = it.matches?.[0];
   switch (it.kind) {
     case 'image':
+      if (it.paper?.bookId) return `${paperProposal(it.paper)} À confirmer sur l’ordinateur`;
       return m ? `Passage retrouvé dans « ${titleOf(m.bookId)} » : à valider dans la Boîte de réception` : it.text ? 'Texte lu sur la photo : à ranger dans la Boîte de réception' : 'Photo reçue : à ranger dans la Boîte de réception';
     case 'text':
       return m ? `Passage trouvé dans « ${titleOf(m.bookId)} » : à valider dans la Boîte de réception` : 'Passage non retrouvé dans vos livres : à ranger dans la Boîte de réception';
@@ -289,6 +308,8 @@ async function processItem(name: string) {
         const f = await read(name);
         const { blob } = await displayableBlob(f.data, f.name);
         patch(name, { status: 'ready', step: undefined, preview: URL.createObjectURL(blob) });
+        // Photos prises pour un livre papier (« Ajouter par photo ») : lues aussitôt, livre et page proposés.
+        if (seriesActive()) void readPhotoText(name);
         return;
       }
       case 'web': {
@@ -429,9 +450,18 @@ export async function readPhotoText(name: string) {
       .map((p) => p.lines.map((l) => l.words.map((w) => w.t).join(' ')).join('\n'))
       .join('\n\n')
       .trim();
-    patch(name, { text, progress: undefined, step: 'Recherche du passage dans la bibliothèque…' });
-    const matches = text ? await search(text) : [];
-    patch(name, { status: 'ready', step: undefined, matches, searchedText: text, searchedIn: null });
+    // Livres papier : livre et page devinés en local (titre courant, série en cours, dernier extrait).
+    let paper: PaperGuess | undefined;
+    if (hasPaperBooks()) {
+      const { guessPaperBook } = await import('./paperGuess');
+      const st = useStore.getState();
+      paper = guessPaperBook(ocr, { books: st.books, highlights: st.highlights, series: seriesActive() ? useInbox.getState().paperSeries : null });
+    }
+    const pageText = paper ? paper.text : text;
+    patch(name, { text: pageText, paper, progress: undefined, step: 'Recherche du passage dans la bibliothèque…' });
+    const matches = pageText ? await search(pageText) : [];
+    patch(name, { status: 'ready', step: undefined, matches, searchedText: pageText, searchedIn: null });
+    if (paper?.bookId) setOutcome(name, { state: 'waiting', label: `${paperProposal(paper)} À confirmer sur l’ordinateur` });
   } catch (e) {
     console.error('Boîte :', name, e);
     patch(name, { status: 'error', step: undefined, progress: undefined, error: 'Le texte de la photo n’a pas pu être lu.' });
@@ -439,6 +469,67 @@ export async function readPhotoText(name: string) {
 }
 
 export const setItemText = (name: string, text: string) => patch(name, { text });
+
+/** « « Du contrat social », p. 47 ? » */
+export function paperProposal(g: PaperGuess): string {
+  const t = titleOf(g.bookId ?? '');
+  return `« ${t} »${g.page ? `, p. ${g.page}` : ''} ?`;
+}
+
+/** Change le livre ou la page proposés (avant confirmation). */
+export function setPaperGuess(name: string, p: Partial<PaperGuess>) {
+  const it = get(name);
+  if (!it) return;
+  patch(name, { paper: { bookId: null, reason: null, page: '', text: it.text ?? '', ...(it.paper ?? {}), ...p } });
+}
+
+/**
+ * Rattache la photo d'une page à un livre papier : un extrait (texte lu, corrigeable ; page) est
+ * ajouté au livre, la photo est rangée avec lui (copie JPEG, dossier du livre), et la série continue.
+ */
+export async function attachPhotoToPaper(name: string, bookId: string, opts: { page: string; text: string; category?: import('../../lib/types').CategoryId | null }): Promise<boolean> {
+  const it = get(name);
+  const st = useStore.getState();
+  const book = st.books.find((b) => b.id === bookId && b.format === 'paper');
+  if (!it || !book) return false;
+  patch(name, { status: 'working', step: `Ajout à « ${book.title} »…` });
+  try {
+    const f = await read(name);
+    const { blob } = await displayableBlob(f.data, f.name);
+    const jpeg = await toStoredJpeg(blob);
+    const photo = `photos/${uid()}.jpg`;
+    await host.storeFile(bookId, photo, jpeg);
+    const { addPaperExtract } = await import('../paper/paper');
+    const h = addPaperExtract(bookId, { text: opts.text.trim() || '(photo de la page)', page: opts.page, category: opts.category ?? null, photo });
+    startPaperSeries(bookId);
+    setOutcome(name, { state: 'extract', label: `Extrait ajouté à « ${book.title} »${h.printedPage ? `, p. ${h.printedPage}` : ''}`, highlightId: h.id, bookId });
+    if (!(await finish(name))) return false;
+    useStore.getState().toast(`Extrait ajouté à « ${book.title} »${h.printedPage ? `, p. ${h.printedPage}` : ''}`, 'success', { label: 'Voir', run: () => useStore.getState().jumpToHighlight(h.id) });
+    return true;
+  } catch (e) {
+    console.error('Boîte :', name, e);
+    patch(name, { status: 'ready', step: undefined, error: String((e as Error)?.message ?? e) });
+    useStore.getState().toast('La photo n’a pas pu être rattachée au livre.', 'error');
+    return false;
+  }
+}
+
+/** Copie de la photo gardée avec l'extrait : JPEG, 1800 px au plus (lisible, sans alourdir la bibliothèque). */
+async function toStoredJpeg(blob: Blob): Promise<ArrayBuffer> {
+  const bmp = await createImageBitmap(blob, ORIENT);
+  try {
+    const k = Math.min(1, 1800 / Math.max(bmp.width, bmp.height));
+    const c = document.createElement('canvas');
+    c.width = Math.max(1, Math.round(bmp.width * k));
+    c.height = Math.max(1, Math.round(bmp.height * k));
+    c.getContext('2d')!.drawImage(bmp, 0, 0, c.width, c.height);
+    const out = await new Promise<Blob | null>((r) => c.toBlob(r, 'image/jpeg', 0.85));
+    if (!out) throw new Error('Conversion de la photo impossible');
+    return await out.arrayBuffer();
+  } finally {
+    bmp.close();
+  }
+}
 
 /** Ajoute le fichier tel quel à la bibliothèque (photo, page web…). */
 export async function addToLibrary(name: string) {

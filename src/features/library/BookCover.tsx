@@ -83,7 +83,7 @@ export function BookCover({ book, size = 'md' }: { book: Book; size?: Size }) {
       )}
       {d.badge > 0 && (
         <span className="lib-cover-badge" style={{ fontSize: d.badge }}>
-          {book.format}
+          {book.format === 'paper' ? 'papier' : book.format}
         </span>
       )}
     </span>

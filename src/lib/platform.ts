@@ -92,6 +92,39 @@ export interface WifiInfo {
   count?: number;
 }
 
+/** Édition trouvée par la recherche des livres papier (Google Books, Open Library ; fusionnées). */
+export interface PaperEdition {
+  title: string;
+  subtitle: string;
+  authors: string[];
+  publisher: string;
+  year: string;
+  /** ISBN-13 (ISBN-10 converti), '' si inconnu. */
+  isbn: string;
+  pages: number | null;
+  language: string;
+  /** Adresse de la couverture (à demander à cover() : le rendu ne charge rien d'Internet). */
+  cover: string;
+  sources: ('google' | 'openlibrary')[];
+}
+export interface PaperSearchResult {
+  ok: boolean;
+  results: PaperEdition[];
+  /** Réglage désactivé : aucune requête. */
+  off?: boolean;
+  error?: string;
+  /** Recherche par ISBN : l'ISBN-13 cherché. */
+  isbn?: string;
+}
+/** Livres papier : recherche d'éditions sur Internet, par le processus principal seulement. */
+export interface PaperApi {
+  setOnline(on: boolean): Promise<boolean>;
+  search(q: string): Promise<PaperSearchResult>;
+  isbn(isbn: string): Promise<PaperSearchResult>;
+  /** Couverture en data: URL ; null si absente ou refusée. */
+  cover(url: string): Promise<string | null>;
+}
+
 /** Dernière version publiée (Release GitHub), comparée à celle de l'app. */
 export interface UpdateInfo {
   current: string;
@@ -266,6 +299,8 @@ export interface UpdatesApi {
 export type WifiEvent =
   | { type: 'received'; name: string; size: number; kind: 'book' | 'image' | 'draft' | 'text'; device: string; at: number }
   | { type: 'device'; device: string; at: number }
+  /** ISBN lu sur un code-barres par la page « Scanner un livre » du téléphone (`name` : à passer à wifiReport). */
+  | { type: 'isbn'; isbn: string; name: string; device: string; at: number }
   | { type: 'stopped'; reason: 'closed' | 'idle' | 'locked' | 'quit' };
 
 export interface InboxInfo {
@@ -422,6 +457,8 @@ export interface HostApi {
   inbox?: InboxApi;
   /** Version de l'app et vérification des mises à jour (app de bureau). */
   updates?: UpdatesApi;
+  /** Livres papier : recherche d'éditions (app de bureau ; absent : saisie à la main seulement). */
+  paper?: PaperApi;
   sendToPhone?: SendToPhoneApi;
   /** Partage direct avec une autre Marginalia du réseau local (code à 6 chiffres). */
   shareNet?: ShareNetApi;

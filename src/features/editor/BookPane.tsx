@@ -20,6 +20,7 @@ import { BookCover } from '../library/BookCover';
 import { isTextEditingTarget } from '../history/keys';
 import '../reader/reader.css';
 import { fmtKeys } from '../../lib/keys';
+import { PaperExtracts } from '../paper/PaperBookView';
 
 const norm = (x: string) => x.normalize('NFD').replace(/\p{Diacritic}/gu, '').toLowerCase();
 
@@ -157,12 +158,12 @@ const BookHead = memo(function BookHead({
         </span>
         <ArrowLeftRight size={13} className="ed-book-swap" />
       </button>
-      {book.format !== 'image' && (
+      {book.format !== 'image' && book.format !== 'paper' && (
         <button className={`icon-btn sm ${tocOpen ? 'active' : ''}`} onClick={onToc} title="Sommaire" aria-label="Sommaire" aria-pressed={tocOpen}>
           <ListTree size={15} />
         </button>
       )}
-      {book.format !== 'image' && (
+      {book.format !== 'image' && book.format !== 'paper' && (
         <button
           className={`icon-btn sm bm-toggle ${bmOpen ? 'active' : ''} ${bmHere ? 'is-on' : ''}`}
           onClick={onBookmarks}
@@ -174,9 +175,11 @@ const BookHead = memo(function BookHead({
           <BookmarkIcon key={bmHere ? 'on' : 'off'} size={15} fill={bmHere ? 'currentColor' : 'none'} />
         </button>
       )}
-      <button className={`icon-btn sm ${studyOpen ? 'active' : ''}`} onClick={onStudy} title="Fiche-texte" aria-label="Fiche-texte" aria-pressed={studyOpen}>
-        <NotebookPen size={15} />
-      </button>
+      {book.format !== 'paper' && (
+        <button className={`icon-btn sm ${studyOpen ? 'active' : ''}`} onClick={onStudy} title="Fiche-texte" aria-label="Fiche-texte" aria-pressed={studyOpen}>
+          <NotebookPen size={15} />
+        </button>
+      )}
       <span className="ed-book-progress" aria-hidden style={{ width: `${Math.round(Math.max(0, Math.min(1, progress)) * 100)}%` }} />
     </div>
   );
@@ -199,6 +202,8 @@ export default function BookPane({
   onCiteInput?(input: NewHighlightInput, bookId: string): void;
 }) {
   const exists = useStore((s) => !!bookId && s.books.some((b) => b.id === bookId));
+  // Livre papier : pas de texte à lire, ses extraits (par page) à citer.
+  const paper = useStore((s) => !!bookId && s.books.some((b) => b.id === bookId && b.format === 'paper'));
   const [picking, setPicking] = useState(false);
   const [tocOpen, setTocOpen] = useState(false);
   const [studyOpen, setStudyOpen] = useState(false);
@@ -313,6 +318,52 @@ export default function BookPane({
     return (
       <div className="ed-book">
         <BookPicker currentId={null} onPick={onPickBook} />
+      </div>
+    );
+  }
+
+  if (paper) {
+    return (
+      <div className="ed-book" data-book={bookId} ref={rootRef}>
+        <BookHead
+          bookId={bookId}
+          label="Livre papier"
+          progress={0}
+          tocOpen={false}
+          studyOpen={false}
+          onToc={noop}
+          onStudy={noop}
+          bmOpen={false}
+          bmHere={false}
+          onBookmarks={noop}
+          onChange={() => setPicking(true)}
+        />
+        <div className="ed-book-body">
+          <PaperExtracts
+            bookId={bookId}
+            compact
+            onCite={
+              onCite
+                ? (h, b) => {
+                    const ok = onCite(h, b);
+                    useStore.getState().toast(ok ? 'Citation insérée, avec sa référence' : 'Placez le curseur dans l’écrit pour y citer cet extrait.', ok ? 'success' : 'info');
+                  }
+                : undefined
+            }
+          />
+          {picking && (
+            <div className="ed-book-overlay anim-fade">
+              <BookPicker
+                currentId={bookId}
+                onCancel={() => setPicking(false)}
+                onPick={(id) => {
+                  setPicking(false);
+                  if (id !== bookId) onPickBook(id);
+                }}
+              />
+            </div>
+          )}
+        </div>
       </div>
     );
   }

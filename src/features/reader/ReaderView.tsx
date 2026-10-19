@@ -464,7 +464,8 @@ function SplitPicker({ anchor, currentId, onPick, onClose }: { anchor: DOMRect; 
   const norm = (x: string) => x.normalize('NFD').replace(/\p{Diacritic}/gu, '').toLowerCase();
   const list = [...books]
     .sort((a, b) => (a.id === currentId ? -1 : b.id === currentId ? 1 : (b.lastOpenedAt ?? 0) - (a.lastOpenedAt ?? 0)))
-    .filter((b) => !q || norm(b.title + ' ' + b.author).includes(norm(q)))
+    // Un livre papier n'a pas de texte à afficher côte à côte.
+    .filter((b) => b.format !== 'paper' && (!q || norm(b.title + ' ' + b.author).includes(norm(q))))
     .slice(0, 12);
   return (
     <div ref={ref} className="floating split-picker" style={{ ...style, width: 320 }}>

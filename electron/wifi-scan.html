@@ -1,0 +1,452 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
+<meta name="robots" content="noindex">
+<title>Scanner un livre · Marginalia</title>
+<link rel="icon" href="__ICON__">
+<link rel="apple-touch-icon" href="__ICON__">
+<style nonce="__NONCE__">
+:root {
+  --bg: #efebe3; --panel: #fbf9f4; --page: #fffdf8; --ink: #1d1a15; --ink-2: #4a443a; --muted: #7a7266;
+  --border: rgba(40, 32, 20, 0.12); --accent: #1d1a15; --accent-ink: #fbf9f4;
+  --ok: #3b9a5f; --err: #c4405a; --bar: #d9a21b;
+  --ui: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', Roboto, system-ui, sans-serif;
+  --serif: 'Iowan Old Style', 'Palatino Linotype', Palatino, Georgia, serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #1b1916; --panel: #24211d; --page: #2a2622; --ink: #ede7dc; --ink-2: #c9c1b3; --muted: #978e80;
+    --border: rgba(255, 245, 230, 0.12); --accent: #ede7dc; --accent-ink: #1b1916; }
+}
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+html { -webkit-text-size-adjust: 100%; }
+body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--ui); font-size: 16px; line-height: 1.45; }
+main { max-width: 34rem; margin: 0 auto; padding: max(1.25rem, env(safe-area-inset-top)) 1rem max(2rem, env(safe-area-inset-bottom)); }
+.brand { display: flex; align-items: center; gap: 0.5rem; font-family: var(--serif); font-size: 1.05rem; color: var(--ink-2); }
+.brand-mark { width: 1.75rem; height: 1.75rem; display: block; }
+h1 { font-family: var(--serif); font-weight: 500; font-size: 2rem; line-height: 1.1; margin: 1.25rem 0 0.35rem; letter-spacing: -0.01em; }
+.sub { margin: 0; color: var(--muted); font-size: 0.95rem; }
+.sub strong { color: var(--ink-2); font-weight: 600; }
+.viewer { position: relative; margin-top: 1.5rem; border-radius: 1rem; overflow: hidden; background: #000; aspect-ratio: 4 / 3; display: none; }
+.viewer.on { display: block; }
+.viewer video { width: 100%; height: 100%; object-fit: cover; display: block; }
+.viewer .aim { position: absolute; left: 12%; right: 12%; top: 34%; bottom: 34%; border: 2px solid rgba(255, 255, 255, 0.9); border-radius: 0.5rem; box-shadow: 0 0 0 999px rgba(0, 0, 0, 0.35); }
+.viewer .aim::after { content: ''; position: absolute; left: 6%; right: 6%; top: 50%; height: 2px; background: var(--bar); animation: sweep 1.6s ease-in-out infinite alternate; }
+@keyframes sweep { from { transform: translateY(-1.2rem); } to { transform: translateY(1.2rem); } }
+.actions { display: grid; gap: 0.625rem; margin-top: 1.5rem; }
+.act { position: relative; display: flex; align-items: center; gap: 0.875rem; width: 100%; padding: 1rem; border-radius: 1rem; border: 1px solid var(--border);
+  background: var(--panel); color: var(--ink); text-align: left; font: inherit; cursor: pointer; transition: transform 120ms ease, background-color 120ms; }
+.act:active { transform: scale(0.985); background: var(--page); }
+.act.primary { background: var(--accent); color: var(--accent-ink); border-color: transparent; }
+.act.primary .act-desc { color: inherit; opacity: 0.75; }
+.act svg { flex: none; width: 1.75rem; height: 1.75rem; }
+.act-title { display: block; font-weight: 600; font-size: 1.05rem; }
+.act-desc { display: block; color: var(--muted); font-size: 0.875rem; margin-top: 0.1rem; }
+.act input { position: absolute; inset: 0; opacity: 0; width: 100%; height: 100%; cursor: pointer; font-size: 16px; }
+.status { min-height: 1.5rem; margin: 0.875rem 0.125rem 0; font-size: 0.9375rem; color: var(--ink-2); }
+.status.err { color: var(--err); }
+.status.ok { color: var(--ok); }
+.isbn-box { display: none; margin-top: 0.625rem; padding: 0.875rem; border-radius: 1rem; border: 1px solid var(--border); background: var(--panel); }
+.isbn-box.open { display: block; }
+.isbn-box input { width: 100%; padding: 0.75rem; border-radius: 0.625rem; border: 1px solid var(--border); background: var(--page); color: var(--ink); font: 1.125rem/1.3 var(--ui); letter-spacing: 0.04em; }
+.isbn-box input:focus { outline: 2px solid #3d6fe0; outline-offset: 1px; }
+.hint { margin: 0.5rem 0 0; font-size: 0.8125rem; color: var(--muted); }
+.row { display: flex; gap: 0.5rem; justify-content: flex-end; margin-top: 0.75rem; }
+.btn { appearance: none; border: 1px solid var(--border); background: var(--page); color: var(--ink); font: 600 0.9375rem var(--ui); padding: 0.625rem 1rem; border-radius: 0.625rem; cursor: pointer; }
+.btn.primary { background: var(--accent); color: var(--accent-ink); border-color: transparent; }
+.btn:disabled { opacity: 0.45; }
+h2 { font: 600 0.8125rem var(--ui); text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); margin: 2rem 0 0.5rem; }
+ul { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--border); }
+li { padding: 0.75rem 0.125rem; border-bottom: 1px solid var(--border); }
+.li-top { display: flex; align-items: baseline; gap: 0.75rem; }
+.li-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; font-variant-numeric: tabular-nums; }
+.li-state { flex: none; font-size: 0.8125rem; color: var(--muted); }
+.li.ok .li-state { color: var(--ok); }
+.li.err .li-state { color: var(--err); }
+.li-res { margin: 0.3rem 0 0; font-size: 0.8125rem; color: var(--muted); display: flex; gap: 0.375rem; align-items: flex-start; }
+.li-res::before { content: ''; flex: none; width: 0.5rem; height: 0.5rem; border-radius: 50%; margin-top: 0.3rem; background: var(--muted); opacity: 0.5; }
+.li-res.working::before { animation: pulse 1.2s ease-in-out infinite; }
+.li-res.done { color: var(--ink-2); }
+.li-res.done::before { background: var(--ok); opacity: 1; }
+.li-res.waiting { color: var(--ink-2); }
+.li-res.waiting::before { background: var(--bar); opacity: 1; }
+.li-res.error { color: var(--err); }
+.li-res.error::before { background: var(--err); opacity: 1; }
+@keyframes pulse { 0%, 100% { opacity: 0.25; } 50% { opacity: 0.9; } }
+.li-err { margin: 0.25rem 0 0; font-size: 0.8125rem; color: var(--err); }
+.empty { color: var(--muted); font-size: 0.875rem; padding: 0.75rem 0.125rem; margin: 0; }
+.closed { display: none; margin-top: 1.25rem; padding: 1rem; border-radius: 1rem; background: var(--panel); border: 1px solid var(--err); }
+.closed.show { display: block; }
+.closed strong { display: block; margin-bottom: 0.25rem; }
+.closed p { margin: 0; color: var(--ink-2); font-size: 0.9375rem; }
+body.is-closed .actions, body.is-closed .isbn-box, body.is-closed .viewer { opacity: 0.4; pointer-events: none; }
+.foot { margin-top: 2rem; display: flex; gap: 0.5rem; align-items: flex-start; color: var(--muted); font-size: 0.8125rem; }
+.foot svg { flex: none; width: 1rem; height: 1rem; margin-top: 0.1rem; }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+canvas { display: none; }
+</style>
+</head>
+<body data-check="__CHECK__">
+<main>
+  <div class="brand"><img class="brand-mark" src="__ICON__" alt="" width="28" height="28"> Marginalia</div>
+  <h1>Scanner un livre</h1>
+  <p class="sub">Le code-barres au dos du livre, pour l’ajouter à Marginalia sur <strong id="computer">votre ordinateur</strong>.</p>
+
+  <div class="closed" id="nokey" role="alert">
+    <strong>Ce lien est incomplet : scannez le QR code affiché par Marginalia.</strong>
+    <p>Il manque la clé qui chiffre vos envois. Sur l’ordinateur, ouvrez « Livre papier » › « Scanner le code-barres avec le téléphone » et scannez le code avec l’appareil photo.</p>
+  </div>
+
+  <div class="closed" id="closed" role="alert">
+    <strong>La réception est fermée sur l’ordinateur.</strong>
+    <p>Dans Marginalia, rouvrez « Livre papier » › « Scanner le code-barres avec le téléphone » et scannez le nouveau code.</p>
+  </div>
+
+  <div class="viewer" id="viewer">
+    <video id="video" playsinline muted></video>
+    <span class="aim" aria-hidden="true"></span>
+  </div>
+
+  <div class="actions">
+    <label class="act primary" id="shot-act">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7V5.5A1.5 1.5 0 0 1 5.5 4H7M17 4h1.5A1.5 1.5 0 0 1 20 5.5V7M20 17v1.5a1.5 1.5 0 0 1-1.5 1.5H17M7 20H5.5A1.5 1.5 0 0 1 4 18.5V17"/><path d="M8 8v8M10.5 8v8M13 8v8M15 8v8M16.5 8v8"/></svg>
+      <span><span class="act-title">Photographier le code-barres</span><span class="act-desc">Au dos du livre, bien net et à plat. Il est lu sur le téléphone.</span></span>
+      <input type="file" id="shot" accept="image/*" capture="environment" aria-label="Photographier le code-barres">
+    </label>
+    <button class="act" id="isbn-toggle" type="button" aria-expanded="false" aria-controls="isbn-box">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="6" width="18" height="12" rx="2"/><path d="M7 10h.01M11 10h.01M15 10h.01M7 14h10"/></svg>
+      <span><span class="act-title">Taper l’ISBN</span><span class="act-desc">Les 10 ou 13 chiffres imprimés sous le code-barres.</span></span>
+    </button>
+  </div>
+
+  <div class="isbn-box" id="isbn-box">
+    <label class="sr" for="isbn">ISBN</label>
+    <input id="isbn" inputmode="numeric" autocomplete="off" placeholder="978-2-08-…">
+    <p class="hint" id="isbn-hint">Les tirets et les espaces ne comptent pas.</p>
+    <div class="row">
+      <button class="btn" id="isbn-cancel" type="button">Annuler</button>
+      <button class="btn primary" id="isbn-send" type="button" disabled>Envoyer</button>
+    </div>
+  </div>
+
+  <p class="status" id="status" role="status" aria-live="polite"></p>
+  <canvas id="canvas"></canvas>
+
+  <h2>Livres envoyés</h2>
+  <ul id="list" aria-live="polite"></ul>
+  <p class="empty" id="empty">Rien pour l’instant. L’édition trouvée s’affiche aussitôt sur l’ordinateur, pour que vous la confirmiez.</p>
+
+  <p class="foot">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="10.5" width="14" height="10" rx="1.6"/><path d="M8 10.5V8a4 4 0 0 1 8 0v2.5"/></svg>
+    <span>La photo du code-barres reste sur ce téléphone : seul le numéro ISBN part, chiffré, directement vers votre ordinateur, sur ce Wi‑Fi.</span>
+  </p>
+</main>
+<script nonce="__NONCE__">__CRYPTO__</script>
+<script nonce="__NONCE__">__ZXING__</script>
+<script nonce="__NONCE__">
+(function () {
+  'use strict';
+  var C = window.mgCrypt;
+  // …/r/<jeton>/scan : les envois partent vers …/r/<jeton>/up, comme depuis la page de réception.
+  var base = location.pathname.replace(/\/+$/, '').replace(/\/scan$/, '');
+  var list = document.getElementById('list');
+  var empty = document.getElementById('empty');
+  var statusEl = document.getElementById('status');
+  var closed = false;
+
+  var key = null;
+  var hello = null;
+  (function () {
+    var store = 'mg-k:' + base;
+    var check = document.body.getAttribute('data-check');
+    var k = C.keyFromHash(location.hash);
+    if (k) hello = C.open(k, check);
+    if (!hello) {
+      try { k = C.keyFromHash('#k=' + (sessionStorage.getItem(store) || '')); } catch (e) { k = null; }
+      hello = k && C.open(k, check);
+    }
+    if (!hello) return;
+    key = k;
+    try { sessionStorage.setItem(store, C.b64u(k)); } catch (e) {}
+    if (location.hash) {
+      try { history.replaceState(null, '', location.pathname + location.search); } catch (e) {}
+    }
+  })();
+  if (!key) {
+    document.getElementById('nokey').classList.add('show');
+    document.body.classList.add('is-closed');
+    return;
+  }
+  document.getElementById('computer').textContent = String(hello.c || 'votre ordinateur');
+
+  function setClosed(on) {
+    closed = on;
+    document.getElementById('closed').classList.toggle('show', on);
+    document.body.classList.toggle('is-closed', on);
+  }
+  function say(text, tone) {
+    statusEl.textContent = text || '';
+    statusEl.className = 'status' + (tone ? ' ' + tone : '');
+  }
+
+  // ── ISBN ──
+  function clean(s) { return String(s || '').toUpperCase().replace(/^\s*ISBN(?:-1[03])?:?\s*/, '').replace(/[^0-9X]/g, ''); }
+  function valid13(s) {
+    if (!/^97[89]\d{10}$/.test(s)) return false;
+    var sum = 0;
+    for (var i = 0; i < 13; i++) sum += Number(s[i]) * (i % 2 ? 3 : 1);
+    return sum % 10 === 0;
+  }
+  function valid10(s) {
+    if (!/^\d{9}[\dX]$/.test(s)) return false;
+    var sum = 0;
+    for (var i = 0; i < 10; i++) sum += (10 - i) * (s[i] === 'X' ? 10 : Number(s[i]));
+    return sum % 11 === 0;
+  }
+  function to13(s) {
+    var core = '978' + s.slice(0, 9);
+    var sum = 0;
+    for (var i = 0; i < 12; i++) sum += Number(core[i]) * (i % 2 ? 3 : 1);
+    return core + String((10 - (sum % 10)) % 10);
+  }
+  function isbnOf(raw) {
+    var c = clean(raw);
+    if (valid13(c)) return c;
+    if (valid10(c)) return to13(c);
+    return null;
+  }
+  function pretty(isbn) { return isbn.slice(0, 3) + '-' + isbn.slice(3, 4) + '-' + isbn.slice(4, 12) + '-' + isbn.slice(12); }
+
+  // ── Lecture du code-barres (sur le téléphone) ──
+  var detector = null;
+  if ('BarcodeDetector' in window) {
+    try { detector = new window.BarcodeDetector({ formats: ['ean_13', 'ean_8', 'upc_a'] }); } catch (e) { detector = null; }
+  }
+  var zx = null;
+  function zxReader() {
+    if (zx || !window.ZXing) return zx;
+    var Z = window.ZXing;
+    var hints = new Map();
+    hints.set(Z.DecodeHintType.POSSIBLE_FORMATS, [Z.BarcodeFormat.EAN_13, Z.BarcodeFormat.EAN_8, Z.BarcodeFormat.UPC_A]);
+    hints.set(Z.DecodeHintType.TRY_HARDER, true);
+    zx = new Z.MultiFormatReader();
+    zx.setHints(hints);
+    return zx;
+  }
+  function zxDecode(canvas) {
+    var r = zxReader();
+    if (!r) return null;
+    try {
+      var Z = window.ZXing;
+      var bmp = new Z.BinaryBitmap(new Z.HybridBinarizer(new Z.HTMLCanvasElementLuminanceSource(canvas)));
+      return r.decode(bmp).getText();
+    } catch (e) {
+      return null;
+    } finally {
+      try { r.reset(); } catch (e) {}
+    }
+  }
+  var canvas = document.getElementById('canvas');
+  /** Dessine la source (image, vidéo) dans le canevas, réduite, éventuellement tournée d'un quart de tour. */
+  function draw(src, w, h, rotate) {
+    var scale = Math.min(1, 1400 / Math.max(w, h));
+    var cw = Math.round(w * scale), ch = Math.round(h * scale);
+    canvas.width = rotate ? ch : cw;
+    canvas.height = rotate ? cw : ch;
+    var g = canvas.getContext('2d', { willReadFrequently: true });
+    g.save();
+    if (rotate) { g.translate(ch, 0); g.rotate(Math.PI / 2); }
+    g.drawImage(src, 0, 0, cw, ch);
+    g.restore();
+  }
+  function detect(src, w, h) {
+    var p = detector ? detector.detect(src).then(function (codes) { return codes && codes[0] ? codes[0].rawValue : null; }, function () { return null; }) : Promise.resolve(null);
+    return p.then(function (code) {
+      if (code) return code;
+      draw(src, w, h, false);
+      code = zxDecode(canvas);
+      if (code) return code;
+      draw(src, w, h, true);
+      return zxDecode(canvas);
+    });
+  }
+
+  // ── Envoi chiffré de l'ISBN (comme tout envoi : bloc chiffré, nature chiffrée à part) ──
+  var sent = {};
+  function row(isbn) {
+    empty.style.display = 'none';
+    var li = document.createElement('li');
+    li.className = 'li';
+    var top = document.createElement('div');
+    top.className = 'li-top';
+    var name = document.createElement('span');
+    name.className = 'li-name';
+    name.textContent = 'ISBN ' + pretty(isbn);
+    var state = document.createElement('span');
+    state.className = 'li-state';
+    state.textContent = 'Envoi…';
+    top.appendChild(name);
+    top.appendChild(state);
+    li.appendChild(top);
+    list.insertBefore(li, list.firstChild);
+    return { li: li, state: state };
+  }
+  function send(isbn) {
+    if (closed) return;
+    if (sent[isbn] && Date.now() - sent[isbn] < 8000) return say('Ce livre vient d’être envoyé.', 'ok');
+    sent[isbn] = Date.now();
+    var ui = row(isbn);
+    var id = C.randomBytes(16);
+    var body = new Blob([C.sealFrame(key, id, C.DATA, 0, true, C.utf8(isbn))], { type: 'application/octet-stream' });
+    var xhr = new XMLHttpRequest();
+    xhr.open('POST', base + '/up?id=' + C.b64u(id) + '&m=' + C.sealMeta(key, id, { t: 'isbn' }));
+    xhr.setRequestHeader('X-Marginalia', '1');
+    xhr.setRequestHeader('Content-Type', 'application/octet-stream');
+    xhr.onload = function () {
+      var r = C.open(key, xhr.responseText) || {};
+      if (xhr.status === 200 && r.ok) {
+        ui.li.className = 'li ok';
+        ui.state.textContent = 'Reçu ✓';
+        say('ISBN ' + pretty(isbn) + ' envoyé à l’ordinateur.', 'ok');
+        follow(ui, C.b64u(id));
+      } else {
+        if (xhr.status === 404 || xhr.status === 410 || xhr.status === 423) setClosed(true);
+        ui.li.className = 'li err';
+        ui.state.textContent = 'Échec';
+        var p = document.createElement('p');
+        p.className = 'li-err';
+        p.textContent = r.error || 'Envoi impossible.';
+        ui.li.appendChild(p);
+        delete sent[isbn];
+      }
+    };
+    xhr.onerror = function () {
+      ui.li.className = 'li err';
+      ui.state.textContent = 'Échec';
+      say('L’ordinateur ne répond pas. Il est peut-être en veille, ou sur un autre Wi‑Fi.', 'err');
+      delete sent[isbn];
+    };
+    xhr.send(body);
+  }
+  // Ce que l'ordinateur en a fait (« Du contrat social — GF Flammarion, 2001 : à confirmer… »).
+  var DONE = { library: 1, extract: 1, extracts: 1, draft: 1, dismissed: 1 };
+  function follow(ui, id) {
+    var res = document.createElement('p');
+    res.className = 'li-res working';
+    res.textContent = 'Recherche de l’édition sur l’ordinateur…';
+    ui.li.appendChild(res);
+    var t0 = Date.now();
+    var last = '';
+    (function tick() {
+      var x = new XMLHttpRequest();
+      x.open('GET', base + '/result?id=' + id);
+      x.onload = function () {
+        var o = (x.status === 200 && C.open(key, x.responseText)) || {};
+        if (x.status === 200 && o.state && o.state !== 'working') {
+          res.className = 'li-res ' + (DONE[o.state] ? 'done' : o.state === 'error' ? 'error' : 'waiting');
+          res.textContent = o.label || 'Reçu sur l’ordinateur.';
+          if (DONE[o.state] || o.state === 'error') return;
+          last = o.label || '';
+        }
+        if (Date.now() - t0 < 600000) setTimeout(tick, 1500);
+      };
+      x.send();
+    })();
+  }
+  function onCode(raw) {
+    var isbn = isbnOf(raw);
+    if (!isbn) return say('Ce code-barres n’est pas celui d’un livre (ISBN commençant par 978 ou 979). Cherchez celui au dos, près du prix.', 'err');
+    send(isbn);
+  }
+  // Tests : résultat de lecture injecté (comme s'il venait de la caméra).
+  window.mgScanInject = onCode;
+
+  // ── Photo du code-barres ──
+  var shot = document.getElementById('shot');
+  shot.addEventListener('change', function () {
+    var f = shot.files && shot.files[0];
+    shot.value = '';
+    if (!f) return;
+    say('Lecture du code-barres…');
+    var url = URL.createObjectURL(f);
+    var img = new Image();
+    img.onload = function () {
+      detect(img, img.naturalWidth, img.naturalHeight).then(function (code) {
+        URL.revokeObjectURL(url);
+        if (code) onCode(code);
+        else say('Aucun code-barres lisible sur la photo. Rapprochez-vous, à plat et sans reflet, ou tapez l’ISBN.', 'err');
+      });
+    };
+    img.onerror = function () {
+      URL.revokeObjectURL(url);
+      say('Cette photo ne peut pas être lue sur le téléphone. Réessayez, ou tapez l’ISBN.', 'err');
+    };
+    img.src = url;
+  });
+
+  // ── Caméra en direct (seulement si le navigateur l'autorise pour cette page) ──
+  var video = document.getElementById('video');
+  if (window.isSecureContext && navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+    navigator.mediaDevices
+      .getUserMedia({ video: { facingMode: 'environment', width: { ideal: 1280 } }, audio: false })
+      .then(function (stream) {
+        video.srcObject = stream;
+        video.play();
+        document.getElementById('viewer').classList.add('on');
+        say('Visez le code-barres au dos du livre.');
+        var busy = false;
+        setInterval(function () {
+          if (busy || closed || document.hidden || !video.videoWidth) return;
+          busy = true;
+          detect(video, video.videoWidth, video.videoHeight).then(function (code) {
+            busy = false;
+            if (code) onCode(code);
+          });
+        }, 350);
+      })
+      .catch(function () { /* photo du code-barres seulement */ });
+  }
+
+  // ── ISBN tapé ──
+  var toggle = document.getElementById('isbn-toggle');
+  var box = document.getElementById('isbn-box');
+  var input = document.getElementById('isbn');
+  var sendBtn = document.getElementById('isbn-send');
+  var hint = document.getElementById('isbn-hint');
+  function openBox(on) {
+    box.classList.toggle('open', on);
+    toggle.setAttribute('aria-expanded', on ? 'true' : 'false');
+    if (on) setTimeout(function () { input.focus(); }, 50);
+  }
+  toggle.addEventListener('click', function () { openBox(!box.classList.contains('open')); });
+  document.getElementById('isbn-cancel').addEventListener('click', function () { input.value = ''; sendBtn.disabled = true; openBox(false); });
+  input.addEventListener('input', function () {
+    var c = clean(input.value);
+    var ok = !!isbnOf(c);
+    sendBtn.disabled = !ok;
+    hint.textContent = ok ? 'ISBN valide.' : c.length >= 10 ? 'Ce numéro n’est pas un ISBN valide : vérifiez les chiffres.' : 'Les tirets et les espaces ne comptent pas.';
+  });
+  sendBtn.addEventListener('click', function () {
+    var isbn = isbnOf(input.value);
+    if (!isbn) return;
+    input.value = '';
+    sendBtn.disabled = true;
+    openBox(false);
+    send(isbn);
+  });
+
+  function check() {
+    var x = new XMLHttpRequest();
+    x.open('GET', base + '/state');
+    x.onload = function () { setClosed(x.status !== 200); };
+    x.onerror = function () { setClosed(true); };
+    x.send();
+  }
+  document.addEventListener('visibilitychange', function () { if (!document.hidden) check(); });
+  setInterval(function () { if (!document.hidden) check(); }, 15000);
+})();
+</script>
+</body>
+</html>

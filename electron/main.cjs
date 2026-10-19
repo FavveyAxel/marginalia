@@ -27,6 +27,7 @@ const zipkit = require('./backup.cjs');
 const vault = require('./vault.cjs');
 const wifiKit = require('./wifi.cjs');
 const shareNet = require('./share-net.cjs');
+const booksNetKit = require('./books-net.cjs');
 const fontNames = require('./fontnames.cjs');
 
 const DEV_URL = process.env.VITE_DEV_SERVER_URL || '';
@@ -2611,6 +2612,7 @@ const wifiReceiver = wifiKit.createReceiver({
   taken: (name) => inboxCloudOn && fs.existsSync(path.join(inboxDir(), name)),
   isLocked: () => isLocked(),
   pagePath: path.join(__dirname, 'wifi-page.html'),
+  scanPagePath: path.join(__dirname, 'wifi-scan.html'),
   diag: (...a) => diag(...a),
   emit: (evt) => {
     for (const w of BrowserWindow.getAllWindows()) {
@@ -2631,6 +2633,26 @@ dataHandle('marginalia:wifiStart', async () => {
 dataHandle('marginalia:wifiInfo', () => wifiReceiver.info());
 handle('marginalia:wifiStop', () => wifiReceiver.stop('closed'));
 dataHandle('marginalia:wifiReport', (_e, name, result) => wifiReceiver.report(name, result));
+
+// ── Livres papier : recherche d'éditions (voir electron/books-net.cjs) ──
+// Réglage « Rechercher les livres papier sur Internet » (activé par défaut) : l'interface le transmet
+// au lancement et à chaque changement ; désactivé, aucune requête ne part. Tests : jamais le vrai
+// réseau, seulement le faux serveur local de MARGINALIA_E2E_BOOKS_BASE.
+let paperOnline = true;
+const paperTestBase = E2E ? process.env.MARGINALIA_E2E_BOOKS_BASE || '' : '';
+const booksNet = booksNetKit.createBooksNet({
+  enabled: () => paperOnline && (!E2E || !!paperTestBase),
+  testBase: paperTestBase || undefined,
+  diag: (...a) => diag(...a),
+});
+const paperText = (v, max) => String(v == null ? '' : v).slice(0, max);
+handle('marginalia:paperOnline', (_e, on) => {
+  paperOnline = on !== false;
+  return paperOnline;
+});
+handle('marginalia:paperSearch', (_e, q) => booksNet.search(paperText(q, 300)));
+handle('marginalia:paperIsbn', (_e, isbn) => booksNet.byIsbn(paperText(isbn, 40)));
+handle('marginalia:paperCover', (_e, url) => booksNet.cover(paperText(url, 2000)));
 
 // ── Envoi vers le téléphone (export d'un écrit, chemin inverse du QR code) ──
 const wifiSender = wifiKit.createSender({

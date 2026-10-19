@@ -517,3 +517,5 @@ a.btn-primary:hover { background: #3a342b; }
   .together h2 { font-size: 2.5rem; }
   .crew { gap: 0.25rem; }
 }
+/* La pile de livres est le siège : dessinée derrière le personnage, pas devant. */
+.crew-rousseau > svg:not(.book-seat) { position: relative; z-index: 1; }

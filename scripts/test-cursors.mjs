@@ -8,6 +8,7 @@
 //     de sa couleur chez Marc ; pointeur effacé après inactivité ; parti avec Léa quand elle quitte la carte.
 //  2. PDF (fenêtres de tailles différentes) : même point de la même page ; Inès sur la page 2 : pas de
 //     pointeur, « Inès lit page 2 ».
+//  2 bis. Photo : même point de l'image.
 //  3. EPUB (fenêtre et taille de texte différentes) : le pointeur de Léa sur un mot apparaît sur ce même mot
 //     chez Marc ; Inès dans un autre livre : rien.
 //  4. Rien en clair dans le trafic capturé.
@@ -147,25 +148,28 @@ try {
   // ── Préparation de Léa : espace « Parjure » (EPUB, PDF, une carte à deux cartes) ──
   const epubB64 = fs.readFileSync(path.join(ROOT, 'fixtures/discours.epub')).toString('base64');
   const pdfB64 = fs.readFileSync(path.join(ROOT, 'fixtures/discours.pdf')).toString('base64');
+  const pngB64 = fs.readFileSync(path.join(ROOT, 'fixtures/cover.png')).toString('base64');
   const seeded = await A.page.evaluate(
-    async ({ epubB64, pdfB64 }) => {
+    async ({ epubB64, pdfB64, pngB64 }) => {
       const s = () => window.__store.getState();
       const b = (x) => Uint8Array.from(atob(x), (c) => c.charCodeAt(0)).buffer;
       const [epub] = await s().importFiles([{ name: 'Discours de la méthode.epub', data: b(epubB64) }]);
       const [pdf] = await s().importFiles([{ name: 'Discours (PDF).pdf', data: b(pdfB64) }]);
+      const [photo] = await s().importFiles([{ name: 'Photo de couverture.png', data: b(pngB64) }]);
       const ws = s().createWorkspace('Parjure').id;
       s().navigate({ name: 'workspace', workspaceId: ws, groupId: null });
       s().addToWorkspace(ws, null, 'book', epub.id);
       s().addToWorkspace(ws, null, 'book', pdf.id);
+      s().addToWorkspace(ws, null, 'book', photo.id);
       const now = Date.now();
       const board = 'board-parjure';
       s().setMap(board, { id: board, kind: 'board', bookId: '', title: 'Promesse', bookIds: [], viewport: null, zones: [], nodes: [{ id: 'n1', highlightId: null, text: 'Peut-on promettre sans mentir ?', x: 0, y: 0 }, { id: 'n2', highlightId: null, text: 'Idée de Léa', x: 380, y: 60 }], edges: [], createdAt: now, updatedAt: now });
       s().addToWorkspace(ws, null, 'map', board);
-      return { ws, epub: epub.id, pdf: pdf.id, board };
+      return { ws, epub: epub.id, pdf: pdf.id, photo: photo.id, photoFormat: photo.format, board };
     },
-    { epubB64, pdfB64 },
+    { epubB64, pdfB64, pngB64 },
   );
-  ok(!!seeded.epub && !!seeded.pdf, 'Léa : espace « Parjure » (EPUB, PDF, carte)', seeded);
+  ok(!!seeded.epub && !!seeded.pdf && seeded.photoFormat === 'image', 'Léa : espace « Parjure » (EPUB, PDF, photo, carte)', seeded);
 
   // ── Session : Léa ouvre, Marc rejoint par le relais, Inès sans interface ──
   await A.page.click('button[aria-label="Actions"]');
@@ -482,6 +486,23 @@ try {
   const errI = inesP2 ? Math.hypot(inesP2.x - (p2.left + p2.w * 0.57), inesP2.y - (p2.top + p2.h * 0.2)) : 999;
   ok(inesP2 && inesP2.state === 'on' && errI < 3, `PDF : Marc à la page 2, Inès y apparaît au bon endroit (écart ${errI.toFixed(2)} px)`, inesP2);
   inesSend({ k: pdfCtx, bye: 1 });
+
+  // ════════ 2 bis. Photo (image, fenêtres de tailles différentes) ════════
+  const photoB = await st(B.page, (g) => window.__store.getState().books.find((b) => b.id === g || b.shareOrigin?.srcId === g)?.id, seeded.photo);
+  await A.page.evaluate((id) => window.__store.getState().navigate({ name: 'reader', bookId: id, tab: 'lecture', splitBookId: null }), seeded.photo);
+  await B.page.evaluate((id) => window.__store.getState().navigate({ name: 'reader', bookId: id, tab: 'lecture', splitBookId: null }), photoB);
+  for (const X of [A, B]) await X.page.waitForSelector('.img-page[data-page="1"] img', { timeout: 30000 });
+  await wait(1200);
+  const imgRect = (X) => st(X.page, () => { const r = document.querySelector('.img-page').getBoundingClientRect(); return { left: r.left, top: r.top, w: r.width, h: r.height }; });
+  const [iA, iB] = [await imgRect(A), await imgRect(B)];
+  const ix = Math.round(iA.left + iA.w * 0.6);
+  const iy = Math.round(iA.top + Math.min(iA.h, vA.h * 0.5) * 0.5);
+  await glide(A, [[ix - 80, iy - 40], [ix - 30, iy - 10], [ix, iy]], 600);
+  await wait(400);
+  const cI = await cursorOf(B, 'Léa');
+  const wantI = { x: iB.left + iB.w * ((ix - iA.left) / iA.w), y: iB.top + iB.h * ((iy - iA.top) / iA.h) };
+  const errImg = cI ? Math.hypot(cI.x - wantI.x, cI.y - wantI.y) : 999;
+  ok(Math.abs(iA.w - iB.w) > 10 && cI && cI.state === 'on' && errImg < 3, `photo : même point de l’image chez Marc (écart ${errImg.toFixed(2)} px)`, { lea: Math.round(iA.w), marc: Math.round(iB.w), vu: cI && { x: cI.x, y: cI.y }, attendu: wantI });
 
   // ════════ 3. EPUB (fenêtre et taille de texte différentes) ════════
   await B.page.evaluate(() => window.__store.getState().updateSettings({ fontSize: (window.__store.getState().settings.fontSize || 18) + 6 }));

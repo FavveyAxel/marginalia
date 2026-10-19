@@ -53,6 +53,8 @@ let seq = 0;
 interface Endpoint {
   id: string;
   room: string;
+  /** Y.Doc du fournisseur de cette extrémité (réponse « étape 1 » d'un serveur, voir deliver). */
+  doc: () => Any;
   readyState: number;
   replyTo: string | null;
   onopen: ((e?: unknown) => void) | null;
@@ -83,7 +85,7 @@ export class Rooms {
   }
 
   // ── Extrémités (faux WebSocket) ──
-  private socketClass(room: string) {
+  private socketClass(room: string, doc: () => Any) {
     // eslint-disable-next-line @typescript-eslint/no-this-alias
     const rooms = this;
     return class RelaySocket implements Endpoint {
@@ -98,6 +100,7 @@ export class Rooms {
       binaryType = 'arraybuffer';
       id = `${rooms.o.me()}:${++seq}`;
       room = room;
+      doc = doc;
       readyState = 0;
       replyTo: string | null = null;
       onopen: ((e?: unknown) => void) | null = null;
@@ -148,6 +151,13 @@ export class Rooms {
       ep.replyTo = f;
       try {
         ep.onmessage?.({ data: body.slice().buffer as ArrayBuffer });
+        // Un serveur y-websocket répond à l'« étape 1 » d'un nouveau venu par la sienne : le nouveau venu
+        // renvoie alors ce qui lui manque (ses modifications faites hors connexion). Seulement pour une étape 1
+        // diffusée (pas pour une réponse adressée : sinon les deux se renverraient la balle sans fin).
+        if (!to && body.length > 1 && body[0] === 0 && body[1] === 0) {
+          const sv = stateVector(ep.doc());
+          if (sv) this.ySend(ep, concat(new Uint8Array([0, 0]), varUint(sv.length), sv));
+        }
       } catch (e) {
         console.warn('collab : message Yjs', e);
       } finally {
@@ -170,7 +180,7 @@ export class Rooms {
 
   private provider(room: string, doc: Any): Any {
     const { Provider, Awareness } = this.kit!;
-    return new Provider('mg-collab://salle', room, doc, { WebSocketPolyfill: this.socketClass(room), disableBc: true, awareness: new Awareness(doc), maxBackoffTime: 1500 });
+    return new Provider('mg-collab://salle', room, doc, { WebSocketPolyfill: this.socketClass(room, () => doc), disableBc: true, awareness: new Awareness(doc), maxBackoffTime: 1500 });
   }
 
   // ── Coordination (hôte) ──
@@ -340,4 +350,36 @@ export class Rooms {
     for (const w of this.waiting.values()) w('sync');
     this.waiting.clear();
   }
+}
+
+// ── Vecteur d'état Yjs (comme Y.encodeStateVector, que la copie embarquée n'expose pas) ──
+function varUint(n: number): Uint8Array {
+  const out: number[] = [];
+  while (n > 0x7f) {
+    out.push(0x80 | (n & 0x7f));
+    n = Math.floor(n / 128);
+  }
+  out.push(n);
+  return new Uint8Array(out);
+}
+function concat(...parts: Uint8Array[]): Uint8Array {
+  const out = new Uint8Array(parts.reduce((n, p) => n + p.length, 0));
+  let off = 0;
+  for (const p of parts) {
+    out.set(p, off);
+    off += p.length;
+  }
+  return out;
+}
+/** Vecteur d'état encodé (v1) d'un Y.Doc : pour chaque client, l'horloge qui suit sa dernière structure. */
+export function stateVector(doc: Any): Uint8Array | null {
+  const clients: Map<number, Any[]> | undefined = doc?.store?.clients;
+  if (!(clients instanceof Map)) return null;
+  const sv: [number, number][] = [];
+  for (const [client, structs] of clients) {
+    const last = structs[structs.length - 1];
+    if (last?.id && typeof last.length === 'number') sv.push([client, last.id.clock + last.length]);
+  }
+  sv.sort((a, b) => b[0] - a[0]);
+  return concat(varUint(sv.length), ...sv.flatMap(([c, k]) => [varUint(c), varUint(k)]));
 }

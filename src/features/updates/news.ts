@@ -21,6 +21,21 @@ export interface NewsEntry {
 
 export const NEWS: NewsEntry[] = [
   {
+    version: '3.31',
+    items: [
+      {
+        icon: 'map',
+        title: 'Garder l’espace après avoir travaillé ensemble, ou non',
+        text: 'À la fin d’une session à plusieurs, la personne invitée choisit : garder l’espace reçu, à jour, ou ne pas le garder (il va dans la corbeille, 30 jours). Ce qu’elle avait déjà dans sa bibliothèque reste toujours.',
+      },
+      {
+        icon: 'sparkles',
+        title: 'Pointeurs plus fluides dans les livres',
+        text: 'Le pointeur des autres suit leur geste sans à-coup, même en fin de ligne et pendant une sélection ; le prénom reste sur le pointeur.',
+      },
+    ],
+  },
+  {
     version: '3.30',
     items: [
       {

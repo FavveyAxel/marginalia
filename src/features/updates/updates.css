@@ -64,6 +64,11 @@
 .up-banner-note { font-size: var(--fs-sm); color: var(--ink-2); line-height: 1.4; }
 .up-link { align-self: flex-start; margin-top: 2px; padding: 0; border: 0; background: none; font: inherit; font-size: var(--fs-sm); color: var(--ink-2); text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
 .up-link:hover { color: var(--ink); }
-.up-ready .up-banner-actions { justify-content: flex-end; }
+.up-ready { display: flex; flex-direction: row; align-items: flex-start; gap: 12px; padding-right: 16px; }
+.up-ready-ico { flex: none; display: grid; place-items: center; width: 32px; height: 32px; border-radius: 9px; background: var(--bg-inset); color: var(--ink); }
+.up-ready-body { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.up-ready .up-banner-actions { align-items: center; }
+.up-ready .up-link { margin-top: 4px; }
 .up-ready .up-banner-actions .btn { display: inline-flex; align-items: center; gap: 5px; }
 @media (prefers-reduced-motion: reduce) { .up-bar span { transition: none; } }
+.up-ready.up-banner { width: min(420px, calc(100vw - 40px)); }

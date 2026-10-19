@@ -389,30 +389,35 @@ function UpdateReady({ d, u }: { d: UpdateState; u: UpdateInfo | null }) {
   const [busy, setBusy] = useState(false);
   return (
     <aside className="up-banner up-ready anim-in" aria-label="Mise à jour prête" data-testid="update-ready">
-      <div className="up-banner-text">
-        <strong>Marginalia {d.version} est prête</strong>
-        {t && <span>{t}</span>}
-        {u?.notes && (
-          <button className="up-link" onClick={() => useUpdates.setState({ notesOpen: true })}>
-            Voir les nouveautés
+      <span className="up-ready-ico" aria-hidden="true">
+        <Sparkles size={16} />
+      </span>
+      <div className="up-ready-body">
+        <div className="up-banner-text">
+          <strong>Marginalia {d.version} est prête</strong>
+          {t && <span>{t}</span>}
+          {u?.notes && (
+            <button className="up-link" onClick={() => useUpdates.setState({ notesOpen: true })}>
+              Voir toutes les nouveautés
+            </button>
+          )}
+        </div>
+        <div className="up-banner-actions">
+          <button
+            className="btn btn-sm btn-primary"
+            disabled={installing || busy}
+            onClick={async () => {
+              setBusy(true);
+              await restartToUpdate();
+              setBusy(false);
+            }}
+          >
+            <RotateCw size={13} /> {installing ? 'Redémarrage…' : 'Redémarrer pour mettre à jour'}
           </button>
-        )}
-      </div>
-      <div className="up-banner-actions">
-        <button className="btn btn-sm" onClick={installLater} disabled={installing || busy}>
-          Plus tard
-        </button>
-        <button
-          className="btn btn-sm btn-primary"
-          disabled={installing || busy}
-          onClick={async () => {
-            setBusy(true);
-            await restartToUpdate();
-            setBusy(false);
-          }}
-        >
-          <RotateCw size={13} /> {installing ? 'Redémarrage…' : 'Redémarrer pour mettre à jour'}
-        </button>
+          <button className="btn btn-sm" onClick={installLater} disabled={installing || busy}>
+            Plus tard
+          </button>
+        </div>
       </div>
     </aside>
   );

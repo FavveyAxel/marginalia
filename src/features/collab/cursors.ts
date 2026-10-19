@@ -59,8 +59,13 @@ export interface Peer {
   lastAt: number;
   act: Act | null;
   where: Where | null;
-  /** Sélection de texte en cours (livres), sans fondu d'inactivité. */
+  /** Sélection de texte en cours (livres), sans fondu d'inactivité : la dernière reçue. */
   sel: Sel | null;
+  /** Sélections reçues, horodatées comme les positions : rejouées avec le même retard que le pointeur
+   *  (selShown), pour que la teinte et l'étiquette avancent avec lui et non devant lui. */
+  sels: { t: number; sel: Sel | null }[];
+  /** Sélection d'avant la plus ancienne gardée dans `sels`. */
+  selBase: Sel | null;
 }
 
 export interface CursorBridge {
@@ -70,6 +75,9 @@ export interface CursorBridge {
 }
 
 export const SEND_MS = 40;
+/** Retard de rejeu chez le destinataire (ms) : couvre l'irrégularité d'arrivée de deux à trois paquets.
+ *  Le même pour le pointeur (LiveCursors) et la sélection (ReaderSelections). */
+export const REPLAY_MS = 110;
 export const IDLE_MS = 3500;
 const MAX_SAMPLES = 24;
 /** Au-delà de cet écart entre deux positions, la personne s'était arrêtée (sinon : simple retard réseau). */
@@ -80,8 +88,20 @@ const peers = new Map<string, Peer>(); // `${peer}|${ctx}`
 const listeners = new Map<string, Set<() => void>>();
 /** Mes contextes ouverts (pour répondre à « où êtes-vous ? »). */
 const mine = new Map<string, { where: Where | null; sel: Sel | null; count: number }>();
-/** Personnes dont la sélection est affichée ici avec son étiquette (le pointeur se passe alors de la sienne). */
-export const selLabelled = new Set<string>();
+/** Pointeurs affichés ici (`${ctx}|${personne}`). Un seul prénom à la fois, et qui ne saute pas : tant que le
+ *  pointeur d'une personne est à l'écran, son prénom le suit ; sa sélection ne reprend le prénom (au bout du
+ *  passage) qu'une fois le pointeur parti (immobile, sorti de la vue). */
+const shownCursors = new Set<string>();
+export function cursorShown(ctx: string, id: string): boolean {
+  return shownCursors.has(`${ctx}|${id}`);
+}
+export function setCursorShown(ctx: string, id: string, on: boolean) {
+  const k = `${ctx}|${id}`;
+  if (on === shownCursors.has(k)) return;
+  if (on) shownCursors.add(k);
+  else shownCursors.delete(k);
+  notify(ctx);
+}
 /** Compteur de messages envoyés (mesure de cadence par les tests). */
 export const sentStats = { n: 0, byCtx: new Map<string, number>() };
 
@@ -313,13 +333,16 @@ export function onCursorMessage(from: string, head: Record<string, unknown>) {
   const t0 = performance.now();
   let p = peers.get(key);
   if (!p) {
-    p = { id: from, ctx, samples: [], offset: t0 - ts, lastAt: 0, act: null, where: null, sel: null };
+    p = { id: from, ctx, samples: [], offset: t0 - ts, lastAt: 0, act: null, where: null, sel: null, sels: [], selBase: null };
     peers.set(key, p);
   }
   // Horloge de l'expéditeur repartie de zéro (page rechargée) : on oublie l'historique.
   const last = p.samples[p.samples.length - 1];
-  if (last && ts < last.t - 1000) {
+  const lastSel = p.sels[p.sels.length - 1];
+  if ((last && ts < last.t - 1000) || (lastSel && ts < lastSel.t - 1000)) {
     p.samples = [];
+    p.selBase = p.sel;
+    p.sels = [];
     p.offset = t0 - ts;
   }
   p.offset = Math.min(p.offset, t0 - ts);
@@ -333,7 +356,11 @@ export function onCursorMessage(from: string, head: Record<string, unknown>) {
   }
   if (head.s !== undefined) {
     const sl = readSel(head.s);
-    if (sl !== undefined) p.sel = sl;
+    if (sl !== undefined) {
+      p.sel = sl;
+      p.sels.push({ t: ts, sel: sl });
+      if (p.sels.length > MAX_SAMPLES) p.selBase = p.sels.splice(0, p.sels.length - MAX_SAMPLES).pop()!.sel;
+    }
   }
   if (head.p !== undefined) {
     const loc = readLoc(head.p);
@@ -352,6 +379,16 @@ export function onCursorMessage(from: string, head: Record<string, unknown>) {
     bridge.send({ t: 'cur', k: ctx, ts: now(), w: m.where, ...(m.sel ? { s: m.sel } : {}) });
   }
   notify(ctx);
+}
+
+/** Sélection à montrer maintenant : celle qui était en cours chez la personne il y a REPLAY_MS, comme son
+ *  pointeur (sans retard en mouvement réduit). `later` : une sélection plus récente attend son tour. */
+export function selShown(p: Peer, now: number, still: boolean): { sel: Sel | null; later: boolean } {
+  if (still || !p.sels.length) return { sel: p.sel, later: false };
+  const rt = now - p.offset - REPLAY_MS;
+  let i = p.sels.length - 1;
+  while (i >= 0 && p.sels[i].t > rt) i--;
+  return { sel: i >= 0 ? p.sels[i].sel : p.selBase, later: i < p.sels.length - 1 };
 }
 
 /** Personnes présentes dans un contexte (copie). */

@@ -157,7 +157,8 @@ async function hideWindowControls(X) {
   await wait(300);
 }
 
-const A = await launch('lea', { width: 1180, height: 760 });
+// Léa : même fenêtre et même zoom que Marc (même mise en page du livre : son geste se lit tel quel chez Marc).
+const A = await launch('lea', { width: W, height: H }, ZOOM);
 const B = await launch('marc', { width: W, height: H }, ZOOM, MARC_DISPLAY);
 await hideWindowControls(B);
 const headless = [];
@@ -419,8 +420,8 @@ try {
   await B.page.screenshot({ path: path.join(WORK, 'fin-ecrit.png') });
 
   // ════════ 3. Livre ════════
+  for (const X of [A, B]) await X.page.evaluate(() => window.__store.getState().updateSettings({ showExtracts: false, fontSize: 22 }));
   await A.page.evaluate((id) => window.__store.getState().navigate({ name: 'reader', bookId: id, tab: 'lecture', splitBookId: null }), seeded.epub);
-  await B.page.evaluate(() => window.__store.getState().updateSettings({ showExtracts: false, fontSize: 22 }));
   await B.page.evaluate((id) => window.__store.getState().navigate({ name: 'reader', bookId: id, tab: 'lecture', splitBookId: null }), bookB);
   for (const X of [A, B]) await X.page.waitForSelector('.html-chapter-text', { timeout: 30000 });
   await wait(1500);
@@ -464,7 +465,7 @@ try {
       }
       return false;
     }, { w: FROM, frac });
-  await bring(A, 0.3);
+  await bring(A, 0.32);
   await bring(B, 0.32);
   await wait(800);
   const s0 = await charAt(A, FROM, 0);
@@ -472,36 +473,39 @@ try {
   log('passage chez Léa', s0, s1);
   await B.page.mouse.move(W / ZOOM - 4, H / ZOOM - 4);
   await B.page.screenshot({ path: path.join(WORK, 'prep-livre.png') });
-  at = [s0.left + 160, s0.bottom + 150];
+  // Léa : la main arrive en courbe sous le passage, se pose avant « Le », appuie, puis glisse d'un mouvement
+  // régulier le long de la première ligne et descend en douceur jusqu'à « désirer plus » (x et y toujours
+  // croissants : l'ordre du texte, comme un vrai geste de sélection).
+  at = [s0.left + 230, s0.bottom + 190];
   await A.page.mouse.move(...at);
   await wait(200);
   await A.page.screenshot({ path: path.join(WORK, 'lea-livre-avant.png') }).catch(() => {});
   const rec3 = await startRec(B, 'livre');
-  await wait(T(400));
-  const start = [s0.left + 1, (s0.top + s0.bottom) / 2];
-  at = await glide(A, at, start, T(1000), 0.2);
   await wait(T(300));
+  const start = [s0.left + 1, (s0.top + s0.bottom) / 2];
+  at = await glide(A, at, start, T(1000), -0.18);
+  await wait(T(120));
   await A.page.mouse.down();
-  // Glisser ligne à ligne jusqu'au bout du passage.
-  const lineH = s0.bottom - s0.top;
+  const end = [s1.right - 1, (s1.top + s1.bottom) / 2];
+  const ctrl = [end[0], start[1]];
   const t0 = Date.now();
-  const DUR = T(2300);
+  const DUR = T(2600);
+  // Vitesse presque constante (départ franc, léger freinage à l'arrivée).
+  const pace = (u) => 0.55 * u + 0.45 * (1 - Math.pow(1 - u, 2));
   for (;;) {
     const u = Math.min(1, (Date.now() - t0) / DUR);
-    const e = ease(u);
-    const y = start[1] + (((s1.top + s1.bottom) / 2) - start[1]) * e;
-    // Sur chaque ligne, la souris va vers la droite ; à la dernière, vers la fin du passage.
-    const x = u < 1 ? start[0] + (s1.right - 1 - start[0]) * e + Math.sin(e * Math.PI) * 220 : s1.right - 1;
+    const e = pace(u);
+    const x = (1 - e) * (1 - e) * start[0] + 2 * (1 - e) * e * ctrl[0] + e * e * end[0];
+    const y = (1 - e) * (1 - e) * start[1] + 2 * (1 - e) * e * ctrl[1] + e * e * end[1];
     await A.page.mouse.move(x, y);
     if (u >= 1) break;
     await wait(15);
   }
-  void lineH;
   await wait(T(250));
   await A.page.screenshot({ path: path.join(WORK, 'lea-livre-glisser.png') }).catch(() => {});
   await A.page.mouse.up();
   await wait(T(400));
-  at = await glide(A, [s1.right - 1, (s1.top + s1.bottom) / 2], [s1.right + 60, s1.bottom + 50], T(600), 0.25);
+  at = await glide(A, end, [end[0] - 70, end[1] + 110], T(800), 0.2);
   await wait(T(1100));
   const clip3 = await rec3.stop();
   await B.page.screenshot({ path: path.join(WORK, 'fin-livre.png') });

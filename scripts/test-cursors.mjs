@@ -127,6 +127,31 @@ async function glide(X, pts, ms) {
     await wait(16);
   }
 }
+/**
+ * Fluidité d'un pointeur qui suit l'ordre du texte (positions à chaque image) : il ne remonte jamais (ups), ne
+ * revient pas en arrière sur une même ligne (backs : un retour vers la gauche n'est permis que s'il accompagne un
+ * passage à la ligne suivante, éventuellement adouci sur quelques images), ne saute pas de lignes (skips).
+ */
+function smoothness(track, line) {
+  let ups = 0, backs = 0, skips = 0, jumps = 0;
+  let run = null; // retour vers la gauche en cours : descente cumulée
+  for (let i = 1; i < track.length; i++) {
+    const dx = track[i].x - track[i - 1].x;
+    const dy = track[i].y - track[i - 1].y;
+    if (dy < -2) ups++;
+    if (dy > line * 2.2) skips++;
+    // Grand pas en avant sur une ligne (compté, pas exigé nul : quand la mise en page diffère, passer d'une fin de
+    // ligne à la suivante chez l'un avance réellement de dizaines de caractères chez l'autre).
+    if (dx > 50 && Math.abs(dy) < line * 0.5) jumps++;
+    if (dx < -2) run = { dy: (run?.dy ?? 0) + dy, n: (run?.n ?? 0) + 1 };
+    else if (run) {
+      if (run.dy < line * 0.6) backs += run.n;
+      run = null;
+    }
+  }
+  if (run && run.dy < line * 0.6) backs += run.n;
+  return { ups, backs, skips, jumps };
+}
 const circle = (cx, cy, r, n = 48, turns = 1) => Array.from({ length: n + 1 }, (_, i) => [cx + r * Math.cos((i / n) * 2 * Math.PI * turns), cy + r * Math.sin((i / n) * 2 * Math.PI * turns)]);
 
 const A = await launch('lea', { width: 1280, height: 840 });
@@ -560,6 +585,48 @@ try {
   const wB2 = await wordRect(B);
   const inside = cE && cE.x >= wB2.left - 2 && cE.x <= wB2.left + wB2.w + 2 && cE.y >= wB2.top - 2 && cE.y <= wB2.top + wB2.h + 2;
   ok(cE && cE.state === 'on' && inside, 'EPUB : le pointeur de Léa est sur le même mot chez Marc (autre largeur, autre taille de texte)', { mot: wB2, vu: cE && { x: cE.x, y: cE.y } });
+  // Survol fluide : Léa suit une ligne jusqu'au bord de la colonne, au-delà de sa fin, puis descend (x et y
+  // croissants, donc l'ordre du texte aussi). Chez Marc (autre largeur, autre taille de texte), image par image, le pointeur suit
+  // l'ordre du texte : il ne remonte pas d'une ligne, ne revient pas en arrière sur une ligne, ne saute pas de
+  // ligne (avant : en bout de ligne, le repère passait au premier caractère de la ligne suivante).
+  {
+    const text0 = await wordRect(A);
+    const col = await st(A.page, () => { const r = document.querySelector('.html-chapter-text').getBoundingClientRect(); return { left: r.left, right: r.right }; });
+    const lineB = (await wordRect(B)).h;
+    await st(B.page, () => {
+      window.__hov = [];
+      window.__hovOn = true;
+      const loop = () => {
+        const el = [...document.querySelectorAll('[data-testid="remote-cursor"]')].find((e) => e.dataset.name === 'Léa');
+        if (el && el.dataset.state === 'on') {
+          const r = el.querySelector('svg').getBoundingClientRect();
+          window.__hov.push({ t: Date.now(), x: r.left, y: r.top });
+        }
+        if (window.__hovOn) requestAnimationFrame(loop);
+      };
+      requestAnimationFrame(loop);
+    });
+    // Le long de la ligne jusqu'au bord droit de la colonne (au-delà de la fin de ligne), puis vers le bas.
+    const a = [col.left + 4, text0.top + text0.h / 2];
+    const c = [col.right - 6, a[1]];
+    const b = [col.right - 6, text0.top + text0.h * 6.5];
+    await A.page.mouse.move(...a);
+    await wait(300);
+    const tGo = Date.now();
+    for (let i = 0; i <= 160; i++) {
+      const e = i / 160;
+      await A.page.mouse.move((1 - e) * (1 - e) * a[0] + 2 * (1 - e) * e * c[0] + e * e * b[0], (1 - e) * (1 - e) * a[1] + 2 * (1 - e) * e * c[1] + e * e * b[1]);
+      await wait(16);
+    }
+    await wait(400);
+    await st(B.page, () => (window.__hovOn = false));
+    const hov = (await st(B.page, () => window.__hov)).filter((f) => f.t > tGo + 200);
+    fs.writeFileSync(path.join(SHOTS, 'fluidite-survol.json'), JSON.stringify({ hov, ligne: lineB }));
+    const { ups, backs, skips, jumps } = smoothness(hov, lineB);
+    ok(hov.length > 60 && ups === 0 && backs === 0 && skips === 0, 'EPUB : survol le long d’une ligne puis vers le bas : chez Marc, le pointeur de Léa suit le texte image par image (ne remonte pas, ne revient pas en arrière, ne saute pas de ligne)', { images: hov.length, remontees: ups, retours: backs, bonds: jumps, sauts: skips, ligne: lineB.toFixed(1) });
+    await glide(A, [[b[0], b[1]], [ex, ey]], 400);
+    await wait(300);
+  }
   // Inès dans un autre livre (le PDF) : rien ici.
   for (let i = 0; i < 6; i++) {
     inesSend({ k: pdfCtx, p: { u: 'p1', fx: 0.4, fy: 0.3 + i * 0.01 } });

@@ -138,13 +138,38 @@ const selOf = (X, name) =>
         rects,
         label: tag?.textContent,
         labelBg: tag ? getComputedStyle(tag).backgroundColor : null,
-        labelVisible: tag ? tag.getBoundingClientRect().width > 0 : false,
+        labelVisible: tag ? tag.getBoundingClientRect().width > 0 && g.dataset.tag !== '0' : false,
         end: { x: end.left + end.width / 2, top: end.top, bottom: end.bottom },
         under,
       };
     },
     name,
   );
+/**
+ * Fluidité d'un pointeur qui suit l'ordre du texte (positions à chaque image) : il ne remonte jamais (ups), ne
+ * revient pas en arrière sur une même ligne (backs : un retour vers la gauche n'est permis que s'il accompagne un
+ * passage à la ligne suivante, éventuellement adouci sur quelques images), ne saute pas de lignes (skips).
+ */
+function smoothness(track, line) {
+  let ups = 0, backs = 0, skips = 0, jumps = 0;
+  let run = null; // retour vers la gauche en cours : descente cumulée
+  for (let i = 1; i < track.length; i++) {
+    const dx = track[i].x - track[i - 1].x;
+    const dy = track[i].y - track[i - 1].y;
+    if (dy < -2) ups++;
+    if (dy > line * 2.2) skips++;
+    // Grand pas en avant sur une ligne (compté, pas exigé nul : quand la mise en page diffère, passer d'une fin de
+    // ligne à la suivante chez l'un avance réellement de dizaines de caractères chez l'autre).
+    if (dx > 50 && Math.abs(dy) < line * 0.5) jumps++;
+    if (dx < -2) run = { dy: (run?.dy ?? 0) + dy, n: (run?.n ?? 0) + 1 };
+    else if (run) {
+      if (run.dy < line * 0.6) backs += run.n;
+      run = null;
+    }
+  }
+  if (run && run.dy < line * 0.6) backs += run.n;
+  return { ups, backs, skips, jumps };
+}
 const union = (rs) => rs.reduce((u, r) => ({ left: Math.min(u.left, r.left), top: Math.min(u.top, r.top), right: Math.max(u.right, r.right), bottom: Math.max(u.bottom, r.bottom) }), { left: Infinity, top: Infinity, right: -Infinity, bottom: -Infinity });
 
 const A = await launch('lea', { width: 1280, height: 840 });
@@ -299,12 +324,18 @@ try {
   ok(full && full.state === 'on' && norm(full.under) === norm(fullA), 'EPUB : chez Marc (autre largeur, autre taille de texte), les mêmes mots sont teintés (texte relu sous la teinte = sélection de Léa)', { marc: norm(full?.under) });
   ok(full && full.rects.length >= 2 && full.rects.length > (part?.rects.length ?? 0) - 1 && norm(full.under).length > norm(part?.under).length, 'EPUB : la sélection s’est étendue pendant le glisser (plus de texte, plusieurs lignes)', { avant: part?.rects.length, apres: full?.rects.length });
   ok(full && full.rc === LEA && full.labelBg === rgb(LEA) && /rgba?\(|color\(/.test(full.rectBg ?? ''), 'EPUB : teinte et étiquette dans la couleur de Léa', { rc: full?.rc, label: full?.labelBg, teinte: full?.rectBg });
-  ok(full && full.label === 'Léa' && full.labelVisible, 'EPUB : étiquette « Léa »', full?.label);
+  // Un seul prénom, qui ne saute pas : tant que le pointeur de Léa est là, c'est lui qui le porte.
+  const ptrName = await st(B.page, () => { const e = [...document.querySelectorAll('[data-testid="remote-cursor"]')].find((x) => x.dataset.name === 'Léa'); const n = e?.querySelector('.rc-name'); return e && n ? { state: e.dataset.state, visible: getComputedStyle(n).display !== 'none' && n.getBoundingClientRect().width > 0 } : null; });
+  ok(ptrName && ptrName.state === 'on' && ptrName.visible && full && !full.labelVisible, 'EPUB : pointeur de Léa à l’écran : un seul prénom, sur le pointeur (pas encore au bout de la sélection)', { pointeur: ptrName, selection: full?.labelVisible });
   const lastB = await charAt(B, TO, -1);
   ok(full && lastB && Math.abs(full.end.x - lastB.right) < 3 && full.end.top <= lastB.bottom && full.end.bottom >= lastB.top, 'EPUB : étiquette au bout de la sélection (après « difficiles » chez Marc)', { bout: full?.end, mot: lastB });
   ok(full && full.pe === 'none', 'EPUB : couche sans interaction (pointer-events: none)', full?.pe);
-  const ptr = await st(B.page, () => [...document.querySelectorAll('[data-testid="remote-cursor"]')].find((e) => e.dataset.name === 'Léa')?.dataset.sel);
-  ok(ptr === '1', 'EPUB : le pointeur de Léa se passe de son prénom (déjà au bout de la sélection)', ptr);
+  // Léa sort la souris du livre : son pointeur part, la sélection reprend son prénom au bout du passage.
+  await A.page.mouse.move(3, 400, { steps: 4 });
+  const tagged = await until(B.page, () => { const g = [...document.querySelectorAll('[data-testid="remote-selection"]')].find((e) => e.dataset.name === 'Léa'); return g && g.dataset.state === 'on' && g.dataset.tag === '1'; }, null, 3000);
+  const afterOut = await selOf(B, 'Léa');
+  const ptrOut = await st(B.page, () => [...document.querySelectorAll('[data-testid="remote-cursor"]')].find((e) => e.dataset.name === 'Léa')?.dataset.state ?? 'absent');
+  ok(tagged && afterOut?.label === 'Léa' && afterOut.labelVisible && ptrOut !== 'on', 'EPUB : pointeur de Léa parti : étiquette « Léa » au bout de sa sélection', { etiquette: afterOut?.label, visible: afterOut?.labelVisible, pointeur: ptrOut });
   // Sélection locale de Marc possible malgré la couche : il sélectionne un autre mot.
   const mw = await charAt(B, 'diversité', 0);
   if (mw) {
@@ -355,6 +386,90 @@ try {
   const hl1 = await st(A.page, () => window.__store.getState().highlights.length);
   const gone2 = await until(B.page, () => ![...document.querySelectorAll('[data-testid="remote-selection"]')].some((e) => e.dataset.name === 'Léa' && e.dataset.state === 'on'), null, 3000);
   ok(hl1 === hl0 + 1 && gone2, 'EPUB : Léa crée l’extrait : sa sélection disparaît chez Marc', { extraits: hl1 - hl0 });
+
+  // ── Fluidité : Léa approche en courbe puis glisse en diagonale sur un paragraphe, au-delà des fins de ligne
+  // (geste réel : y et x croissent, donc l'ordre du texte aussi). Chez Marc (autre mise en page), le pointeur
+  // de Léa suit l'ordre du texte image par image : il ne remonte jamais d'une ligne, ne revient pas en arrière
+  // sur une même ligne, ne saute pas de ligne ; un seul prénom (pointeur, puis bout de sélection), sans
+  // clignoter ; et l'étiquette de la sélection reste près du pointeur (rejouées au même rythme).
+  await st(A.page, () => window.getSelection().removeAllRanges());
+  await wait(400);
+  const P0 = 'Et ainsi la diversité';
+  const P1 = 'appliquer bien';
+  const bringTo = (X, w) =>
+    st(X.page, (w) => {
+      for (const root of document.querySelectorAll('.html-chapter-text')) {
+        const tw = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+        let n;
+        while ((n = tw.nextNode())) if (n.data.includes(w)) return n.parentElement.scrollIntoView({ block: 'center' });
+      }
+    }, w);
+  await bringTo(A, P0);
+  await bringTo(B, P0);
+  await wait(700);
+  const f0 = await charAt(A, P0, 0);
+  const f1 = await charAt(A, P1, -1);
+  const fB = await charAt(B, P0, 0);
+  const colA = await st(A.page, () => { const r = document.querySelector('.html-chapter-text').getBoundingClientRect(); return { left: r.left, right: r.right }; });
+  const lineB = fB.bottom - fB.top;
+  await st(B.page, () => {
+    window.__flow = [];
+    window.__flowOn = true;
+    const loop = () => {
+      const el = [...document.querySelectorAll('[data-testid="remote-cursor"]')].find((e) => e.dataset.name === 'Léa');
+      const g = [...document.querySelectorAll('[data-testid="remote-selection"]')].find((e) => e.dataset.name === 'Léa');
+      if (el && el.dataset.state === 'on') {
+        const r = el.querySelector('svg').getBoundingClientRect();
+        const tag = g && g.dataset.state === 'on' ? g.querySelector('.rs-end').getBoundingClientRect() : null;
+        window.__flow.push({ t: Date.now(), x: r.left, y: r.top, name: getComputedStyle(el.querySelector('.rc-name')).display !== 'none', tagName: !!(g && g.dataset.state === 'on' && g.dataset.tag !== '0'), tag: tag && { x: tag.left, y: tag.top, h: tag.height } });
+      }
+      if (window.__flowOn) requestAnimationFrame(loop);
+    };
+    requestAnimationFrame(loop);
+  });
+  const ease = (u) => (u < 0.5 ? 4 * u * u * u : 1 - Math.pow(-2 * u + 2, 3) / 2);
+  const sweep = async (pts, ms, fn = ease) => {
+    const t0 = Date.now();
+    for (;;) {
+      const u = Math.min(1, (Date.now() - t0) / ms);
+      const e = fn(u);
+      // Bézier quadratique (approche en courbe) ou segment.
+      const [a, b, c] = pts;
+      const q = c ? [(1 - e) * (1 - e) * a[0] + 2 * (1 - e) * e * b[0] + e * e * c[0], (1 - e) * (1 - e) * a[1] + 2 * (1 - e) * e * b[1] + e * e * c[1]] : [a[0] + (b[0] - a[0]) * e, a[1] + (b[1] - a[1]) * e];
+      await A.page.mouse.move(q[0], q[1]);
+      if (u >= 1) break;
+      await wait(16);
+    }
+  };
+  const p0 = [f0.left + 1, (f0.top + f0.bottom) / 2];
+  await A.page.mouse.move(p0[0] + 120, p0[1] + 90);
+  await wait(300);
+  await sweep([[p0[0] + 120, p0[1] + 90], [p0[0] - 40, p0[1] + 70], p0], 700);
+  await A.page.mouse.down();
+  const tDown = Date.now();
+  // Le long de la première ligne jusqu'au bord droit de la colonne (au-delà de la fin de ligne), puis vers le bas.
+  await sweep([p0, [colA.right - 6, p0[1]], [colA.right - 6, (f1.top + f1.bottom) / 2]], 2600, (u) => u);
+  await A.page.mouse.up();
+  await wait(500);
+  await st(B.page, () => (window.__flowOn = false));
+  // Images du glisser seulement (rejoué chez Marc avec ≈ 110 ms de retard ; l'approche, elle, remonte).
+  const flow = (await st(B.page, () => window.__flow)).filter((f) => f.t > tDown + 200);
+  const selA2 = norm(await st(A.page, () => window.getSelection().toString()));
+  fs.writeFileSync(path.join(SHOTS, 'fluidite-glisser.json'), JSON.stringify({ flow, ligne: lineB }));
+  const { ups, backs, skips, jumps } = smoothness(flow, lineB);
+  // Prénom : toujours sur le pointeur pendant le glisser, jamais aussi au bout de la sélection (un seul, stable).
+  const twoOrNone = flow.filter((f) => f.name === f.tagName).length;
+  const onTag = flow.filter((f) => f.tagName).length;
+  // Sélection rejouée au rythme du pointeur : son bout reste près de lui (même ligne, ou celle d'avant quand le
+  // pointeur vient de passer à la suivante), au lieu de courir devant.
+  let far = 0;
+  for (const f of flow) if (f.tag && Math.abs(f.tag.y - f.y) > lineB * 2.5) far++;
+  ok(selA2.startsWith(P0) && flow.length > 60, 'EPUB : Léa glisse en diagonale sur « Et ainsi la diversité… » (geste réel, courbe puis glisser)', { images: flow.length, selection: selA2.slice(0, 60) });
+  ok(ups === 0 && backs === 0 && skips === 0, 'EPUB : chez Marc, le pointeur de Léa suit le texte image par image pendant le glisser (ne remonte pas, ne revient pas en arrière, ne saute pas de ligne)', { remontees: ups, retours: backs, bonds: jumps, sauts: skips, ligne: lineB.toFixed(1) });
+  ok(twoOrNone === 0 && onTag === 0 && far === 0, 'EPUB : pendant le glisser, un seul prénom, sur le pointeur, à chaque image ; le bout de la sélection suit le pointeur', { imagesSansOuAvecDeuxPrenoms: twoOrNone, prenomAuBout: onTag, boutLoin: far });
+  await st(A.page, () => window.getSelection().removeAllRanges());
+  await A.page.mouse.move(5, 300);
+  await wait(300);
 
   // ════════ 2. PDF (pages de tailles différentes) ════════
   await A.page.evaluate((id) => window.__store.getState().navigate({ name: 'reader', bookId: id, tab: 'lecture', splitBookId: null }), seeded.pdf);

@@ -12,7 +12,7 @@
 // ─────────────────────────────────────────────────────────────
 import { memo, useEffect, useReducer, useRef, type CSSProperties } from 'react';
 import { useCollab } from './collabState';
-import { IDLE_MS, peersIn, selLabelled, subscribe, type Loc, type Peer, type Sample } from './cursors';
+import { IDLE_MS, REPLAY_MS, peersIn, setCursorShown, subscribe, type Loc, type Peer, type Sample } from './cursors';
 import './cursors.css';
 
 export interface Pt {
@@ -34,7 +34,7 @@ export interface CursorSurface {
 }
 
 /** Retard de rejeu (ms) : couvre l'irrégularité d'arrivée de deux à trois paquets. */
-const DELAY = 110;
+const DELAY = REPLAY_MS;
 
 const reduced = () => typeof window !== 'undefined' && !!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
 
@@ -137,10 +137,9 @@ export const LiveCursors = memo(function LiveCursors({ ctx, surface, unit }: { c
         if (el) {
           if (inside) place(el, pt!.x - lr.left, pt!.y - lr.top);
           show(el, inside ? 'on' : idle ? 'idle' : 'off');
-          // Sa sélection porte déjà son prénom : le pointeur se passe du sien.
-          const lab = selLabelled.has(p.id) ? '1' : '0';
-          if (el.dataset.sel !== lab) el.dataset.sel = lab;
         }
+        // Pointeur à l'écran : son prénom le suit (la sélection attend qu'il parte pour reprendre le sien).
+        setCursorShown(ctx, p.id, !!el && inside);
         const chip = chips.current.get(p.id);
         if (chip) chip.hidden = inside;
         if (!idle) again = true;
@@ -181,8 +180,9 @@ export const LiveCursors = memo(function LiveCursors({ ctx, surface, unit }: { c
           fr.dataset.kind = p.act && 'm' in p.act ? 'move' : 'edit';
         }
       }
-      if (again) raf = requestAnimationFrame(tick);
-      else {
+      if (again) {
+        if (!raf) raf = requestAnimationFrame(tick);
+      } else {
         // Dernier passage après le fondu : rien ne tourne plus.
         for (const el of els.current.values()) show(el, 'idle');
       }
@@ -203,6 +203,7 @@ export const LiveCursors = memo(function LiveCursors({ ctx, surface, unit }: { c
     return () => {
       off();
       if (raf) cancelAnimationFrame(raf);
+      for (const p of peersIn(ctx)) setCursorShown(ctx, p.id, false);
       window.removeEventListener('resize', onView);
       document.removeEventListener('scroll', onView, true);
       document.removeEventListener('wheel', onView, true);

@@ -6,15 +6,17 @@
 // aucun écouteur ne tourne.
 //
 // Message éphémère (jamais enregistré, jamais rejoué, jamais mis en file d'attente) :
-//   { t: 'cur', k, ts, p?, a?, w?, ask?, bye? }
+//   { t: 'cur', k, ts, p?, a?, s?, w?, ask?, bye? }
 //   k   contexte partagé : « m:<gid de la carte> » ou « b:<gid du livre> » (identifiants communs de records.ts)
 //   ts  horloge de l'expéditeur (performance.now, ms) : le destinataire rejoue le mouvement à sa cadence
 //   p   position rattachée au contenu (voir Loc), null = le pointeur a quitté la vue
 //   a   ce que la personne fait sur une carte : déplacement (cadre autour du pointeur) ou modification
+//   s   sa sélection de texte dans un livre (voir Sel), null = plus de sélection ; jamais le texte lui-même
 //   w   où elle lit (« page 12 »), ask = « où êtes-vous ? », bye = elle a quitté ce livre / cette carte
 //
-// Cadence : au plus un message toutes les SEND_MS (25 par seconde), seulement si la position a changé
-// (rien quand le pointeur ne bouge pas).
+// Cadence : au plus un message toutes les SEND_MS (25 par seconde), seulement si la position ou la
+// sélection a changé (rien quand rien ne bouge). Une sélection ne s'efface pas avec l'inactivité : elle
+// reste affichée tant qu'elle existe chez la personne.
 // ─────────────────────────────────────────────────────────────
 import { create } from 'zustand';
 import { useCollab } from './collabState';
@@ -26,6 +28,13 @@ export type Loc =
   | { x: number; y: number }
   | { u: string; fx: number; fy: number }
   | { u: string; o: number; rx?: number; mx?: number; ry: number };
+
+/** Sélection de texte dans un livre, rattachée au contenu (jamais le texte) :
+ *  - EPUB / HTML : chapitre (u = « c<n> ») + offsets [a, b) dans le textContent du chapitre ;
+ *  - PDF : page (u = « p<n> ») + offsets [a, b) dans le textContent du calque de texte de la page ;
+ *  - photos (texte reconnu) : page + rectangles en fractions de l'image, à plat [x, y, w, h, x, y, w, h…]. */
+export type Sel = { u: string; a: number; b: number } | { u: string; r: number[] };
+export const MAX_SEL_RECTS = 64;
 
 /** Carte : déplacement (boîte des cartes déplacées, relative au pointeur, unités de la carte ; n : la carte, si une
  *  seule) ou modification (e : la carte). */
@@ -50,6 +59,8 @@ export interface Peer {
   lastAt: number;
   act: Act | null;
   where: Where | null;
+  /** Sélection de texte en cours (livres), sans fondu d'inactivité. */
+  sel: Sel | null;
 }
 
 export interface CursorBridge {
@@ -68,7 +79,9 @@ let bridge: CursorBridge | null = null;
 const peers = new Map<string, Peer>(); // `${peer}|${ctx}`
 const listeners = new Map<string, Set<() => void>>();
 /** Mes contextes ouverts (pour répondre à « où êtes-vous ? »). */
-const mine = new Map<string, { where: Where | null; count: number }>();
+const mine = new Map<string, { where: Where | null; sel: Sel | null; count: number }>();
+/** Personnes dont la sélection est affichée ici avec son étiquette (le pointeur se passe alors de la sienne). */
+export const selLabelled = new Set<string>();
 /** Compteur de messages envoyés (mesure de cadence par les tests). */
 export const sentStats = { n: 0, byCtx: new Map<string, number>() };
 
@@ -84,7 +97,7 @@ export function setCursorBridge(b: CursorBridge | null) {
     for (const c of ctxs) notify(c);
   }
   useCursorGate.setState({ on: !!b });
-  if (b && othersHere()) for (const [ctx, m] of mine) b.send({ t: 'cur', k: ctx, ts: now(), w: m.where, ask: 1 });
+  if (b && othersHere()) for (const [ctx, m] of mine) b.send({ t: 'cur', k: ctx, ts: now(), w: m.where, ask: 1, ...(m.sel ? { s: m.sel } : {}) });
 }
 
 const now = () => Math.round(performance.now());
@@ -126,12 +139,14 @@ export class Publisher {
   private lastSent = 0;
   private timer: ReturnType<typeof setTimeout> | null = null;
   private where: Where | null = null;
+  private sel: Sel | null = null;
+  private selDirty = false;
   private closed = false;
 
   constructor(readonly ctx: string) {
     const m = mine.get(ctx);
     if (m) m.count++;
-    else mine.set(ctx, { where: null, count: 1 });
+    else mine.set(ctx, { where: null, sel: null, count: 1 });
     if (othersHere()) bridge?.send({ t: 'cur', k: ctx, ts: now(), ask: 1 });
   }
 
@@ -149,6 +164,16 @@ export class Publisher {
     if (j === JSON.stringify(this.act)) return;
     this.act = a;
     this.actDirty = true;
+    if (othersHere()) this.schedule();
+  }
+  /** Ma sélection de texte change (null : plus de sélection). Envoyée à la cadence des pointeurs. */
+  setSel(s: Sel | null) {
+    if (this.closed) return;
+    if (JSON.stringify(s) === JSON.stringify(this.sel)) return;
+    this.sel = s;
+    const m = mine.get(this.ctx);
+    if (m) m.sel = s;
+    this.selDirty = true;
     if (othersHere()) this.schedule();
   }
   setWhere(w: Where | null) {
@@ -182,6 +207,11 @@ export class Publisher {
     if (this.actDirty) {
       head.a = this.act;
       this.actDirty = false;
+      any = true;
+    }
+    if (this.selDirty) {
+      head.s = this.sel;
+      this.selDirty = false;
       any = true;
     }
     if (!any) return;
@@ -245,6 +275,22 @@ function readAct(a: unknown): Act | null | undefined {
   if (typeof o.e === 'string' && o.e.length > 0 && o.e.length <= 200) return { e: o.e };
   return undefined;
 }
+function readSel(s: unknown): Sel | null | undefined {
+  if (s === null) return null;
+  if (!s || typeof s !== 'object') return undefined;
+  const o = s as Record<string, unknown>;
+  const u = unit(o.u);
+  if (!u) return undefined;
+  if (Array.isArray(o.r)) {
+    if (u[0] !== 'p' || !o.r.length || o.r.length % 4 || o.r.length > MAX_SEL_RECTS * 4) return undefined;
+    if (!o.r.every((v) => num(v, -0.01, 1.01) !== null)) return undefined;
+    return { u, r: o.r.map(Number) };
+  }
+  const a = num(o.a, 0, 1e9);
+  const b = num(o.b, 0, 1e9);
+  if (a === null || b === null || b <= a || b - a > 2e6) return undefined;
+  return { u, a: Math.floor(a), b: Math.floor(b) };
+}
 function readWhere(w: unknown): Where | null | undefined {
   if (w === null) return null;
   if (!w || typeof w !== 'object') return undefined;
@@ -267,7 +313,7 @@ export function onCursorMessage(from: string, head: Record<string, unknown>) {
   const t0 = performance.now();
   let p = peers.get(key);
   if (!p) {
-    p = { id: from, ctx, samples: [], offset: t0 - ts, lastAt: 0, act: null, where: null };
+    p = { id: from, ctx, samples: [], offset: t0 - ts, lastAt: 0, act: null, where: null, sel: null };
     peers.set(key, p);
   }
   // Horloge de l'expéditeur repartie de zéro (page rechargée) : on oublie l'historique.
@@ -285,6 +331,10 @@ export function onCursorMessage(from: string, head: Record<string, unknown>) {
     const a = readAct(head.a);
     if (a !== undefined) p.act = a;
   }
+  if (head.s !== undefined) {
+    const sl = readSel(head.s);
+    if (sl !== undefined) p.sel = sl;
+  }
   if (head.p !== undefined) {
     const loc = readLoc(head.p);
     if (loc !== undefined) {
@@ -297,7 +347,10 @@ export function onCursorMessage(from: string, head: Record<string, unknown>) {
       if (!loc) p.act = p.act && 'e' in p.act ? p.act : null;
     }
   } else if (head.a !== undefined) p.lastAt = Math.max(p.lastAt, t0);
-  if (head.ask && mine.has(ctx)) bridge.send({ t: 'cur', k: ctx, ts: now(), w: mine.get(ctx)!.where });
+  if (head.ask && mine.has(ctx)) {
+    const m = mine.get(ctx)!;
+    bridge.send({ t: 'cur', k: ctx, ts: now(), w: m.where, ...(m.sel ? { s: m.sel } : {}) });
+  }
   notify(ctx);
 }
 
@@ -330,5 +383,5 @@ useCollab.subscribe((s, prev) => {
 
 // Tests (MARGINALIA_E2E) : mesure de cadence et état.
 if (typeof window !== 'undefined' && new URLSearchParams(location.search).has('e2e')) {
-  (window as unknown as { __cursors?: unknown }).__cursors = { sentStats, peers, peersIn, othersHere };
+  (window as unknown as { __cursors?: unknown }).__cursors = { sentStats, peers, peersIn, othersHere, mine };
 }

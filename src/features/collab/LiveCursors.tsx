@@ -12,7 +12,7 @@
 // ─────────────────────────────────────────────────────────────
 import { memo, useEffect, useReducer, useRef, type CSSProperties } from 'react';
 import { useCollab } from './collabState';
-import { IDLE_MS, peersIn, subscribe, type Loc, type Peer, type Sample } from './cursors';
+import { IDLE_MS, peersIn, selLabelled, subscribe, type Loc, type Peer, type Sample } from './cursors';
 import './cursors.css';
 
 export interface Pt {
@@ -137,6 +137,9 @@ export const LiveCursors = memo(function LiveCursors({ ctx, surface, unit }: { c
         if (el) {
           if (inside) place(el, pt!.x - lr.left, pt!.y - lr.top);
           show(el, inside ? 'on' : idle ? 'idle' : 'off');
+          // Sa sélection porte déjà son prénom : le pointeur se passe du sien.
+          const lab = selLabelled.has(p.id) ? '1' : '0';
+          if (el.dataset.sel !== lab) el.dataset.sel = lab;
         }
         const chip = chips.current.get(p.id);
         if (chip) chip.hidden = inside;

@@ -118,3 +118,67 @@
     transition: none;
   }
 }
+
+/* Sélection de texte des autres (livres) : le passage teinté de leur couleur, leur prénom au bout. */
+.rs-layer {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 39;
+  contain: layout style;
+}
+.rs-peer {
+  opacity: 0;
+  transition: opacity 120ms ease-out;
+}
+.rs-peer[data-state='on'] {
+  opacity: 1;
+}
+.rs-rect,
+.rs-end {
+  position: absolute;
+  left: 0;
+  top: 0;
+}
+.rs-rect {
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--rc) 30%, transparent);
+  /* le texte reste net sous la teinte */
+  mix-blend-mode: multiply;
+}
+:root[data-theme='dark'] .rs-rect {
+  /* sur fond sombre, une teinte simple : le texte clair reste clair */
+  background: color-mix(in srgb, var(--rc) 38%, transparent);
+  mix-blend-mode: normal;
+}
+/* Bout de la sélection : un trait fin et le prénom au-dessus, comme un fanion. */
+.rs-end {
+  width: 2px;
+  margin-left: -1px;
+  background: var(--rc);
+  border-radius: 1px;
+}
+.rs-name {
+  position: absolute;
+  left: -1px;
+  bottom: 100%;
+  margin-bottom: 1px;
+  padding: 1px 6px 2px;
+  border-radius: 5px 5px 5px 0;
+  background: var(--rc);
+  color: #fff;
+  font: 600 11px/1.3 var(--font-ui, system-ui, sans-serif);
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.16);
+}
+/* Le pointeur d'une personne dont la sélection est étiquetée : sans second prénom. */
+.rc-cursor[data-sel='1'] .rc-name {
+  display: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .rs-peer {
+    transition: none;
+  }
+}

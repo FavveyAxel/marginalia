@@ -96,7 +96,8 @@ function Palette() {
     })),
   );
   // Livre ouvert : « Aller à la page… » et « page 45 » / « p. xii » / « 45 ».
-  const readerBookId = useStore((s) => (s.route.name === 'reader' ? s.route.bookId : null));
+  // Livre ouvert dans le lecteur (un livre papier n'a pas de pages à atteindre).
+  const readerBookId = useStore((s) => (s.route.name === 'reader' && s.books.find((b) => b.id === (s.route as { bookId: string }).bookId)?.format !== 'paper' ? s.route.bookId : null));
   const [q, setQ] = useState('');
   const [focus, setFocus] = useState(0);
   const listRef = useRef<HTMLDivElement>(null);
@@ -213,9 +214,9 @@ function Palette() {
           id: 'b-' + b.id,
           group: 'Livres',
           label: b.title,
-          meta: b.author,
+          meta: b.format === 'paper' ? [b.author, 'papier'].filter(Boolean).join(' · ') : b.author,
           icon: <BookOpen size={15} />,
-          text: (b.title + ' ' + b.author),
+          text: b.title + ' ' + b.author + (b.format === 'paper' ? ` papier ${b.edition.publisher} ${b.isbn ?? ''}` : ''),
           run: () => st().openBook(b.id),
         }),
       );

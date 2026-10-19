@@ -2,7 +2,7 @@
 // par .github/workflows/release.yml). Le dépôt doit être public pour que ces liens marchent.
 // Laisser une URL vide affiche « Bientôt ».
 const BASE = 'https://github.com/FavveyAxel/marginalia/releases/latest/download';
-export const VERSION = '3.28';
+export const VERSION = '3.29';
 
 export interface Download {
   id: 'mac-arm64' | 'mac-x64' | 'win-x64' | 'win-arm64';

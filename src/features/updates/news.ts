@@ -21,6 +21,17 @@ export interface NewsEntry {
 
 export const NEWS: NewsEntry[] = [
   {
+    version: '3.29',
+    items: [
+      {
+        icon: 'update',
+        title: 'Mises à jour automatiques',
+        text: 'Les prochaines versions se téléchargent en arrière-plan : « Redémarrer pour mettre à jour », ou elles s’installent à la fermeture. Chaque version est signée et vérifiée avant l’installation. Réglages › Mises à jour pour choisir « Me demander ».',
+        action: { label: 'Réglages', run: 'settings' },
+      },
+    ],
+  },
+  {
     version: '3.28',
     items: [
       {

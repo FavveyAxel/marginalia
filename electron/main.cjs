@@ -2473,6 +2473,7 @@ handle('marginalia:collabHostStop', () => collabHost.stop('closed'));
 handle('marginalia:collabHostInfo', () => collabHost.info());
 dataHandle('marginalia:collabHostAccept', (_e, reqId) => collabHost.accept(String(reqId ?? '')));
 handle('marginalia:collabHostReject', (_e, reqId) => collabHost.reject(String(reqId ?? '')));
+handle('marginalia:collabHostRemove', (_e, mid) => collabHost.remove(String(mid ?? '')));
 dataHandle('marginalia:collabHostNewCode', () => collabHost.newCode());
 dataHandle('marginalia:collabFind', async (_e, code, manualAddress, profile) => {
   try {

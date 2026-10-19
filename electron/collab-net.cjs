@@ -372,14 +372,15 @@ function createCollabHost(o) {
     r.timer.unref?.();
     cur.requests.set(r.id, r);
     diag('collab', 'demande', address);
-    o.emit({ type: 'request', reqId: r.id, device: r.device, name: r.name, color: r.color, address, at: Date.now() });
+    r.wasRemoved = cur.removedWho.has(`${address}|${r.device}`);
+    o.emit({ type: 'request', reqId: r.id, device: r.device, name: r.name, color: r.color, address, wasRemoved: r.wasRemoved, at: Date.now() });
     return H.json(res, 200, { box: H.seal(k.s2r, 'META', { meta: cur.meta, name: H.hostName(), host: cur.profile.name, people: people(cur) - 1 }) });
   }
 
   async function onResumeOpen(cur, req, res) {
     const q = await H.readJson(req);
     const m = q && typeof q.mid === 'string' ? cur.members.get(q.mid) : null;
-    if (!m) return H.json(res, 410, { error: 'gone' });
+    if (!m) return H.json(res, 410, { error: q && cur.removed.has(q.mid) ? 'removed' : 'gone' });
     const hs = crypto.randomBytes(16);
     const challenge = crypto.randomBytes(32);
     const eph = H.x25519();
@@ -603,6 +604,8 @@ function createCollabHost(o) {
       handshakes: new Map(),
       requests: new Map(),
       members: new Map(),
+      removed: new Set(), // ids retirés par l'hôte : la reconnexion leur est refusée
+      removedWho: new Set(), // « adresse|appareil » retirés : une nouvelle demande est signalée
     };
     try {
       const udp = dgram.createSocket({ type: 'udp4', reuseAddr: true });
@@ -655,7 +658,7 @@ function createCollabHost(o) {
       discovery: !!s.udp,
       addresses: lanAddresses().map((a) => `${a.address}:${s.port}`),
       members: roster(s),
-      requests: [...s.requests.values()].filter((r) => r.state === 'pending').map((r) => ({ reqId: r.id, device: r.device, name: r.name, color: r.color, address: r.address })),
+      requests: [...s.requests.values()].filter((r) => r.state === 'pending').map((r) => ({ reqId: r.id, device: r.device, name: r.name, color: r.color, address: r.address, wasRemoved: !!r.wasRemoved })),
     };
   }
 
@@ -684,6 +687,27 @@ function createCollabHost(o) {
     if (!r || r.state !== 'pending') return false;
     closeRequest(cur, r, 'rejected');
     diag('collab', 'demande refusée');
+    return true;
+  }
+
+  /**
+   * Retirer un invité : son canal est fermé (« removed »), sa place libérée, et son jeton ne permet plus
+   * de revenir. Ce qu'il a déjà reçu reste chez lui ; pour revenir, il refait une demande.
+   */
+  function remove(mid) {
+    const cur = s;
+    const m = cur && cur.members.get(String(mid));
+    if (!m) return false;
+    cur.members.delete(m.id);
+    cur.removed.add(m.id);
+    cur.removedWho.add(`${m.address}|${m.device}`);
+    clearTimeout(m.awayTimer);
+    m.resume = null;
+    const link = m.link;
+    m.link = null;
+    if (link) link.end({ t: 'bye', reason: 'removed' });
+    diag('collab', 'invité retiré', m.id);
+    pushMembers(cur);
     return true;
   }
 
@@ -730,7 +754,7 @@ function createCollabHost(o) {
     if (reason !== 'replaced') o.emit({ type: 'stopped', reason });
   }
 
-  return { start, stop, info, accept, reject, send, newCode, isOpen: () => !!s };
+  return { start, stop, info, accept, reject, remove, send, newCode, isOpen: () => !!s };
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -1053,6 +1077,7 @@ function createCollabGuest(o) {
     try {
       const r = await call('POST', c.address, c.port, 'resume', { body: { mid: c.mid }, timeout: 4000 });
       if (cur !== c) return;
+      if (r.status === 410 && r.json && r.json.error === 'removed') return end(c, 'removed');
       if (r.status === 410 || r.status === 503) return end(c, 'gone');
       if (r.status !== 200 || !r.json) throw new Error('reprise ' + r.status);
       const challenge = H.unb64(r.json.challenge, 32);

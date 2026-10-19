@@ -163,6 +163,35 @@ more[0].g.cut(60000);
 await until(() => !host.info().members.some((m) => m.name === 'Paul'), 8000);
 ok(!host.info().members.some((m) => m.name === 'Paul'), 'absent au-delà du délai : place libérée');
 
+// ── 6b. Retirer une personne : canal fermé « removed », place libérée, pas de retour par le jeton ──
+const zoe = more[1];
+const zoeId = host.info().members.find((m) => m.name === 'Zoé').id;
+const nBefore = host.info().members.length;
+ok(host.remove(zoeId) === true, 'hôte : retirer Zoé');
+await until(() => zoe.ev.some((e) => e.type === 'link' && e.state === 'closed'));
+ok(zoe.ev.some((e) => e.type === 'link' && e.state === 'closed' && e.reason === 'removed'), 'Zoé : la session se ferme avec « removed »', zoe.ev.filter((e) => e.type === 'link'));
+ok(host.info().members.length === nBefore - 1 && !host.info().members.some((m) => m.name === 'Zoé'), 'sa place est libérée');
+await until(() => marc.ev.some((e) => e.type === 'members' && !e.members.some((m) => m.name === 'Zoé')));
+ok(marc.ev.filter((e) => e.type === 'members').pop().members.every((m) => m.name !== 'Zoé'), 'les autres voient la place libérée');
+ok(host.remove(zoeId) === false && host.remove('h') === false, 'retirer deux fois, ou l’hôte : sans effet');
+const zoeMsgs = zoe.ev.filter((e) => e.type === 'message').length;
+marc.g.send('all', Buffer.from('apres-retrait'));
+await until(() => ines.ev.some((e) => e.type === 'message' && Buffer.from(e.bytes).toString() === 'apres-retrait'));
+await wait(200);
+ok(zoe.ev.filter((e) => e.type === 'message').length === zoeMsgs, 'Zoé ne reçoit plus rien');
+// Elle redemande : l'hôte voit qu'elle a été retirée tout à l'heure.
+const jz = await joinAs(zoe, { accept: false });
+ok(jz.req && jz.req.wasRemoved === true, 'nouvelle demande de Zoé : signalée « retirée tout à l’heure »', jz.req);
+// Retirée pendant une coupure : sa reconnexion par jeton est refusée (« removed »).
+const leon = mkGuest('Léon');
+const jl = await joinAs(leon);
+ok(jl.res && jl.res.you && !jl.req.wasRemoved, 'Léon rejoint (demande ordinaire)');
+leon.g.cut(2500);
+await until(() => host.info().members.some((m) => m.name === 'Léon' && m.state === 'away'));
+ok(host.remove(jl.res.you) === true, 'hôte : retirer Léon pendant sa coupure');
+await until(() => leon.ev.some((e) => e.type === 'link' && e.state === 'closed'), 15000);
+ok(leon.ev.some((e) => e.type === 'link' && e.state === 'closed' && e.reason === 'removed') && !leon.ev.some((e) => e.type === 'hello' && e.resumed), 'Léon : reconnexion refusée, fin « removed »', leon.ev.filter((e) => e.type === 'link'));
+
 // ── 7. Arrêt par l'hôte : tous reçoivent la fin ──
 host.stop('closed');
 await until(() => [marc, ines].every((x) => x.ev.some((e) => e.type === 'link' && e.state === 'closed')));

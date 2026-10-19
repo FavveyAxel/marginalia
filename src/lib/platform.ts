@@ -179,6 +179,8 @@ export interface CollabRequest {
   name: string;
   color: string;
   address: string;
+  /** Même ordinateur qu'une personne retirée plus tôt dans cette session. */
+  wasRemoved?: boolean;
 }
 export interface CollabHostInfo {
   open: boolean;
@@ -213,6 +215,8 @@ export interface CollabNetApi {
   hostInfo(): Promise<CollabHostInfo>;
   hostAccept(reqId: string): Promise<boolean>;
   hostReject(reqId: string): Promise<boolean>;
+  /** Retire un invité de la session (il ne peut plus revenir sans nouvelle demande). */
+  hostRemove(memberId: string): Promise<boolean>;
   hostNewCode(): Promise<CollabHostInfo>;
   find(code: string, manualAddress: string | undefined, profile: { name: string; color: string }): Promise<CollabFound>;
   join(ticket: string): Promise<{ you: string; meta: Record<string, unknown>; members: CollabMember[] }>;

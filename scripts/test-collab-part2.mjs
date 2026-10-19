@@ -194,6 +194,32 @@ export async function run(ctx, h) {
   const seventh = mk('Septième');
   const e7 = await seventh.g.find(code, { profile: { name: 'Septième', color: '#0f766e' } }).then(() => null, (e) => e);
   ok(e7 && /déjà 6 personnes/.test(e7.message), '7e personne refusée : « Cet espace accueille déjà 6 personnes… »', e7 && e7.message);
+  // Léa retire Zoé depuis sa fenêtre : clic sur la place, confirmation sur place.
+  const zoe = headless.find((x) => x.name === 'Zoé');
+  await A.page.evaluate((ws) => window.__collab.state.setState({ panelFor: ws }), seeded.ws);
+  await A.page.waitForSelector('[data-testid="collab-people"] [data-member="Zoé"]');
+  ok(!(await A.page.isVisible('[data-member="Léa"] [data-testid="collab-member-remove"]')), 'Léa (hôte) ne peut pas se retirer elle-même');
+  await A.page.click('[data-member="Zoé"] [data-testid="collab-member-remove"]');
+  await A.page.waitForSelector('[data-testid="collab-remove-confirm"]');
+  const conf = (await A.page.textContent('[data-testid="collab-remove-confirm"]')).replace(/\s+/g, ' ');
+  ok(/Retirer Zoé de la session \?/.test(conf) && /reste sur son ordinateur/.test(conf), 'confirmation : « Retirer Zoé de la session ? »', conf);
+  await shotBoth(A.page, '[data-testid="collab-dialog"]', '11-retirer-confirmation');
+  await A.page.click('[data-testid="collab-remove-go"]');
+  ok(await until(A.page, () => window.__collab.state.getState().members.length === 5 && !window.__collab.state.getState().members.some((m) => m.name === 'Zoé'), null, 10000), 'Zoé retirée : 5 personnes');
+  await wait(300);
+  ok(zoe.ev.some((e) => e.type === 'link' && e.state === 'closed' && e.reason === 'removed'), 'chez Zoé : session fermée « retirée »', zoe.ev.filter((e) => e.type === 'link'));
+  ok(await until(B.page, () => document.querySelector('[data-testid="ws-collab-badge"]')?.textContent.trim() === '5', null, 10000), 'encadré chez Marc : « 5 »');
+  const tA = await st(A.page, () => [...document.querySelectorAll('.toast')].map((t) => t.textContent).join(' | '));
+  ok(/Zoé ne fait plus partie de la session/.test(tA), 'Léa : « Zoé ne fait plus partie de la session »', tA.slice(0, 200));
+  // Elle redemande : Léa voit qu'elle a été retirée tout à l'heure, et refuse.
+  const fz = await zoe.g.find(code, { profile: { name: 'Zoé', color: '#7e22ce' } });
+  const pz = zoe.g.join(fz.ticket).then(() => null, (e) => e);
+  await A.page.waitForSelector('[data-testid="collab-dialog"] [data-testid="collab-request-removed"]', { timeout: 20000 });
+  await shotBoth(A.page, '[data-testid="collab-dialog"]', '12-demande-apres-retrait');
+  ok(true, 'nouvelle demande de Zoé : « Retiré de cette session tout à l’heure »');
+  await A.page.click('[data-testid="collab-dialog"] [data-testid="collab-reject"]');
+  ok(/refusé/.test((await pz)?.message ?? ''), 'Léa refuse : Zoé reste dehors');
+  await A.page.evaluate(() => window.__collab.state.setState({ panelFor: null }));
   // La 7e par l'interface : message montré tel quel.
   await A.page.click('button[aria-label="Actions"]').catch(() => {});
   await A.page.keyboard.press('Escape');

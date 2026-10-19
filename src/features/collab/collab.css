@@ -120,3 +120,17 @@ mark.cl-diff { color: inherit; background: color-mix(in srgb, var(--who) 22%, tr
 .cl-both:hover { color: var(--ink); border-style: solid; }
 .cl-both.on { border-style: solid; border-color: var(--primary); background: color-mix(in srgb, var(--primary) 8%, transparent); color: var(--ink); font-weight: 600; }
 @media (max-width: 560px) { .cl-who { flex-direction: column; } }
+
+/* Retirer une personne (hôte) : la place devient un bouton, confirmation sous les places. */
+.cl-seat-btn { display: contents; cursor: pointer; font: inherit; color: inherit; }
+.cl-seat-btn:focus-visible .cl-seat-face { outline: 2px solid var(--ink); outline-offset: 2px; }
+.cl-seat-face { position: relative; }
+.cl-seat-x { position: absolute; right: -3px; bottom: -3px; display: grid; place-items: center; width: 18px; height: 18px; border-radius: 50%; background: var(--bg-panel); color: var(--ink-2); box-shadow: 0 0 0 1px color-mix(in srgb, var(--ink) 18%, transparent); opacity: 0; transform: scale(0.6); transition: opacity 0.15s, transform 0.15s; }
+.cl-seat-btn:hover .cl-seat-x, .cl-seat-btn:focus-visible .cl-seat-x, .cl-seat.asking .cl-seat-x { opacity: 1; transform: none; }
+.cl-seat.asking .cl-seat-face { box-shadow: 0 0 0 3px var(--bg-panel), 0 0 0 5px var(--danger, #c53030); }
+.cl-remove { display: flex; align-items: center; gap: 14px; width: 100%; margin-top: 4px; padding: 12px 14px; border-radius: 12px; border-left: 4px solid var(--who); background: color-mix(in srgb, var(--who) 8%, var(--bg-panel)); }
+.cl-remove p { margin: 0; flex: 1; display: flex; flex-direction: column; gap: 3px; font-size: var(--fs-sm); color: var(--ink-2); }
+.cl-remove strong { color: var(--ink); font-size: var(--fs-md, 14px); }
+.cl-remove-actions { display: flex; gap: 8px; flex-shrink: 0; }
+.cl-ask-removed { font-size: var(--fs-sm); color: var(--warning, #b7791f); font-weight: 600; }
+@media (prefers-reduced-motion: reduce) { .cl-seat-x { transition: none; } }

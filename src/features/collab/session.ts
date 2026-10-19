@@ -140,6 +140,15 @@ export async function rejectRequest(reqId: string) {
   await net().hostReject(reqId);
   useCollab.setState((st) => ({ requests: st.requests.filter((r) => r.reqId !== reqId) }));
 }
+/** Hôte : retirer une personne de la session. Ce qu'elle a déjà reçu reste chez elle. */
+export async function removeMember(memberId: string) {
+  const m = useCollab.getState().members.find((x) => x.id === memberId && !x.host);
+  if (!m) return false;
+  const ok = await net().hostRemove(memberId);
+  if (ok) toast(`${m.name} ne fait plus partie de la session`, 'info');
+  else toast(`${m.name} n’est déjà plus dans la session.`, 'info');
+  return ok;
+}
 export async function newCode() {
   const info = await net().hostNewCode();
   useCollab.setState({ code: info.code ?? null, codeState: info.codeState ?? 'open' });
@@ -492,7 +501,7 @@ async function onEvent(e: CollabEvent) {
   if (!s) return;
   if (e.side === 'host' && s.role === 'host') {
     if (e.type === 'request') {
-      useCollab.setState((st) => ({ requests: [...st.requests.filter((r) => r.reqId !== e.reqId), { reqId: e.reqId, device: e.device, name: e.name, color: e.color, address: e.address }] }));
+      useCollab.setState((st) => ({ requests: [...st.requests.filter((r) => r.reqId !== e.reqId), { reqId: e.reqId, device: e.device, name: e.name, color: e.color, address: e.address, wasRemoved: !!e.wasRemoved }] }));
     } else if (e.type === 'request-closed') {
       useCollab.setState((st) => ({ requests: st.requests.filter((r) => r.reqId !== e.reqId) }));
     } else if (e.type === 'members') {
@@ -521,7 +530,14 @@ async function onEvent(e: CollabEvent) {
       useCollab.setState({ phase: 'reconnecting' });
       toast('Connexion perdue : vous continuez seul, Marginalia se reconnecte…', 'info');
     } else if (e.type === 'link' && e.state === 'closed') {
-      const why = e.reason === 'host-stopped' ? `${s.hostName} a arrêté le partage : votre exemplaire est à jour.` : e.reason === 'left' ? null : 'La session est terminée : votre exemplaire reste chez vous.';
+      const why =
+        e.reason === 'host-stopped'
+          ? `${s.hostName} a arrêté le partage : votre exemplaire est à jour.`
+          : e.reason === 'removed'
+            ? `${s.hostName} vous a retiré de la session. Votre exemplaire reste chez vous, il n’est plus partagé.`
+            : e.reason === 'left'
+              ? null
+              : 'La session est terminée : votre exemplaire reste chez vous.';
       endLocal(e.reason ?? 'closed');
       if (why) toast(why, 'info');
     }

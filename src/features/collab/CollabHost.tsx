@@ -59,6 +59,11 @@ function Ask({ r }: { r: CollabRequest }) {
           sur {r.device} demande à rejoindre « {title} »
         </span>
         <span className="cl-ask-sub">Pourra tout lire et modifier · {r.address}</span>
+        {r.wasRemoved && (
+          <span className="cl-ask-removed" data-testid="collab-request-removed">
+            Retiré de cette session tout à l’heure
+          </span>
+        )}
       </div>
       <div className="cl-ask-actions">
         <button className="btn" disabled={busy} onClick={() => act(false)} data-testid="collab-reject">Refuser</button>
@@ -103,19 +108,59 @@ function Who({ profile, setProfile, taken = [] }: { profile: CollabProfile; setP
   );
 }
 
-/** Les six places de la session : les présents en couleur, les places libres en pointillé. */
-function People({ members, me }: { members: CollabMember[]; me: string | null }) {
+/**
+ * Les six places de la session : les présents en couleur, les places libres en pointillé.
+ * `canRemove` (hôte) : un clic sur un invité propose de le retirer, avec une confirmation sur place.
+ */
+function People({ members, me, canRemove = false }: { members: CollabMember[]; me: string | null; canRemove?: boolean }) {
   const free = Math.max(0, 6 - members.length);
+  const [ask, setAsk] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const target = ask ? members.find((m) => m.id === ask && !m.host) : undefined;
+  useEffect(() => {
+    if (ask && !target) setAsk(null);
+  }, [ask, target]);
+  const remove = async (id: string) => {
+    setBusy(true);
+    try {
+      await (await session()).removeMember(id);
+    } finally {
+      setBusy(false);
+      setAsk(null);
+    }
+  };
   return (
     <div className="cl-seats-wrap">
       <ul className="cl-seats" data-testid="collab-people" aria-label={`Présents : ${members.length} sur 6`}>
-        {members.map((m) => (
-          <li key={m.id} className={`cl-seat${m.state === 'away' ? ' away' : ''}`} data-member={m.name} title={`${m.name} · ${m.device}${m.state === 'away' ? ' · connexion perdue' : ''}`}>
-            <span className="cl-seat-face" style={{ background: m.color }}>{m.name.charAt(0).toUpperCase()}</span>
-            <span className="cl-seat-name">{m.id === me ? 'Vous' : m.name}</span>
-            {m.host && <span className="cl-seat-tag">hôte</span>}
-          </li>
-        ))}
+        {members.map((m) => {
+          const face = (
+            <>
+              <span className="cl-seat-face" style={{ background: m.color }}>
+                {m.name.charAt(0).toUpperCase()}
+                {canRemove && !m.host && (
+                  <span className="cl-seat-x" aria-hidden="true">
+                    <X size={11} strokeWidth={3} />
+                  </span>
+                )}
+              </span>
+              <span className="cl-seat-name">{m.id === me ? 'Vous' : m.name}</span>
+              {m.host && <span className="cl-seat-tag">hôte</span>}
+            </>
+          );
+          const cls = `cl-seat${m.state === 'away' ? ' away' : ''}${ask === m.id ? ' asking' : ''}`;
+          const tip = `${m.name} · ${m.device}${m.state === 'away' ? ' · connexion perdue' : ''}`;
+          return (
+            <li key={m.id} className={cls} data-member={m.name} title={tip}>
+              {canRemove && !m.host ? (
+                <button type="button" className="cl-seat-btn" onClick={() => setAsk(ask === m.id ? null : m.id)} aria-label={`Retirer ${m.name} de la session…`} aria-expanded={ask === m.id} data-testid="collab-member-remove">
+                  {face}
+                </button>
+              ) : (
+                face
+              )}
+            </li>
+          );
+        })}
         {Array.from({ length: free }).map((_, i) => (
           <li key={`free${i}`} className="cl-seat free" aria-hidden="true">
             <span className="cl-seat-face" />
@@ -123,9 +168,22 @@ function People({ members, me }: { members: CollabMember[]; me: string | null })
           </li>
         ))}
       </ul>
-      <p className="cl-count">
-        {members.length} sur 6
-      </p>
+      {target ? (
+        <div className="cl-remove anim-scale" role="alertdialog" aria-label={`Retirer ${target.name}`} data-testid="collab-remove-confirm" style={{ ['--who' as string]: target.color }}>
+          <p>
+            <strong>Retirer {target.name} de la session ?</strong>
+            <span>Vos modifications ne s’échangeront plus. Ce qui a déjà été reçu reste sur son ordinateur ; pour revenir, il faudra une nouvelle demande.</span>
+          </p>
+          <div className="cl-remove-actions">
+            <button className="btn btn-sm" disabled={busy} onClick={() => setAsk(null)}>Annuler</button>
+            <button className="btn btn-sm btn-danger" disabled={busy} onClick={() => void remove(target.id)} data-testid="collab-remove-go">
+              Retirer {target.name}
+            </button>
+          </div>
+        </div>
+      ) : (
+        <p className="cl-count">{members.length} sur 6</p>
+      )}
     </div>
   );
 }
@@ -252,7 +310,7 @@ function CollabPanel({ workspaceId, onClose }: { workspaceId: string; onClose: (
         {c.requests.map((r) => (
           <Ask key={r.reqId} r={r} />
         ))}
-        <People members={c.members} me={c.me} />
+        <People members={c.members} me={c.me} canRemove />
         {n >= 6 && <p className="sh-note">Session complète : six personnes au plus.</p>}
         <Trouble address={c.addresses[0]} />
         <div className="sh-actions">

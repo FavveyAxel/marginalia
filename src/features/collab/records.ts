@@ -48,6 +48,12 @@ export interface Rec {
   mode?: 'lift' | 'tree';
 }
 
+// Valeurs reçues : seules celles que l'app connaît passent (comme pour un partage reçu, shareMerge.ts).
+const CATEGORIES = ['probleme', 'these', 'argument', 'objection', 'concept', 'exemple'];
+const NOTE_KINDS = ['reformulation', 'question', 'critique', 'presuppose'];
+const RELATIONS = ['soutient', 'objecte', 'precise', 'illustre', 'repond', 'oppose', 'rattache', 'lien'];
+const SAFE_COLOR = /^(--[a-z0-9-]{1,40}|#[0-9a-f]{3,8})$/i;
+
 const ORDER: Col[] = ['ws', 'group', 'book', 'draft', 'concept', 'highlight', 'study', 'argument', 'plan', 'map', 'node', 'edge', 'item'];
 const SEP = '§';
 export const keyOf = (c: Col, g: string) => `${c}:${g}`;
@@ -567,10 +573,10 @@ export class RecordSync {
         if (!a || (a.kind !== 'html' && a.kind !== 'pdf')) return 'ok';
         const base = {
           bookId: bookId!,
-          category: typeof d.category === 'string' ? d.category : null,
+          category: typeof d.category === 'string' && CATEGORIES.includes(d.category) ? d.category : null,
           text: String(d.text ?? ''),
           note: String(d.note ?? ''),
-          noteKind: typeof d.noteKind === 'string' ? d.noteKind : null,
+          noteKind: typeof d.noteKind === 'string' && NOTE_KINDS.includes(d.noteKind) ? d.noteKind : null,
           conceptIds: conceptIds as string[],
           anchor: a,
           locationLabel: String(d.locationLabel ?? ''),
@@ -717,13 +723,15 @@ export class RecordSync {
           const fromKey = d.from && typeof d.from === 'object' ? this.local('map', (d.from as Any).mapKey) : null;
           if (fromKey) node.from = { mapKey: fromKey, nodeId: String((d.from as Any).nodeId ?? '') };
           else delete node.from;
-          if (node.color !== undefined && !(typeof node.color === 'string' && /^(--[a-z0-9-]{1,40}|#[0-9a-f]{3,8})$/i.test(node.color))) delete node.color;
+          if (node.color !== undefined && !(typeof node.color === 'string' && SAFE_COLOR.test(node.color))) delete node.color;
+          if (node.kind !== undefined && node.kind !== 'question' && node.kind !== 'subject') delete node.kind;
           const exists = m.nodes.some((n) => n.id === subId);
           set({ maps: { ...s.maps, [key!]: { ...m, nodes: exists ? m.nodes.map((n) => (n.id === subId ? node : n)) : [...m.nodes, node], updatedAt: Date.now() } } });
         } else {
           if (need.length) return 'wait';
           const m = s.maps[key!];
-          const e: MapEdge = { ...(d as unknown as MapEdge), id: subId };
+          const e: MapEdge = { ...(d as unknown as MapEdge), id: subId, source: String(d.source ?? ''), target: String(d.target ?? ''), relation: (RELATIONS.includes(String(d.relation)) ? d.relation : 'lien') as MapEdge['relation'], groupId: typeof d.groupId === 'string' ? d.groupId : null };
+          if (e.strength !== undefined && ![1, 2, 3].includes(Number(e.strength))) delete e.strength;
           const exists = m.edges.some((x) => x.id === subId);
           set({ maps: { ...s.maps, [key!]: { ...m, edges: exists ? m.edges.map((x) => (x.id === subId ? e : x)) : [...m.edges, e], updatedAt: Date.now() } } });
         }

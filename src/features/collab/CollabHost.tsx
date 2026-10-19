@@ -74,7 +74,7 @@ function Who({ profile, setProfile }: { profile: CollabProfile; setProfile: (p: 
         <input type="text" value={profile.name} maxLength={40} onChange={(e) => setProfile({ ...profile, name: e.target.value })} placeholder="Léa" spellCheck={false} data-testid="collab-name" autoFocus />
       </label>
       <div>
-        <span className="cl-person-meta">Votre couleur (curseur et cartes)</span>
+        <span className="cl-person-meta">Votre couleur, celle de votre curseur chez les autres</span>
         <div className="cl-swatches" role="radiogroup" aria-label="Votre couleur">
           {COLLAB_COLORS.map((c) => (
             <button key={c} className="cl-swatch" style={{ background: c }} role="radio" aria-checked={profile.color === c} aria-label={`Couleur ${c}`} onClick={() => setProfile({ ...profile, color: c })} data-color={c} />

@@ -65,6 +65,31 @@ await withApp(5341, async (page, errors) => {
   const h2 = await st((id) => window.__store.getState().highlights.find((h) => h.id === id), ids.h2);
   ok(h2.printedPage === '52' && h2.locationLabel === 'p. 52' && h2.note === 'à discuter' && h2.category === null && !h2.plain, '« p. 52 » saisi : page nettoyée ; extrait avec note = note de marge');
 
+  // ── Livre et page devinés sur une photo (en local) ──
+  const guesses = await st(async ({ book, epub }) => {
+    const { guessPaperBook } = await import('/src/features/inbox/paperGuess.ts');
+    const s = window.__store.getState();
+    const w = (t, x, y) => ({ t, x, y, w: 0.05, h: 0.02, c: 90 });
+    const line = (txt, y) => ({ words: txt.split(' ').map((t, i) => w(t, 0.1 + i * 0.06, y)) });
+    const ocr = (lines) => ({ v: 1, engine: 't', langs: 'fra', width: 1000, height: 1400, paras: [{ lines }], confidence: 90, ms: 1, createdAt: 0 });
+    const body = [line('Je veux chercher si dans l’ordre civil il peut y avoir', 0.3), line('quelque règle d’administration légitime et sûre.', 0.34)];
+    const ctx = (extra) => ({ books: s.books, highlights: s.highlights, series: null, ...extra });
+    return {
+      header: guessPaperBook(ocr([line('48 DU CONTRAT SOCIAL', 0.05), ...body]), ctx({})),
+      author: guessPaperBook(ocr([line('ROUSSEAU', 0.05), ...body, line('112', 0.93)]), ctx({})),
+      series: guessPaperBook(ocr(body), ctx({ series: { bookId: book, at: Date.now() } })),
+      last: guessPaperBook(ocr(body), ctx({})),
+      none: guessPaperBook(ocr(body), ctx({ highlights: [] })),
+      oldSeries: guessPaperBook(ocr(body), ctx({ highlights: [], series: { bookId: book, at: Date.now() - 2 * 3600e3 } })),
+      notPaper: guessPaperBook(ocr(body), ctx({ highlights: [], series: { bookId: epub, at: Date.now() } })),
+    };
+  }, { book: ids.book, epub });
+  ok(guesses.header.bookId === ids.book && guesses.header.reason === 'header' && guesses.header.page === '48' && guesses.header.text.startsWith('Je veux chercher'), 'photo : titre courant en haut → livre et page ; texte sans en-tête', guesses.header);
+  ok(guesses.author.bookId === ids.book && guesses.author.reason === 'header' && guesses.author.page === '112', 'photo : nom de l’auteur en haut, numéro en bas de page', guesses.author);
+  ok(guesses.series.reason === 'series' && guesses.series.bookId === ids.book && guesses.series.page === '', 'photo sans titre courant : livre de la série en cours', guesses.series);
+  ok(guesses.last.reason === 'last' && guesses.last.bookId === ids.book, 'sinon : livre du dernier extrait papier', guesses.last);
+  ok(guesses.none.bookId === null && guesses.oldSeries.bookId === null && guesses.notPaper.bookId === null, 'rien de sûr (série trop ancienne, livre non papier) : choix dans la liste');
+
   // ── Citation dans un écrit ──
   const draft = await st(async () => (await import('/src/features/editor/api.ts')).createDraft({ title: 'Liberté et contrat', template: 'vide' }));
   await st((id) => window.__store.getState().navigate({ name: 'write', draftId: id }), draft.id);

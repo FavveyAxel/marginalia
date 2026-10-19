@@ -191,6 +191,7 @@ const codes = [];
   const wrong = String((Number(st.code) + 1) % 1000000).padStart(6, '0');
   const w = await errOf(r4.findShare(wrong, { manualAddress }));
   ok(w && w.code === 'bad-code' && /^Code incorrect/.test(w.message), 'code faux refusé', w && w.message);
+  ok(!ev.some((e) => e.type === 'request' || e.type === 'progress' || e.type === 'done'), 'code faux : aucune demande chez l’émetteur, aucun octet du paquet envoyé', ev.map((e) => e.type));
   // Codes faux dont l'indice de 4 bits correspond : la preuve est présentée et comptée.
   const seen = [];
   for (let c = 0; c < 1000000 && !seen.includes('tries'); c++) {

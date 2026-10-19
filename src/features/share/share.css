@@ -30,7 +30,11 @@
 .sh-lede { margin: 0; color: var(--ink-2); line-height: 1.5; font-size: var(--fs-md); }
 .sh-lede strong { color: var(--ink); font-weight: 600; }
 .sh-mono { font-family: var(--font-mono, ui-monospace, Menlo, monospace); color: var(--ink-2); user-select: text; }
-.sh-code { display: flex; justify-content: center; gap: 8px; padding: 6px 0; user-select: text; }
+.sh-code { align-self: center; display: flex; align-items: center; gap: 10px; margin: 4px auto; padding: 10px 26px; border-radius: 14px; background: var(--bg-inset); box-shadow: 0 0 0 1px var(--border); font-family: var(--font-display); font-size: 52px; line-height: 1; letter-spacing: 0.06em; font-variant-numeric: tabular-nums; color: var(--ink); user-select: text; }
+.sh-dash { color: var(--muted); letter-spacing: 0; }
+.sh-code-input { align-self: center; width: 230px; margin: 4px auto; padding: 10px 14px; border-radius: 12px; border: 1px solid var(--border); background: var(--bg-inset); color: var(--ink); text-align: center; font-family: var(--font-display); font-size: 40px; line-height: 1.1; letter-spacing: 0.08em; font-variant-numeric: tabular-nums; outline: none; }
+.sh-code-input::placeholder { color: color-mix(in srgb, var(--muted) 45%, transparent); }
+.sh-code-input:focus-visible { border-color: var(--focus); box-shadow: 0 0 0 3px color-mix(in srgb, var(--focus) 22%, transparent); }
 .sh-digit { width: 54px; height: 72px; display: grid; place-items: center; border-radius: 12px; background: var(--bg-inset); font-family: var(--font-display); font-size: 44px; color: var(--ink); box-shadow: 0 0 0 1px var(--border); }
 .sh-digit.gap, .sh-cell.gap { margin-left: 14px; }
 .sh-left { margin: 0; text-align: center; color: var(--muted); font-size: var(--fs-sm); font-variant-numeric: tabular-nums; }

@@ -168,12 +168,36 @@ jobs:
           done
           ls -la
 
-      # Récap en français (affiché par l'app : « Voir les nouveautés ») : release-notes/<version>.md du dépôt.
-      - name: Récupérer le récap
+      # Récap en français (affiché par l'app : « Voir les nouveautés ») : release-notes/<version>.md du dépôt ;
+      # et de quoi signer le manifeste des mises à jour automatiques.
+      - name: Récupérer le récap et le script de signature
         uses: actions/checkout@v4
         with:
-          sparse-checkout: release-notes
+          sparse-checkout: |
+            release-notes/
+            scripts/sign-update-manifest.mjs
+            electron/update-key.cjs
+          sparse-checkout-cone-mode: false
           path: src
+
+      # Mise à jour automatique : manifeste latest.json (nom, SHA-256 et taille des 4 copies à nom fixe)
+      # signé Ed25519 avec la clé privée du secret MARGINALIA_UPDATE_KEY (PEM PKCS8), vérifié par la clé
+      # publique embarquée dans l'app. Secret absent : Release sans manifeste (l'app propose la page du site).
+      # La clé ne passe que par l'environnement de cette étape et n'est jamais affichée.
+      - name: Manifeste signé des mises à jour
+        id: manifest
+        shell: bash
+        env:
+          MARGINALIA_UPDATE_KEY: ${{ secrets.MARGINALIA_UPDATE_KEY }}
+        run: |
+          v="${RELEASE_VERSION#v}"
+          node src/scripts/sign-update-manifest.mjs out "$v" --pubkey src/electron/update-key.cjs
+          unset MARGINALIA_UPDATE_KEY
+          if [ -f out/latest.json ] && [ -f out/latest.json.sig ]; then
+            echo "files=out/latest.json,out/latest.json.sig" >> "$GITHUB_OUTPUT"
+          else
+            echo "files=" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Texte de la Release
         shell: bash
@@ -197,3 +221,4 @@ jobs:
           files: |
             out/*.dmg
             out/*.exe
+            ${{ steps.manifest.outputs.files }}

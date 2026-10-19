@@ -21,6 +21,16 @@ export interface NewsEntry {
 
 export const NEWS: NewsEntry[] = [
   {
+    version: '3.30',
+    items: [
+      {
+        icon: 'notes',
+        title: 'Imprimer un écrit',
+        text: 'Dans Écrire, « Exporter › Imprimer… » envoie l’écrit à l’imprimante exactement comme dans l’export PDF : mêmes pages, sauts de page, notes de bas de page, numéros et polices.',
+      },
+    ],
+  },
+  {
     version: '3.29',
     items: [
       {

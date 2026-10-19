@@ -249,8 +249,10 @@ export const RemoteSelections = memo(function RemoteSelections({ ctx, kind, host
     document.addEventListener('scroll', onView, true);
     // Mise en page qui change sans défilement : taille de texte, page PDF rendue, chapitre remplacé.
     const host = hostRef.current;
+    // (Les couches des pointeurs et des sélections bougent à chaque image : ignorées.)
     const mo = new MutationObserver((recs) => {
-      if (recs.some((r) => !layer.current?.contains(r.target))) kick.current();
+      if (!peersIn(ctx).some((p) => p.sel)) return;
+      if (recs.some((r) => !elOf(r.target)?.closest('.rc-layer, .rs-layer'))) kick.current();
     });
     if (host) mo.observe(host, { subtree: true, childList: true, attributes: true, attributeFilter: ['style', 'class', 'data-page'] });
     const ro = new ResizeObserver(onView);

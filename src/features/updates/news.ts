@@ -21,6 +21,21 @@ export interface NewsEntry {
 
 export const NEWS: NewsEntry[] = [
   {
+    version: '3.32',
+    items: [
+      {
+        icon: 'sparkles',
+        title: 'Vos livres papier dans Marginalia',
+        text: 'Bibliothèque › « Livre papier » : cherchez le titre, l’auteur ou l’ISBN (Google Books et Open Library), ou photographiez le code-barres avec le téléphone. Recopiez des extraits avec leur page, ou prenez la page en photo : Marginalia devine le livre et la page, sur votre ordinateur. Les citations portent la référence de votre édition.',
+      },
+      {
+        icon: 'update',
+        title: 'Retour à l’espace de travail, tutoriel plus fluide',
+        text: 'Un écrit ouvert depuis un espace ramène à cet espace. Dans le tutoriel, la mise en lumière glisse d’une étape à l’autre.',
+      },
+    ],
+  },
+  {
     version: '3.31',
     items: [
       {

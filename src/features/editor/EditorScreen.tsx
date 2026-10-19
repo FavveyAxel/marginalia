@@ -1,6 +1,6 @@
 // Éditeur pleine page d'un écrit (route { name: 'write', draftId }).
 import { useCallback, useEffect, useMemo, useRef, useState, type MutableRefObject } from 'react';
-import { AlertTriangle, ChevronLeft, ChevronDown, Download, FileDown, FileText, PanelRight, SearchCheck, Smartphone } from 'lucide-react';
+import { AlertTriangle, ChevronLeft, ChevronDown, Download, FileDown, FileText, PanelRight, Printer, SearchCheck, Smartphone } from 'lucide-react';
 import { SendToPhone } from './SendToPhone';
 import { registerFlusher, useStore } from '../../lib/store';
 import { host, type ExportFormat } from '../../lib/platform';
@@ -838,6 +838,48 @@ function Editor({ draft }: { draft: Draft }) {
   };
 
   // ── Exports ──
+  /**
+   * Document imprimable de l'écrit, commun à l'export PDF et à l'impression (même rendu des deux côtés).
+   * Pages de l'éditeur imprimées telles quelles (sauts de page, notes en bas de page, numéros…) ; si la
+   * mise en page échoue, document reconstruit à partir du texte. Polices fournies avec l'app incluses :
+   * la fenêtre d'impression n'a pas accès au réseau.
+   */
+  const printHtmlOf = async (model: NonNullable<Awaited<ReturnType<typeof guardedExport>>['model']>, docx: ArrayBuffer, title: string) => {
+    const fontCss = await bundledFontFaceCss(usedFonts(model));
+    const paged = await renderPagesForPrint((await stripForExport(docx)).data, { fontCss }).catch((err) => {
+      console.warn('Mise en page pour l’impression impossible :', err);
+      return null;
+    });
+    return paged ? paged.html : toPrintHtml(model, title, { fontCss });
+  };
+
+  /** Imprimer : exactement le document de l'export PDF, puis le dialogue d'impression du système. */
+  const printDraft = useCallback(
+    async () => {
+      exportPop.close();
+      const e = engineRef.current;
+      if (!e || !host.printDocument) return;
+      setBusyExport(true);
+      try {
+        const g = await guardedExport(e);
+        if (!g.ok || !g.model) {
+          setBlocked(g);
+          toast('Impression annulée : le document préparé était incomplet. Votre écrit n’a pas changé.', 'error');
+          return;
+        }
+        const r = await host.printDocument(await printHtmlOf(g.model, g.data, draftRef.current.title));
+        if (!r.ok && r.reason && !/cancel/i.test(r.reason)) toast(`L’impression n’a pas abouti (${r.reason}).`, 'error');
+      } catch (err) {
+        console.error(err);
+        toast('L’impression a échoué. Réessayez, ou exportez en PDF pour l’imprimer.', 'error');
+      } finally {
+        setBusyExport(false);
+      }
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [toast],
+  );
+
   /** Produit le document exporté (sans l'enregistrer) ; null si l'export a échoué (message déjà affiché). */
   const buildExport = useCallback(
     async (format: ExportFormat): Promise<{ data: ArrayBuffer; name: string } | null> => {
@@ -856,15 +898,7 @@ function Editor({ draft }: { draft: Draft }) {
       if (format === 'docx') data = (await stripForExport(g.data)).data;
       else if (format === 'pdf') {
         try {
-          // polices fournies avec l'app (Literata…) incluses : la fenêtre d'impression n'a pas accès au réseau
-          const fontCss = await bundledFontFaceCss(usedFonts(g.model));
-          // Pages de l'éditeur imprimées telles quelles (sauts de page, notes en bas de page, numéros…) ;
-          // si la mise en page échoue, PDF reconstruit à partir du texte.
-          const paged = await renderPagesForPrint((await stripForExport(g.data)).data, { fontCss }).catch((err) => {
-            console.warn('Mise en page pour le PDF impossible :', err);
-            return null;
-          });
-          data = await host.printToPdf(paged ? paged.html : toPrintHtml(g.model, d.title, { fontCss }));
+          data = await host.printToPdf(await printHtmlOf(g.model, g.data, d.title));
         } catch (err) {
           console.warn(err);
           toast(host.kind === 'browser' ? `L’export PDF n’est disponible que dans l’app ${isMac ? 'Mac' : 'de bureau'}. Essayez Word ou Page web.` : 'L’export PDF a échoué. Réessayez, ou exportez en Word.', 'error');
@@ -1108,6 +1142,15 @@ function Editor({ draft }: { draft: Draft }) {
       {(busyExport || status === 'saving') && <div className="progress-indeterminate ed-progress" role="progressbar" aria-label={busyExport ? 'Export en cours' : 'Enregistrement en cours'} />}
 
       <Popover pop={exportPop} label="Exporter" className="ed-menu ed-export-menu">
+        {host.printDocument && (
+          <>
+            <button className="menu-item" onClick={() => void printDraft()} data-print="1">
+              <Printer size={14} />
+              <span>Imprimer…</span>
+            </button>
+            <div className="divider" />
+          </>
+        )}
         <div className="ed-pop-title">Exporter une copie</div>
         {EXPORTS.map((x) => (
           <button key={x.fmt} className="menu-item" onClick={() => void exportAs(x.fmt)} data-fmt={x.fmt}>

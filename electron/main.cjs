@@ -2816,7 +2816,12 @@ function withPrintCsp(html) {
   return m ? s.slice(0, m.index + m[0].length) + PRINT_CSP + s.slice(m.index + m[0].length) : PRINT_CSP + s;
 }
 
-dataHandle('marginalia:printToPdf', async (_e, html) => {
+/**
+ * Document prêt à imprimer dans une fenêtre cachée, sans réseau ni script : sert à l'export PDF ET à
+ * l'impression, qui partagent ainsi exactement le même rendu (même HTML, mêmes polices, même format de
+ * page, mêmes marges). `offscreen` pour le PDF ; une vraie fenêtre (cachée) pour le dialogue d'impression.
+ */
+async function withPrintWindow(html, { offscreen }, fn) {
   const tmpFile = path.join(os.tmpdir(), `marginalia-print-${crypto.randomBytes(8).toString('hex')}.html`);
   await fsp.writeFile(tmpFile, withPrintCsp(html), 'utf8');
   const partition = `print-${crypto.randomBytes(6).toString('hex')}`; // session éphémère (en mémoire)
@@ -2832,7 +2837,7 @@ dataHandle('marginalia:printToPdf', async (_e, html) => {
     width: 794,
     height: 1123,
     webPreferences: {
-      offscreen: true,
+      offscreen: !!offscreen,
       javascript: true, // scripts du document bloqués par la CSP ; sert à attendre les polices
       sandbox: true,
       contextIsolation: true,
@@ -2850,17 +2855,46 @@ dataHandle('marginalia:printToPdf', async (_e, html) => {
       new Promise((r) => setTimeout(r, 5000)),
     ]);
     await new Promise((r) => setTimeout(r, 150)); // laisse les images data: se décoder
-    // preferCSSPageSize : le format du document (@page size) l'emporte ; A4 sinon.
     // Pages de l'éditeur (export « tel qu'à l'écran ») : chaque page porte déjà ses marges → aucune marge ajoutée.
     const fullBleed = /class="mgl-print-pages"/.test(html);
-    const pdf = await win.webContents.printToPDF({ pageSize: 'A4', printBackground: true, preferCSSPageSize: true, ...(fullBleed ? { margins: { top: 0, bottom: 0, left: 0, right: 0 } } : {}) });
-    return new Uint8Array(pdf.buffer, pdf.byteOffset, pdf.byteLength);
+    return await fn(win, fullBleed);
   } finally {
     if (!win.isDestroyed()) win.destroy();
     fsp.rm(tmpFile, { force: true }).catch(() => {});
     ses.clearStorageData().catch(() => {});
   }
-});
+}
+// preferCSSPageSize : le format du document (@page size) l'emporte ; A4 sinon.
+const pdfOptions = (fullBleed) => ({ pageSize: 'A4', printBackground: true, preferCSSPageSize: true, ...(fullBleed ? { margins: { top: 0, bottom: 0, left: 0, right: 0 } } : {}) });
+
+dataHandle('marginalia:printToPdf', async (_e, html) =>
+  withPrintWindow(html, { offscreen: true }, async (win, fullBleed) => {
+    const pdf = await win.webContents.printToPDF(pdfOptions(fullBleed));
+    return new Uint8Array(pdf.buffer, pdf.byteOffset, pdf.byteLength);
+  }),
+);
+
+// Impression directe : même document et mêmes réglages que l'export PDF, puis le dialogue
+// d'impression du système (choix de l'imprimante, des pages, du nombre de copies).
+// Format : celui du document (@page size, respecté par l'impression) ; pages de l'éditeur sans marge
+// ajoutée, comme le PDF ; aucune mise à l'échelle par défaut.
+// Tests (MARGINALIA_E2E) : pas de dialogue ; le PDF que produirait l'impression est rendu au test.
+handle('marginalia:printDocument', async (_e, html) =>
+  withPrintWindow(String(html ?? ''), { offscreen: false }, async (win, fullBleed) => {
+    if (E2E && process.env.MARGINALIA_E2E_PRINT_DIR) {
+      const pdf = await win.webContents.printToPDF(pdfOptions(fullBleed));
+      const out = path.join(process.env.MARGINALIA_E2E_PRINT_DIR, `impression-${Date.now()}.pdf`);
+      await fsp.writeFile(out, pdf);
+      return { ok: true, e2e: out, fullBleed };
+    }
+    return await new Promise((resolve) =>
+      win.webContents.print(
+        { silent: false, printBackground: true, scaleFactor: 100, ...(fullBleed ? { margins: { marginType: 'none' } } : {}) },
+        (success, reason) => resolve({ ok: !!success, reason: success ? null : String(reason || '') }),
+      ),
+    );
+  }),
+);
 
 // ── Fichiers ouverts depuis le Finder ou l'Explorateur ───────
 let mainWindow = null;

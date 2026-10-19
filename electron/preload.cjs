@@ -72,6 +72,7 @@ const api = {
   windowDoubleClick: () => ipcRenderer.invoke('marginalia:windowDoubleClick'),
   setTheme: (mode, titleBar) => ipcRenderer.invoke('marginalia:setTheme', mode, titleBar),
   printToPdf: async (html) => toArrayBuffer(await ipcRenderer.invoke('marginalia:printToPdf', html)),
+  printDocument: (html) => ipcRenderer.invoke('marginalia:printDocument', String(html)),
 
   /** Commandes des menus natifs (Windows : Fichier › Importer, Aide). */
   onMenuCommand: (cb) => {

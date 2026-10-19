@@ -442,6 +442,8 @@ export interface HostApi {
   setTheme?(mode: 'system' | 'light' | 'dark', titleBar?: { color: string; symbolColor: string }): Promise<void>;
   /** Rend du HTML autonome en PDF (A4) et renvoie les octets. */
   printToPdf(html: string): Promise<ArrayBuffer>;
+  /** Impression directe (dialogue du système), même rendu que printToPdf. Absent dans le navigateur. */
+  printDocument?(html: string): Promise<{ ok: boolean; reason?: string | null }>;
   /** Commandes des menus natifs (Windows : 'import', 'help'). */
   onMenuCommand?(cb: (cmd: string) => void): () => void;
   /**

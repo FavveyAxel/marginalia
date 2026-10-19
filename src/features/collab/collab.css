@@ -156,3 +156,36 @@ mark.cl-diff { color: inherit; background: color-mix(in srgb, var(--who) 22%, tr
 .cl-sharepop-text strong { font-size: var(--fs-md, 14px); color: var(--ink); }
 .cl-sharepop-text span { font-size: var(--fs-sm); color: var(--muted); line-height: 1.35; }
 @media (prefers-reduced-motion: reduce) { .cl-sharebtn-dot { animation: none; } }
+
+/* Fin de session (invité) : garder l'espace reçu, ou non — deux grandes tuiles illustrées */
+.cl-keep-lede { margin: 0; font-family: var(--font-display); font-size: 22px; line-height: 1.25; color: var(--ink); }
+.cl-keep-lede span { display: block; margin-top: 2px; font-family: var(--font-ui); font-size: var(--fs-sm); color: var(--muted); }
+.cl-keep-ways { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.cl-keep-way {
+  display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 16px 16px 18px; text-align: center;
+  border: 1px solid var(--border); border-radius: 14px; background: var(--bg-panel); color: var(--ink); font: inherit; cursor: pointer;
+  transition: border-color 120ms, background-color 120ms, transform 120ms;
+}
+.cl-keep-way:hover { border-color: var(--border-strong, var(--ink-3)); background: color-mix(in srgb, var(--ink) 3%, var(--bg-panel)); }
+.cl-keep-way:active { transform: scale(0.99); }
+.cl-keep-way.is-keep { border-color: color-mix(in srgb, #15803d 50%, var(--border)); }
+.cl-keep-way:focus-visible { outline: 2px solid var(--focus, #3d6fe0); outline-offset: 2px; }
+.cl-keep-way.is-keep:hover { background: color-mix(in srgb, #15803d 5%, var(--bg-panel)); }
+.cl-keep-way strong { font-size: var(--fs-lg, 16px); font-weight: 600; }
+.cl-keep-way > span:not(.cl-keep-art):not(.cl-keep-what) { font-size: var(--fs-sm); color: var(--muted); line-height: 1.4; max-width: 26ch; }
+.cl-keep-art { display: flex; align-items: center; justify-content: center; height: 78px; margin-bottom: 6px; }
+/* « Garder » : l'espace dans la barre latérale, coché */
+.cl-keep-node {
+  position: relative; display: inline-flex; align-items: center; gap: 7px; padding: 8px 12px; max-width: 170px;
+  border-radius: 9px; background: var(--bg-inset); color: var(--ink); font-size: var(--fs-sm); font-weight: 600;
+}
+.cl-keep-node-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cl-keep-check { position: absolute; right: -8px; top: -8px; display: grid; place-items: center; width: 20px; height: 20px; border-radius: 50%; background: #15803d; color: #fff; box-shadow: 0 0 0 3px var(--bg-panel); }
+/* « Ne pas garder » : la corbeille, 30 jours */
+.cl-keep-bin { position: relative; display: grid; place-items: center; width: 60px; height: 60px; border-radius: 16px; background: var(--bg-inset); color: var(--ink-2); }
+.cl-keep-days { position: absolute; right: -10px; top: -8px; padding: 2px 6px; border-radius: 999px; background: var(--ink); color: var(--bg-panel); font-size: 10px; font-weight: 700; box-shadow: 0 0 0 3px var(--bg-panel); }
+.cl-keep-what { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; margin-top: 8px; }
+.cl-keep-what > span { display: inline-flex; align-items: center; gap: 4px; padding: 3px 8px; border-radius: 999px; background: var(--bg-inset); font-size: 12px; color: var(--ink-2); }
+.cl-keep-note { margin: 0; font-size: var(--fs-sm); color: var(--muted); text-align: center; }
+@media (max-width: 560px) { .cl-keep-ways { grid-template-columns: 1fr; } }
+@media (prefers-reduced-motion: reduce) { .cl-keep-way { transition: none; } }

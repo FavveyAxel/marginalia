@@ -14,7 +14,7 @@
 // ─────────────────────────────────────────────────────────────
 import { host, type CollabEvent, type CollabMember } from '../../lib/platform';
 import { flushPendingSave, useStore } from '../../lib/store';
-import type { Book, Draft } from '../../lib/types';
+import type { Book, Draft, WorkspaceItem, WorkspaceItemKind } from '../../lib/types';
 import { bookExtraFiles, bookFingerprint, bookSourceFiles, buildSharePackage, findLocalBook, shareableDocx } from '../share/sharePackage';
 import { importSharePackage } from '../share/shareMerge';
 import { errorMessage } from '../share/shareUi';
@@ -44,6 +44,39 @@ interface Session {
   hostName: string;
   flushed: Set<string>;
   fetchTimers: Map<string, ReturnType<typeof setTimeout>>;
+  /** Invité : ce qui était déjà dans la bibliothèque à l'arrivée (« kind:id »), gardé quoi qu'il arrive. */
+  before?: Set<string>;
+}
+
+const KEEP_KINDS = ['book', 'draft', 'plan', 'argument', 'study'] as const;
+/** Tout ce qui est dans la bibliothèque maintenant, en « kind:id » (cartes : leur clé). */
+function libraryKeys(): Set<string> {
+  const st = useStore.getState() as unknown as Record<string, { id: string }[]> & { maps: Record<string, unknown> };
+  const out = new Set<string>();
+  const col: Record<(typeof KEEP_KINDS)[number], string> = { book: 'books', draft: 'drafts', plan: 'plans', argument: 'arguments', study: 'studies' };
+  for (const k of KEEP_KINDS) for (const x of st[col[k]] ?? []) out.add(`${k}:${x.id}`);
+  for (const id of Object.keys(st.maps ?? {})) out.add(`map:${id}`);
+  return out;
+}
+/**
+ * Ce qu'un invité retirerait en ne gardant pas l'espace : les éléments de l'espace arrivés par ce partage
+ * (maintenant ou lors d'une session précédente) ou créés pendant la session, et qui ne servent à aucun
+ * autre espace. Ce qu'il avait déjà dans sa bibliothèque reste.
+ */
+function sessionTargets(wsId: string, shareId: string, before: Set<string>): { kind: WorkspaceItemKind; id: string }[] {
+  const st = useStore.getState() as unknown as Record<string, { id: string; shareOrigin?: { shareId: string } }[]> & {
+    wsItems: WorkspaceItem[];
+    maps: Record<string, { shareOrigin?: { shareId: string } }>;
+  };
+  const col: Record<string, string> = { book: 'books', draft: 'drafts', plan: 'plans', argument: 'arguments', study: 'studies' };
+  const out: { kind: WorkspaceItemKind; id: string }[] = [];
+  for (const it of st.wsItems.filter((i) => i.workspaceId === wsId)) {
+    if (st.wsItems.some((o) => o.workspaceId !== wsId && o.kind === it.kind && o.refId === it.refId)) continue;
+    const rec = it.kind === 'map' ? st.maps[it.refId] : (st[col[it.kind]] ?? []).find((x) => x.id === it.refId);
+    if (!rec) continue;
+    if (rec.shareOrigin?.shareId === shareId || !before.has(`${it.kind}:${it.refId}`)) out.push({ kind: it.kind, id: it.refId });
+  }
+  return out;
 }
 
 let S: Session | null = null;
@@ -255,6 +288,7 @@ async function guestOnBooks(head: Head) {
 async function guestOnState(head: Head, body: Uint8Array) {
   const s = S!;
   const st0 = useStore.getState();
+  s.before = libraryKeys();
   let wsId = workspaceForShare(s.shareId);
   const alias: [string, string][] = (s as Any).bookAlias ?? [];
   useCollab.setState({ progress: 'Ajout à votre bibliothèque…' });
@@ -588,7 +622,10 @@ function endLocal(_reason: string) {
   s.rooms.stop();
   for (const t of s.fetchTimers.values()) clearTimeout(t);
   void import('./reunion').then((m) => m.rememberSession(s.shareId, s.workspaceId, s.records, s.role === 'host' ? null : s.hostName)).catch(() => undefined);
-  useCollab.setState({ role: null, phase: 'idle', workspaceId: null, shareId: null, me: null, members: [], requests: [], code: null, progress: null, rooms: {} });
+  // Invité : garder l'espace reçu, ou non (il n'avait peut-être besoin de travailler ensemble qu'une fois).
+  const ws = s.role === 'guest' && s.ready && s.workspaceId ? useStore.getState().workspaces.find((w) => w.id === s.workspaceId) : undefined;
+  const afterSession = ws && s.before ? { workspaceId: ws.id, name: ws.name, hostName: s.hostName, targets: sessionTargets(ws.id, s.shareId, s.before) } : null;
+  useCollab.setState({ afterSession, role: null, phase: 'idle', workspaceId: null, shareId: null, me: null, members: [], requests: [], code: null, progress: null, rooms: {} });
 }
 
 /** « Arrêter le partage » (hôte : pour tous, après le dernier enregistrement de chacun) ou « Quitter » (invité). */
@@ -637,3 +674,16 @@ export async function closeStale() {
 
 export { newer };
 export type { Col };
+
+/** Fin de session (invité) : ne pas garder l'espace reçu. Tout va dans la corbeille (30 jours, annulable). */
+export function dropSharedWorkspace(): number {
+  const a = useCollab.getState().afterSession;
+  useCollab.setState({ afterSession: null });
+  if (!a) return 0;
+  const st = useStore.getState();
+  // On quitte l'écran s'il montre l'espace ou l'un de ses éléments (écrit, livre, carte…).
+  const ids = new Set([a.workspaceId, ...a.targets.map((t) => t.id)]);
+  if (Object.values(st.route as Record<string, unknown>).some((v) => typeof v === 'string' && ids.has(v))) st.navigate({ name: 'home' });
+  const entries = st.trashDeleteMixed([...a.targets, { kind: 'workspace', id: a.workspaceId }]);
+  return entries.length;
+}

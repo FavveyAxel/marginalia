@@ -5,7 +5,8 @@
 //  - les demandes reçues quand la fenêtre de l'hôte est fermée (en bas à droite).
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Check, FilePen, Highlighter, Lock, MoreHorizontal, Network, RefreshCw, Upload, Users, X } from 'lucide-react';
+import { BookOpen, Check, FilePen, Folder, Highlighter, ListTree, Lock, MoreHorizontal, Network, RefreshCw, ScrollText, Sigma, Trash2, Upload, Users, X } from 'lucide-react';
+import type { WorkspaceItemKind } from '../../lib/types';
 import { host, type CollabMember, type CollabRequest } from '../../lib/platform';
 import { useStore } from '../../lib/store';
 import { errorMessage } from '../share/shareUi';
@@ -24,6 +25,7 @@ export function CollabHost() {
   const requests = useCollab((s) => s.requests);
   const role = useCollab((s) => s.role);
   const reunion = useCollab((s) => s.reunion);
+  const afterSession = useCollab((s) => s.afterSession);
   const ready = useStore((s) => s.ready);
   useEffect(() => {
     if (ready) void import('./memory').then((m) => m.initMemory());
@@ -38,6 +40,7 @@ export function CollabHost() {
       {panelFor && <CollabPanel workspaceId={panelFor} onClose={() => useCollab.setState({ panelFor: null })} />}
       {joinOpen && !reunion && <JoinDialog onClose={() => useCollab.setState({ joinOpen: false })} />}
       {reunion && <ReunionDialog key={reunion.items.map((i) => i.id).join('|')} />}
+      {afterSession && !reunion && <KeepDialog key={afterSession.workspaceId} />}
       {role === 'host' && !panelFor && requests.length > 0 && createPortal(<div className="cl-asks" data-testid="collab-asks">{requests.map((r) => <Ask key={r.reqId} r={r} />)}</div>, document.body)}
     </>
   );
@@ -201,7 +204,7 @@ function useEscape(onClose: () => void) {
   }, [onClose]);
 }
 
-function Frame({ title, onClose, children, testid }: { title: string; onClose: () => void; children: React.ReactNode; testid: string }) {
+function Frame({ title, onClose, children, testid, foot = true }: { title: string; onClose: () => void; children: React.ReactNode; testid: string; foot?: boolean }) {
   useEscape(onClose);
   return createPortal(
     <div className="wr-back anim-fade" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
@@ -213,13 +216,78 @@ function Frame({ title, onClose, children, testid }: { title: string; onClose: (
           </button>
         </header>
         {children}
-        <footer className="wr-foot">
-          <Lock size={13} />
-          <span>Chiffré, sur votre réseau local, sans Internet.</span>
-        </footer>
+        {foot && (
+          <footer className="wr-foot">
+            <Lock size={13} />
+            <span>Chiffré, sur votre réseau local, sans Internet.</span>
+          </footer>
+        )}
       </div>
     </div>,
     document.body,
+  );
+}
+
+// ── Invité, fin de session : garder l'espace reçu, ou non ─────
+function KeepDialog() {
+  const a = useCollab((s) => s.afterSession)!;
+  const keep = () => useCollab.setState({ afterSession: null });
+  const kinds: { k: WorkspaceItemKind; icon: JSX.Element; one: string; many: string }[] = [
+    { k: 'draft', icon: <FilePen size={13} />, one: 'écrit', many: 'écrits' },
+    { k: 'map', icon: <Network size={13} />, one: 'carte', many: 'cartes' },
+    { k: 'book', icon: <BookOpen size={13} />, one: 'livre', many: 'livres' },
+    { k: 'plan', icon: <ListTree size={13} />, one: 'plan', many: 'plans' },
+    { k: 'argument', icon: <Sigma size={13} />, one: 'argument', many: 'arguments' },
+    { k: 'study', icon: <ScrollText size={13} />, one: 'fiche', many: 'fiches' },
+  ];
+  const what = kinds.map((x) => ({ ...x, n: a.targets.filter((t) => t.kind === x.k).length })).filter((x) => x.n > 0);
+  const drop = () => {
+    // Le message « N éléments placés dans la corbeille — Annuler » vient de la corbeille elle-même.
+    void session().then((m) => m.dropSharedWorkspace());
+  };
+  return (
+    <Frame title="Fin du travail à plusieurs" onClose={keep} testid="collab-keep" foot={false}>
+      <div className="cl-body">
+        <p className="cl-keep-lede">
+          Garder « {a.name} » sur cet ordinateur ? <span>L’espace vient de {a.hostName}.</span>
+        </p>
+        <div className="cl-keep-ways">
+          <button className="cl-keep-way is-keep" onClick={keep} data-testid="collab-keep-keep">
+            <span className="cl-keep-art" aria-hidden="true">
+              <span className="cl-keep-node">
+                <Folder size={15} />
+                <span className="cl-keep-node-name">{a.name}</span>
+                <span className="cl-keep-check">
+                  <Check size={11} strokeWidth={3} />
+                </span>
+              </span>
+            </span>
+            <strong>Garder l’espace</strong>
+            <span>Il reste ici, à jour. La prochaine fois, vos changements seront réunis.</span>
+          </button>
+          <button className="cl-keep-way is-drop" onClick={drop} data-testid="collab-keep-drop">
+            <span className="cl-keep-art" aria-hidden="true">
+              <span className="cl-keep-bin">
+                <Trash2 size={30} strokeWidth={1.4} />
+                <span className="cl-keep-days">30 j</span>
+              </span>
+            </span>
+            <strong>Ne pas garder</strong>
+            <span>Tout va dans la corbeille : 30 jours pour changer d’avis.</span>
+            {what.length > 0 && (
+              <span className="cl-keep-what">
+                {what.map((x) => (
+                  <span key={x.k}>
+                    {x.icon} {x.n} {x.n > 1 ? x.many : x.one}
+                  </span>
+                ))}
+              </span>
+            )}
+          </button>
+        </div>
+        <p className="cl-keep-note">Ce qui était déjà dans votre bibliothèque avant la session reste, dans tous les cas.</p>
+      </div>
+    </Frame>
   );
 }
 

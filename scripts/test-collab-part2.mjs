@@ -279,6 +279,24 @@ export async function run(ctx, h) {
   await wait(1500);
   ok((await text(C)).includes('Après l’arrêt.') && !(await text(A)).includes('Après l’arrêt.'), 'après l’arrêt, Inès continue seule ; rien n’arrive chez Léa');
 
+  // ── 7b. Fin de session chez les invités : garder l'espace reçu, ou non ──
+  ok(!(await A.page.isVisible('[data-testid="collab-keep"]')), 'Léa (hôte) : on ne lui demande rien, l’espace est le sien');
+  for (const X of [B, C]) {
+    await X.page.waitForSelector('[data-testid="collab-keep"]', { timeout: 10000 });
+    const t = (await X.page.textContent('[data-testid="collab-keep"]')).replace(/\s+/g, ' ');
+    ok(/Garder « Parjure » sur cet ordinateur \?/.test(t) && /vient de Léa/.test(t), `${X.name} : « Garder « Parjure » sur cet ordinateur ? »`, t.slice(0, 160));
+  }
+  await shotBoth(C.page, '[data-testid="collab-keep"]', '11-fin-garder-ou-non');
+  // Marc garde (la suite du test le retrouve) ; Inès ne garde pas.
+  await B.page.click('[data-testid="collab-keep-keep"]');
+  ok(await until(B.page, () => !document.querySelector('[data-testid="collab-keep"]') && window.__store.getState().workspaces.some((w) => w.name === 'Parjure'), null, 5000), 'Marc garde : l’espace reste chez lui');
+  const beforeC = await st(C.page, () => { const s = window.__store.getState(); return { ws: s.workspaces.length, drafts: s.drafts.length, books: s.books.length, maps: Object.keys(s.maps).length, trash: s.trash.length }; });
+  await C.page.click('[data-testid="collab-keep-drop"]');
+  const afterC = await until(C.page, () => !window.__store.getState().workspaces.some((w) => w.name === 'Parjure'), null, 5000);
+  const nowC = await st(C.page, () => { const s = window.__store.getState(); return { ws: s.workspaces.length, drafts: s.drafts.length, books: s.books.length, maps: Object.values(s.maps).filter((m) => m.kind === 'board').length, trash: s.trash.length, route: s.route.name, toasts: [...document.querySelectorAll('.toast')].map((t) => t.textContent).join(' | ') }; });
+  ok(afterC && nowC.ws === 0 && nowC.drafts === 0 && nowC.books === 0 && nowC.maps === 0, 'Inès ne garde pas : l’espace, les écrits, le livre et la carte reçus disparaissent (elle n’avait rien avant)', { beforeC, nowC });
+  ok(nowC.trash > beforeC.trash && /placés dans la corbeille/.test(nowC.toasts) && /Annuler/.test(nowC.toasts) && nowC.route === 'home', '… dans la corbeille (« Annuler » possible), et l’écrit ouvert se ferme', nowC);
+
   // ── 8. Rien en clair dans le trafic (relais d'écoute sur le chemin de Marc) ──
   const all = Buffer.concat(wire);
   ok(all.length > 20000 && all.includes(Buffer.from('mg-collab')), 'le relais a bien vu passer la session de Marc', { octets: all.length, port: proxyPort });

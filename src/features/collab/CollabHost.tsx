@@ -394,7 +394,7 @@ function ReunionDialog() {
         </header>
         <div className="cl-body">
           <p className="cl-lede">
-            Vous avez travaillé chacun de votre côté. Tout ce qui n’a changé que d’un côté est déjà réuni. {r.items.length > 1 ? `Ces ${r.items.length} passages ont été modifiés des deux côtés` : 'Ce passage a été modifié des deux côtés'} : choisissez ce que vous gardez. Une version « Avant la reconnexion avec {r.hostName} » garde chaque écrit tel qu’il était chez vous.
+            Vous avez travaillé chacun de votre côté. Tout ce qui n’a changé que d’un côté est déjà réuni. {r.items.length > 1 ? `Ces ${r.items.length} passages ont été modifiés des deux côtés` : 'Ce passage a été modifié des deux côtés'} : choisissez ce que vous gardez. Une version « Avant la reconnexion avec {r.hostName} » garde chaque écrit tel qu’il était chez vous.
           </p>
           {r.items.map((it) => (
             <section key={it.id} className="cl-conflict" data-testid="reunion-item" data-kind={it.kind}>

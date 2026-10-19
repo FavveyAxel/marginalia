@@ -21,12 +21,23 @@ export interface NewsEntry {
 
 export const NEWS: NewsEntry[] = [
   {
-    version: '3.34',
+    version: '3.35',
     items: [
       {
+        icon: 'sparkles',
+        title: 'Travailler à plusieurs, même à distance',
+        text: 'Plus besoin d’être sur le même Wi-Fi : le code à 6 chiffres suffit. La connexion se fait de pair à pair, chiffrée de bout en bout, et l’hôte accepte toujours chaque arrivée. Après un code faux, 10 secondes avant d’en essayer un autre.',
+        action: { label: 'Voir le réglage', run: 'settings' },
+      },
+      {
         icon: 'update',
-        title: 'Windows : Marginalia se rouvre après une mise à jour',
-        text: 'Après « Redémarrer pour mettre à jour », Marginalia attend la fin de l’installation puis se rouvre d’elle-même.',
+        title: 'Windows : vous choisissez quand redémarrer',
+        text: 'La mise à jour se télécharge toute seule, mais ne s’installe plus à la fermeture. « Redémarrer pour mettre à jour » quand vous voulez ; une petite fenêtre montre l’installation en cours.',
+      },
+      {
+        icon: 'notes',
+        title: 'Infobulles et curseur',
+        text: 'Les infobulles ont le style de l’app, et le curseur devient une main sur tout ce qui se clique.',
       },
     ],
   },

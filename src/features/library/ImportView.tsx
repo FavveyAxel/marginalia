@@ -2,7 +2,8 @@
 // l'ordinateur, recevoir depuis le téléphone (QR code, Wi-Fi), dossier synchronisé, app Livres (Mac).
 // ⌘O / Ctrl+O garde l'ouverture directe du sélecteur de fichiers.
 import { useState, type DragEvent } from 'react';
-import { BookOpen, Check, FileUp, FolderOpen, FolderSync, Inbox, QrCode, Share2, Upload } from 'lucide-react';
+import { BookOpen, Check, FileUp, FolderOpen, FolderSync, Inbox, QrCode, Share2, Upload, Users } from 'lucide-react';
+import { openJoinDialog } from '../collab/collabState';
 import { useStore } from '../../lib/store';
 import { filesFromDataTransfer, host, isShareFile, type PickedFile } from '../../lib/platform';
 import { openReceiveDialog } from '../share/shareUi';
@@ -182,6 +183,16 @@ export function ImportView({ workspaceId, groupId = null }: { workspaceId?: stri
                 <p>Un espace ou une sélection que quelqu’un vous envoie par le Wi-Fi, avec un code à 6 chiffres. Un fichier « .marginalia » se dépose simplement ci-dessus.</p>
                 <button className="btn" onClick={() => openReceiveDialog()} data-testid="import-share-open">
                   Saisir un code…
+                </button>
+              </section>
+            )}
+            {host.collabNet && (
+              <section className="imp-way" data-testid="import-collab-card">
+                <Users size={22} strokeWidth={1.6} />
+                <h3>Rejoindre un espace partagé</h3>
+                <p>Travaillez en direct avec quelqu’un du même réseau, dans son espace : écrits, cartes et extraits, avec les curseurs de chacun. Il vous donne un code à 6 chiffres.</p>
+                <button className="btn" onClick={() => openJoinDialog()} data-testid="import-collab-open">
+                  Rejoindre…
                 </button>
               </section>
             )}

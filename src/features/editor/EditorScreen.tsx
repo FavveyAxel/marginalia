@@ -51,8 +51,15 @@ import { readZoomPref, stepZoom, usePageTint, writeZoomPref } from './view';
 import { FocusButton, useChromeAutoHide, useFocusPrefs, useParagraphDim, useTypewriter } from './focus';
 import { FormatReveal, useFormatMarks } from './marks';
 import { CommentsButton, CommentsLayer, useComments } from './comments';
+import { hasPrivateNotes } from './privateNotes';
+import { shareableDocx } from '../share/sharePackage';
+import type { CollabBinding } from '../collab/editorBridge';
+import { LivePresence } from '../collab/LivePresence';
 import { useFormatPainter } from './painter';
 import { useTextDrag } from './dragText';
+
+/** Accès de test : développement, ou app lancée par un test de bout en bout (MARGINALIA_E2E=1 → ?e2e). */
+const TEST_HOOKS = typeof location !== 'undefined' && new URLSearchParams(location.search).has('e2e');
 
 type Phase = 'loading' | 'ready' | 'error';
 type Status = 'saved' | 'dirty' | 'saving' | 'blocked' | 'error';
@@ -209,6 +216,9 @@ function Editor({ draft }: { draft: Draft }) {
   const versionClock = useRef(new ActiveClock());
   const versionChain = useRef<Promise<unknown>>(Promise.resolve());
   const [versionsOpen, setVersionsOpen] = useState(false);
+  // Travailler à plusieurs : lien Yjs de l'écrit ('live'), ou invité coupé ('offline', lecture seule).
+  const collabRef = useRef<CollabBinding | null>(null);
+  const [liveMode, setLiveMode] = useState<'live' | 'offline' | null>(null);
   const [versionNonce, setVersionNonce] = useState(0);
   const [citeHover, setCiteHover] = useState<CiteHover | null>(null);
 
@@ -264,6 +274,7 @@ function Editor({ draft }: { draft: Draft }) {
           const d = draftRef.current;
           const changed = target !== savedSeq.current;
           await writeLibrary(d, g.data, session.current, g.editorWords);
+          collabRef.current?.onSaved(g.data, g.editorWords);
           savedSeq.current = target;
           if (d.externalPath) {
             if (external) {
@@ -374,16 +385,39 @@ function Editor({ draft }: { draft: Draft }) {
         /* le moteur tranchera */
       }
       const { openDocEngine } = await import('./engine');
-      if (cancelled || !hostRef.current) return;
-      eng = await openDocEngine(hostRef.current, data, { onChange, onSelection, onReload });
+      // Travailler à plusieurs : écrit d'un espace partagé en direct (src/features/collab).
+      const { collabBindingFor } = await import('../collab/editorBridge');
+      const binding = await collabBindingFor(d.id);
+      if (cancelled || !hostRef.current) {
+        if (binding && binding !== 'offline') binding.release();
+        return;
+      }
+      let openData = data;
+      if (binding && binding !== 'offline' && (await hasPrivateNotes(raw).catch(() => false))) {
+        // Les notes privées ne sont jamais partagées : elles restent dans une version de cet écrit.
+        await addVersion(d.id, raw, { kind: 'manual', name: 'Notes privées, avant le travail à plusieurs', force: true }).catch((err) => console.warn('version', err));
+        if (binding.mode === 'seed') openData = (await shareableDocx(data)).data;
+        toast('Les notes privées de cet écrit restent dans ses versions : elles ne sont pas partagées.', 'info');
+      }
+      const liveBinding = binding && binding !== 'offline' ? binding : null;
+      collabRef.current = liveBinding;
+      eng = await openDocEngine(hostRef.current, openData, { onChange, onSelection, onReload, collab: liveBinding });
       if (cancelled) {
         eng.destroy();
         return;
       }
       engineRef.current = eng;
+      setLiveMode(liveBinding ? 'live' : binding === 'offline' ? 'offline' : null);
+      if (liveBinding) liveBinding.onDetach = () => setLiveMode(null);
       const editorWords = eng.wordCount();
-      // G2 à l'ouverture : l'éditeur montre nettement moins de texte que le fichier
-      if (lostText(sourceWords, editorWords)) {
+      if (binding === 'offline') {
+        // Invité dont la connexion est coupée : lecture seule jusqu'au retour (rien ne se perd).
+        guardRef.current = true;
+        eng.setEditable(false);
+      }
+      // G2 à l'ouverture : l'éditeur montre nettement moins de texte que le fichier (sauf contenu venu
+      // de la salle du travail à plusieurs, qui fait foi).
+      if (liveBinding?.mode !== 'sync' && lostText(sourceWords, editorWords)) {
         guardRef.current = true;
         setLoadGuard({ source: sourceWords, editor: editorWords });
         eng.setEditable(false);
@@ -425,6 +459,7 @@ function Editor({ draft }: { draft: Draft }) {
         const g = await guardedExport(e);
         if (g.ok) {
           await writeLibrary(draftRef.current, g.data, session.current, g.editorWords);
+          collabRef.current?.onSaved(g.data, g.editorWords);
           if (draftRef.current.externalPath) setExternalDirty(draftRef.current.id, true);
         } else {
           useStore.getState().toast('Dernières modifications non enregistrées : le fichier produit était incomplet. La version précédente est intacte.', 'error');
@@ -449,7 +484,7 @@ function Editor({ draft }: { draft: Draft }) {
         toast(`${label}. ${fmtKeys('⌘Z')} pour annuler.`, 'success');
       } catch (err) {
         console.error(err);
-        toast('Ce réglage n’a pas pu être appliqué. Le document n’a pas changé.', 'error');
+        toast(err instanceof Error && err.name === 'CollabBlockedError' ? err.message : 'Ce réglage n’a pas pu être appliqué. Le document n’a pas changé.', 'error');
       } finally {
         setLayoutBusy(false);
         refreshUi();
@@ -553,7 +588,7 @@ function Editor({ draft }: { draft: Draft }) {
         return true;
       } catch (err) {
         console.error(err);
-        toast('La restauration a échoué. Le document n’a pas changé.', 'error');
+        toast(err instanceof Error && err.name === 'CollabBlockedError' ? 'Restauration indisponible pendant le travail à plusieurs : arrêtez le partage, ou utilisez « Restaurer comme nouvel écrit ».' : 'La restauration a échoué. Le document n’a pas changé.', 'error');
         return false;
       } finally {
         setLayoutBusy(false);
@@ -1028,6 +1063,7 @@ function Editor({ draft }: { draft: Draft }) {
             <span className="ed-status-text">{statusLabel}</span>
           </span>
         )}
+        {liveMode && <LivePresence draftId={draft.id} mode={liveMode} />}
         <div className="spacer" />
         <SpellToggle spell={spell} disabled={phase !== 'ready'} />
         <CommentsButton ctl={comments} />
@@ -1289,7 +1325,7 @@ function Editor({ draft }: { draft: Draft }) {
       {citeHover && phase === 'ready' && !focusMode && <CiteBar hover={citeHover} />}
 
       {spell.enabled && editable && <SpellMenu spell={spell} />}
-      {import.meta.env.DEV && <DevHandle engineRef={engineRef} save={save} exportAs={exportAs} undo={undo} />}
+      {(import.meta.env.DEV || TEST_HOOKS) && <DevHandle engineRef={engineRef} save={save} exportAs={exportAs} undo={undo} />}
     </div>
   );
 }

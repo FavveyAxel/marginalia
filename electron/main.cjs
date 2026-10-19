@@ -921,6 +921,8 @@ async function lockNow(reason) {
     wifiSender.stop('locked');
     shareSender.stop('locked');
     shareReceiver.cancel('locked');
+    collabHost.stop('locked');
+    collabGuest.leave();
     vault.wipe(sec.dek);
     sec.dek = null;
     sec.lockedBy = reason;
@@ -2443,6 +2445,60 @@ dataHandle('marginalia:shareReceive', async (_e, id) => {
   }
 });
 
+// ── Travailler à plusieurs : session en direct sur le réseau local (voir electron/collab-net.cjs) ──
+// L'hôte relaie des octets opaques entre les participants (6 personnes au plus) ; le rendu les lit
+// (src/features/collab). Événements 'marginalia:collab' : { side: 'host' | 'guest', type, … }.
+const collabNet = require('./collab-net.cjs');
+const collabEmit = (evt) => {
+  for (const w of BrowserWindow.getAllWindows()) if (!w.isDestroyed()) w.webContents.send('marginalia:collab', evt);
+};
+const collabHost = collabNet.createCollabHost({
+  isLocked: () => isLocked(),
+  diag: (...a) => diag(...a),
+  emit: (evt) => collabEmit({ side: 'host', ...evt }),
+});
+const collabGuest = collabNet.createCollabGuest({ diag: (...a) => diag(...a), emit: (evt) => collabEmit({ side: 'guest', ...evt }) });
+const collabMessage = (e) => (e && e.code && typeof e.message === 'string' ? e.message : `Session impossible (${(e && e.code) || (e && e.message) || e}).`);
+const collabBytes = (b) => (ArrayBuffer.isView(b) ? Buffer.from(b.buffer, b.byteOffset, b.byteLength) : toBuffer(b || new Uint8Array(0)));
+dataHandle('marginalia:collabHostStart', async (_e, meta, profile) => {
+  collabGuest.leave();
+  try {
+    return await collabHost.start({ meta: meta && typeof meta === 'object' ? meta : {}, profile: profile && typeof profile === 'object' ? profile : {} });
+  } catch (e) {
+    diag('collab', 'ouverture', e && e.message);
+    throw new Error(collabMessage(e));
+  }
+});
+handle('marginalia:collabHostStop', () => collabHost.stop('closed'));
+handle('marginalia:collabHostInfo', () => collabHost.info());
+dataHandle('marginalia:collabHostAccept', (_e, reqId) => collabHost.accept(String(reqId ?? '')));
+handle('marginalia:collabHostReject', (_e, reqId) => collabHost.reject(String(reqId ?? '')));
+dataHandle('marginalia:collabHostNewCode', () => collabHost.newCode());
+dataHandle('marginalia:collabFind', async (_e, code, manualAddress, profile) => {
+  try {
+    return await collabGuest.find(String(code ?? ''), { manualAddress: manualAddress ? String(manualAddress) : undefined, profile: profile && typeof profile === 'object' ? profile : {} });
+  } catch (e) {
+    diag('collab', 'recherche', e && (e.code || e.message));
+    throw new Error(collabMessage(e));
+  }
+});
+dataHandle('marginalia:collabJoin', async (_e, ticket) => {
+  if (collabHost.isOpen()) collabHost.stop('closed');
+  try {
+    return await collabGuest.join(String(ticket ?? ''));
+  } catch (e) {
+    diag('collab', 'rejoindre', e && (e.code || e.message));
+    throw new Error(collabMessage(e));
+  }
+});
+handle('marginalia:collabLeave', () => collabGuest.leave());
+dataHandle('marginalia:collabSend', (_e, to, bytes) => {
+  const target = typeof to === 'string' ? to : 'all';
+  return collabHost.isOpen() ? collabHost.send(target, collabBytes(bytes)) > 0 : collabGuest.send(target, collabBytes(bytes));
+});
+// Tests seulement : coupe le lien d'un invité sans prévenir et bloque la reconnexion `ms` millisecondes.
+handle('marginalia:collabCut', (_e, ms) => (process.env.MARGINALIA_E2E === '1' ? collabGuest.cut(Number(ms) || 0) : false));
+
 handle('marginalia:listFonts', async () => {
   if (fontCache) return fontCache;
   const { execFile } = require('child_process');
@@ -3398,6 +3454,8 @@ app.on('before-quit', (event) => {
   wifiSender.stop('quit');
   shareSender.stop('quit');
   shareReceiver.cancel('quit');
+  collabHost.stop('quit');
+  collabGuest.leave();
   if (quitReady) return;
   event.preventDefault();
   if (appQuitting) return;

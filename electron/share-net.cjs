@@ -1065,4 +1065,6 @@ module.exports = {
   MAX_BYTES,
   SCRYPT,
   MSG,
+  // Briques de la poignée de main, reprises telles quelles par le travail à plusieurs (collab-net.cjs).
+  handshake: { b64, unb64, hkdf, hmac, u32, u64, transcript, codeKeys, hintOf, x25519, x25519Shared, sessionKeys, seal, unseal, cleanDevice, hostName, json, readJson },
 };

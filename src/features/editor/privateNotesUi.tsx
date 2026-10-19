@@ -37,6 +37,10 @@ type Notify = (message: string, tone?: 'info' | 'error' | 'success') => void;
 
 /** Insère / convertit / retire une note privée au curseur (réaffiche les notes si elles étaient masquées). */
 export async function runPrivateNote(e: DocEngine, notify: Notify): Promise<void> {
+  if (e.isLive()) {
+    notify('Notes privées indisponibles pendant le travail à plusieurs : les autres les verraient.', 'info');
+    return;
+  }
   const view = useNotesView.getState();
   if (view.hidden && !e.inPrivateNote()) {
     view.setHidden(false);

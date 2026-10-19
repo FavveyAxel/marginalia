@@ -65,6 +65,7 @@ import { BacklinksButton, MapPicker, PortalBackPill, PortalToolButton, portalMen
 import { portalNode } from './model/portals';
 import { CHAIN_KEY, ChainButton, ChainPanel, useChainCtl } from './ui/chain';
 import './map.css';
+import { MapCursors } from './ui/MapCursors';
 
 const EMPTY_MAP: ArgumentMap = { bookId: '', nodes: [], edges: [], viewport: null };
 /** Distance d'aimantation, en pixels d'écran. */
@@ -1434,6 +1435,7 @@ function Inner({ source, tools }: { source: MapSource; tools?: MapToolbarItem[] 
           </button>
         )}
 
+        <MapCursors mapKey={key} dragging={dragging} editingId={editingId} />
         <PortalBackPill mapKey={key} />
         {portalPick && (
           <MapPicker

@@ -27,6 +27,7 @@ import { RESUME_EVENT, type PendingResume } from '../library/appleBooksAnnotatio
 import { fmtKeys, isMac, isMod, matchKeys } from '../../lib/keys';
 import { PAGE_JUMP_KEY, PageJumpField, type PageRequest, type ReturnPoint } from './PageJump';
 import { GOTO_PAGE_EVENT, type PageStatus } from './pages';
+import { ReaderCursors } from './ReaderCursors';
 
 // ── Rendus : le lecteur reste fluide pendant la lecture et la sélection ──
 // Chaque sauvegarde de position (toutes les ~800 ms en défilant) et chaque progression remontée
@@ -428,6 +429,7 @@ export const ReaderPane = memo(function ReaderPane({
         ) : (
           <MemoHtmlReader ref={engineRef} {...engineProps} />
         )}
+        {ready && !error && data && <ReaderCursors bookId={book.id} format={book.format} pageLabel={pageStatus?.label ?? ''} />}
         {ready && !error && book.format !== 'pdf' && pageStatus && (
           <div className="reader-pagejump-host">
             <PageJumpField status={pageStatus} onGo={goPage} capture={capturePage} request={pageRequest} variant="pill" />

@@ -1,0 +1,120 @@
+/* Travailler à plusieurs — pointeurs des autres (préfixe .rc-) ; la couleur de chacun dans --rc. */
+.rc-layer {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 40;
+  contain: layout style;
+}
+.rc-cursor,
+.rc-frame {
+  position: absolute;
+  left: 0;
+  top: 0;
+  will-change: transform, opacity;
+  opacity: 0;
+  transition: opacity 160ms ease-out;
+}
+.rc-cursor[data-state='on'],
+.rc-frame[data-state='on'] {
+  opacity: 1;
+}
+/* Fondu après inactivité */
+.rc-cursor[data-state='idle'] {
+  opacity: 0;
+  transition: opacity 600ms ease-in;
+}
+.rc-arrow {
+  display: block;
+  /* pointe de la flèche exactement sur le point */
+  margin: -1.4px 0 0 -1.6px;
+  filter: drop-shadow(0 1px 1.5px rgba(0, 0, 0, 0.28));
+}
+.rc-name {
+  position: absolute;
+  left: 14px;
+  top: 17px;
+  padding: 2px 7px 3px;
+  border-radius: 6px 9px 9px 9px;
+  background: var(--rc);
+  color: #fff;
+  font: 600 11.5px/1.25 var(--font-ui, system-ui, sans-serif);
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.18), 0 4px 10px -4px rgba(0, 0, 0, 0.3);
+}
+
+/* Carte déplacée ou modifiée par quelqu'un */
+.rc-frame {
+  box-sizing: border-box;
+  border: 2px solid var(--rc);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--rc) 7%, transparent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--rc) 16%, transparent);
+}
+.rc-ghost {
+  position: absolute;
+  left: 4px;
+  top: 4px;
+  transform-origin: 0 0;
+  opacity: 0.88;
+  pointer-events: none;
+}
+.rc-ghost * {
+  pointer-events: none !important;
+}
+.rc-frame[data-kind='edit'] {
+  border-style: dashed;
+  background: transparent;
+}
+.rc-frame-name {
+  position: absolute;
+  left: -2px;
+  top: -21px;
+  padding: 1px 7px 2px;
+  border-radius: 6px 6px 6px 0;
+  background: var(--rc);
+  color: #fff;
+  font: 600 11px/1.3 var(--font-ui, system-ui, sans-serif);
+  white-space: nowrap;
+}
+
+/* « Marc lit page 12 » */
+.rc-where {
+  position: absolute;
+  right: 22px;
+  top: 12px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+}
+.rc-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 4px 11px 5px 9px;
+  border-radius: 999px;
+  background: var(--bg-panel);
+  color: var(--ink-2, var(--ink));
+  font: 500 12px/1.3 var(--font-ui, system-ui, sans-serif);
+  box-shadow: var(--shadow-sm), 0 0 0 1px var(--border);
+}
+.rc-chip[hidden] {
+  display: none;
+}
+.rc-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rc-cursor,
+  .rc-frame,
+  .rc-cursor[data-state='idle'] {
+    transition: none;
+  }
+}

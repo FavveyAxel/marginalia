@@ -25,6 +25,7 @@ import { joinFiles, pack, splitFiles, unpack, type Head } from './wire';
 import { reunite } from './reunion';
 import { knownMtimes, stopWatch } from './memory';
 import { addVersionFromLibrary } from '../editor/versions';
+import { onCursorMessage, setCursorBridge } from './cursors';
 
 type Any = any; // eslint-disable-line @typescript-eslint/no-explicit-any
 
@@ -103,6 +104,27 @@ function makeRecords(s: Session, workspaceId: string): RecordSync {
   });
 }
 
+/** Pointeurs en direct (cursors.ts) : même canal chiffré, seulement pour les cartes et livres de l'espace. */
+function plugCursors(s: Session) {
+  setCursorBridge({
+    send: (head) => {
+      if (S === s) send('all', head);
+    },
+    gid: (c, id) => {
+      const r = s.records;
+      if (S !== s || !r) return null;
+      if (c === 'map') {
+        const m = useStore.getState().maps[id];
+        if (!m) return null;
+        const g = r.mapGid(id, m);
+        return r.base.has(keyOf('map', g)) ? g : null;
+      }
+      const g = r.gidOfBook(id);
+      return g && r.base.has(keyOf('book', g)) ? g : null;
+    },
+  });
+}
+
 // ─────────────────────────────────────────────────────────────
 // Hôte
 // ─────────────────────────────────────────────────────────────
@@ -123,6 +145,7 @@ export async function startHost(workspaceId: string, profile: CollabProfile): Pr
     s.records = makeRecords(s, workspaceId);
     for (const [k, t] of Object.entries(await knownMtimes(shareId))) s.records.mtimes.set(k, t);
     s.records.start();
+    plugCursors(s);
     useCollab.setState({ phase: 'live', role: 'host', me: 'h', workspaceId, shareId, title: ws.name, members: info.members ?? [], requests: [], code: info.code ?? null, codeState: info.codeState ?? 'open', addresses: info.addresses ?? [] });
   } catch (e) {
     if (S === s) S = null;
@@ -266,6 +289,7 @@ async function guestOnState(head: Head, body: Uint8Array) {
   void hostKeys;
   s.rooms.setView((head.rooms as Record<string, string[]>) ?? {});
   s.ready = true;
+  plugCursors(s);
   useCollab.setState({ phase: 'live', workspaceId: wsId, progress: null });
   for (const q of s.queue.splice(0)) await onMessage(q.from, q.head, q.body);
   useStore.getState().navigate({ name: 'workspace', workspaceId: wsId, groupId: null });
@@ -407,6 +431,11 @@ async function onMergedDocx(from: string, head: Head, body: Uint8Array) {
 async function onMessage(from: string, head: Head, body: Uint8Array) {
   const s = S;
   if (!s) return;
+  // Pointeurs : éphémères, jamais mis en attente (perdus avant que l'espace soit prêt).
+  if (head.t === 'cur') {
+    if (s.ready) onCursorMessage(from, head);
+    return;
+  }
   // Invité : tant que l'espace n'est pas prêt, seuls les messages d'arrivée passent ; le reste attend.
   if (!s.ready && !['books', 'state', 'stopping', 'rooms', 'room-ok'].includes(head.t)) {
     s.queue.push({ from, head, body: body.slice() });
@@ -549,6 +578,7 @@ function endLocal(_reason: string) {
   const s = S;
   if (!s) return;
   S = null;
+  setCursorBridge(null);
   try {
     s.records?.diffNow();
   } catch {

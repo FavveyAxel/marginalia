@@ -812,7 +812,7 @@ export const ImageReader = forwardRef<EngineHandle, EngineProps>(function ImageR
         <div className={`img-scroll${zoneMode ? ' is-zone' : ''}`} ref={scrollRef} onScroll={onScroll}>
           {url && nat && (
             <div className="img-stage" style={{ padding: `${PAD_TOP}px ${GUTTER}px ${PAD_BOTTOM}px` }}>
-              <div className={`img-page${phase === 'running' ? ' is-scanning' : ''}`} ref={pageRef} style={pageStyle}>
+              <div className={`img-page${phase === 'running' ? ' is-scanning' : ''}`} ref={pageRef} style={pageStyle} data-page={pageNo}>
                 <img className="img-picture" src={url} alt="" draggable={false} onLoad={onImgLoad} />
                 {panel && model.words.length > 0 && (
                   <div className="img-boxes" aria-hidden="true">

@@ -96,7 +96,7 @@ export function othersHere(): boolean {
   const c = useCollab.getState();
   return c.phase === 'live' && c.members.filter((m) => m.state === 'live').length > 1;
 }
-/** Hook : identifiant de contexte partagé (« m:… » / « b:… ») si des pointeurs peuvent circuler, sinon null. */
+/** Identifiant de contexte partagé (« m:… » / « b:… ») si des pointeurs peuvent circuler, sinon null. */
 export function ctxKeyOf(c: 'map' | 'book', localId: string): string | null {
   if (!bridge || !localId) return null;
   const g = bridge.gid(c, localId);

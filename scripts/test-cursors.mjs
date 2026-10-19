@@ -298,7 +298,11 @@ try {
   }
   const fps = track.length > 1 ? (track.length - 1) / ((track[track.length - 1][0] - track[0][0]) / 1000) : 0;
   ok(mid.length > 40 && stalls <= Math.max(2, mid.length * 0.04) && jumps <= Math.max(1, mid.length * 0.03) && back <= 1, 'mouvement continu chez Marc (images sans arrêt, ni saut, ni retour en arrière)', { images: track.length, ips: fps.toFixed(0), pasMedian: med.toFixed(2), arrets: stalls, sauts: jumps, retours: back });
-  fs.writeFileSync(path.join(SHOTS, 'trajectoire-carte.json'), JSON.stringify({ track, steps, raw }));
+  // Cadre des images : le cercle de Léa tel qu'il apparaît chez Marc.
+  const cB0 = toScreen(vB, toFlow(vA, cx, cy));
+  const rB = 140 * vB.z;
+  const box = { x: Math.round(Math.max(vB.left, cB0.x - rB - 90)), y: Math.round(Math.max(vB.top, cB0.y - rB - 50)), width: Math.round(2 * rB + 180), height: Math.round(2 * rB + 110) };
+  fs.writeFileSync(path.join(SHOTS, 'trajectoire-carte.json'), JSON.stringify({ track, steps, raw, box, color: colorOf('Léa'), name: 'Léa' }));
 
   // prefers-reduced-motion chez Marc : aucune interpolation (une position par paquet reçu), aucun fondu animé.
   await B.page.emulateMedia({ reducedMotion: 'reduce' });
@@ -325,7 +329,6 @@ try {
   await B.page.emulateMedia({ reducedMotion: 'no-preference' });
 
   // Animation : Léa trace un second cercle lentement ; images prises chez Marc.
-  const box = { x: Math.max(0, want.x - 330), y: Math.max(0, want.y - 230), width: 520, height: 400 };
   const animDir = path.join(SHOTS, 'anim');
   fs.rmSync(animDir, { recursive: true, force: true });
   fs.mkdirSync(animDir, { recursive: true });
@@ -347,6 +350,7 @@ try {
   await wait(4600);
   const idle = await cursorOf(B, 'Léa');
   ok(idle && idle.state === 'idle' && Number(idle.opacity) === 0, 'immobile 4,5 s : le pointeur de Léa s’est effacé en fondu', idle);
+  await B.page.screenshot({ path: path.join(animDir, 'fond.png'), clip: box });
 
   // Carte en cours de déplacement : entourée de la couleur de Léa chez Marc.
   const nodeA = await st(A.page, () => {
@@ -581,7 +585,7 @@ try {
 
   // Animation (GIF) : Python / PIL.
   try {
-    execFileSync('python3', [path.join(ROOT, 'scripts/cursors-gif.py'), animDir, path.join(SHOTS, 'carte-mouvement.gif'), path.join(SHOTS, 'trajectoire-carte.json'), path.join(SHOTS, 'trajectoire-carte.png')], { stdio: 'inherit' });
+    execFileSync('python3', [path.join(ROOT, 'scripts/cursors-gif.py'), animDir, path.join(SHOTS, 'carte-mouvement.gif'), path.join(SHOTS, 'trajectoire-carte.json'), path.join(SHOTS, 'trajectoire-carte.png'), path.join(SHOTS, 'carte-mouvement-60ips.gif')], { stdio: 'inherit' });
     ok(fs.existsSync(path.join(SHOTS, 'carte-mouvement.gif')), 'animation : shots/curseurs/carte-mouvement.gif');
   } catch (e) {
     ok(false, 'animation GIF', String(e));

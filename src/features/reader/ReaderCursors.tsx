@@ -15,6 +15,7 @@ import { useCollab } from '../collab/collabState';
 import { ctxKeyOf, Publisher, useCursorGate, type Loc } from '../collab/cursors';
 import { LiveCursors, type CursorSurface, type Pt } from '../collab/LiveCursors';
 import { locate, offsetOf } from './html/anchoring';
+import { RemoteSelections, trackMySelection } from './ReaderSelections';
 
 type Kind = 'pdf' | 'image' | 'html';
 const SCROLL = '.pdf-scroll, .img-scroll, .html-scroll';
@@ -173,6 +174,9 @@ function ReaderCursorsOn({ ctx, kind, pageLabel }: { ctx: string; kind: Kind; pa
     if (!host) return;
     const p = new Publisher(ctx);
     pubRef.current = p;
+    // Ma sélection de texte (montrée aux autres, à leur couleur près).
+    const mySel = trackMySelection(host, kind, p);
+    mySel.refresh();
     const onMove = (e: PointerEvent) => {
       const t = e.target as Element | null;
       if (t && !t.closest(SCROLL)) {
@@ -185,6 +189,7 @@ function ReaderCursorsOn({ ctx, kind, pageLabel }: { ctx: string; kind: Kind; pa
     let timer: ReturnType<typeof setTimeout> | null = null;
     const where = () => {
       timer = null;
+      mySel.refresh(); // passage sorti de la vue : la sélection n'est plus montrée
       const w = whereNow(host, kind, label.current);
       p.setWhere(w);
       setUnit(w?.u ?? null);
@@ -206,6 +211,7 @@ function ReaderCursorsOn({ ctx, kind, pageLabel }: { ctx: string; kind: Kind; pa
       host.removeEventListener('scroll', onScroll, true);
       clearTimeout(first);
       if (timer) clearTimeout(timer);
+      mySel.stop();
       p.close();
       pubRef.current = null;
     };
@@ -235,9 +241,19 @@ function ReaderCursorsOn({ ctx, kind, pageLabel }: { ctx: string; kind: Kind; pa
     [kind],
   );
 
+  const hostRef = useMemo(
+    () => ({
+      get current() {
+        return anchor.current?.parentElement ?? null;
+      },
+    }),
+    [],
+  );
+
   return (
     <>
       <span ref={anchor} hidden />
+      <RemoteSelections ctx={ctx} kind={kind} hostRef={hostRef} />
       <LiveCursors ctx={ctx} surface={surface} unit={unit} />
     </>
   );

@@ -37,8 +37,10 @@ function MapCursorsOn({ ctx, dragging, editingId }: { ctx: string; dragging: boo
         let y0 = Infinity;
         let x1 = -Infinity;
         let y1 = -Infinity;
+        const ids: string[] = [];
         for (const n of rf.getNodes()) {
           if (!n.dragging) continue;
+          ids.push(n.id);
           const inn = rf.getInternalNode(n.id);
           const pos = inn?.internals.positionAbsolute ?? n.position;
           const w = inn?.measured.width ?? n.width ?? 0;
@@ -48,7 +50,10 @@ function MapCursorsOn({ ctx, dragging, editingId }: { ctx: string; dragging: boo
           x1 = Math.max(x1, pos.x + w);
           y1 = Math.max(y1, pos.y + h);
         }
-        if (x0 < Infinity) return { m: [Math.round(x0 - fx), Math.round(y0 - fy), Math.round(x1 - x0), Math.round(y1 - y0)] };
+        if (x0 < Infinity) {
+          const m: [number, number, number, number] = [Math.round(x0 - fx), Math.round(y0 - fy), Math.round(x1 - x0), Math.round(y1 - y0)];
+          return ids.length === 1 ? { m, n: ids[0] } : { m };
+        }
       }
       return st.editingId ? { e: st.editingId } : null;
     };
@@ -58,9 +63,10 @@ function MapCursorsOn({ ctx, dragging, editingId }: { ctx: string; dragging: boo
         p.move(null);
         return;
       }
-      const at = rf.screenToFlowPosition({ x: e.clientX, y: e.clientY });
+      // Sans aimantation à la grille (15 unités par défaut) : la position exacte.
+      const at = rf.screenToFlowPosition({ x: e.clientX, y: e.clientY }, { snapToGrid: false });
       p.setAct(actNow(at.x, at.y));
-      p.move(at);
+      p.move(at, e.timeStamp);
     };
     const onLeave = () => p.move(null);
     host.addEventListener('pointermove', onMove, true);
@@ -83,6 +89,18 @@ function MapCursorsOn({ ctx, dragging, editingId }: { ctx: string; dragging: boo
       resolve: (loc) => ('x' in loc ? () => rf.flowToScreenPosition(loc) : null),
       clip: () => anchor.current?.parentElement?.querySelector('.react-flow')?.getBoundingClientRect() ?? null,
       scale: () => rf.getViewport().zoom,
+      ghostOf: (id) => {
+        // Copie de la carte telle qu'elle est rendue ici (contenu seulement), pour la voir bouger.
+        const host = anchor.current?.parentElement;
+        const node = host?.querySelector<HTMLElement>(`.react-flow__node[data-id="${CSS.escape(id)}"]`);
+        const inner = node?.firstElementChild as HTMLElement | null;
+        const n = rf.getInternalNode(id);
+        if (!inner || !n) return null;
+        const el = inner.cloneNode(true) as HTMLElement;
+        el.querySelectorAll('[id]').forEach((x) => x.removeAttribute('id'));
+        el.querySelectorAll('.react-flow__handle').forEach((x) => x.remove());
+        return { el, w: n.measured.width ?? inner.offsetWidth, h: n.measured.height ?? inner.offsetHeight };
+      },
       frameOf: (id) => {
         const n = rf.getInternalNode(id);
         if (!n || n.hidden) return null;

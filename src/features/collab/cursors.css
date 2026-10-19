@@ -27,6 +27,8 @@
 }
 .rc-arrow {
   display: block;
+  /* pointe de la flèche exactement sur le point */
+  margin: -1.4px 0 0 -1.6px;
   filter: drop-shadow(0 1px 1.5px rgba(0, 0, 0, 0.28));
 }
 .rc-name {
@@ -51,6 +53,17 @@
   background: color-mix(in srgb, var(--rc) 7%, transparent);
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--rc) 16%, transparent);
 }
+.rc-ghost {
+  position: absolute;
+  left: 4px;
+  top: 4px;
+  transform-origin: 0 0;
+  opacity: 0.88;
+  pointer-events: none;
+}
+.rc-ghost * {
+  pointer-events: none !important;
+}
 .rc-frame[data-kind='edit'] {
   border-style: dashed;
   background: transparent;
@@ -70,8 +83,8 @@
 /* « Marc lit page 12 » */
 .rc-where {
   position: absolute;
-  right: 14px;
-  bottom: 14px;
+  right: 22px;
+  top: 12px;
   display: flex;
   flex-direction: column;
   align-items: flex-end;

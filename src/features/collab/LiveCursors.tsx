@@ -2,7 +2,7 @@
 // Pointeurs des autres (affichage) : une couche au-dessus d'une carte ou d'un livre ouvert.
 //
 // Fluidité : les positions reçues (≈ 25 par seconde, à intervalles irréguliers) sont rejouées avec un
-// léger retard (DELAY) selon l'horloge de l'expéditeur, et reliées par une courbe de Catmull-Rom :
+// léger retard (DELAY) selon l'horloge de l'expéditeur, et reliées par une courbe d'Hermite (tangentes de Catmull-Rom selon le temps) :
 // le mouvement reste continu même si des paquets arrivent en grappes. Chaque position est rattachée
 // au contenu et relue à chaque image (zoom, défilement, mise en page d'ici). Le pointeur s'efface en
 // fondu après IDLE_MS sans mouvement, ou dès que la personne quitte la vue.
@@ -29,6 +29,8 @@ export interface CursorSurface {
   scale?(): number;
   /** Rectangle à l'écran d'une carte en cours de modification. */
   frameOf?(nodeId: string): DOMRect | null;
+  /** Copie (non interactive) d'une carte telle qu'elle est rendue ici, et sa taille dans le repère de la carte. */
+  ghostOf?(nodeId: string): { el: HTMLElement; w: number; h: number } | null;
 }
 
 /** Retard de rejeu (ms) : couvre l'irrégularité d'arrivée de deux à trois paquets. */
@@ -36,11 +38,34 @@ const DELAY = 110;
 
 const reduced = () => typeof window !== 'undefined' && !!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
 
-function catmull(p0: Pt, p1: Pt, p2: Pt, p3: Pt, u: number): Pt {
+/**
+ * Hermite à tangentes de Catmull-Rom tenant compte des intervalles de temps (les paquets ne sont pas
+ * réguliers) ; chaque tangente est bornée par la longueur du segment : la courbe ne dépasse jamais
+ * franchement les points reçus (pas de boucle ni de retour en arrière).
+ */
+function hermite(p0: Pt, t0: number, p1: Pt, t1: number, p2: Pt, t2: number, p3: Pt, t3: number, u: number): Pt {
+  const dt = Math.max(1, t2 - t1);
+  const seg = Math.hypot(p2.x - p1.x, p2.y - p1.y);
+  const tan = (a: Pt, ta: number, b: Pt, tb: number) => {
+    const k = dt / Math.max(1, tb - ta);
+    let x = (b.x - a.x) * k;
+    let y = (b.y - a.y) * k;
+    const l = Math.hypot(x, y);
+    if (l > seg && l > 0) {
+      x *= seg / l;
+      y *= seg / l;
+    }
+    return { x, y };
+  };
+  const m1 = tan(p0, t0, p2, t2);
+  const m2 = tan(p1, t1, p3, t3);
   const u2 = u * u;
   const u3 = u2 * u;
-  const f = (a: number, b: number, c: number, d: number) => 0.5 * (2 * b + (-a + c) * u + (2 * a - 5 * b + 4 * c - d) * u2 + (-a + 3 * b - 3 * c + d) * u3);
-  return { x: f(p0.x, p1.x, p2.x, p3.x), y: f(p0.y, p1.y, p2.y, p3.y) };
+  const h00 = 2 * u3 - 3 * u2 + 1;
+  const h10 = u3 - 2 * u2 + u;
+  const h01 = -2 * u3 + 3 * u2;
+  const h11 = u3 - u2;
+  return { x: h00 * p1.x + h10 * m1.x + h01 * p2.x + h11 * m2.x, y: h00 * p1.y + h10 * m1.y + h01 * p2.y + h11 * m2.y };
 }
 
 /** Position à l'écran d'une personne à l'instant `now` (null : pas de pointeur ici). */
@@ -60,7 +85,9 @@ function positionOf(p: Peer, now: number, res: (s: Sample | undefined) => Pt | n
   const pb = res(b);
   if (!pa || !pb) return pb ?? null; // changement de page, ou retour dans la vue : saut
   const u = Math.min(1, Math.max(0, (rt - a.t) / Math.max(1, b.t - a.t)));
-  return catmull(res(s[i - 1]) ?? pa, pa, pb, res(s[i + 2]) ?? pb, u);
+  const z = s[i - 1] && res(s[i - 1]);
+  const d = s[i + 2] && res(s[i + 2]);
+  return hermite(z || pa, z ? s[i - 1].t : a.t - (b.t - a.t), pa, a.t, pb, b.t, d || pb, d ? s[i + 2].t : b.t + (b.t - a.t), u);
 }
 
 export const LiveCursors = memo(function LiveCursors({ ctx, surface, unit }: { ctx: string; surface: CursorSurface; unit?: string | null }) {
@@ -124,6 +151,23 @@ export const LiveCursors = memo(function LiveCursors({ ctx, surface, unit }: { c
             if (b) r = { x: b.left, y: b.top, w: b.width, h: b.height };
             again = true;
           }
+          // Carte déplacée (une seule) : sa copie suit le pointeur dans le cadre.
+          const gid = r && p.act && 'm' in p.act ? (p.act.n ?? '') : '';
+          if ((fr.dataset.ghost ?? '') !== gid) {
+            fr.querySelector('.rc-ghost')?.remove();
+            fr.dataset.ghost = gid;
+            const g = gid ? surf.current.ghostOf?.(gid) : null;
+            if (g) {
+              const box = document.createElement('div');
+              box.className = 'rc-ghost';
+              box.style.width = `${g.w}px`;
+              box.style.height = `${g.h}px`;
+              box.appendChild(g.el);
+              fr.prepend(box);
+            }
+          }
+          const gh = fr.querySelector<HTMLElement>('.rc-ghost');
+          if (gh) gh.style.transform = `scale(${sc})`;
           if (r) {
             const pad = 6;
             place(fr, r.x - lr.left - pad, r.y - lr.top - pad);

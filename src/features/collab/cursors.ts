@@ -27,8 +27,9 @@ export type Loc =
   | { u: string; fx: number; fy: number }
   | { u: string; o: number; rx?: number; mx?: number; ry: number };
 
-/** Carte : déplacement (boîte des cartes déplacées, relative au pointeur, unités de la carte) ou modification. */
-export type Act = { m: [number, number, number, number] } | { e: string };
+/** Carte : déplacement (boîte des cartes déplacées, relative au pointeur, unités de la carte ; n : la carte, si une
+ *  seule) ou modification (e : la carte). */
+export type Act = { m: [number, number, number, number]; n?: string } | { e: string };
 
 export interface Where {
   u: string;
@@ -60,6 +61,8 @@ export interface CursorBridge {
 export const SEND_MS = 40;
 export const IDLE_MS = 3500;
 const MAX_SAMPLES = 24;
+/** Au-delà de cet écart entre deux positions, la personne s'était arrêtée (sinon : simple retard réseau). */
+const REST_MS = 250;
 
 let bridge: CursorBridge | null = null;
 const peers = new Map<string, Peer>(); // `${peer}|${ctx}`
@@ -115,6 +118,8 @@ function roundLoc(l: Loc): Loc {
 /** Émetteur d'un contexte (une carte, un livre ouvert). */
 export class Publisher {
   private pending: Loc | null | undefined = undefined;
+  /** Instant du mouvement en attente (horodatage envoyé : celui du geste, pas de l'envoi). */
+  private pendingAt = 0;
   private act: Act | null = null;
   private actDirty = false;
   private lastJson = '';
@@ -130,10 +135,12 @@ export class Publisher {
     if (othersHere()) bridge?.send({ t: 'cur', k: ctx, ts: now(), ask: 1 });
   }
 
-  /** Le pointeur bouge (ou quitte la vue : null). */
-  move(loc: Loc | null) {
+  /** Le pointeur bouge (ou quitte la vue : null). `at` : instant du geste (event.timeStamp). */
+  move(loc: Loc | null, at?: number) {
     if (this.closed || !othersHere()) return;
     this.pending = loc ? roundLoc(loc) : null;
+    const t = now();
+    this.pendingAt = at !== undefined && at > 0 && at <= t + 1 && at > t - 1000 ? Math.round(at) : t;
     this.schedule();
   }
   setAct(a: Act | null) {
@@ -166,6 +173,7 @@ export class Publisher {
       const j = JSON.stringify(this.pending);
       if (j !== this.lastJson) {
         head.p = this.pending;
+        head.ts = this.pendingAt;
         this.lastJson = j;
         any = true;
       }
@@ -230,7 +238,10 @@ function readAct(a: unknown): Act | null | undefined {
   if (a === null) return null;
   if (!a || typeof a !== 'object') return undefined;
   const o = a as Record<string, unknown>;
-  if (Array.isArray(o.m) && o.m.length === 4 && o.m.every((v) => num(v, -1e6, 1e6) !== null)) return { m: o.m.map(Number) as [number, number, number, number] };
+  if (Array.isArray(o.m) && o.m.length === 4 && o.m.every((v) => num(v, -1e6, 1e6) !== null)) {
+    const m = { m: o.m.map(Number) as [number, number, number, number] };
+    return typeof o.n === 'string' && o.n.length > 0 && o.n.length <= 200 ? { ...m, n: o.n } : m;
+  }
   if (typeof o.e === 'string' && o.e.length > 0 && o.e.length <= 200) return { e: o.e };
   return undefined;
 }
@@ -279,7 +290,7 @@ export function onCursorMessage(from: string, head: Record<string, unknown>) {
     if (loc !== undefined) {
       const prev = p.samples[p.samples.length - 1];
       // Reprise après un arrêt : le pointeur était immobile jusqu'à juste avant ce point.
-      if (prev && prev.loc && loc && ts - prev.t > 4 * SEND_MS) p.samples.push({ t: ts - SEND_MS, loc: prev.loc });
+      if (prev && prev.loc && loc && ts - prev.t > REST_MS) p.samples.push({ t: ts - SEND_MS, loc: prev.loc });
       p.samples.push({ t: ts, loc });
       if (p.samples.length > MAX_SAMPLES) p.samples.splice(0, p.samples.length - MAX_SAMPLES);
       p.lastAt = t0;

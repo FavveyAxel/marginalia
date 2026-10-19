@@ -179,7 +179,7 @@ function ReaderCursorsOn({ ctx, kind, pageLabel }: { ctx: string; kind: Kind; pa
         p.move(null);
         return;
       }
-      p.move(encode(host, kind, t, e.clientX, e.clientY));
+      p.move(encode(host, kind, t, e.clientX, e.clientY), e.timeStamp);
     };
     const onLeave = () => p.move(null);
     let timer: ReturnType<typeof setTimeout> | null = null;

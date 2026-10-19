@@ -155,6 +155,7 @@ try {
     await X.page.click(`.cl-swatch[data-color="${color}"]`);
     await X.page.fill('[data-testid="join-code"]', code.slice(0, 3) + ' ' + code.slice(3));
     if (address) {
+      await X.page.click('.br-trouble summary'); // aide repliée : « Rien n’est trouvé ? »
       await X.page.click('text=Saisir une adresse');
       await X.page.fill('[data-testid="join-address"]', address);
     }
@@ -168,7 +169,7 @@ try {
   await shotBoth(B.page, '[data-testid="join-dialog"]', '03-invite-attente');
   await A.page.waitForSelector('[data-testid="collab-request"]', { timeout: 20000 });
   const reqText = (await A.page.textContent('[data-testid="collab-request"]')).replace(/\s+/g, ' ');
-  ok(/demande à rejoindre « Parjure »/.test(reqText) && /Prénom : Marc/.test(reqText), 'Léa : « … demande à rejoindre « Parjure » » (prénom, adresse)', reqText.slice(0, 160));
+  ok(/demande à rejoindre « Parjure »/.test(reqText) && /Marc/.test(reqText), 'Léa : « … demande à rejoindre « Parjure » » (prénom, adresse)', reqText.slice(0, 160));
   await shotBoth(A.page, '[data-testid="collab-dialog"]', '04-hote-demande');
   await A.page.click('[data-testid="collab-accept"]');
   const bLive = await until(B.page, () => window.__collab.state.getState().phase === 'live' && window.__collab.state.getState().workspaceId, null, 60000);

@@ -3,10 +3,11 @@
 // 6 chiffres, réseau local, rien ne passe par Internet). Partager = donner une copie : aucun lien ensuite.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Check, FileDown, Lock, ShieldAlert, Wifi, WifiOff, X } from 'lucide-react';
+import { BookOpen, Check, Clock, Hash, Laptop, Lock, ShieldAlert, Upload, WifiOff, X } from 'lucide-react';
 import { host } from '../../lib/platform';
 import { buildSharePackage, describeCounts, openSharePackage, SHARE_EXTENSION, type ShareSelection, type ShareSummary } from './sharePackage';
-import { errorMessage, fileNameFor, fmtSize, hotspotHint, shareNetAvailable, type WireMeta } from './shareUi';
+import { errorMessage, fileNameFor, fmtSize, shareNetAvailable, type WireMeta } from './shareUi';
+import { BigCode, Bridge, ContentChips, FileArt, Steps, Trouble } from './shareVisuals';
 import '../inbox/inbox.css';
 import './share.css';
 
@@ -194,8 +195,6 @@ export function ShareDialog({ selection, onClose }: { selection: ShareSelection;
 
   const left = wifi && 'expiresAt' in wifi ? Math.max(0, Math.round((wifi.expiresAt - now) / 1000)) : 0;
   const mmss = `${Math.floor(left / 60)} min ${String(left % 60).padStart(2, '0')} s`;
-  const win = host.platform === 'win32';
-  const mac = host.platform === 'darwin';
 
   let body: JSX.Element;
   if (prepError) {
@@ -212,48 +211,51 @@ export function ShareDialog({ selection, onClose }: { selection: ShareSelection;
   } else if (saved) {
     body = (
       <div className="sh-saved" role="status" data-testid="share-saved" data-path={saved}>
-        <span className="sh-check"><Check size={22} /></span>
+        <FileArt done />
         <h3>Fichier enregistré</h3>
         <p className="sh-path" title={saved}>{saved}</p>
-        <p>Donnez ce fichier à l’autre personne (clé USB, messagerie, dossier partagé) : elle l’ouvrira dans Marginalia, par double-clic ou depuis la page Importer.</p>
+        <p className="sh-small">À donner à l’autre personne : un double-clic l’ouvre dans Marginalia.</p>
       </div>
     );
   } else {
     body = (
       <div className="sh-choose">
         <section className="sh-sum" data-testid="share-summary">
-          <span className="sh-kicker">{base.summary.scope === 'workspace' ? 'Espace de travail' : 'Sélection'}</span>
           <h3>{base.summary.title}</h3>
-          <p>{shown}</p>
+          <ContentChips counts={countsNow ?? {}} bookNote={nBooks ? (include ? (nBooks > 1 ? 'fichiers joints' : 'fichier joint') : 'sans fichier') : undefined} />
           {base.summary.privateNotesRemoved > 0 && (
             <p className="sh-note">
-              <Lock size={12} /> {base.summary.privateNotesRemoved} note{base.summary.privateNotesRemoved > 1 ? 's privées ne sont' : ' privée n’est'} pas partagée{base.summary.privateNotesRemoved > 1 ? 's' : ''}.
+              <Lock size={12} /> {base.summary.privateNotesRemoved} note{base.summary.privateNotesRemoved > 1 ? 's privées restent' : ' privée reste'} chez vous
             </p>
           )}
           {base.summary.skipped.length > 0 && <p className="sh-note">Ne partira pas : {base.summary.skipped.slice(0, 3).join(' ; ')}{base.summary.skipped.length > 3 ? '…' : ''}</p>}
         </section>
         {nBooks > 0 && (
           <label className="sh-books">
-            <input type="checkbox" checked={include} onChange={(e) => setInclude(e.target.checked)} disabled={!!busy} data-testid="share-include-books" />
+            <input type="checkbox" className="sh-switch" checked={include} onChange={(e) => setInclude(e.target.checked)} disabled={!!busy} data-testid="share-include-books" />
+            <BookOpen size={18} strokeWidth={1.6} />
             <span>
-              <strong>Joindre les livres</strong>
-              <span>
-                {include ? `Les fichiers de ${nBooks} livre${nBooks > 1 ? 's' : ''} partent avec le partage` : `Sans les fichiers, l’autre personne reçoit vos extraits mais ne peut pas ouvrir les livres`} · {fmtSize(base.booksSize)}
-              </span>
+              <strong>Joindre {nBooks > 1 ? 'les livres' : 'le livre'}</strong>
+              <span>{include ? 'L’autre personne pourra les ouvrir' : 'Sinon, seulement vos extraits'} · {fmtSize(base.booksSize)}</span>
             </span>
           </label>
         )}
-        <p className="sh-size">Taille du partage : {fmtSize(total)}</p>
         <div className="sh-ways">
           <button className="sh-way" onClick={() => void saveFile()} disabled={!!busy} data-testid="share-save">
-            <FileDown size={22} strokeWidth={1.6} />
-            <strong>Enregistrer un fichier .marginalia</strong>
-            <span>À remettre en main propre, par clé USB ou par messagerie.</span>
+            <span className="sh-way-art">
+              <FileArt />
+            </span>
+            <strong>Fichier .marginalia</strong>
+            <span>Clé USB, messagerie · {fmtSize(total)}</span>
           </button>
           <button className="sh-way" onClick={() => void startWifi()} disabled={!!busy || !shareNetAvailable()} data-testid="share-wifi" title={shareNetAvailable() ? undefined : 'Disponible dans l’app de bureau'}>
-            <Wifi size={22} strokeWidth={1.6} />
-            <strong>Envoyer par le Wi-Fi</strong>
-            <span>{shareNetAvailable() ? 'Un code à 6 chiffres à donner à l’autre personne, sur le même réseau.' : 'Disponible dans l’app de bureau.'}</span>
+            <span className="sh-way-art">
+              <Laptop size={26} strokeWidth={1.4} />
+              <span className="sh-mini-link" />
+              <Laptop size={26} strokeWidth={1.4} />
+            </span>
+            <strong>Par le Wi-Fi</strong>
+            <span>{shareNetAvailable() ? 'Avec un code, sur le même réseau' : 'Dans l’app de bureau'}</span>
           </button>
         </div>
         {busy && <p className="sh-busy" role="status">{busy}</p>}
@@ -274,11 +276,7 @@ export function ShareDialog({ selection, onClose }: { selection: ShareSelection;
         {body}
         <footer className="wr-foot">
           <Lock size={13} />
-          <span>
-            Vous donnez une copie : ensuite, les deux exemplaires ne sont plus liés. Rien ne passe par Internet ; pour l’envoi par le Wi-Fi, les deux ordinateurs doivent être sur le même réseau.
-            {win && ' Sous Windows, si une fenêtre du pare-feu s’ouvre, autorisez Marginalia sur les réseaux privés.'}
-            {mac && ' Sur Mac, autorisez Marginalia à accéder au réseau local si le système le demande.'}
-          </span>
+          <span>Vous donnez une copie, chiffrée, sans passer par Internet.</span>
         </footer>
       </div>
     </div>,
@@ -287,7 +285,14 @@ export function ShareDialog({ selection, onClose }: { selection: ShareSelection;
 }
 
 function WifiBody({ wifi, mmss, title, onAnswer, onRetry }: { wifi: Wifi; mmss: string; title: string; onAnswer(ok: boolean): void; onRetry(): void }) {
-  if (wifi.step === 'starting') return <p className="wr-wait">Ouverture de l’envoi…</p>;
+  if (wifi.step === 'starting') {
+    return (
+      <div className="sh-wifi">
+        <Bridge state="idle" />
+        <p className="wr-wait">Ouverture de l’envoi…</p>
+      </div>
+    );
+  }
   if (wifi.step === 'error' || wifi.step === 'stopped') {
     return (
       <div className="wr-problem" role="alert" data-testid="share-problem">
@@ -300,7 +305,7 @@ function WifiBody({ wifi, mmss, title, onAnswer, onRetry }: { wifi: Wifi; mmss: 
   if (wifi.step === 'done') {
     return (
       <div className="sh-saved" role="status" data-testid="share-done">
-        <span className="sh-check"><Check size={22} /></span>
+        <Bridge state="done" right={wifi.device} rightFace={{ letter: wifi.device.charAt(0).toUpperCase(), color: 'var(--ink-2)' }} />
         <h3>Envoyé ✓</h3>
         <p>« {title} » est arrivé chez {wifi.device} ({fmtSize(wifi.size)}).</p>
       </div>
@@ -310,43 +315,46 @@ function WifiBody({ wifi, mmss, title, onAnswer, onRetry }: { wifi: Wifi; mmss: 
     const pct = wifi.total ? Math.min(100, Math.round((wifi.done / wifi.total) * 100)) : 0;
     return (
       <div className="sh-sending" data-testid="share-sending">
-        <p>Envoi vers <strong>{wifi.device}</strong>…</p>
-        <div className="sh-bar" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={pct}><span style={{ width: `${pct}%` }} /></div>
-        <p className="sh-small">{fmtSize(wifi.done)} sur {fmtSize(wifi.total)}</p>
+        <Bridge state="flow" right={wifi.device} rightFace={{ letter: wifi.device.charAt(0).toUpperCase(), color: 'var(--ink-2)' }} progress={pct / 100} />
+        <p className="sh-small center" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={pct}>
+          {fmtSize(wifi.done)} sur {fmtSize(wifi.total)}
+        </p>
       </div>
     );
   }
-  const digits = wifi.code.replace(/\D/g, '');
+  const asking = wifi.step === 'request';
   return (
     <div className="sh-wifi" data-testid="share-waiting">
-      <p className="sh-lede">Sur l’autre ordinateur : <strong>Importer › Depuis un autre Marginalia</strong>, puis saisissez ce code.</p>
-      {/* Un seul bloc « 735-700 » : plus simple à lire à voix haute et à recopier. */}
-      <div className="sh-code" data-testid="share-code" data-code={digits} aria-label={`Code ${digits.split('').join(' ')}`}>
-        {digits.slice(0, 3)}
-        <span className="sh-dash" aria-hidden="true">-</span>
-        {digits.slice(3)}
-      </div>
-      <p className="sh-left">Valable encore {mmss}</p>
-      {wifi.step === 'request' ? (
+      <Bridge state={asking ? 'ask' : 'wait'} right={asking ? wifi.device : 'L’autre ordinateur'} rightFace={asking ? { letter: wifi.device.charAt(0).toUpperCase(), color: 'var(--primary)' } : null} />
+      <BigCode code={wifi.code} testid="share-code" />
+      <p className="sh-left">
+        <Clock size={12} /> Valable encore {mmss}
+      </p>
+      {asking ? (
         <div className="sh-ask" role="alertdialog" aria-label="Demande de réception" data-testid="share-request">
-          <p><strong>{wifi.device}</strong> demande à recevoir « {title} ».</p>
+          <span className="sh-ask-face" aria-hidden="true">{wifi.device.charAt(0).toUpperCase()}</span>
+          <p>
+            <strong>{wifi.device}</strong> demande à recevoir « {title} ».
+          </p>
           <div className="sh-ask-actions">
             <button className="btn" onClick={() => onAnswer(false)} data-testid="share-reject">Refuser</button>
             <button className="btn btn-primary" onClick={() => onAnswer(true)} data-testid="share-accept">Accepter</button>
           </div>
         </div>
       ) : (
-        <div className="wr-status" aria-live="polite" data-testid="share-status">
-          <span className="wr-pulse" aria-hidden="true" /> En attente…
-        </div>
+        <>
+          <Steps
+            items={[
+              { icon: <Upload size={18} />, label: 'Importer' },
+              { icon: <Laptop size={18} />, label: 'Depuis un autre Marginalia' },
+              { icon: <Hash size={18} />, label: <>Saisir <strong>{wifi.code.slice(0, 3)}-{wifi.code.slice(3)}</strong></> },
+            ]}
+          />
+          <span className="sr-only" aria-live="polite" data-testid="share-status">En attente…</span>
+        </>
       )}
-      <p className="sh-hint">{hotspotHint(host.platform)}</p>
       {wifi.step === 'waiting' && wifi.note && <p className="sh-note" role="status">{wifi.note}</p>}
-      {wifi.step === 'waiting' && wifi.addresses.length > 0 && (
-        <p className="sh-small">
-          Si l’autre ordinateur ne trouve pas l’envoi : « Saisir une adresse », puis <span className="sh-mono">{wifi.addresses[0]}</span>
-        </p>
-      )}
+      <Trouble address={wifi.addresses[0]} />
     </div>
   );
 }

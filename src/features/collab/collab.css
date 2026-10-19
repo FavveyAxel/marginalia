@@ -61,3 +61,62 @@
 .cl-version.kept { box-shadow: 0 0 0 1.5px var(--primary); }
 .cl-choices { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; }
 @media (max-width: 560px) { .cl-versions { grid-template-columns: 1fr; } }
+
+/* ── Refonte visuelle ─────────────────────────────────────── */
+.cl-hero { display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 4px 0 2px; text-align: center; }
+.cl-hero h3 { margin: 0; font-family: var(--font-display); font-weight: 400; font-size: 26px; line-height: 1.2; color: var(--ink); }
+.cl-live-what { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; }
+.cl-live-what li { display: inline-flex; align-items: center; gap: 6px; padding: 5px 11px; border-radius: 999px; background: var(--bg-inset); color: var(--ink-2); font-size: var(--fs-sm); }
+/* Prénom et couleur */
+.cl-who { flex-direction: row; align-items: center; gap: 16px; padding: 16px; }
+.cl-me { flex: none; display: grid; place-items: center; width: 64px; height: 64px; border-radius: 50%; color: #fff; font-family: var(--font-display); font-size: 30px; line-height: 1; box-shadow: 0 0 0 4px var(--bg-panel), 0 0 0 5px var(--border); transition: background-color 160ms var(--ease-out, ease); }
+.cl-me.empty { opacity: 0.55; }
+.cl-who-fields { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 10px; }
+.cl-swatch.used { opacity: 0.25; cursor: not-allowed; background-image: linear-gradient(135deg, transparent 45%, var(--bg-panel) 45% 55%, transparent 55%); }
+.cl-swatch.used:hover { transform: none; }
+/* Places de la session */
+.cl-seats-wrap { display: flex; flex-direction: column; align-items: center; gap: 6px; }
+.cl-seats { list-style: none; margin: 0; padding: 0; display: flex; justify-content: center; gap: 14px; flex-wrap: wrap; }
+.cl-seat { position: relative; display: flex; flex-direction: column; align-items: center; gap: 5px; width: 58px; }
+.cl-seat .cl-seat-face { width: 44px; height: 44px; font-size: 18px; }
+.cl-seat-face { display: inline-grid; place-items: center; width: 24px; height: 24px; border-radius: 50%; color: #fff; font-weight: 700; font-size: 12px; line-height: 1; }
+.cl-seat-name { max-width: 100%; font-size: var(--fs-sm); color: var(--ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cl-seat-tag { position: absolute; top: -6px; right: -2px; padding: 0 5px; border-radius: 999px; font-size: 10px; line-height: 16px; background: var(--ink); color: var(--bg-panel); }
+.cl-seat.free .cl-seat-face { background: transparent; box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--muted) 45%, transparent); border: 0; outline: 1.5px dashed color-mix(in srgb, var(--muted) 45%, transparent); outline-offset: -1.5px; box-shadow: none; }
+.cl-seat.free .cl-seat-name { color: color-mix(in srgb, var(--muted) 70%, transparent); }
+.cl-seat.away .cl-seat-face { opacity: 0.4; }
+.cl-seats-wrap .cl-count { font-variant-numeric: tabular-nums; }
+/* Demande */
+.cl-ask { flex-direction: row; flex-wrap: wrap; align-items: center; gap: 14px; padding: 14px 16px; }
+.cl-ask-face { flex: none; display: grid; place-items: center; width: 46px; height: 46px; border-radius: 50%; color: #fff; font-weight: 700; font-size: 19px; }
+.cl-ask-text { flex: 1 1 220px; display: flex; flex-direction: column; gap: 2px; color: var(--ink-2); font-size: var(--fs-md); line-height: 1.4; }
+.cl-ask-name { font-family: var(--font-display); font-weight: 400; font-size: 22px; line-height: 1.15; color: var(--ink); }
+.cl-ask-sub { font-size: var(--fs-sm); color: var(--muted); }
+.cl-ask-actions { flex: 1 0 100%; }
+.br-step-code { font-family: var(--font-display); font-size: 15px; letter-spacing: 0.04em; color: var(--ink); }
+.sh-sum.center { align-items: center; text-align: center; }
+/* Réunion */
+.cl-reu-intro { display: flex; align-items: center; gap: 14px; }
+.cl-reu-intro p { flex: 1; margin: 0; color: var(--ink-2); font-size: var(--fs-md); line-height: 1.45; }
+.cl-reu-intro strong { color: var(--ink); font-weight: 600; }
+.cl-pair { flex: none; display: flex; }
+.cl-pair .cl-seat-face { width: 34px; height: 34px; font-size: 14px; box-shadow: 0 0 0 3px var(--bg-panel); }
+.cl-pair .cl-seat-face + .cl-seat-face { margin-left: -10px; }
+.cl-dots { list-style: none; margin: 0; padding: 0; display: flex; gap: 5px; }
+.cl-dots li { width: 9px; height: 9px; border-radius: 50%; background: var(--bg-inset); box-shadow: inset 0 0 0 1px var(--border); transition: background-color 160ms; }
+.cl-dots li.on { background: var(--primary); box-shadow: none; }
+.cl-conflict { gap: 10px; padding: 14px; }
+.cl-where { margin: 0; display: flex; align-items: center; gap: 6px; font-size: var(--fs-sm); color: var(--muted); }
+.cl-version { position: relative; gap: 10px; padding: 12px 12px 10px; cursor: pointer; border-top: 3px solid var(--who, var(--border)); border-radius: var(--radius-sm); transition: box-shadow 140ms, opacity 140ms; }
+.cl-version:hover { box-shadow: 0 0 0 1px var(--border-strong, var(--border)); }
+.cl-version.kept { box-shadow: 0 0 0 2px var(--who, var(--primary)); }
+.cl-version.dropped { opacity: 0.45; }
+.cl-version-who { display: flex; align-items: center; gap: 8px; font-size: var(--fs-sm); font-weight: 600; color: var(--ink); }
+.cl-kept-mark { margin-left: auto; color: var(--who, var(--primary)); }
+.cl-version p { flex: 1; font-size: 15px; }
+.cl-version .btn { align-self: flex-start; }
+mark.cl-diff { color: inherit; background: color-mix(in srgb, var(--who) 22%, transparent); border-radius: 3px; padding: 0 2px; box-decoration-break: clone; -webkit-box-decoration-break: clone; }
+.cl-both { align-self: center; padding: 6px 16px; border-radius: 999px; border: 1px dashed var(--border-strong, var(--border)); background: transparent; color: var(--ink-2); font: inherit; font-size: var(--fs-sm); cursor: pointer; }
+.cl-both:hover { color: var(--ink); border-style: solid; }
+.cl-both.on { border-style: solid; border-color: var(--primary); background: color-mix(in srgb, var(--primary) 8%, transparent); color: var(--ink); font-weight: 600; }
+@media (max-width: 560px) { .cl-who { flex-direction: column; } }

@@ -3,12 +3,13 @@
 // d'erreur sont ceux du partage (ShareError, shareNet), montrés tels quels.
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Check, FileText, Lock, ShieldAlert, X } from 'lucide-react';
+import { Hash, Lock, Share2, ShieldAlert, Wifi, X } from 'lucide-react';
 import { host } from '../../lib/platform';
 import { useStore } from '../../lib/store';
 import { alreadyReceived, findLocalBook, readSharePackage } from './sharePackage';
 import { importSharePackage, type ShareImportResult } from './shareMerge';
-import { errorMessage, fmtSize, hotspotHint, type ReceiveSource, type WireMeta } from './shareUi';
+import { errorMessage, fmtSize, type ReceiveSource, type WireMeta } from './shareUi';
+import { Bridge, ContentChips, FileArt, Steps, Trouble } from './shareVisuals';
 import '../inbox/inbox.css';
 import './share.css';
 
@@ -167,12 +168,20 @@ export function ReceiveDialog({ source, onClose }: { source: ReceiveSource; onCl
   };
   const shown = code.length > 3 ? `${code.slice(0, 3)}-${code.slice(3)}` : code;
 
+  const fromFace = (name?: string) => (name ? { letter: name.charAt(0).toUpperCase(), color: 'var(--primary)' } : null);
   let content: JSX.Element;
   if (step.s === 'code' || (step.s === 'finding' && !source.file)) {
     const finding = step.s === 'finding';
     content = (
       <div className="sh-recv" data-testid="receive-code">
-        <p className="sh-lede">Sur l’autre ordinateur, ouvrez <strong>Partager › Envoyer par le Wi-Fi</strong>, puis saisissez ici le code à 6 chiffres qui s’affiche. Les deux ordinateurs doivent être sur le même Wi-Fi.</p>
+        <Bridge state={finding ? 'flow' : 'wait'} left="L’autre ordinateur" right="Cet ordinateur" />
+        <Steps
+          items={[
+            { icon: <Share2 size={18} />, label: 'Partager' },
+            { icon: <Wifi size={18} />, label: 'Par le Wi-Fi' },
+            { icon: <Hash size={18} />, label: 'Le code s’affiche' },
+          ]}
+        />
         <input
           ref={(el) => (cells.current[0] = el)}
           className="sh-code-input"
@@ -195,19 +204,20 @@ export function ReceiveDialog({ source, onClose }: { source: ReceiveSource; onCl
           </label>
         )}
         {finding ? (
-          <div className="wr-status" aria-live="polite"><span className="wr-pulse" aria-hidden="true" /> Recherche sur le réseau…</div>
+          <p className="sh-small center" aria-live="polite">Recherche sur le réseau…</p>
         ) : (
           <div className="sh-actions">
-            <button className="sh-link" onClick={() => setManual((m) => !m)} data-testid="receive-manual">
-              {manual ? 'Chercher sur le réseau' : 'Saisir une adresse'}
-            </button>
+            <Trouble summary="Rien n’est trouvé ?">
+              <button className="sh-link" onClick={() => setManual((m) => !m)} data-testid="receive-manual">
+                {manual ? 'Chercher sur le réseau' : 'Saisir une adresse'}
+              </button>
+            </Trouble>
             <span className="spacer" />
             <button className="btn btn-primary" disabled={code.length !== 6} onClick={() => void search()} data-testid="receive-search">
               Chercher
             </button>
           </div>
         )}
-        <p className="sh-hint">{hotspotHint(host.platform)}</p>
         {error && <p className="sh-error" role="alert" data-testid="receive-error">{error}</p>}
       </div>
     );
@@ -216,40 +226,36 @@ export function ReceiveDialog({ source, onClose }: { source: ReceiveSource; onCl
   } else if (step.s === 'preview') {
     const v = step.view;
     const c = v.counts;
-    const stat = (n: number, one: string, many: string) => (n ? <li key={one}><strong>{n}</strong> {n > 1 ? many : one}</li> : null);
     content = (
       <div className="sh-recv" data-testid="receive-preview">
+        {v.from ? (
+          <Bridge state="idle" left={v.from} leftFace={fromFace(v.from)} right="Cet ordinateur" />
+        ) : (
+          <div className="sh-file-row">
+            <FileArt />
+            <span className="sh-small">Fichier de partage</span>
+          </div>
+        )}
         <section className="sh-sum">
-          <span className="sh-kicker">{v.from ? `Proposé par ${v.from}` : 'Fichier de partage'}</span>
           <h3 data-testid="receive-title">{v.title}</h3>
-          <ul className="sh-stats">
-            {stat(c.drafts, 'écrit', 'écrits')}
-            {stat(c.maps, 'carte', 'cartes')}
-            {stat(c.highlights, 'extrait', 'extraits')}
-            {stat(c.plans, 'plan', 'plans')}
-            {stat(c.arguments, 'argument', 'arguments')}
-            {stat(c.studies, 'fiche-texte', 'fiches-texte')}
-            {stat(c.concepts, 'concept', 'concepts')}
-            {stat(c.cards, 'carte de révision', 'cartes de révision')}
-          </ul>
-          {c.books > 0 && (
-            <p className="sh-books-line">
-              {c.books} livre{c.books > 1 ? 's' : ''} — {v.booksIncluded ? 'fichiers joints' : 'sans les fichiers'}
-              {v.booksHere > 0 && ` · ${v.booksHere} déjà chez vous`}
-              {v.booksWithoutFile > 0 && ` · ${v.booksWithoutFile} sans fichier (extraits lisibles, livre à importer plus tard)`}
+          <ContentChips counts={c} bookNote={c.books > 0 ? (v.booksIncluded ? (c.books > 1 ? 'fichiers joints' : 'fichier joint') : 'sans fichier') : undefined} />
+          {(v.booksHere > 0 || v.booksWithoutFile > 0) && (
+            <p className="sh-note">
+              {v.booksHere > 0 && `${v.booksHere} déjà chez vous`}
+              {v.booksHere > 0 && v.booksWithoutFile > 0 && ' · '}
+              {v.booksWithoutFile > 0 && `${v.booksWithoutFile} à importer plus tard pour l’ouvrir`}
             </p>
           )}
-          <p className="sh-small">{fmtSize(v.size)}</p>
         </section>
         {v.alreadyReceived && (
           <p className="sh-warn" role="status" data-testid="receive-already">
-            <ShieldAlert size={14} /> Déjà reçu : des éléments de ce partage sont déjà dans votre bibliothèque. Le recevoir de nouveau crée une seconde copie, sans rien écraser.
+            <ShieldAlert size={14} /> Déjà reçu : le recevoir de nouveau crée une seconde copie, sans rien écraser.
           </p>
         )}
-        <p className="sh-small">Ce partage s’ajoute à votre bibliothèque ; rien de ce que vous avez déjà n’est modifié ni remplacé.</p>
         <div className="sh-actions">
-          <button className="btn" onClick={onClose}>Annuler</button>
+          <span className="sh-small">S’ajoute à votre bibliothèque, rien n’est remplacé · {fmtSize(v.size)}</span>
           <span className="spacer" />
+          <button className="btn" onClick={onClose}>Annuler</button>
           <button className="btn btn-primary" onClick={() => void receive()} data-testid="receive-go">Recevoir</button>
         </div>
         {error && <p className="sh-error" role="alert" data-testid="receive-error">{error}</p>}
@@ -260,11 +266,10 @@ export function ReceiveDialog({ source, onClose }: { source: ReceiveSource; onCl
     const pct = step.total ? Math.min(100, Math.round((step.done / step.total) * 100)) : 0;
     content = (
       <div className="sh-sending" data-testid="receive-progress">
-        <p>
-          {step.s === 'receiving' ? (waiting ? 'En attente de l’accord de l’expéditeur…' : 'Transfert depuis l’autre ordinateur…') : 'Ajout à votre bibliothèque…'}
+        <Bridge state={waiting ? 'wait' : 'flow'} left="L’autre ordinateur" right="Cet ordinateur" progress={step.s === 'importing' ? 1 : waiting ? undefined : pct / 100} />
+        <p className="sh-small center" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={waiting ? undefined : pct}>
+          {step.s === 'receiving' ? (waiting ? 'En attente de l’accord de l’expéditeur…' : `Transfert · ${pct} %`) : 'Ajout à votre bibliothèque…'}
         </p>
-        <div className={`sh-bar${waiting ? ' indeterminate' : ''}`} role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={waiting ? undefined : pct}><span style={{ width: waiting ? '35%' : `${pct}%` }} /></div>
-        <p className="sh-small">{step.s === 'receiving' ? 'Étape 1 sur 2 · transfert' : 'Étape 2 sur 2 · import'}</p>
       </div>
     );
   } else {
@@ -275,11 +280,11 @@ export function ReceiveDialog({ source, onClose }: { source: ReceiveSource; onCl
     };
     content = (
       <div className="sh-saved" role="status" data-testid="receive-result">
-        <span className="sh-check"><Check size={22} /></span>
+        <Bridge state="done" dir="in" left="L’autre ordinateur" right="Cet ordinateur" />
         <h3>Reçu ✓</h3>
         <p data-testid="receive-sentence">{r.sentence}</p>
-        {r.missingBooks.length > 0 && <p className="sh-small">{r.missingBooks.length} livre{r.missingBooks.length > 1 ? 's' : ''} sans fichier : les extraits se lisent, mais pour ouvrir le livre il faudra l’importer.</p>}
-        {r.completedBooks.length > 0 && <p className="sh-small">{r.completedBooks.length} livre{r.completedBooks.length > 1 ? 's' : ''} reçu{r.completedBooks.length > 1 ? 's' : ''} plus tôt sans fichier {r.completedBooks.length > 1 ? 'sont' : 'est'} maintenant complet{r.completedBooks.length > 1 ? 's' : ''}.</p>}
+        {r.missingBooks.length > 0 && <p className="sh-small">{r.missingBooks.length} livre{r.missingBooks.length > 1 ? 's' : ''} sans fichier : extraits lisibles, livre à importer pour l’ouvrir.</p>}
+        {r.completedBooks.length > 0 && <p className="sh-small">{r.completedBooks.length} livre{r.completedBooks.length > 1 ? 's' : ''} sans fichier complété{r.completedBooks.length > 1 ? 's' : ''}.</p>}
         {r.renamed.length > 0 && <p className="sh-small">Renommé pour ne rien confondre : {r.renamed.map((x) => `« ${x.to} »`).join(', ')}.</p>}
         <div className="sh-actions center">
           <button className="btn" onClick={onClose}>Fermer</button>
@@ -302,11 +307,7 @@ export function ReceiveDialog({ source, onClose }: { source: ReceiveSource; onCl
         {content}
         <footer className="wr-foot">
           <Lock size={13} />
-          <span>
-            {source.file ? <><FileText size={12} className="sh-inline" /> Le fichier est lu sur cet ordinateur ; rien ne passe par Internet.</> : 'Le transfert est chiffré et reste sur votre réseau local : rien ne passe par Internet.'}
-            {host.platform === 'win32' && !source.file && ' Sous Windows, si une fenêtre du pare-feu s’ouvre, autorisez Marginalia sur les réseaux privés.'}
-            {host.platform === 'darwin' && !source.file && ' Sur Mac, autorisez Marginalia à accéder au réseau local si le système le demande.'}
-          </span>
+          <span>{source.file ? 'Le fichier est lu sur cet ordinateur, sans Internet.' : 'Transfert chiffré, sur votre réseau local, sans Internet.'}</span>
         </footer>
       </div>
     </div>,

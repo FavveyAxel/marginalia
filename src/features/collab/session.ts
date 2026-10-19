@@ -186,6 +186,12 @@ export async function guestJoin(ticket: string, profile: CollabProfile, hostName
     const r = await net().join(ticket);
     if (S !== s) return;
     s.me = r.you;
+    // Couleur déjà prise chez l'hôte : on prend celle qu'il nous a attribuée (curseurs, encadré).
+    const mine = (r.members as { id: string; color?: string }[]).find((m) => m.id === r.you);
+    if (mine?.color && mine.color !== s.profile.color) {
+      s.profile = { ...s.profile, color: mine.color };
+      useStore.getState().toast('Votre couleur était déjà prise : vous en avez une autre pour cette session.', 'info');
+    }
     s.shareId = String(r.meta.shareId ?? '');
     s.title = String(r.meta.title ?? 'Espace partagé');
     const haveWs = workspaceForShare(s.shareId);

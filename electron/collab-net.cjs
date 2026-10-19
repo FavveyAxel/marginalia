@@ -668,6 +668,10 @@ function createCollabHost(o) {
       o.emit({ type: 'request-closed', reqId: r.id, reason: 'full' });
       return false;
     }
+    // Une couleur par personne : si elle est déjà prise, l'invité reçoit la première couleur libre
+    // (il l'apprend par la liste des présents à son arrivée).
+    const taken = new Set([cur.profile.color, ...[...cur.members.values()].map((m) => m.color)]);
+    if (taken.has(r.color)) r.color = COLORS.find((c) => !taken.has(c)) ?? r.color;
     r.state = 'accepted';
     clearTimeout(r.timer);
     for (const w of r.waiters.splice(0)) w('accepted');

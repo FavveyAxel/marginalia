@@ -63,3 +63,91 @@
 .sh-inline { display: inline; vertical-align: -1px; margin-right: 4px; }
 @media (max-width: 560px) { .sh-ways { grid-template-columns: 1fr; } .sh-digit { width: 40px; height: 56px; font-size: 32px; } .sh-cell { width: 40px; height: 56px; } }
 @media (prefers-reduced-motion: reduce) { .sh-bar > span, .sh-bar.indeterminate > span { transition: none; animation: none; } }
+
+/* ── Éléments visuels (shareVisuals.tsx) ─────────────────────────────── */
+/* Deux ordinateurs reliés : le seul élément marquant de ces fenêtres. */
+.br { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 4px; padding: 6px 10px 2px; }
+.br-pc { display: flex; flex-direction: column; align-items: center; gap: 6px; width: 104px; }
+.br-screen { position: relative; display: grid; place-items: center; width: 72px; height: 60px; border-radius: 16px; background: var(--bg-inset); color: var(--ink-2); box-shadow: 0 0 0 1px var(--border); }
+.br-label { font-size: var(--fs-sm); color: var(--muted); text-align: center; line-height: 1.25; overflow-wrap: anywhere; }
+.br-face, .br-done { position: absolute; right: -7px; bottom: -7px; width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center; color: #fff; font-size: 12px; font-weight: 700; box-shadow: 0 0 0 3px var(--bg-panel); }
+.br-done { background: #3b9a5f; animation: br-pop 360ms var(--ease-out, ease) both; }
+.br-link { position: relative; height: 24px; margin-bottom: 22px; }
+.br-track { position: absolute; left: 0; right: 0; top: 50%; border-top: 2px dashed color-mix(in srgb, var(--muted) 45%, transparent); }
+.br-fill { position: absolute; left: 0; top: calc(50% - 1px); height: 2px; background: var(--primary); border-radius: 2px; transition: width 200ms var(--ease-out, ease); }
+.br-in .br-fill { left: auto; right: 0; }
+.br-dot { position: absolute; top: calc(50% - 4px); left: 0; width: 8px; height: 8px; border-radius: 50%; background: var(--primary); opacity: 0; }
+.br-wait .br-dot, .br-ask .br-dot, .br-flow .br-dot { animation: br-travel 2.4s linear infinite; }
+.br-wait .br-dot:nth-of-type(2), .br-ask .br-dot:nth-of-type(2), .br-flow .br-dot:nth-of-type(2) { animation-delay: 0.8s; }
+.br-wait .br-dot:nth-of-type(3), .br-ask .br-dot:nth-of-type(3), .br-flow .br-dot:nth-of-type(3) { animation-delay: 1.6s; }
+.br-flow .br-dot { animation-duration: 0.9s; }
+.br-flow .br-dot:nth-of-type(2) { animation-delay: 0.3s; }
+.br-flow .br-dot:nth-of-type(3) { animation-delay: 0.6s; }
+.br-in .br-dot { animation-direction: reverse !important; }
+.br-wait .br-dot { background: color-mix(in srgb, var(--muted) 70%, transparent); }
+.br-done .br-track { border-top-style: solid; border-color: #3b9a5f; }
+.br-idle .br-dot, .br-done .br-dot { display: none; }
+@keyframes br-travel { 0% { left: 0; opacity: 0; } 12% { opacity: 1; } 88% { opacity: 1; } 100% { left: calc(100% - 8px); opacity: 0; } }
+@keyframes br-pop { from { transform: scale(0.4); opacity: 0; } }
+
+/* Étapes sur l'autre ordinateur */
+.br-steps { list-style: none; margin: 0; padding: 0; display: flex; justify-content: center; align-items: flex-start; gap: 4px; }
+.br-steps li { display: flex; align-items: flex-start; gap: 4px; }
+.br-step-ico { position: relative; display: grid; place-items: center; width: 40px; height: 40px; margin: 0 auto; border-radius: 12px; background: var(--bg-inset); color: var(--ink-2); box-shadow: 0 0 0 1px var(--border); }
+.br-step-n { position: absolute; left: -6px; top: -6px; width: 18px; height: 18px; border-radius: 50%; display: grid; place-items: center; font-size: 11px; font-weight: 700; color: var(--bg-panel); background: var(--ink); }
+.br-step-wrap { display: flex; flex-direction: column; align-items: center; gap: 6px; width: 112px; }
+.br-step-label { font-size: var(--fs-sm); color: var(--ink-2); text-align: center; line-height: 1.3; }
+.br-step-label strong { color: var(--ink); font-weight: 600; font-variant-numeric: tabular-nums; }
+.br-step-sep { margin-top: 13px; color: var(--muted); flex: none; }
+
+/* Vignettes de contenu */
+.br-chips { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 8px; }
+.br-chip { display: inline-flex; align-items: center; gap: 8px; padding: 6px 12px 6px 6px; border-radius: 999px; background: var(--bg-panel); box-shadow: 0 0 0 1px var(--border); font-size: var(--fs-md); color: var(--ink-2); }
+.br-chip strong { color: var(--ink); font-weight: 600; font-variant-numeric: tabular-nums; }
+.br-chip-ico { display: grid; place-items: center; width: 26px; height: 26px; border-radius: 50%; background: var(--bg-inset); color: var(--ink-2); }
+.br-chip-note { margin-left: 6px; font-size: var(--fs-sm); color: var(--muted); }
+
+/* Aide repliée */
+.br-trouble { font-size: var(--fs-sm); color: var(--muted); }
+.br-trouble summary { cursor: pointer; width: fit-content; list-style: none; text-decoration: underline; text-underline-offset: 3px; }
+.br-trouble summary::-webkit-details-marker { display: none; }
+.br-trouble summary:hover { color: var(--ink); }
+.br-trouble ul { margin: 8px 0 0; padding-left: 18px; display: flex; flex-direction: column; gap: 4px; line-height: 1.45; }
+
+@media (max-width: 560px) { .br-pc { width: 80px; } .br-step-wrap { width: 86px; } }
+@media (prefers-reduced-motion: reduce) { .br-dot { animation: none !important; display: none; } .br-done { animation: none; } }
+
+/* ── Refonte visuelle : Partager ─────────────────────────────── */
+.sh-sum { gap: 12px; padding: 18px; }
+.sh-sum h3 { font-size: 28px; }
+.sh-books { align-items: center; gap: 12px; padding: 12px 14px; }
+.sh-books > svg { color: var(--ink-2); flex: none; }
+/* La case « Joindre les livres » dessinée en interrupteur. */
+.sh-switch { appearance: none; -webkit-appearance: none; flex: none; position: relative; width: 36px; height: 20px; margin: 0; border-radius: 999px; background: color-mix(in srgb, var(--muted) 35%, var(--bg-inset)); cursor: pointer; transition: background-color 160ms var(--ease-out, ease); }
+.sh-switch::after { content: ''; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%; background: var(--bg-panel); box-shadow: 0 1px 2px rgb(0 0 0 / 0.25); transition: transform 160ms var(--ease-out, ease); }
+.sh-switch:checked { background: var(--primary); }
+.sh-switch:checked::after { transform: translateX(16px); }
+.sh-switch:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.sh-way { align-items: center; text-align: center; gap: 4px; padding: 18px 14px 16px; }
+.sh-way-art { display: flex; align-items: center; justify-content: center; gap: 4px; height: 76px; margin-bottom: 6px; color: var(--ink-2); }
+.sh-way-art svg { color: var(--ink-2); }
+.sh-way strong { font-size: var(--fs-lg, 16px); }
+.sh-mini-link { width: 34px; border-top: 2px dashed color-mix(in srgb, var(--muted) 55%, transparent); }
+.sh-way:hover:not(:disabled) .sh-mini-link { border-color: var(--primary); }
+/* Fichier .marginalia dessiné */
+.sh-file { position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; width: 64px; height: 78px; border-radius: 6px 16px 6px 6px; background: var(--bg-panel); box-shadow: 0 0 0 1.5px var(--ink-2), 3px 3px 0 0 color-mix(in srgb, var(--ink) 10%, transparent); }
+.sh-file::before { content: ''; position: absolute; right: 0; top: 0; width: 14px; height: 14px; border-radius: 0 14px 0 4px; background: var(--bg-inset); box-shadow: -1.5px 1.5px 0 0 var(--ink-2); }
+.sh-file .sh-file-m { font-family: var(--font-display); font-style: italic; font-size: 34px; line-height: 1; color: var(--ink); }
+.sh-file .sh-file-ext { max-width: 58px; font-size: 7.5px; letter-spacing: 0; white-space: nowrap; color: var(--muted); }
+.sh-file .br-done { right: -9px; bottom: -9px; }
+.sh-saved .sh-file { margin-bottom: 6px; }
+/* Code et demande */
+.sh-left { display: flex; align-items: center; justify-content: center; gap: 5px; }
+.sh-small.center { text-align: center; }
+.sh-ask { flex-direction: row; flex-wrap: wrap; align-items: center; gap: 12px; padding: 14px 16px; }
+.sh-ask p { flex: 1 1 200px; }
+.sh-ask-face { flex: none; display: grid; place-items: center; width: 38px; height: 38px; border-radius: 50%; background: var(--primary); color: #fff; font-weight: 700; font-size: 16px; }
+.sh-ask-actions { flex: 1 0 100%; }
+.sh-wifi, .sh-recv { gap: 16px; }
+.sh-saved { gap: 10px; }
+.sh-file-row { display: flex; flex-direction: column; align-items: center; gap: 8px; padding-top: 4px; }

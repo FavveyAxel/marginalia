@@ -114,17 +114,17 @@ try {
   ok(/^\d{6}$/.test(code1), 'Envoyer par le Wi-Fi : grand code à 6 chiffres', code1);
   ok(/Valable encore \d+ min \d+ s/.test(await A.page.textContent('.sh-left')), 'durée restante affichée');
   ok(/En attente…/.test(await A.page.textContent('[data-testid="share-status"]')), '« En attente… »');
-  ok(/Pas de Wi-Fi commun \?/.test(await A.page.textContent('.sh-hint')), 'indication « Pas de Wi-Fi commun ? »');
+  ok(/Pas de Wi-Fi commun \?/.test(await A.page.textContent('.br-trouble')), 'indication « Pas de Wi-Fi commun ? »');
   await shotBoth(A.page, '[data-testid="share-dialog"]', '02-wifi-code');
 
   // B : Importer › Depuis un autre Marginalia
   await openReceive(B.page);
   await shotBoth(B.page, '[data-testid="receive-dialog"]', '05-recevoir-code');
-  ok(/Pas de Wi-Fi commun \?/.test(await B.page.textContent('.sh-hint')), 'Recevoir : indication « Pas de Wi-Fi commun ? »');
+  ok(/Pas de Wi-Fi commun \?/.test(await B.page.textContent('.br-trouble')), 'Recevoir : indication « Pas de Wi-Fi commun ? »');
   await typeCode(B.page, code1);
   await B.page.waitForSelector('[data-testid="receive-preview"]', { timeout: 30000 });
   const prev = await B.page.textContent('[data-testid="receive-preview"]');
-  ok(/Philosophie/.test(prev) && /1 écrit/.test(prev) && /1 carte/.test(prev) && /2 extraits/.test(prev) && /sans les fichiers/.test(prev), 'B : aperçu (titre, écrits, cartes, extraits, livre sans fichier)', prev.replace(/\s+/g, ' ').slice(0, 220));
+  ok(/Philosophie/.test(prev) && /1 écrit/.test(prev) && /1 carte/.test(prev) && /2 extraits/.test(prev) && /sans fichier/.test(prev), 'B : aperçu (titre, écrits, cartes, extraits, livre sans fichier)', prev.replace(/\s+/g, ' ').slice(0, 220));
   ok(!(await B.page.isVisible('[data-testid="receive-already"]')), 'B : pas de « déjà reçu » la première fois');
   await shotBoth(B.page, '[data-testid="receive-dialog"]', '06-recevoir-apercu');
 
@@ -168,13 +168,15 @@ try {
   const wrong = String((Number(code2) + 1) % 1000000).padStart(6, '0');
   const countB = () => B.page.evaluate(() => { const s = window.__store.getState(); return { w: s.workspaces.length, b: s.books.length, d: s.drafts.length, h: s.highlights.length }; });
   const beforeWrong = await countB();
-  // Par diffusion : un mauvais code ne trouve aucun envoi (message de la brique réseau, tel quel).
+  // Par diffusion : un mauvais code ne trouve aucun envoi. L'indice de découverte ne fait que 4 bits :
+  // une fois sur 16, il correspond par hasard et c'est la preuve qui refuse (« Code incorrect »).
   await typeCode(B.page, wrong);
   await B.page.waitForSelector('[data-testid="receive-error"]', { timeout: 30000 });
   const e0 = await B.page.textContent('[data-testid="receive-error"]');
-  ok(/Aucun envoi trouvé avec ce code sur ce réseau/.test(e0), 'mauvais code (diffusion) : « Aucun envoi trouvé avec ce code… »', e0.slice(0, 80));
+  ok(/Aucun envoi trouvé avec ce code sur ce réseau|Code incorrect/.test(e0), 'mauvais code (diffusion) : « Aucun envoi trouvé avec ce code… »', e0.slice(0, 80));
   // Par adresse saisie (« Saisir une adresse ») : « Code incorrect ».
   const addr = (await A.page.textContent('.sh-mono')).trim();
+  await B.page.click('.br-trouble summary'); // aide repliée : « Rien n’est trouvé ? »
   await B.page.click('[data-testid="receive-manual"]');
   await B.page.fill('[data-testid="receive-address"]', addr);
   await B.page.click('[data-testid="receive-search"]');
@@ -269,7 +271,7 @@ try {
   }, fileB64);
   await B.page.waitForSelector('[data-testid="receive-preview"]', { timeout: 30000 });
   const p2 = await B.page.textContent('[data-testid="receive-preview"]');
-  ok(/Fichier de partage/.test(p2) && /fichiers joints/.test(p2) && /déjà chez vous/.test(p2), 'ouverture du fichier : aperçu (livre joint, déjà chez vous)', p2.replace(/\s+/g, ' ').slice(0, 220));
+  ok(/Fichier de partage/.test(p2) && /fichiers? joints?/.test(p2) && /déjà chez vous/.test(p2), 'ouverture du fichier : aperçu (livre joint, déjà chez vous)', p2.replace(/\s+/g, ' ').slice(0, 220));
   ok((await B.page.evaluate(() => window.__store.getState().books.length)) === booksBefore, 'le .marginalia n’est pas importé comme livre');
   await shotBoth(B.page, '[data-testid="receive-dialog"]', '06c-recevoir-fichier');
   await closeDialog(B.page);

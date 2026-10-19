@@ -5,10 +5,11 @@
 //  - les demandes reçues quand la fenêtre de l'hôte est fermée (en bas à droite).
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Check, Lock, RefreshCw, Users, X } from 'lucide-react';
+import { Check, FilePen, Highlighter, Lock, MoreHorizontal, Network, RefreshCw, Upload, Users, X } from 'lucide-react';
 import { host, type CollabMember, type CollabRequest } from '../../lib/platform';
 import { useStore } from '../../lib/store';
-import { errorMessage, hotspotHint } from '../share/shareUi';
+import { errorMessage } from '../share/shareUi';
+import { BigCode, Bridge, Steps, Trouble } from '../share/shareVisuals';
 import type { Choice } from './docxMerge';
 import { COLLAB_COLORS, dashed, isLiveIn, readProfile, stopCollab, useCollab, writeProfile, type CollabProfile } from './collabState';
 import '../inbox/inbox.css';
@@ -51,13 +52,14 @@ function Ask({ r }: { r: CollabRequest }) {
   };
   return (
     <div className="cl-ask anim-scale" role="alertdialog" aria-label="Demande pour rejoindre l’espace" data-testid="collab-request">
-      <p>
-        <span className="cl-face" style={{ background: r.color }} aria-hidden="true">{r.name.charAt(0).toUpperCase()}</span>
+      <span className="cl-ask-face" style={{ background: r.color }} aria-hidden="true">{r.name.charAt(0).toUpperCase()}</span>
+      <div className="cl-ask-text">
+        <strong className="cl-ask-name">{r.name}</strong>
         <span>
-          <strong>{r.device}</strong> demande à rejoindre « {title} »
+          sur {r.device} demande à rejoindre « {title} »
         </span>
-      </p>
-      <p className="cl-ask-sub">Prénom : {r.name} · adresse {r.address}. N’acceptez que si vous savez qui c’est : cette personne pourra tout lire et tout modifier dans l’espace.</p>
+        <span className="cl-ask-sub">Pourra tout lire et modifier · {r.address}</span>
+      </div>
       <div className="cl-ask-actions">
         <button className="btn" disabled={busy} onClick={() => act(false)} data-testid="collab-reject">Refuser</button>
         <button className="btn btn-primary" disabled={busy} onClick={() => act(true)} data-testid="collab-accept">Accepter</button>
@@ -66,41 +68,65 @@ function Ask({ r }: { r: CollabRequest }) {
   );
 }
 
-function Who({ profile, setProfile }: { profile: CollabProfile; setProfile: (p: CollabProfile) => void }) {
+/** Prénom et couleur : un grand rond qui prend la couleur et l'initiale au fil de la saisie. */
+function Who({ profile, setProfile, taken = [] }: { profile: CollabProfile; setProfile: (p: CollabProfile) => void; taken?: string[] }) {
+  const letter = profile.name.trim().charAt(0).toUpperCase();
   return (
     <div className="cl-who">
-      <label>
-        <span>Votre prénom, montré aux autres</span>
-        <input type="text" value={profile.name} maxLength={40} onChange={(e) => setProfile({ ...profile, name: e.target.value })} placeholder="Léa" spellCheck={false} data-testid="collab-name" autoFocus />
-      </label>
-      <div>
-        <span className="cl-person-meta">Votre couleur, celle de votre curseur chez les autres</span>
+      <span className={`cl-me${letter ? '' : ' empty'}`} style={{ background: profile.color }} aria-hidden="true">{letter || '?'}</span>
+      <div className="cl-who-fields">
+        <label>
+          <span>Votre prénom, vu par les autres</span>
+          <input type="text" value={profile.name} maxLength={40} onChange={(e) => setProfile({ ...profile, name: e.target.value })} placeholder="Léa" spellCheck={false} data-testid="collab-name" autoFocus />
+        </label>
         <div className="cl-swatches" role="radiogroup" aria-label="Votre couleur">
-          {COLLAB_COLORS.map((c) => (
-            <button key={c} className="cl-swatch" style={{ background: c }} role="radio" aria-checked={profile.color === c} aria-label={`Couleur ${c}`} onClick={() => setProfile({ ...profile, color: c })} data-color={c} />
-          ))}
+          {COLLAB_COLORS.map((c) => {
+            const used = taken.includes(c) && profile.color !== c;
+            return (
+              <button
+                key={c}
+                className={`cl-swatch${used ? ' used' : ''}`}
+                style={{ background: c }}
+                role="radio"
+                aria-checked={profile.color === c}
+                aria-label={used ? `Couleur ${c}, déjà prise` : `Couleur ${c}`}
+                title={used ? 'Déjà prise' : undefined}
+                disabled={used}
+                onClick={() => setProfile({ ...profile, color: c })}
+                data-color={c}
+              />
+            );
+          })}
         </div>
       </div>
     </div>
   );
 }
 
+/** Les six places de la session : les présents en couleur, les places libres en pointillé. */
 function People({ members, me }: { members: CollabMember[]; me: string | null }) {
+  const free = Math.max(0, 6 - members.length);
   return (
-    <ul className="cl-people" data-testid="collab-people">
-      {members.map((m) => (
-        <li key={m.id} className="cl-person" data-member={m.name}>
-          <span className="cl-face" style={{ background: m.color }} aria-hidden="true">{m.name.charAt(0).toUpperCase()}</span>
-          <span>
-            <span className="cl-person-name">{m.name}</span> <span className="cl-person-meta">· {m.device}</span>
-          </span>
-          <span className="spacer" />
-          {m.host && <span className="cl-tag">hôte</span>}
-          {m.id === me && <span className="cl-tag">vous</span>}
-          {m.state === 'away' && <span className="cl-tag away">connexion perdue</span>}
-        </li>
-      ))}
-    </ul>
+    <div className="cl-seats-wrap">
+      <ul className="cl-seats" data-testid="collab-people" aria-label={`Présents : ${members.length} sur 6`}>
+        {members.map((m) => (
+          <li key={m.id} className={`cl-seat${m.state === 'away' ? ' away' : ''}`} data-member={m.name} title={`${m.name} · ${m.device}${m.state === 'away' ? ' · connexion perdue' : ''}`}>
+            <span className="cl-seat-face" style={{ background: m.color }}>{m.name.charAt(0).toUpperCase()}</span>
+            <span className="cl-seat-name">{m.id === me ? 'Vous' : m.name}</span>
+            {m.host && <span className="cl-seat-tag">hôte</span>}
+          </li>
+        ))}
+        {Array.from({ length: free }).map((_, i) => (
+          <li key={`free${i}`} className="cl-seat free" aria-hidden="true">
+            <span className="cl-seat-face" />
+            <span className="cl-seat-name">libre</span>
+          </li>
+        ))}
+      </ul>
+      <p className="cl-count">
+        {members.length} sur 6
+      </p>
+    </div>
   );
 }
 
@@ -131,11 +157,7 @@ function Frame({ title, onClose, children, testid }: { title: string; onClose: (
         {children}
         <footer className="wr-foot">
           <Lock size={13} />
-          <span>
-            Tout passe chiffré par votre réseau local, jamais par Internet. Six personnes au plus, hôte compris.
-            {host.platform === 'win32' && ' Sous Windows, si une fenêtre du pare-feu s’ouvre, autorisez Marginalia sur les réseaux privés.'}
-            {host.platform === 'darwin' && ' Sur Mac, autorisez Marginalia à accéder au réseau local si le système le demande.'}
-          </span>
+          <span>Chiffré, sur votre réseau local, sans Internet.</span>
         </footer>
       </div>
     </div>,
@@ -182,9 +204,15 @@ function CollabPanel({ workspaceId, onClose }: { workspaceId: string; onClose: (
     };
     content = (
       <div className="cl-body" data-testid="collab-start">
-        <p className="cl-lede">
-          Invitez jusqu’à cinq personnes du même réseau à travailler <strong>en direct</strong> dans « {ws.name} » : écrits, cartes, extraits et groupes. Vous verrez leurs curseurs. Chacun garde son exemplaire quand vous arrêtez.
-        </p>
+        <div className="cl-hero">
+          <h3>« {ws.name} », en direct</h3>
+          <ul className="cl-live-what" aria-label="Ce qui se modifie à plusieurs">
+            <li><FilePen size={16} /> Écrits</li>
+            <li><Network size={16} /> Cartes</li>
+            <li><Highlighter size={16} /> Extraits</li>
+            <li><Users size={16} /> Jusqu’à 6</li>
+          </ul>
+        </div>
         <Who profile={profile} setProfile={setProfile} />
         <div className="sh-actions">
           <button className="btn" onClick={onClose}>Annuler</button>
@@ -202,13 +230,16 @@ function CollabPanel({ workspaceId, onClose }: { workspaceId: string; onClose: (
       <div className="cl-body" data-testid="collab-live">
         {c.codeState === 'open' && c.code ? (
           <>
-            <p className="cl-lede">Sur l’autre ordinateur : <strong>Importer › Rejoindre un espace partagé</strong>, puis saisissez ce code. Vous accepterez chaque demande.</p>
-            <div className="sh-code" data-testid="collab-code" data-code={c.code} aria-label={`Code ${c.code.split('').join(' ')}`}>
-              {c.code.slice(0, 3)}
-              <span className="sh-dash" aria-hidden="true">-</span>
-              {c.code.slice(3)}
-            </div>
-            {c.addresses.length > 0 && <p className="sh-left">Si l’autre ordinateur ne trouve pas la session : adresse <span className="sh-mono">{c.addresses[0]}</span></p>}
+            <BigCode code={c.code} testid="collab-code" />
+            {c.requests.length === 0 && (
+              <Steps
+                items={[
+                  { icon: <Upload size={18} />, label: 'Importer' },
+                  { icon: <Users size={18} />, label: 'Rejoindre un espace partagé' },
+                  { icon: <span className="br-step-code">{c.code.slice(0, 3)}</span>, label: <>Saisir <strong>{c.code.slice(0, 3)}-{c.code.slice(3)}</strong></> },
+                ]}
+              />
+            )}
           </>
         ) : (
           <p className="sh-warn" role="status" data-testid="collab-code-closed">
@@ -221,9 +252,9 @@ function CollabPanel({ workspaceId, onClose }: { workspaceId: string; onClose: (
         {c.requests.map((r) => (
           <Ask key={r.reqId} r={r} />
         ))}
-        <p className="cl-section-title">Présents · {n} sur 6</p>
         <People members={c.members} me={c.me} />
-        <p className="sh-hint">{hotspotHint(host.platform)}</p>
+        {n >= 6 && <p className="sh-note">Session complète : six personnes au plus.</p>}
+        <Trouble address={c.addresses[0]} />
         <div className="sh-actions">
           <button className="btn" onClick={onClose}>Fermer</button>
           <span className="spacer" />
@@ -237,9 +268,8 @@ function CollabPanel({ workspaceId, onClose }: { workspaceId: string; onClose: (
     content = (
       <div className="cl-body" data-testid="collab-live">
         <p className="cl-lede">
-          {c.phase === 'reconnecting' ? 'Connexion perdue : vous continuez seul, Marginalia se reconnecte…' : <>Vous travaillez en direct dans « {ws.name} ».</>}
+          {c.phase === 'reconnecting' ? 'Connexion perdue : vous continuez seul, Marginalia se reconnecte…' : <>En direct dans « {ws.name} »</>}
         </p>
-        <p className="cl-section-title">Présents · {c.members.length} sur 6</p>
         <People members={c.members} me={c.me} />
         <div className="sh-actions">
           <button className="btn" onClick={onClose}>Fermer</button>
@@ -311,8 +341,14 @@ function JoinDialog({ onClose }: { onClose: () => void }) {
     const finding = step.s === 'finding';
     content = (
       <div className="cl-body" data-testid="join-form">
-        <p className="cl-lede">Sur l’ordinateur de l’hôte : menu <strong>⋯</strong> de l’espace › <strong>Travailler à plusieurs…</strong> Saisissez ici le code qui s’affiche ; l’hôte acceptera votre demande.</p>
         <Who profile={profile} setProfile={setProfile} />
+        <Steps
+          items={[
+            { icon: <MoreHorizontal size={18} />, label: 'Menu de l’espace' },
+            { icon: <Users size={18} />, label: 'Travailler à plusieurs' },
+            { icon: <span className="br-step-code">123</span>, label: 'Le code s’affiche' },
+          ]}
+        />
         <input
           className="sh-code-input"
           inputMode="numeric"
@@ -334,27 +370,27 @@ function JoinDialog({ onClose }: { onClose: () => void }) {
           </label>
         )}
         {finding ? (
-          <div className="wr-status" aria-live="polite"><span className="wr-pulse" aria-hidden="true" /> Recherche sur le réseau…</div>
+          <p className="sh-small center" aria-live="polite">Recherche sur le réseau…</p>
         ) : (
           <div className="sh-actions">
-            <button className="sh-link" onClick={() => setManual((m) => !m)}>{manual ? 'Chercher sur le réseau' : 'Saisir une adresse'}</button>
+            <Trouble summary="Rien n’est trouvé ?">
+              <button className="sh-link" onClick={() => setManual((m) => !m)}>{manual ? 'Chercher sur le réseau' : 'Saisir une adresse'}</button>
+            </Trouble>
             <span className="spacer" />
             <button className="btn btn-primary" disabled={code.length !== 6} onClick={() => void go()} data-testid="join-go">Rejoindre</button>
           </div>
         )}
-        <p className="sh-hint">{hotspotHint(host.platform)}</p>
         {error && <p className="sh-error" role="alert" data-testid="join-error">{error}</p>}
       </div>
     );
   } else if (step.s === 'asking') {
     content = (
       <div className="cl-body" data-testid="join-asking">
-        <section className="sh-sum">
-          <span className="sh-kicker">Espace partagé par {step.host}</span>
+        <Bridge state="ask" left="Vous" leftFace={{ letter: (profile.name.trim().charAt(0) || '?').toUpperCase(), color: profile.color }} right={`${step.host} · ${step.device}`} rightFace={{ letter: step.host.charAt(0).toUpperCase(), color: 'var(--ink-2)' }} />
+        <section className="sh-sum center">
           <h3>{step.title}</h3>
-          <p className="sh-note"><Users size={13} /> Sur {step.device}</p>
+          <p className="sh-small" aria-live="polite">{step.host} doit accepter votre demande…</p>
         </section>
-        <div className="wr-status" aria-live="polite"><span className="wr-pulse" aria-hidden="true" /> Demande envoyée : {step.host} doit l’accepter…</div>
         <div className="sh-actions">
           <span className="spacer" />
           <button className="btn" onClick={() => void stopCollab().finally(onClose)}>Annuler</button>
@@ -364,12 +400,13 @@ function JoinDialog({ onClose }: { onClose: () => void }) {
   } else {
     content = (
       <div className="cl-body" data-testid="join-arriving">
-        <section className="sh-sum">
-          <span className="sh-kicker"><Check size={12} className="sh-inline" />Accepté</span>
-          <h3>{step.title}</h3>
+        <Bridge state="flow" left="Vous" leftFace={{ letter: (profile.name.trim().charAt(0) || '?').toUpperCase(), color: profile.color }} right="L’hôte" />
+        <section className="sh-sum center">
+          <h3>
+            <Check size={18} className="sh-inline" /> {step.title}
+          </h3>
+          <p className="sh-small" role="progressbar">{c.progress ?? 'Réception de l’espace…'}</p>
         </section>
-        <div className="sh-bar indeterminate" role="progressbar"><span style={{ width: '35%' }} /></div>
-        <p className="sh-small">{c.progress ?? 'Réception de l’espace…'}</p>
       </div>
     );
   }
@@ -381,9 +418,53 @@ function JoinDialog({ onClose }: { onClose: () => void }) {
 }
 
 // ── Réunion : un paragraphe ou un texte modifié des deux côtés ─────────────
+/** Mots qui diffèrent entre deux versions (plus longue sous-suite commune, mot à mot). */
+function diffMarks(a: string, b: string): [Set<number>, Set<number>] {
+  const ta = a.split(/(\s+)/);
+  const tb = b.split(/(\s+)/);
+  const wa = ta.map((t, i) => [t, i] as const).filter(([t]) => t && !/^\s+$/.test(t));
+  const wb = tb.map((t, i) => [t, i] as const).filter(([t]) => t && !/^\s+$/.test(t));
+  const ma = new Set<number>();
+  const mb = new Set<number>();
+  if (wa.length * wb.length > 250_000) return [ma, mb];
+  const L = Array.from({ length: wa.length + 1 }, () => new Uint16Array(wb.length + 1));
+  for (let i = wa.length - 1; i >= 0; i--) for (let j = wb.length - 1; j >= 0; j--) L[i][j] = wa[i][0] === wb[j][0] ? L[i + 1][j + 1] + 1 : Math.max(L[i + 1][j], L[i][j + 1]);
+  const ka = new Set<number>();
+  const kb = new Set<number>();
+  for (let i = 0, j = 0; i < wa.length && j < wb.length; ) {
+    if (wa[i][0] === wb[j][0]) (ka.add(wa[i][1]), kb.add(wb[j][1]), i++, j++);
+    else if (L[i + 1][j] >= L[i][j + 1]) i++;
+    else j++;
+  }
+  wa.forEach(([, i]) => !ka.has(i) && ma.add(i));
+  wb.forEach(([, i]) => !kb.has(i) && mb.add(i));
+  return [ma, mb];
+}
+
+/** Texte avec les mots propres à cette version surlignés (le texte affiché reste exactement le texte). */
+function Marked({ text, marks, color }: { text: string; marks: Set<number>; color: string }) {
+  if (!text) return <em>(vide)</em>;
+  return (
+    <>
+      {text.split(/(\s+)/).map((t, i) =>
+        marks.has(i) ? (
+          <mark key={i} className="cl-diff" style={{ ['--who' as string]: color }}>
+            {t}
+          </mark>
+        ) : (
+          <span key={i}>{t}</span>
+        ),
+      )}
+    </>
+  );
+}
+
 function ReunionDialog() {
   const r = useCollab((s) => s.reunion)!;
+  const me = readProfile() ?? { name: 'Vous', color: COLLAB_COLORS[0] };
+  const otherColor = me.color === COLLAB_COLORS[1] ? COLLAB_COLORS[0] : COLLAB_COLORS[1];
   const [choices, setChoices] = useState<Record<string, Choice>>({});
+  const done = Object.keys(choices).length;
   const all = r.items.every((i) => choices[i.id]);
   const set = (id: string, c: Choice) => setChoices((x) => ({ ...x, [id]: c }));
   return createPortal(
@@ -393,41 +474,58 @@ function ReunionDialog() {
           <h2 id="cl-reu-title">Réunir avec {r.hostName}</h2>
         </header>
         <div className="cl-body">
-          <p className="cl-lede">
-            Vous avez travaillé chacun de votre côté. Tout ce qui n’a changé que d’un côté est déjà réuni. {r.items.length > 1 ? `Ces ${r.items.length} passages ont été modifiés des deux côtés` : 'Ce passage a été modifié des deux côtés'} : choisissez ce que vous gardez. Une version « Avant la reconnexion avec {r.hostName} » garde chaque écrit tel qu’il était chez vous.
-          </p>
-          {r.items.map((it) => (
-            <section key={it.id} className="cl-conflict" data-testid="reunion-item" data-kind={it.kind}>
-              <p className="cl-section-title">
-                {it.kind === 'paragraph' ? 'Paragraphe' : 'Texte'} de {it.where}
-              </p>
-              <div className="cl-versions">
-                <div className={`cl-version ${choices[it.id] === 'mine' || choices[it.id] === 'both' ? 'kept' : ''}`}>
-                  <span className="sh-kicker">Votre version</span>
-                  <p data-testid="reunion-mine">{it.mine || <em>(vide)</em>}</p>
+          <div className="cl-reu-intro">
+            <span className="cl-pair" aria-hidden="true">
+              <span className="cl-seat-face" style={{ background: me.color }}>{(me.name.charAt(0) || 'V').toUpperCase()}</span>
+              <span className="cl-seat-face" style={{ background: otherColor }}>{r.hostName.charAt(0).toUpperCase()}</span>
+            </span>
+            <p>
+              <strong>{r.items.length > 1 ? `${r.items.length} passages modifiés` : '1 passage modifié'} des deux côtés.</strong> Le reste est déjà réuni, et une version d’avant est gardée.
+            </p>
+            <ol className="cl-dots" aria-label={`${done} sur ${r.items.length} choisis`}>
+              {r.items.map((it) => (
+                <li key={it.id} className={choices[it.id] ? 'on' : ''} />
+              ))}
+            </ol>
+          </div>
+          {r.items.map((it) => {
+            const ch = choices[it.id];
+            const [ma, mb] = diffMarks(it.mine, it.theirs);
+            return (
+              <section key={it.id} className="cl-conflict" data-testid="reunion-item" data-kind={it.kind}>
+                <p className="cl-where">
+                  {it.kind === 'paragraph' ? <FilePen size={14} /> : <Network size={14} />} {it.where}
+                </p>
+                <div className="cl-versions">
+                  <div className={`cl-version${ch === 'mine' || ch === 'both' ? ' kept' : ''}${ch === 'theirs' ? ' dropped' : ''}`} style={{ ['--who' as string]: me.color }} onClick={() => set(it.id, 'mine')}>
+                    <span className="cl-version-who">
+                      <span className="cl-seat-face" style={{ background: me.color }}>{(me.name.charAt(0) || 'V').toUpperCase()}</span> Vous
+                      {(ch === 'mine' || ch === 'both') && <Check size={15} className="cl-kept-mark" />}
+                    </span>
+                    <p data-testid="reunion-mine"><Marked text={it.mine} marks={ma} color={me.color} /></p>
+                    <button className={`btn btn-sm ${ch === 'mine' ? 'btn-primary' : ''}`} role="radio" aria-checked={ch === 'mine'} onClick={(e) => (e.stopPropagation(), set(it.id, 'mine'))} data-choice="mine">
+                      Garder la mienne
+                    </button>
+                  </div>
+                  <div className={`cl-version${ch === 'theirs' || ch === 'both' ? ' kept' : ''}${ch === 'mine' ? ' dropped' : ''}`} style={{ ['--who' as string]: otherColor }} onClick={() => set(it.id, 'theirs')}>
+                    <span className="cl-version-who">
+                      <span className="cl-seat-face" style={{ background: otherColor }}>{r.hostName.charAt(0).toUpperCase()}</span> {r.hostName}
+                      {(ch === 'theirs' || ch === 'both') && <Check size={15} className="cl-kept-mark" />}
+                    </span>
+                    <p data-testid="reunion-theirs"><Marked text={it.theirs} marks={mb} color={otherColor} /></p>
+                    <button className={`btn btn-sm ${ch === 'theirs' ? 'btn-primary' : ''}`} role="radio" aria-checked={ch === 'theirs'} onClick={(e) => (e.stopPropagation(), set(it.id, 'theirs'))} data-choice="theirs">
+                      {`Garder celle de ${r.hostName}`}
+                    </button>
+                  </div>
                 </div>
-                <div className={`cl-version ${choices[it.id] === 'theirs' || choices[it.id] === 'both' ? 'kept' : ''}`}>
-                  <span className="sh-kicker">Version de {r.hostName}</span>
-                  <p data-testid="reunion-theirs">{it.theirs || <em>(vide)</em>}</p>
-                </div>
-              </div>
-              <div className="cl-choices" role="radiogroup" aria-label="Que garder ?">
-                {(
-                  [
-                    ['mine', 'Garder la mienne'],
-                    ['theirs', `Garder celle de ${r.hostName}`],
-                    ['both', 'Garder les deux'],
-                  ] as [Choice, string][]
-                ).map(([c, l]) => (
-                  <button key={c} className={`btn btn-sm ${choices[it.id] === c ? 'btn-primary' : ''}`} role="radio" aria-checked={choices[it.id] === c} onClick={() => set(it.id, c)} data-choice={c}>
-                    {l}
-                  </button>
-                ))}
-              </div>
-            </section>
-          ))}
+                <button className={`cl-both${ch === 'both' ? ' on' : ''}`} role="radio" aria-checked={ch === 'both'} onClick={() => set(it.id, 'both')} data-choice="both">
+                  Garder les deux
+                </button>
+              </section>
+            );
+          })}
           <div className="sh-actions">
-            <span className="cl-count">{Object.keys(choices).length} sur {r.items.length} choisi{r.items.length > 1 ? 's' : ''}</span>
+            <span className="cl-count">{done} sur {r.items.length} choisi{r.items.length > 1 ? 's' : ''}</span>
             <span className="spacer" />
             <button className="btn btn-primary" disabled={!all} onClick={() => r.resolve(choices)} data-testid="reunion-go">
               Réunir

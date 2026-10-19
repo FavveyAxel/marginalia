@@ -271,13 +271,49 @@ function Traveler() {
   );
 }
 
-function useOs(): 'mac' | 'win' | null {
-  const [os, setOs] = useState<'mac' | 'win' | null>(null);
+/** Système du visiteur ; 'phone' : téléphone ou tablette (l'app s'installe sur un ordinateur). */
+function useOs(): 'mac' | 'win' | 'phone' | null {
+  const [os, setOs] = useState<'mac' | 'win' | 'phone' | null>(null);
   useEffect(() => {
     const ua = navigator.userAgent;
-    setOs(/Mac/i.test(ua) && !/iPhone|iPad/i.test(ua) ? 'mac' : /Windows/i.test(ua) ? 'win' : null);
+    // iPadOS se présente comme un Mac : on le reconnaît à l'écran tactile.
+    const touchMac = /Macintosh/i.test(ua) && navigator.maxTouchPoints > 1;
+    if (/iPhone|iPad|iPod|Android|Mobile/i.test(ua) || touchMac) setOs('phone');
+    else setOs(/Mac/i.test(ua) ? 'mac' : /Windows/i.test(ua) ? 'win' : null);
   }, []);
   return os;
+}
+
+/** Sur téléphone : l'app est pour ordinateur ; on propose de s'envoyer le lien. */
+function PhoneNote({ compact }: { compact?: boolean }) {
+  const [done, setDone] = useState<string | null>(null);
+  const send = async () => {
+    const url = location.origin + '/#telecharger';
+    try {
+      if (navigator.share) {
+        await navigator.share({ title: 'Marginalia', text: 'Marginalia, pour Mac et Windows', url });
+        return;
+      }
+      await navigator.clipboard.writeText(url);
+      setDone('Lien copié');
+    } catch {
+      /* partage annulé */
+    }
+  };
+  return (
+    <div className={`phone-note${compact ? ' is-compact' : ''}`}>
+      <span className="phone-note-os" aria-hidden="true">
+        <OsIcon os="mac" />
+        <OsIcon os="win" />
+      </span>
+      <p>
+        <strong>Une app pour ordinateur, Mac ou Windows.</strong> Ouvrez cette page sur votre ordinateur pour l’installer ; le téléphone sert ensuite à y envoyer des photos de pages.
+      </p>
+      <button type="button" className="btn btn-primary" onClick={() => void send()}>
+        {done ?? 'M’envoyer le lien'}
+      </button>
+    </div>
+  );
 }
 
 /** Pictogrammes neutres : un portable (Mac) et un écran de bureau (Windows). */
@@ -792,7 +828,8 @@ function App() {
   useReveal();
   const travel = useTravel();
   const os = useOs();
-  const mine = DOWNLOADS.filter((d) => d.os === (os ?? 'mac'));
+  const phone = os === 'phone';
+  const mine = DOWNLOADS.filter((d) => d.os === (os === 'win' ? 'win' : 'mac'));
   // Barre du haut collée en haut : un filet apparaît dès qu'on a défilé.
   const [scrolled, setScrolled] = useState(false);
   useEffect(() => {
@@ -812,7 +849,7 @@ function App() {
           <a href="#ensemble">À plusieurs</a>
           <a href="#fonctions">Fonctions</a>
           <a href="#confidentialite">Confidentialité</a>
-          <a className="btn btn-primary" href="#telecharger">Télécharger</a>
+          <a className="btn btn-primary" href="#telecharger">{phone ? 'Mac et Windows' : 'Télécharger'}</a>
         </nav>
       </header>
 
@@ -821,6 +858,9 @@ function App() {
           <div className="hero-text">
             <h1>Marginalia</h1>
             <p className="lede">Lire, annoter et écrire la philosophie. Une app pour Mac et Windows, gratuite, sans compte&nbsp;: tout reste sur votre ordinateur.</p>
+            {phone ? (
+              <PhoneNote />
+            ) : (
             <div className="hero-dl">
               <DownloadButton d={mine[0]} />
               <div className="hero-dl-links">
@@ -830,6 +870,7 @@ function App() {
                 </a>
               </div>
             </div>
+            )}
             <p className="hero-trust">
               <Pict name="offline" /> Hors ligne <span aria-hidden="true">·</span> sans compte <span aria-hidden="true">·</span> chiffrement en option
             </p>
@@ -953,6 +994,7 @@ function App() {
 
         <section className="download reveal" id="telecharger">
           <h2>Télécharger Marginalia {VERSION}</h2>
+          {phone && <PhoneNote compact />}
           <div className="dl-groups" data-perch="telecharger">
             {(['mac', 'win'] as const).map((g) => (
               <div className={`dl-group ${os === g ? 'is-mine' : ''}`} key={g}>

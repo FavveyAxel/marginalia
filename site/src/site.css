@@ -528,3 +528,15 @@ a.btn-primary:hover { background: #3a342b; }
 }
 /* La pile de livres est le siège : dessinée derrière le personnage, pas devant. */
 .crew-rousseau > svg:not(.book-seat) { position: relative; z-index: 1; }
+
+/* Téléphone : l'app s'installe sur un ordinateur (Mac ou Windows) */
+.phone-note {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 0.75rem;
+  padding: 1rem 1.125rem; border-radius: 0.875rem; background: var(--bg-panel); box-shadow: 0 0 0 1px var(--border);
+  font-family: var(--font-ui);
+}
+.phone-note-os { display: inline-flex; gap: 0.625rem; padding: 0.5rem 0.75rem; border-radius: 0.625rem; background: var(--bg-app); }
+.phone-note-os img, .phone-note-os svg { width: 1.375rem; height: 1.375rem; }
+.phone-note p { margin: 0; font-size: 0.9375rem; line-height: 1.45; color: var(--ink-2); }
+.phone-note p strong { display: block; color: var(--ink); font-weight: 600; }
+.phone-note.is-compact { margin: 1.25rem 0 0.5rem; }

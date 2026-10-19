@@ -1,7 +1,7 @@
 // Fenêtre « Recevoir » : le code à 6 chiffres donné par l'autre personne (ou un fichier « .marginalia »
 // déjà en main), un aperçu de ce qui arrive, puis l'import, qui AJOUTE sans rien écraser. Les messages
 // d'erreur sont ceux du partage (ShareError, shareNet), montrés tels quels.
-import { useEffect, useRef, useState, type ClipboardEvent, type KeyboardEvent as RKeyboardEvent } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Check, FileText, Lock, ShieldAlert, X } from 'lucide-react';
 import { host } from '../../lib/platform';
@@ -91,7 +91,7 @@ export function ReceiveDialog({ source, onClose }: { source: ReceiveSource; onCl
     return () => window.removeEventListener('keydown', k, true);
   }, [onClose]);
   useEffect(() => {
-    if (step.s === 'code') cells.current[digits.findIndex((d) => !d) < 0 ? 5 : digits.findIndex((d) => !d)]?.focus();
+    if (step.s === 'code') cells.current[0]?.focus();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [step.s]);
 
@@ -158,38 +158,14 @@ export function ReceiveDialog({ source, onClose }: { source: ReceiveSource; onCl
     }
   }
 
-  const setDigit = (i: number, raw: string) => {
-    const only = raw.replace(/\D/g, '');
-    if (!only) {
-      setDigits((d) => d.map((x, k) => (k === i ? '' : x)));
-      return;
-    }
-    const next = [...digits];
-    only.split('').slice(0, 6 - i).forEach((ch, k) => (next[i + k] = ch));
-    setDigits(next);
+  /** Saisie d'un seul tenant : « 735-700 », « 735 700 » ou « 735700 » ; le tiret se place tout seul. */
+  const setCode = (raw: string) => {
+    const only = raw.replace(/\D/g, '').slice(0, 6);
+    setDigits(['', '', '', '', '', ''].map((_, k) => only[k] ?? ''));
     setError(null);
-    const at = Math.min(5, i + only.length);
-    cells.current[at]?.focus();
-    if (next.every(Boolean) && !manual) void search(next.join(''));
+    if (only.length === 6 && !manual) void search(only);
   };
-  const onKey = (i: number, e: RKeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Backspace' && !digits[i] && i > 0) {
-      setDigits((d) => d.map((x, k) => (k === i - 1 ? '' : x)));
-      cells.current[i - 1]?.focus();
-    } else if (e.key === 'ArrowLeft' && i > 0) cells.current[i - 1]?.focus();
-    else if (e.key === 'ArrowRight' && i < 5) cells.current[i + 1]?.focus();
-    else if (e.key === 'Enter' && code.length === 6) void search();
-  };
-  const onPaste = (e: ClipboardEvent<HTMLInputElement>) => {
-    const only = e.clipboardData.getData('text').replace(/\D/g, '').slice(0, 6);
-    if (!only) return;
-    e.preventDefault();
-    const next = ['', '', '', '', '', ''].map((_, k) => only[k] ?? '');
-    setDigits(next);
-    cells.current[Math.min(5, only.length)]?.focus();
-    if (next.every(Boolean) && !manual) void search(next.join(''));
-  };
-
+  const shown = code.length > 3 ? `${code.slice(0, 3)}-${code.slice(3)}` : code;
 
   let content: JSX.Element;
   if (step.s === 'code' || (step.s === 'finding' && !source.file)) {
@@ -197,26 +173,21 @@ export function ReceiveDialog({ source, onClose }: { source: ReceiveSource; onCl
     content = (
       <div className="sh-recv" data-testid="receive-code">
         <p className="sh-lede">Sur l’autre ordinateur, ouvrez <strong>Partager › Envoyer par le Wi-Fi</strong>, puis saisissez ici le code à 6 chiffres qui s’affiche. Les deux ordinateurs doivent être sur le même Wi-Fi.</p>
-        <div className="sh-cells" role="group" aria-label="Code à 6 chiffres">
-          {digits.map((d, i) => (
-            <input
-              key={i}
-              ref={(el) => (cells.current[i] = el)}
-              className={`sh-cell${i === 2 ? ' gap' : ''}`}
-              inputMode="numeric"
-              autoComplete="one-time-code"
-              maxLength={6}
-              value={d}
-              aria-label={`Chiffre ${i + 1}`}
-              disabled={finding}
-              onChange={(e) => setDigit(i, e.target.value)}
-              onKeyDown={(e) => onKey(i, e)}
-              onPaste={onPaste}
-              onFocus={(e) => e.currentTarget.select()}
-              data-testid={`receive-digit-${i}`}
-            />
-          ))}
-        </div>
+        <input
+          ref={(el) => (cells.current[0] = el)}
+          className="sh-code-input"
+          inputMode="numeric"
+          autoComplete="one-time-code"
+          placeholder="000-000"
+          maxLength={9}
+          value={shown}
+          aria-label="Code à 6 chiffres"
+          disabled={finding}
+          onChange={(e) => setCode(e.target.value)}
+          onKeyDown={(e) => e.key === 'Enter' && code.length === 6 && void search()}
+          spellCheck={false}
+          data-testid="receive-code-input"
+        />
         {manual && (
           <label className="sh-addr">
             <span>Adresse affichée par l’expéditeur</span>

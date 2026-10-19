@@ -53,7 +53,8 @@ async function shotBoth(p, sel, name) {
   await theme(p, 'light');
 }
 const typeCode = async (p, code) => {
-  for (let i = 0; i < 6; i++) await p.locator(`[data-testid="receive-digit-${i}"]`).fill(code[i]);
+  // Saisie comme on la lit à l'écran : « 735-700 ».
+  await p.locator('[data-testid="receive-code-input"]').fill(`${code.slice(0, 3)}-${code.slice(3)}`);
 };
 const openReceive = async (p) => {
   await p.evaluate(() => window.__store.getState().navigate({ name: 'import' }));
@@ -165,6 +166,8 @@ try {
   const code2 = await A.page.getAttribute('[data-testid="share-code"]', 'data-code');
   await openReceive(B.page);
   const wrong = String((Number(code2) + 1) % 1000000).padStart(6, '0');
+  const countB = () => B.page.evaluate(() => { const s = window.__store.getState(); return { w: s.workspaces.length, b: s.books.length, d: s.drafts.length, h: s.highlights.length }; });
+  const beforeWrong = await countB();
   // Par diffusion : un mauvais code ne trouve aucun envoi (message de la brique réseau, tel quel).
   await typeCode(B.page, wrong);
   await B.page.waitForSelector('[data-testid="receive-error"]', { timeout: 30000 });
@@ -177,6 +180,11 @@ try {
   await B.page.click('[data-testid="receive-search"]');
   await B.page.waitForFunction(() => /Code incorrect/.test(document.querySelector('[data-testid="receive-error"]')?.textContent ?? ''), null, { timeout: 30000 });
   const e1 = await B.page.textContent('[data-testid="receive-error"]');
+  // Mauvais code : rien n'est téléchargé ni ajouté chez B, et A ne voit aucune demande.
+  await B.page.waitForTimeout(1500);
+  ok(JSON.stringify(await countB()) === JSON.stringify(beforeWrong), 'mauvais code : rien n’est arrivé chez B (espaces, livres, écrits, extraits inchangés)', await countB());
+  ok(!(await A.page.$('[data-testid="share-request"]')), 'mauvais code : aucune demande n’apparaît chez A');
+  ok(!(await B.page.$('[data-testid="receive-preview"], .sh-preview')), 'mauvais code : aucun aperçu chez B');
   ok(/Code incorrect/.test(e1), 'mauvais code (adresse saisie) : « Code incorrect »', e1);
   await shotBoth(B.page, '[data-testid="receive-dialog"]', '09-erreur-code');
   // (A n’est averti que si le code passe le filtre d’indice de 4 bits : non déterministe : non vérifié ici.)

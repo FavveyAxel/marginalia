@@ -320,10 +320,11 @@ function WifiBody({ wifi, mmss, title, onAnswer, onRetry }: { wifi: Wifi; mmss: 
   return (
     <div className="sh-wifi" data-testid="share-waiting">
       <p className="sh-lede">Sur l’autre ordinateur : <strong>Importer › Depuis un autre Marginalia</strong>, puis saisissez ce code.</p>
+      {/* Un seul bloc « 735-700 » : plus simple à lire à voix haute et à recopier. */}
       <div className="sh-code" data-testid="share-code" data-code={digits} aria-label={`Code ${digits.split('').join(' ')}`}>
-        {digits.split('').map((d, i) => (
-          <span key={i} className={i === 2 ? 'sh-digit gap' : 'sh-digit'}>{d}</span>
-        ))}
+        {digits.slice(0, 3)}
+        <span className="sh-dash" aria-hidden="true">-</span>
+        {digits.slice(3)}
       </div>
       <p className="sh-left">Valable encore {mmss}</p>
       {wifi.step === 'request' ? (

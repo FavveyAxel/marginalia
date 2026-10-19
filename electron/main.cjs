@@ -2274,26 +2274,42 @@ handle('marginalia:relaunch', () => {
 });
 
 // ── Mises à jour : la dernière Release publiée sur GitHub ──
-// Une seule requête (lecture publique, sans cookie ni identifiant, sans aucune donnée de
-// l'utilisateur), faite à la demande du rendu : au lancement si le réglage « Vérifier les mises
-// à jour » est actif, ou par le bouton des réglages. Rien n'est téléchargé ni installé : l'app
-// propose seulement d'ouvrir la page de téléchargement du site.
-// Requête faite par Node (processus principal) : le blocage réseau de la session ne la voit pas ;
-// c'est la seule connexion sortante de l'app.
+// Vérification : une requête (lecture publique, sans cookie ni identifiant, sans aucune donnée de
+// l'utilisateur), faite à la demande du rendu : au lancement si le réglage « Vérifier les mises à
+// jour » est actif, ou par le bouton des réglages.
+// Mise à jour automatique (Mac installé dans un dossier modifiable, Windows installé par
+// l'installateur) : la Release porte un manifeste latest.json signé (Ed25519, clé publique dans
+// electron/update-key.cjs). Le fichier de ce système est téléchargé en arrière-plan dans
+// userData/updates/<version>/, vérifié (taille, SHA-256), puis installé au redémarrage demandé ou à
+// la fermeture. Sans manifeste valide, ou ailleurs (Linux, version portable, développement) :
+// l'app propose seulement d'ouvrir la page de téléchargement du site (voir electron/updater.cjs).
+// Requêtes faites par Node (processus principal) : le blocage réseau de la session ne les voit pas ;
+// ce sont les seules connexions sortantes de l'app.
+const updater = require('./updater.cjs');
 const UPDATE_URL = (E2E && process.env.MARGINALIA_UPDATE_URL) || 'https://api.github.com/repos/FavveyAxel/marginalia/releases/latest';
 const DOWNLOAD_PAGE = 'https://marginalia-bice.vercel.app/#telecharger';
+// Fichiers de la Release : seulement depuis le dépôt de Marginalia (puis les serveurs de fichiers de GitHub).
+const RELEASE_ASSET_PREFIX = 'https://github.com/FavveyAxel/marginalia/releases/download/';
+const UPDATE_PUBKEY = (E2E && process.env.MARGINALIA_E2E_UPDATE_PUBKEY) || require('./update-key.cjs');
 const appVersion = () => (E2E && process.env.MARGINALIA_APP_VERSION) || app.getVersion();
-/** Compare deux versions « 3.22 », « v3.22.1 » : < 0, 0, > 0. */
-function compareVersions(a, b) {
-  const p = (v) => String(v || '').replace(/^v/i, '').split(/[.-]/).map((x) => (/^\d+$/.test(x) ? Number(x) : NaN));
-  const x = p(a), y = p(b);
-  for (let i = 0; i < Math.max(x.length, y.length); i++) {
-    const m = Number.isNaN(x[i] ?? 0) ? 0 : x[i] ?? 0;
-    const n = Number.isNaN(y[i] ?? 0) ? 0 : y[i] ?? 0;
-    if (m !== n) return m - n;
+const compareVersions = updater.compareVersions;
+const updatesDir = () => path.join(userData(), 'updates');
+// Tests (MARGINALIA_E2E=1) : serveur local admis, système simulé, installation remplacée par un journal.
+const e2eUpdateUrl = (u) => {
+  try {
+    const x = new URL(u);
+    return x.protocol === 'http:' && x.hostname === '127.0.0.1';
+  } catch {
+    return false;
   }
-  return 0;
-}
+};
+const updateUrlAllowed = (u) => updater.githubUrlAllowed(u) || (E2E && e2eUpdateUrl(u));
+const assetUrlAllowed = (u) => (typeof u === 'string' && u.startsWith(RELEASE_ASSET_PREFIX)) || (E2E && e2eUpdateUrl(u));
+const updatePlatform = () => (E2E && process.env.MARGINALIA_E2E_UPDATE_PLATFORM) || process.platform;
+const updateArch = () => (E2E && process.env.MARGINALIA_E2E_UPDATE_ARCH) || process.arch;
+const updateExe = () => (E2E && process.env.MARGINALIA_E2E_UPDATE_EXE) || app.getPath('exe');
+const updateMacApp = () => (E2E && process.env.MARGINALIA_E2E_UPDATE_APP_PATH) || updater.macBundleFromExe(app.getPath('exe'));
+
 function fetchJson(url, timeoutMs = 10000) {
   return new Promise((resolve, reject) => {
     const mod = url.startsWith('https:') ? require('node:https') : require('node:http');
@@ -2321,6 +2337,76 @@ function fetchJson(url, timeoutMs = 10000) {
     req.on('error', reject);
   });
 }
+
+/** Ce Marginalia peut-il s'installer lui-même ? { ok, reason } (sans réseau). */
+function updateSupport() {
+  const plat = updatePlatform();
+  const simulated = E2E && !!process.env.MARGINALIA_E2E_UPDATE_PLATFORM;
+  if (plat !== 'darwin' && plat !== 'win32') return { ok: false, reason: 'La mise à jour automatique est proposée sur Mac et Windows.' };
+  if (!app.isPackaged && !simulated) return { ok: false, reason: 'Version de développement : pas de mise à jour automatique.' };
+  if (!updater.platformKey(plat, updateArch(), !simulated && app.runningUnderARM64Translation)) return { ok: false, reason: 'Pas de mise à jour automatique pour ce processeur.' };
+  if (plat === 'win32') return updater.windowsInstallCheck({ exe: updateExe() });
+  return updater.checkMacLocation(updateMacApp());
+}
+
+// État de la mise à jour automatique (un seul téléchargement à la fois).
+const upd = {
+  release: null, // { version, file: { name, sha256, size, url } } : manifeste vérifié
+  status: 'idle', // idle | downloading | ready | error | installing
+  received: 0,
+  total: 0,
+  file: null, // fichier vérifié, prêt à installer
+  error: null,
+  controller: null,
+  installOnQuit: false, // réglage « Installer automatiquement », ou « Plus tard » choisi
+  relaunch: false, // « Redémarrer pour mettre à jour »
+  prepared: null, // Mac : app copiée et script écrit
+};
+const updState = () => ({ status: upd.status, version: upd.release ? upd.release.version : null, received: upd.received, total: upd.total, error: upd.error });
+function updEmit(evt) {
+  for (const w of BrowserWindow.getAllWindows()) if (!w.isDestroyed()) w.webContents.send('marginalia:updateEvent', evt);
+}
+/** Installation précédente échouée pour cette version (on ne réessaie pas en boucle : page du site). */
+const failedFile = () => path.join(updatesDir(), 'failed.json');
+const installingFile = () => path.join(updatesDir(), 'installing.json');
+
+/** Manifeste signé de la Release `r` pour ce système ; { ok, reason }. */
+async function evaluateAutoUpdate(r, latest, current) {
+  const sup = updateSupport();
+  if (!sup.ok) return sup;
+  const failed = await fsp.readFile(failedFile(), 'utf8').then(JSON.parse, () => null);
+  if (failed && compareVersions(failed.version, latest) === 0)
+    return { ok: false, reason: 'L’installation automatique de cette version a échoué : téléchargez-la depuis le site.' };
+  const assets = Array.isArray(r.assets) ? r.assets : [];
+  const url = (name) => {
+    const a = assets.find((x) => x && x.name === name);
+    return a && assetUrlAllowed(a.browser_download_url) ? a.browser_download_url : null;
+  };
+  const mUrl = url(updater.MANIFEST_NAME);
+  if (!mUrl) return { ok: false, reason: 'Cette version ne propose pas de mise à jour automatique.' };
+  const sUrl = url(updater.SIGNATURE_NAME);
+  if (!sUrl) return { ok: false, reason: 'Manifeste de mise à jour non signé : mise à jour automatique refusée.' };
+  const [mBytes, sBytes] = await Promise.all([
+    updater.fetchBuffer(mUrl, { allowUrl: updateUrlAllowed, timeoutMs: 15000 }),
+    updater.fetchBuffer(sUrl, { allowUrl: updateUrlAllowed, timeoutMs: 15000, limit: 1024 }),
+  ]);
+  const v = updater.verifyManifest(mBytes, sBytes.toString('utf8'), UPDATE_PUBKEY, { current, expectedVersion: latest });
+  if (!v.ok) {
+    diag('maj', 'manifeste refusé', v.code);
+    return { ok: false, reason: v.reason };
+  }
+  const key = updater.platformKey(updatePlatform(), updateArch(), !(E2E && process.env.MARGINALIA_E2E_UPDATE_PLATFORM) && app.runningUnderARM64Translation);
+  const f = updater.selectFile(v.manifest, key);
+  const fUrl = f && url(f.name);
+  if (!f || !fUrl) return { ok: false, reason: 'Pas de fichier de mise à jour pour ce système.' };
+  const same = upd.release && upd.release.version === v.manifest.version && upd.release.file.sha256 === f.sha256;
+  if (!same) {
+    if (upd.controller) upd.controller.abort();
+    Object.assign(upd, { release: { version: v.manifest.version, file: { ...f, url: fUrl } }, status: 'idle', received: 0, total: f.size, file: null, error: null, prepared: null });
+  }
+  return { ok: true };
+}
+
 handle('marginalia:appVersion', () => appVersion());
 handle('marginalia:checkUpdate', async () => {
   const current = appVersion();
@@ -2332,13 +2418,191 @@ handle('marginalia:checkUpdate', async () => {
     if (!latest || r.draft || r.prerelease) return { current, latest: null, newer: false };
     const notes = typeof r.body === 'string' ? r.body.slice(0, 20000) : '';
     const newer = compareVersions(latest, current) > 0;
-    diag('maj', 'vérification', { current, latest, newer });
-    return { current, latest, newer, notes, publishedAt: r.published_at || null, downloadUrl: DOWNLOAD_PAGE };
+    let auto = null;
+    if (newer) {
+      auto = await evaluateAutoUpdate(r, latest, current).catch((e) => ({ ok: false, reason: `Manifeste de mise à jour inaccessible (${e && e.message}).` }));
+    }
+    diag('maj', 'vérification', { current, latest, newer, auto: auto && (auto.ok ? 'oui' : auto.reason) });
+    return { current, latest, newer, notes, publishedAt: r.published_at || null, downloadUrl: DOWNLOAD_PAGE, auto };
   } catch (e) {
     diag('maj', 'vérification impossible', e && e.message);
     return { current, latest: null, newer: false, error: 'Impossible de joindre GitHub (pas de connexion ?).' };
   }
 });
+handle('marginalia:updateSupport', () => updateSupport());
+handle('marginalia:updateState', () => updState());
+
+/** Téléchargement en arrière-plan du fichier du manifeste vérifié (repris s'il a été interrompu). */
+handle('marginalia:updateDownload', async () => {
+  if (!upd.release) return { ok: false, error: 'Aucune mise à jour à télécharger.' };
+  if (upd.status === 'downloading' || upd.status === 'ready' || upd.status === 'installing') return { ok: true, state: updState() };
+  const { version, file } = upd.release;
+  const ctrl = new AbortController();
+  Object.assign(upd, { status: 'downloading', controller: ctrl, error: null, received: 0, total: file.size });
+  updEmit({ type: 'progress', ...updState() });
+  const dest = path.join(updatesDir(), version, file.name);
+  updater
+    .downloadFile({
+      url: file.url,
+      dest,
+      size: file.size,
+      sha256: file.sha256,
+      signal: ctrl.signal,
+      allowUrl: updateUrlAllowed,
+      onProgress: (p) => {
+        upd.received = p.received;
+        updEmit({ type: 'progress', ...updState() });
+      },
+    })
+    .then((r) => {
+      if (upd.controller !== ctrl) return;
+      Object.assign(upd, { status: 'ready', file: r.file, received: file.size, controller: null });
+      diag('maj', 'téléchargée et vérifiée', { version, reprise: r.resumedFrom, deja: r.reused });
+      updEmit({ type: 'ready', ...updState() });
+    })
+    .catch((e) => {
+      if (upd.controller !== ctrl) return;
+      upd.controller = null;
+      if (e && e.name === 'AbortError') {
+        upd.status = 'idle';
+        diag('maj', 'téléchargement annulé');
+        updEmit({ type: 'cancelled', ...updState() });
+        return;
+      }
+      Object.assign(upd, { status: 'error', error: (e && e.message) || 'Téléchargement impossible.' });
+      diag('maj', 'téléchargement impossible', e && (e.code || e.message));
+      updEmit({ type: 'error', ...updState() });
+    });
+  return { ok: true, state: updState() };
+});
+/** Annule le téléchargement (`discard` : supprime aussi la partie déjà reçue). */
+handle('marginalia:updateCancel', async (_e, discard) => {
+  if (upd.controller) upd.controller.abort();
+  if (discard && upd.release) await fsp.rm(path.join(updatesDir(), upd.release.version), { recursive: true, force: true }).catch(() => {});
+  return updState();
+});
+handle('marginalia:updateInstallOnQuit', (_e, on) => {
+  upd.installOnQuit = !!on;
+  return upd.installOnQuit;
+});
+
+/** Contrôle final et préparation (Mac : copie de l'app) avant de quitter. */
+async function prepareInstall(relaunch) {
+  if (upd.status !== 'ready' || !upd.file || !upd.release) throw new updater.UpdateError('Aucune mise à jour prête.', 'etat');
+  const sup = updateSupport();
+  if (!sup.ok) throw new updater.UpdateError(sup.reason, 'emplacement');
+  const { version, file } = upd.release;
+  if (compareVersions(version, appVersion()) <= 0) throw new updater.UpdateError('Version pas plus récente : refusée.', 'version');
+  // Le fichier a pu changer depuis le téléchargement : on le vérifie encore.
+  if (!(await updater.verifyFile(upd.file, file))) {
+    await fsp.rm(upd.file, { force: true });
+    upd.status = 'error';
+    throw new updater.UpdateError('Le fichier de mise à jour a changé depuis sa vérification : mise à jour refusée.', 'empreinte');
+  }
+  if (updatePlatform() === 'darwin' && (!upd.prepared || upd.prepared.relaunch !== relaunch)) {
+    upd.prepared = await updater.prepareMac({ dmg: upd.file, appPath: updateMacApp(), version, workDir: updatesDir(), pid: process.pid, relaunch });
+    upd.prepared.relaunch = relaunch;
+  }
+}
+
+/** Lance l'installateur (Windows) ou le script de remplacement (Mac), détaché ; l'app quitte ensuite. */
+function launchInstaller(relaunch) {
+  const version = upd.release.version;
+  let cmd, args;
+  if (updatePlatform() === 'win32') ({ cmd, args } = updater.windowsInstallCommand(upd.file, { relaunch }));
+  else {
+    cmd = '/bin/sh';
+    args = [upd.prepared.scriptPath];
+  }
+  fs.writeFileSync(installingFile(), JSON.stringify({ version, from: appVersion(), at: Date.now() }));
+  diag('maj', 'installation lancée', { version, relaunch });
+  // Tests : jamais d'installation réelle, la commande est écrite dans un journal.
+  if (E2E && process.env.MARGINALIA_E2E_UPDATE_SPAWN_LOG) {
+    fs.appendFileSync(process.env.MARGINALIA_E2E_UPDATE_SPAWN_LOG, JSON.stringify({ cmd, args, relaunch, version, script: upd.prepared ? upd.prepared.script : null }) + '\n');
+    return;
+  }
+  if (E2E) return;
+  const child = require('node:child_process').spawn(cmd, args, { detached: true, stdio: 'ignore', windowsHide: true });
+  child.unref();
+}
+
+/** « Redémarrer pour mettre à jour » : contrôle, préparation, puis fermeture (données écrites avant). */
+handle('marginalia:updateInstall', async () => {
+  try {
+    await prepareInstall(true);
+  } catch (e) {
+    diag('maj', 'installation refusée', e && (e.code || e.message));
+    if (e && e.code === 'paquet') await recordFailed(upd.release && upd.release.version);
+    return { ok: false, error: (e && e.message) || 'Installation impossible.' };
+  }
+  upd.relaunch = true;
+  upd.status = 'installing';
+  updEmit({ type: 'installing', ...updState() });
+  setTimeout(() => app.quit(), 50);
+  return { ok: true };
+});
+
+async function recordFailed(version) {
+  if (!version) return;
+  await fsp.mkdir(updatesDir(), { recursive: true }).catch(() => {});
+  await fsp.writeFile(failedFile(), JSON.stringify({ version, at: Date.now() })).catch(() => {});
+}
+
+/** À la fermeture (après l'écriture des données) : installation demandée ou programmée. */
+async function runPendingInstall() {
+  if (!upd.release || !upd.file) return;
+  const now = upd.relaunch;
+  if (!now && !(upd.installOnQuit && upd.status === 'ready')) return;
+  if (!now) {
+    // Fenêtres masquées pendant la préparation (Mac : quelques secondes de copie).
+    for (const w of BrowserWindow.getAllWindows()) if (!w.isDestroyed()) w.hide();
+    upd.status = 'ready';
+    try {
+      await prepareInstall(false);
+    } catch (e) {
+      diag('maj', 'installation à la fermeture refusée', e && (e.code || e.message));
+      if (e && e.code === 'paquet') await recordFailed(upd.release.version);
+      return;
+    }
+  }
+  try {
+    launchInstaller(now);
+  } catch (e) {
+    diag('maj', 'lancement de l’installation impossible', e && e.message);
+  }
+}
+
+/** Au démarrage : résultat d'une installation lancée par la session précédente, ménage du dossier. */
+async function cleanUpdates() {
+  const dir = updatesDir();
+  const pending = await fsp.readFile(installingFile(), 'utf8').then(JSON.parse, () => null);
+  if (pending) {
+    await fsp.rm(installingFile(), { force: true });
+    const result = await fsp.readFile(path.join(dir, 'install-result.txt'), 'utf8').catch(() => '');
+    if (compareVersions(appVersion(), pending.version) >= 0) diag('maj', 'mise à jour installée', { version: pending.version, de: pending.from });
+    else {
+      // Toujours l'ancienne version : l'installation n'a pas abouti (on ne la retentera pas).
+      diag('maj', 'mise à jour non installée', { version: pending.version, resultat: result.trim() });
+      await recordFailed(pending.version);
+    }
+  }
+  await fsp.rm(path.join(dir, 'install-result.txt'), { force: true }).catch(() => {});
+  for (const name of await fsp.readdir(dir).catch(() => [])) {
+    const full = path.join(dir, name);
+    if (/^\d+(\.\d+)*$/.test(name) && compareVersions(name, appVersion()) <= 0) await fsp.rm(full, { recursive: true, force: true }).catch(() => {});
+    else if (name.startsWith('mnt-')) await fsp.rmdir(full).catch(() => {}); // point de montage vide laissé
+  }
+  const failed = await fsp.readFile(failedFile(), 'utf8').then(JSON.parse, () => null);
+  if (failed && compareVersions(failed.version, appVersion()) <= 0) await fsp.rm(failedFile(), { force: true });
+  // Mac : copie préparée mais jamais mise en place (fermeture interrompue), à côté de l'app.
+  const appPath = updatePlatform() === 'darwin' ? updateMacApp() : null;
+  if (appPath && !pending) {
+    const base = path.basename(appPath, '.app');
+    for (const name of await fsp.readdir(path.dirname(appPath)).catch(() => [])) {
+      if (name.startsWith(`.${base}-maj-`) && name.endsWith('.app')) await fsp.rm(path.join(path.dirname(appPath), name), { recursive: true, force: true }).catch(() => {});
+    }
+  }
+}
 
 // ── Réception par le Wi-Fi (voir electron/wifi.cjs) ──
 const wifiReceiver = wifiKit.createReceiver({
@@ -3419,6 +3683,7 @@ app.whenReady().then(async () => {
   session.defaultSession.setPermissionRequestHandler((_wc, perm, cb) => cb(perm === 'local-fonts' || perm === 'localFonts'));
   buildMenu();
   cleanStaleTemp().catch((e) => diag('nettoyage', e && e.message));
+  cleanUpdates().catch((e) => diag('maj', 'nettoyage', e && e.message));
   startAutoLock();
   // Fichiers passés en argument au lancement (Windows, Linux : double-clic dans l'Explorateur ;
   // macOS passe par `open-file`).
@@ -3463,6 +3728,9 @@ app.on('before-quit', (event) => {
   appQuitting = true;
   flushAll()
     .catch((e) => diag('base', 'fermeture', e && e.message))
+    // Mise à jour demandée (« Redémarrer ») ou programmée à la fermeture : après l'écriture des données.
+    .then(() => runPendingInstall())
+    .catch((e) => diag('maj', 'fermeture', e && e.message))
     .finally(() => {
       diag('app', 'fermeture');
       quitReady = true;

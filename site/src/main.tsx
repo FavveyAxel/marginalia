@@ -657,6 +657,46 @@ const CREW: { who: string; color: string; character: CharacterDef; seq: [Pose, n
   { who: 'Aristote', color: '#15803d', character: aristote, seq: [['read', 600000]] },
 ];
 
+/** La collaboration filmée chez Marc (scripts/video-collab.mjs) : lue en boucle, sans son, seulement quand elle est
+ *  à l'écran ; mouvement réduit : pas de lecture automatique, l'affiche et les contrôles. */
+function TogetherVideo() {
+  const ref = useRef<HTMLVideoElement>(null);
+  const [still] = useState(reduced);
+  useEffect(() => {
+    const v = ref.current;
+    if (!v || still || typeof IntersectionObserver !== 'function') return;
+    v.muted = true; // lecture automatique permise : vidéo muette
+    const io = new IntersectionObserver(
+      ([e]) => {
+        if (e.isIntersecting) void v.play().catch(() => {});
+        else v.pause();
+      },
+      { threshold: 0.25 },
+    );
+    io.observe(v);
+    return () => io.disconnect();
+  }, [still]);
+  return (
+    <video
+      ref={ref}
+      className="together-shot"
+      width={1440}
+      height={900}
+      poster="/captures/ensemble-poster.jpg"
+      autoPlay={!still}
+      muted
+      loop
+      playsInline
+      preload="metadata"
+      controls={still}
+      aria-label="Vidéo, vue depuis l’écran de Marc dans l’espace partagé « Parjure » : le pointeur de Léa déplace une carte, entourée de sa couleur, pendant que celui d’Inès bouge aussi ; puis Léa écrit une phrase qui apparaît lettre à lettre, et sélectionne un passage du Discours de la méthode, teinté à sa couleur avec son prénom"
+    >
+      <source src="/captures/ensemble.webm" type="video/webm" />
+      <source src="/captures/ensemble.mp4" type="video/mp4" />
+    </video>
+  );
+}
+
 function Together() {
   return (
     <section className="together reveal" id="ensemble" aria-labelledby="together-title">
@@ -673,7 +713,7 @@ function Together() {
       </div>
       <div className="together-stage">
         <div className="shot-wrap" data-perch="ensemble">
-          <img className="together-shot" src="/captures/ensemble-carte.png" alt="Une carte partagée dans l’espace « Parjure » : les pointeurs de Léa et d’Inès, et la carte que Léa déplace, entourée de sa couleur" width={1040} height={760} loading="lazy" />
+          <TogetherVideo />
         </div>
         <img className="together-card" src="/captures/ensemble-code.png" alt="La fenêtre « Travailler à plusieurs » : le code 324-508, les trois étapes sur l’autre ordinateur, et les six places" width={640} height={476} loading="lazy" />
         <ul className="crew" aria-label="Trois philosophes travaillent ensemble : l’un discute, l’autre écrit, le troisième lit">

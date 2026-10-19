@@ -832,15 +832,19 @@ function App() {
   const mine = DOWNLOADS.filter((d) => d.os === (os === 'win' ? 'win' : 'mac'));
   // Barre du haut collée en haut : un filet apparaît dès qu'on a défilé.
   const [scrolled, setScrolled] = useState(false);
+  const topRef = useRef<HTMLElement>(null);
   useEffect(() => {
-    const f = () => setScrolled(window.scrollY > 8);
+    const f = () => {
+      setScrolled(window.scrollY > 8);
+      topRef.current?.style.setProperty('--top-p', String(Math.min(1, Math.max(0, window.scrollY / 140)).toFixed(3)));
+    };
     f();
     window.addEventListener('scroll', f, { passive: true });
     return () => window.removeEventListener('scroll', f);
   }, []);
   return (
     <>
-      <header className={`top${scrolled ? ' is-scrolled' : ''}`}>
+      <header ref={topRef} className={`top${scrolled ? ' is-scrolled' : ''}`}>
         <a className="brand" href="#">
           <img src="/icon.png" alt="" width={28} height={28} /> Marginalia
         </a>

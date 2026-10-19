@@ -61,12 +61,16 @@ h1, h2 { font-family: var(--font-display); font-weight: 400; margin: 0; line-hei
   padding: 1rem max(var(--gutter), calc((100% - 75rem) / 2 + var(--gutter)));
   display: flex; align-items: center; justify-content: space-between;
   font-family: var(--font-ui); font-size: 0.9375rem;
-  background: color-mix(in srgb, var(--bg-app) 94%, transparent);
-  -webkit-backdrop-filter: saturate(1.4) blur(12px); backdrop-filter: saturate(1.4) blur(12px);
-  border-bottom: 1px solid transparent;
-  transition: border-color 0.2s, padding 0.2s;
+  /* --top-p : 0 en haut de page (barre transparente : Rousseau, debout sur la page, reste entier), puis
+     le fond, le flou et le filet arrivent petit à petit avec le défilement (1 après ~140 px). */
+  --top-p: 0;
+  background: color-mix(in srgb, var(--bg-app) calc(var(--top-p) * 94%), transparent);
+  -webkit-backdrop-filter: saturate(calc(1 + var(--top-p) * 0.4)) blur(calc(var(--top-p) * 12px));
+  backdrop-filter: saturate(calc(1 + var(--top-p) * 0.4)) blur(calc(var(--top-p) * 12px));
+  border-bottom: 1px solid color-mix(in srgb, var(--border) calc(var(--top-p) * 100%), transparent);
+  transition: padding 0.2s;
 }
-.top.is-scrolled { border-bottom-color: var(--border); padding-top: 0.625rem; padding-bottom: 0.625rem; }
+.top.is-scrolled { padding-top: 0.625rem; padding-bottom: 0.625rem; }
 html { scroll-padding-top: 4.5rem; }
 @media (prefers-reduced-motion: reduce) { .top { transition: none; } }
 .brand { display: inline-flex; align-items: center; gap: 0.625rem; text-decoration: none; font-weight: 600; letter-spacing: -0.01em; }

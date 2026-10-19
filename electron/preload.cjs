@@ -240,5 +240,18 @@ api.firstRun = () => ipcRenderer.invoke('marginalia:firstRun');
 api.updates = {
   version: () => ipcRenderer.invoke('marginalia:appVersion'),
   check: () => ipcRenderer.invoke('marginalia:checkUpdate'),
+  // Mise à jour automatique : le processus principal ne télécharge que le fichier du manifeste signé
+  // qu'il a lui-même vérifié (le rendu ne transmet aucune adresse).
+  support: () => ipcRenderer.invoke('marginalia:updateSupport'),
+  state: () => ipcRenderer.invoke('marginalia:updateState'),
+  download: () => ipcRenderer.invoke('marginalia:updateDownload'),
+  cancel: (discard) => ipcRenderer.invoke('marginalia:updateCancel', !!discard),
+  install: () => ipcRenderer.invoke('marginalia:updateInstall'),
+  setInstallOnQuit: (on) => ipcRenderer.invoke('marginalia:updateInstallOnQuit', !!on),
+  onEvent: (cb) => {
+    const handler = (_e, evt) => cb(evt);
+    ipcRenderer.on('marginalia:updateEvent', handler);
+    return () => ipcRenderer.removeListener('marginalia:updateEvent', handler);
+  },
 };
 contextBridge.exposeInMainWorld('marginalia', api);

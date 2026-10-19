@@ -79,6 +79,10 @@ Tout fonctionne en local sur l'ordinateur : aucun compte, aucun serveur. Les liv
 (`~/Library/Application Support/Marginalia` sur Mac, `%APPDATA%\Marginalia` sur Windows). La reconnaissance du texte des images (tesseract.js) et le correcteur tournent hors ligne,
 la télémétrie de l'éditeur (SuperDoc) est désactivée, et l'app bloque toute requête réseau sortante, sauf la vérification
 des mises à jour au lancement (lecture de la dernière Release GitHub, sans aucune donnée envoyée ; désactivable dans les Réglages).
+Sur Mac et Windows installés, la nouvelle version est ensuite téléchargée depuis la Release et installée au redémarrage ou à la
+fermeture, seulement si le manifeste `latest.json` est signé (Ed25519, clé publique dans `electron/update-key.cjs`, clé privée dans
+le secret `MARGINALIA_UPDATE_KEY` de la CI) et si la taille et l'empreinte SHA-256 du fichier correspondent ; sinon l'app propose
+la page de téléchargement du site.
 La réception et l'envoi par le Wi-Fi (QR code) n'acceptent que des connexions du réseau local, et seulement pendant que leur fenêtre est
 ouverte. Seuls les liens cliqués s'ouvrent dans votre navigateur.
 

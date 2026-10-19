@@ -628,6 +628,8 @@ export interface Settings {
   updateCheck?: boolean;
   /** Version dont l'annonce « nouvelle version disponible » a été écartée (« Plus tard »). */
   updateDismissed?: string;
+  /** Mise à jour téléchargée : installée d'elle-même à la fermeture ('auto', défaut) ou seulement sur demande ('ask'). */
+  updateAutoInstall?: 'auto' | 'ask';
   /** Dernière version dont les nouveautés ont été vues (fenêtre « Quoi de neuf »). */
   lastSeenVersion?: string;
   /** Visite guidée terminée ou passée (elle ne se lance plus d'elle-même). */

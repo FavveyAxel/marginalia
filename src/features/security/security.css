@@ -235,3 +235,4 @@
 .set-who-card:disabled { cursor: default; }
 .set-who-sprite { width: 52px; height: 68px; display: block; }
 .set-who-name { font-size: var(--fs-sm); }
+.set-auto.is-off .set-control { opacity: 0.55; }

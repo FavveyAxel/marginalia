@@ -23,6 +23,8 @@ import {
   FolderCog,
   QrCode,
   RefreshCw,
+  RotateCw,
+  Download,
   Sparkles,
 } from 'lucide-react';
 import { host, type SecurityStatus } from '../../lib/platform';
@@ -35,7 +37,7 @@ import { LEVEL_STEPS, MASCOT_DEFAULT, levelFor, type MascotFreq } from '../masco
 import { STAY_HINT, STAY_LABELS } from '../mascot/scenes';
 import { CHARACTERS, CHARACTER_IDS, type CharId } from '../mascot/characters';
 import { chooseInboxDir, openWifiReceive, prettyDir, resetInboxDir, revealInbox, setInboxEnabled, useInbox, wifiAvailable } from '../inbox/inbox';
-import { checkForUpdate, newsAvailable, showNews, useUpdates } from '../updates/Updates';
+import { checkForUpdate, newsAvailable, restartToUpdate, showNews, useUpdates } from '../updates/Updates';
 import type { UpdateInfo } from '../../lib/platform';
 import './security.css';
 
@@ -1024,17 +1026,48 @@ function InboxSettings() {
   );
 }
 
-/** Mises à jour : vérification au lancement (Release GitHub), recherche manuelle, nouveautés. */
+const AUTO_INSTALL: { v: 'auto' | 'ask'; label: string }[] = [
+  { v: 'auto', label: 'Oui' },
+  { v: 'ask', label: 'Me demander' },
+];
+
+/** Mises à jour : vérification au lancement (Release GitHub), installation automatique, recherche manuelle, nouveautés. */
 function UpdateSettings() {
   const check = useStore((s) => s.settings.updateCheck !== false);
+  const mode = useStore((s) => (s.settings.updateAutoInstall === 'ask' ? 'ask' : 'auto'));
   const version = useUpdates((s) => s.version);
+  const dl = useUpdates((s) => s.dl);
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<UpdateInfo | null>(null);
+  const [support, setSupport] = useState<{ ok: boolean; reason?: string } | null>(null);
+  useEffect(() => {
+    let alive = true;
+    void host.updates?.support?.().then((r) => alive && setSupport(r), () => undefined);
+    return () => {
+      alive = false;
+    };
+  }, []);
   const run = async () => {
     setBusy(true);
     setResult(await checkForUpdate());
     setBusy(false);
   };
+  const setCheck = (v: boolean) => {
+    useStore.getState().updateSettings({ updateCheck: v });
+    // Plus de vérification : le téléchargement en cours s'arrête (la partie reçue est gardée).
+    if (!v && useUpdates.getState().dl?.status === 'downloading') void host.updates?.cancel?.(false);
+  };
+  const autoOk = !!support?.ok;
+  const status =
+    dl?.status === 'downloading'
+      ? `Téléchargement de la version ${dl.version}… ${dl.total ? Math.floor((dl.received / dl.total) * 100) : 0} %`
+      : dl?.status === 'ready'
+        ? `La version ${dl.version} est téléchargée et vérifiée.`
+        : dl?.status === 'installing'
+          ? 'Redémarrage…'
+          : dl?.status === 'error'
+            ? `La mise à jour automatique n’a pas abouti : ${dl.error}`
+            : null;
   return (
     <section className="set-section" aria-labelledby="set-updates">
       <h2 className="set-section-title" id="set-updates">
@@ -1044,15 +1077,49 @@ function UpdateSettings() {
         <Row
           icon={<RefreshCw size={17} />}
           title="Vérifier les mises à jour au lancement"
-          desc="Marginalia regarde s’il existe une nouvelle version publiée et vous la présente. C’est sa seule connexion à Internet : aucune donnée n’est envoyée, rien n’est téléchargé sans vous."
+          desc="Marginalia regarde s’il existe une nouvelle version publiée. C’est sa seule connexion à Internet : aucune donnée n’est envoyée. Une nouvelle version n’est installée que si sa signature et son empreinte sont vérifiées."
         >
-          <Switch on={check} onChange={(v) => useStore.getState().updateSettings({ updateCheck: v })} label="Vérifier les mises à jour au lancement" />
+          <Switch on={check} onChange={setCheck} label="Vérifier les mises à jour au lancement" />
         </Row>
+        <li className={`set-row sub set-auto ${!check || !autoOk ? 'is-off' : ''}`} data-testid="set-auto-install">
+          <span className="set-icon" aria-hidden="true">
+            <Download size={15} />
+          </span>
+          <div className="set-body">
+            <span className="set-title">Installer automatiquement les mises à jour</span>
+            <span className="set-desc">
+              {support && !support.ok
+                ? support.reason
+                : mode === 'auto'
+                  ? 'La nouvelle version se télécharge en arrière-plan, puis s’installe quand vous redémarrez Marginalia ou à sa fermeture.'
+                  : 'La nouvelle version se télécharge en arrière-plan ; Marginalia vous demande quand l’installer.'}
+            </span>
+          </div>
+          <div className="set-control">
+            <div className="segmented set-seg" role="radiogroup" aria-label="Installer automatiquement les mises à jour">
+              {AUTO_INSTALL.map((o) => (
+                <button
+                  type="button"
+                  key={o.v}
+                  role="radio"
+                  aria-checked={mode === o.v}
+                  className={mode === o.v ? 'active' : ''}
+                  disabled={!check || !autoOk}
+                  onClick={() => useStore.getState().updateSettings({ updateAutoInstall: o.v })}
+                >
+                  {o.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        </li>
         <Row
           icon={<Info size={17} />}
           title={`Version installée : ${version ?? '…'}`}
           desc={
-            result?.error
+            status
+              ? status
+              : result?.error
               ? result.error
               : result?.newer
                 ? `La version ${result.latest} est disponible.`
@@ -1067,7 +1134,11 @@ function UpdateSettings() {
                 <Sparkles size={13} /> Nouveautés
               </button>
             )}
-            {result?.newer ? (
+            {dl?.status === 'ready' ? (
+              <button className="btn btn-sm btn-primary" onClick={() => void restartToUpdate()}>
+                <RotateCw size={13} /> Redémarrer pour mettre à jour
+              </button>
+            ) : dl?.status === 'downloading' || dl?.status === 'installing' ? null : result?.newer ? (
               <button className="btn btn-sm btn-primary" onClick={() => useUpdates.setState({ update: result, notesOpen: true })}>
                 Voir la version {result.latest}
               </button>

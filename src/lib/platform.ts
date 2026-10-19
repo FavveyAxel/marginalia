@@ -103,7 +103,19 @@ export interface UpdateInfo {
   /** Page de téléchargement du site (s'ouvre dans le navigateur). */
   downloadUrl?: string;
   error?: string;
+  /** Mise à jour automatique possible (manifeste signé vérifié, système pris en charge) ; null : pas de nouvelle version. */
+  auto?: { ok: boolean; reason?: string } | null;
 }
+
+/** Mise à jour automatique : état du téléchargement et de l'installation (processus principal). */
+export interface UpdateState {
+  status: 'idle' | 'downloading' | 'ready' | 'error' | 'installing';
+  version: string | null;
+  received: number;
+  total: number;
+  error: string | null;
+}
+export type UpdateEvent = UpdateState & { type: 'progress' | 'ready' | 'error' | 'cancelled' | 'installing' };
 
 /** Envoi d'un document vers le téléphone (QR code, réseau local) : chemin inverse de la réception. */
 export interface SendToPhoneApi {
@@ -239,6 +251,16 @@ export interface DiskAccessApi {
 export interface UpdatesApi {
   version(): Promise<string>;
   check(): Promise<UpdateInfo>;
+  /** Ce Marginalia peut-il s'installer lui-même (Mac/Windows installés) ? */
+  support?(): Promise<{ ok: boolean; reason?: string }>;
+  state?(): Promise<UpdateState>;
+  /** Télécharge en arrière-plan le fichier vérifié par le dernier check() (repris s'il a été interrompu). */
+  download?(): Promise<{ ok: boolean; error?: string; state?: UpdateState }>;
+  cancel?(discard?: boolean): Promise<UpdateState>;
+  /** Redémarre pour installer (données écrites avant) ; { ok: false } : rien n'est installé. */
+  install?(): Promise<{ ok: boolean; error?: string }>;
+  setInstallOnQuit?(on: boolean): Promise<boolean>;
+  onEvent?(cb: (e: UpdateEvent) => void): () => void;
 }
 
 export type WifiEvent =

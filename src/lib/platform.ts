@@ -162,6 +162,68 @@ export interface ShareNetApi {
   onEvent(cb: (e: ShareNetEvent) => void): () => void;
 }
 
+// ── Travailler à plusieurs (réseau local) : voir electron/collab-net.cjs et src/features/collab ──
+/** Personne présente dans une session (l'hôte a l'id « h »). */
+export interface CollabMember {
+  id: string;
+  name: string;
+  color: string;
+  device: string;
+  host: boolean;
+  /** « away » : invité coupé, sa place est gardée quelques minutes. */
+  state: 'live' | 'away';
+}
+export interface CollabRequest {
+  reqId: string;
+  device: string;
+  name: string;
+  color: string;
+  address: string;
+}
+export interface CollabHostInfo {
+  open: boolean;
+  /** null : code fermé après trop d'essais (nouveau code possible). */
+  code?: string | null;
+  codeState?: 'open' | 'tries';
+  port?: number;
+  discovery?: boolean;
+  addresses?: string[];
+  members?: CollabMember[];
+  requests?: CollabRequest[];
+}
+export type CollabEvent =
+  | ({ side: 'host'; type: 'request'; at: number } & CollabRequest)
+  | { side: 'host'; type: 'request-closed'; reqId: string; reason: string }
+  | { side: 'host'; type: 'attempt'; ok: false; remaining: number }
+  | { side: 'host'; type: 'code-closed'; reason: 'tries' }
+  | { side: 'host' | 'guest'; type: 'members'; members: CollabMember[] }
+  | { side: 'host' | 'guest'; type: 'message'; from: string; bytes: Uint8Array }
+  | { side: 'host'; type: 'stopped'; reason: string }
+  | { side: 'guest'; type: 'hello'; you: string; resumed: boolean; meta: Record<string, unknown>; members: CollabMember[] }
+  | { side: 'guest'; type: 'link'; state: 'connected' | 'reconnecting' | 'closed'; reason?: string };
+export interface CollabFound {
+  ticket: string;
+  meta: Record<string, unknown>;
+  people: number;
+  from: { address: string; port: number; name: string; host: string };
+}
+export interface CollabNetApi {
+  hostStart(meta: Record<string, unknown>, profile: { name: string; color: string }): Promise<CollabHostInfo>;
+  hostStop(): Promise<void>;
+  hostInfo(): Promise<CollabHostInfo>;
+  hostAccept(reqId: string): Promise<boolean>;
+  hostReject(reqId: string): Promise<boolean>;
+  hostNewCode(): Promise<CollabHostInfo>;
+  find(code: string, manualAddress: string | undefined, profile: { name: string; color: string }): Promise<CollabFound>;
+  join(ticket: string): Promise<{ you: string; meta: Record<string, unknown>; members: CollabMember[] }>;
+  leave(): Promise<void>;
+  /** `to` : 'all', 'h' (l'hôte) ou l'id d'un invité. */
+  send(to: string, bytes: Uint8Array): Promise<boolean | number>;
+  /** Tests (MARGINALIA_E2E) : coupe le lien et bloque la reconnexion `ms` millisecondes. */
+  cut(ms: number): Promise<boolean>;
+  onEvent(cb: (e: CollabEvent) => void): () => void;
+}
+
 /** Mac : autorisation « Accès complet au disque » (lecture des données de l'app Livres). */
 export interface DiskAccessApi {
   status(): Promise<{ status: 'granted' | 'denied' | 'nobooks' }>;
@@ -337,6 +399,8 @@ export interface HostApi {
   sendToPhone?: SendToPhoneApi;
   /** Partage direct avec une autre Marginalia du réseau local (code à 6 chiffres). */
   shareNet?: ShareNetApi;
+  /** Travailler à plusieurs : session en direct sur le réseau local (app de bureau). */
+  collabNet?: CollabNetApi;
   /** Tout premier lancement sur cet ordinateur (aucune donnée de Marginalia avant ce lancement). */
   firstRun?(): Promise<boolean>;
   diskAccess?: DiskAccessApi;

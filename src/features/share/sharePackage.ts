@@ -306,7 +306,7 @@ export async function citedHighlightIds(data: ArrayBuffer): Promise<string[]> {
 }
 
 /** Copie partageable d'un écrit : sans notes privées (ni leurs notes de bas de page), citations gardées. */
-async function shareableDocx(data: ArrayBuffer): Promise<{ data: ArrayBuffer; removed: number }> {
+export async function shareableDocx(data: ArrayBuffer): Promise<{ data: ArrayBuffer; removed: number }> {
   if (!(await hasPrivateNotes(data))) return { data, removed: 0 };
   // stripForExport retire aussi les signets de citation : on les renomme le temps du nettoyage.
   const shielded = await rewriteDocxXml(data, (x) => x.split(CITE_BOOKMARK_PREFIX).join(CITE_SHIELD));
@@ -503,7 +503,7 @@ function titleOfId(s: State, id: string): string | null {
  * (sinon seulement leurs métadonnées et l'empreinte SHA-256 du fichier, pour les reconnaître).
  * Ne modifie rien dans la base.
  */
-export async function buildSharePackage(sel: ShareSelection, opts: { includeBooks: boolean }): Promise<{ bytes: Uint8Array; summary: ShareSummary }> {
+export async function buildSharePackage(sel: ShareSelection, opts: { includeBooks: boolean; /** Joindre seulement ces livres (travail à plusieurs : ceux que l'autre n'a pas). */ includeBookIds?: string[] }): Promise<{ bytes: Uint8Array; summary: ShareSummary }> {
   const s = useStore.getState();
   const skipped: string[] = [];
   const p = emptyPicked();
@@ -600,7 +600,7 @@ export async function buildSharePackage(sel: ShareSelection, opts: { includeBook
       entry.sha256 = b.sourceSha256 ?? null;
       continue;
     }
-    if (!opts.includeBooks) {
+    if (!opts.includeBooks && !opts.includeBookIds?.includes(b.id)) {
       const fp = await bookFingerprint(b);
       if (fp) Object.assign(entry, fp);
       else skipped.push(`Livre « ${b.title} » : fichier introuvable, empreinte non calculée`);
@@ -636,7 +636,7 @@ export async function buildSharePackage(sel: ShareSelection, opts: { includeBook
     scope: sel.kind,
     shareId,
     counts: countsOf(data, booksWithFile),
-    booksIncluded: opts.includeBooks && booksWithFile > 0,
+    booksIncluded: (opts.includeBooks || !!opts.includeBookIds?.length) && booksWithFile > 0,
     books: entries,
     integrity,
   };

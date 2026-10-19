@@ -216,6 +216,25 @@ api.shareNet = {
     return () => ipcRenderer.removeListener('marginalia:share', handler);
   },
 };
+// ── Travailler à plusieurs (réseau local) : session en direct, octets opaques relayés par l'hôte ──
+api.collabNet = {
+  hostStart: (meta, profile) => ipcRenderer.invoke('marginalia:collabHostStart', meta, profile),
+  hostStop: () => ipcRenderer.invoke('marginalia:collabHostStop'),
+  hostInfo: () => ipcRenderer.invoke('marginalia:collabHostInfo'),
+  hostAccept: (reqId) => ipcRenderer.invoke('marginalia:collabHostAccept', String(reqId)),
+  hostReject: (reqId) => ipcRenderer.invoke('marginalia:collabHostReject', String(reqId)),
+  hostNewCode: () => ipcRenderer.invoke('marginalia:collabHostNewCode'),
+  find: (code, manualAddress, profile) => ipcRenderer.invoke('marginalia:collabFind', String(code), manualAddress ? String(manualAddress) : undefined, profile),
+  join: (ticket) => ipcRenderer.invoke('marginalia:collabJoin', String(ticket)),
+  leave: () => ipcRenderer.invoke('marginalia:collabLeave'),
+  send: (to, bytes) => ipcRenderer.invoke('marginalia:collabSend', String(to), bytes),
+  cut: (ms) => ipcRenderer.invoke('marginalia:collabCut', Number(ms) || 0),
+  onEvent: (cb) => {
+    const handler = (_e, evt) => cb(evt);
+    ipcRenderer.on('marginalia:collab', handler);
+    return () => ipcRenderer.removeListener('marginalia:collab', handler);
+  },
+};
 api.firstRun = () => ipcRenderer.invoke('marginalia:firstRun');
 api.updates = {
   version: () => ipcRenderer.invoke('marginalia:appVersion'),

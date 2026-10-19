@@ -188,6 +188,7 @@ try {
   await B.page.fill('[data-testid="collab-name"]', 'Marc');
   await B.page.click('.cl-swatch[data-color="#1d4ed8"]');
   await B.page.fill('[data-testid="join-code"]', code);
+  await B.page.click('.br-trouble summary'); // aide repliée : « Rien n’est trouvé ? »
   await B.page.click('text=Saisir une adresse');
   await B.page.fill('[data-testid="join-address"]', `127.0.0.1:${proxyPort}`);
   await B.page.click('[data-testid="join-go"]');

@@ -544,3 +544,9 @@ a.btn-primary:hover { background: #3a342b; }
 .phone-note p { margin: 0; font-size: 0.9375rem; line-height: 1.45; color: var(--ink-2); }
 .phone-note p strong { display: block; color: var(--ink); font-weight: 600; }
 .phone-note.is-compact { margin: 1.25rem 0 0.5rem; }
+
+/* Héros : de la place au-dessus de la page annotée pour Rousseau, debout dessus, qu'il ne passe jamais sous
+   la barre du haut ni sur « Télécharger », quelle que soit la hauteur de l'écran. */
+@media (min-width: 901px) {
+  .hero .page { margin-top: 10rem; }
+}

@@ -374,7 +374,7 @@ function CollabPanel({ workspaceId, onClose }: { workspaceId: string; onClose: (
       <div className="cl-body" data-testid="collab-live">
         {c.codeState === 'open' && c.code ? (
           <>
-            <BigCode code={c.code} testid="collab-code" />
+            <BigCode code={c.code} testid="collab-code" copy />
             {c.internet && (
               <p className="sh-small center cl-anywhere" data-testid="collab-internet">
                 Même sans être sur le même Wi-Fi : le code suffit, d’où que l’on soit.

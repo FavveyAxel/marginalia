@@ -3760,7 +3760,8 @@ app.whenReady().then(async () => {
     session.defaultSession.setSpellCheckerEnabled(false);
     session.defaultSession.setSpellCheckerDictionaryDownloadURL('file:///nonexistent/');
   }
-  session.defaultSession.setPermissionRequestHandler((_wc, perm, cb) => cb(perm === 'local-fonts' || perm === 'localFonts'));
+  // Polices locales, et écriture dans le presse-papiers (« Copier » : code de session, citation…) ; jamais sa lecture.
+  session.defaultSession.setPermissionRequestHandler((_wc, perm, cb) => cb(perm === 'local-fonts' || perm === 'localFonts' || perm === 'clipboard-sanitized-write'));
   buildMenu();
   cleanStaleTemp().catch((e) => diag('nettoyage', e && e.message));
   cleanUpdates().catch((e) => diag('maj', 'nettoyage', e && e.message));

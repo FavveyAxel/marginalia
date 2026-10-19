@@ -3,8 +3,8 @@
 //  - Steps : ce qu'il faut faire sur l'autre ordinateur, en trois petites étapes illustrées ;
 //  - ContentChips : ce qui part ou arrive, en vignettes avec icônes plutôt qu'en phrase ;
 //  - Trouble : l'aide repliée (« Ça ne trouve pas ? ») — point d'accès, pare-feu, adresse.
-import type { ReactNode } from 'react';
-import { BookOpen, Check, ChevronRight, FilePen, GraduationCap, Highlighter, Laptop, Lightbulb, ListTree, Network, ScrollText, Sigma } from 'lucide-react';
+import { useEffect, useState, type ReactNode } from 'react';
+import { BookOpen, Check, ChevronRight, Copy, FilePen, GraduationCap, Highlighter, Laptop, Lightbulb, ListTree, Network, ScrollText, Sigma } from 'lucide-react';
 import { host } from '../../lib/platform';
 import { hotspotHint } from './shareUi';
 
@@ -94,13 +94,34 @@ export function Steps({ items }: { items: { icon: ReactNode; label: ReactNode }[
 }
 
 /** Le code en grand, d'un seul tenant (« 735-700 »). */
-export function BigCode({ code, testid }: { code: string; testid: string }) {
+export function BigCode({ code, testid, copy = false }: { code: string; testid: string; copy?: boolean }) {
   const d = code.replace(/\D/g, '');
-  return (
+  const [copied, setCopied] = useState(false);
+  useEffect(() => {
+    if (!copied) return;
+    const t = setTimeout(() => setCopied(false), 1800);
+    return () => clearTimeout(t);
+  }, [copied]);
+  const big = (
     <div className="sh-code" data-testid={testid} data-code={d} aria-label={`Code ${d.split('').join(' ')}`}>
       {d.slice(0, 3)}
       <span className="sh-dash" aria-hidden="true">-</span>
       {d.slice(3)}
+    </div>
+  );
+  if (!copy) return big;
+  // Copier le code pour l'envoyer par message (à distance, par Internet) : « 975-222 », collé tel quel côté invité.
+  const doCopy = () =>
+    void navigator.clipboard
+      ?.writeText(`${d.slice(0, 3)}-${d.slice(3)}`)
+      .then(() => setCopied(true))
+      .catch(() => undefined);
+  return (
+    <div className="sh-code-row">
+      {big}
+      <button type="button" className={`btn btn-sm sh-code-copy${copied ? ' is-done' : ''}`} onClick={doCopy} aria-live="polite" data-testid={`${testid}-copy`}>
+        {copied ? <Check size={14} /> : <Copy size={14} />} {copied ? 'Copié' : 'Copier le code'}
+      </button>
     </div>
   );
 }

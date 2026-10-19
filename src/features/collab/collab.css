@@ -32,7 +32,7 @@
 .cl-ask p { margin: 0; color: var(--ink); line-height: 1.45; display: flex; align-items: center; gap: 10px; }
 .cl-ask-sub { font-size: var(--fs-sm); color: var(--muted) !important; }
 .cl-ask-actions { display: flex; align-items: center; gap: 8px; justify-content: flex-end; }
-.cl-asks { position: fixed; right: 18px; bottom: 18px; z-index: 170; display: flex; flex-direction: column; gap: 10px; width: min(420px, calc(100vw - 36px)); }
+.cl-asks { position: fixed; right: 18px; bottom: 18px; z-index: 170; display: flex; flex-direction: column; gap: 10px; width: min(420px, calc(100vw - 36px)); max-height: calc(100vh - 36px); overflow-y: auto; overscroll-behavior: contain; padding: 4px; margin: -4px; }
 .cl-asks .cl-ask { box-shadow: var(--shadow-lg); background: color-mix(in srgb, var(--primary) 7%, var(--bg-panel)); }
 
 /* Barre latérale : l'espace partagé est encadré */

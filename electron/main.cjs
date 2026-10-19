@@ -2363,7 +2363,10 @@ const upd = {
   relaunch: false, // « Redémarrer pour mettre à jour »
   prepared: null, // Mac : app copiée et script écrit
 };
-const updState = () => ({ status: upd.status, version: upd.release ? upd.release.version : null, received: upd.received, total: upd.total, error: upd.error });
+// Windows : jamais d'installation à la fermeture (l'installateur silencieux tournait encore quand on
+// relançait l'app, qui semblait alors lente à s'ouvrir) ; on redémarre quand on veut.
+const quitInstall = () => updatePlatform() !== 'win32';
+const updState = () => ({ status: upd.status, version: upd.release ? upd.release.version : null, received: upd.received, total: upd.total, error: upd.error, quitInstall: quitInstall() });
 function updEmit(evt) {
   for (const w of BrowserWindow.getAllWindows()) if (!w.isDestroyed()) w.webContents.send('marginalia:updateEvent', evt);
 }
@@ -2430,7 +2433,7 @@ handle('marginalia:checkUpdate', async () => {
     return { current, latest: null, newer: false, error: 'Impossible de joindre GitHub (pas de connexion ?).' };
   }
 });
-handle('marginalia:updateSupport', () => updateSupport());
+handle('marginalia:updateSupport', () => ({ ...updateSupport(), quitInstall: quitInstall() }));
 handle('marginalia:updateState', () => updState());
 
 /** Téléchargement en arrière-plan du fichier du manifeste vérifié (repris s'il a été interrompu). */
@@ -2483,7 +2486,7 @@ handle('marginalia:updateCancel', async (_e, discard) => {
   return updState();
 });
 handle('marginalia:updateInstallOnQuit', (_e, on) => {
-  upd.installOnQuit = !!on;
+  upd.installOnQuit = !!on && quitInstall();
   return upd.installOnQuit;
 });
 
@@ -2553,7 +2556,7 @@ async function recordFailed(version) {
 async function runPendingInstall() {
   if (!upd.release || !upd.file) return;
   const now = upd.relaunch;
-  if (!now && !(upd.installOnQuit && upd.status === 'ready')) return;
+  if (!now && !(upd.installOnQuit && upd.status === 'ready' && quitInstall())) return;
   if (!now) {
     // Fenêtres masquées pendant la préparation (Mac : quelques secondes de copie).
     for (const w of BrowserWindow.getAllWindows()) if (!w.isDestroyed()) w.hide();

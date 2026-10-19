@@ -50,7 +50,7 @@
   box-shadow: var(--shadow-sm);
   border: 0;
   text-align: left;
-  cursor: default;
+  cursor: pointer;
 }
 button.home-card {
   color: inherit;
@@ -237,7 +237,7 @@ button.home-card {
   border-radius: var(--radius-sm);
   background: transparent;
   text-align: left;
-  cursor: default;
+  cursor: pointer;
   transition: background var(--dur-fast);
 }
 .home-recent-row:hover {

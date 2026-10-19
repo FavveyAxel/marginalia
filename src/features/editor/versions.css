@@ -76,7 +76,7 @@
   color: inherit;
   font: inherit;
   text-align: left;
-  cursor: default;
+  cursor: pointer;
   border-radius: var(--radius-md);
 }
 .ver-time {

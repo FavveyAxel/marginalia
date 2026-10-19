@@ -328,11 +328,33 @@ function windowsInstallCheck({ exe, env = process.env }) {
 const psQuote = (s) => "'" + String(s).replace(/'/g, "''") + "'";
 function windowsInstallCommand(setupPath, { relaunch, exe = null, env = process.env }) {
   if (!relaunch || !exe) return { cmd: setupPath, args: ['/S', '--updated'] };
+  // L'installateur est silencieux : une petite fenêtre « Mise à jour de Marginalia… » reste affichée
+  // pendant qu'il tourne, pour qu'on ne croie pas l'app fermée ou lente à se lancer. Si elle ne peut pas
+  // s'ouvrir (try/catch), l'installation se fait quand même.
   const script = [
-    `$p = Start-Process -FilePath ${psQuote(setupPath)} -ArgumentList '/S','--updated' -PassThru -Wait`,
+    '$f = $null',
+    'try {',
+    ' Add-Type -AssemblyName System.Windows.Forms, System.Drawing',
+    ' [System.Windows.Forms.Application]::EnableVisualStyles()',
+    ' $f = New-Object System.Windows.Forms.Form',
+    " $f.Text = 'Marginalia'; $f.FormBorderStyle = 'None'; $f.StartPosition = 'CenterScreen'; $f.TopMost = $true",
+    ' $f.ClientSize = New-Object System.Drawing.Size(400, 132); $f.BackColor = [System.Drawing.Color]::FromArgb(251, 249, 244)',
+    ' $t = New-Object System.Windows.Forms.Label',
+    " $t.Text = 'Mise à jour de Marginalia…'; $t.Font = New-Object System.Drawing.Font('Segoe UI Semibold', 13)",
+    ' $t.ForeColor = [System.Drawing.Color]::FromArgb(29, 26, 21); $t.AutoSize = $true; $t.Location = New-Object System.Drawing.Point(26, 24)',
+    ' $d = New-Object System.Windows.Forms.Label',
+    " $d.Text = 'Marginalia se rouvre toute seule dans quelques secondes.'; $d.Font = New-Object System.Drawing.Font('Segoe UI', 9.5)",
+    ' $d.ForeColor = [System.Drawing.Color]::FromArgb(110, 102, 90); $d.AutoSize = $true; $d.Location = New-Object System.Drawing.Point(27, 56)',
+    ' $b = New-Object System.Windows.Forms.ProgressBar',
+    " $b.Style = 'Marquee'; $b.MarqueeAnimationSpeed = 28; $b.Size = New-Object System.Drawing.Size(348, 6); $b.Location = New-Object System.Drawing.Point(26, 96)",
+    ' $f.Controls.AddRange(@($t, $d, $b)); $f.Show(); [System.Windows.Forms.Application]::DoEvents()',
+    '} catch { $f = $null }',
+    `$p = Start-Process -FilePath ${psQuote(setupPath)} -ArgumentList '/S','--updated' -PassThru`,
+    'while (-not $p.HasExited) { if ($f) { [System.Windows.Forms.Application]::DoEvents() }; Start-Sleep -Milliseconds 50 }',
     'Start-Sleep -Milliseconds 800',
     `if (Test-Path -LiteralPath ${psQuote(exe)}) { Start-Process -FilePath ${psQuote(exe)} -ArgumentList '--updated' }`,
-  ].join('; ');
+    'if ($f) { Start-Sleep -Milliseconds 1500; $f.Close() }',
+  ].join('\n');
   const ps = path.win32.join(env.SystemRoot || 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
   return {
     cmd: ps,

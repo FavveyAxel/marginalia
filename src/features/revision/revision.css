@@ -278,7 +278,7 @@
   background: transparent;
   text-align: left;
   border-radius: var(--radius-md);
-  cursor: default;
+  cursor: pointer;
 }
 .rev-src-row:hover {
   background: var(--bg-hover);
@@ -376,7 +376,7 @@
   background: transparent;
   font: inherit;
   color: inherit;
-  cursor: default;
+  cursor: pointer;
   transition: background var(--dur-fast) var(--ease-out);
 }
 .rev-word:hover {
@@ -611,7 +611,7 @@
   text-decoration: underline;
   text-underline-offset: 3px;
   text-decoration-color: var(--border-strong);
-  cursor: default;
+  cursor: pointer;
 }
 .rev-link:hover {
   text-decoration-color: var(--ink);
@@ -644,7 +644,7 @@
   border-top: 2px solid var(--tone, var(--border-strong));
   border-radius: var(--radius-md);
   background: var(--bg-panel);
-  cursor: default;
+  cursor: pointer;
   transition: background var(--dur) var(--ease-out), transform var(--dur-fast) var(--ease-out);
 }
 .rev-grade:hover {

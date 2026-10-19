@@ -173,7 +173,7 @@ textarea {
   border-radius: var(--radius-sm);
   font-size: var(--fs-md);
   text-align: left;
-  cursor: default;
+  cursor: pointer;
   color: var(--ink-2);
   white-space: nowrap;
   overflow: hidden;
@@ -239,7 +239,7 @@ textarea {
   background: var(--bg-panel);
   font-size: var(--fs-md);
   font-weight: 500;
-  cursor: default;
+  cursor: pointer;
   white-space: nowrap;
   transition: background var(--dur) var(--ease), border-color var(--dur) var(--ease), transform 80ms;
 }
@@ -280,7 +280,7 @@ textarea {
   border: 0;
   background: transparent;
   color: var(--ink-2);
-  cursor: default;
+  cursor: pointer;
   flex: none;
   transition: background var(--dur) var(--ease);
 }
@@ -356,7 +356,7 @@ textarea {
   background: transparent;
   font-size: var(--fs-sm);
   color: var(--ink-2);
-  cursor: default;
+  cursor: pointer;
   white-space: nowrap;
 }
 .chip:hover {
@@ -383,7 +383,7 @@ textarea {
   font-size: var(--fs-sm);
   font-weight: 500;
   color: var(--muted);
-  cursor: default;
+  cursor: pointer;
 }
 .segmented button.active {
   background: var(--bg-panel);
@@ -417,7 +417,7 @@ textarea {
   background: transparent;
   text-align: left;
   font-size: var(--fs-md);
-  cursor: default;
+  cursor: pointer;
 }
 .menu-item:hover,
 .menu-item.focused {
@@ -516,7 +516,7 @@ textarea {
   background: transparent;
   font-size: var(--fs-sm);
   font-weight: 500;
-  cursor: default;
+  cursor: pointer;
   color: var(--ink-2);
 }
 .sel-toolbar .cat-btn:hover {
@@ -613,7 +613,7 @@ textarea {
   color: inherit;
   font-weight: 600;
   text-decoration: underline;
-  cursor: default;
+  cursor: pointer;
   padding: 0 0 0 4px;
 }
 
@@ -992,4 +992,12 @@ textarea {
 @media (prefers-reduced-motion: reduce) {
   .ocr-scan-band { animation: none; top: 36%; }
   .ocr-scan-corners { animation: none; }
+}
+
+/* Curseur main sur tout ce qui se clique (spécificité nulle : un curseur précis — glisser, redimensionner — l'emporte). */
+:where(button, a[href], summary, select, label[for], [role='button'], [role='tab'], [role='menuitem'], [role='menuitemcheckbox'], [role='menuitemradio'], [role='option'], [role='switch'], [role='checkbox'], [role='radio'], input:is([type='checkbox'], [type='radio'], [type='range'], [type='color'], [type='file'], [type='button'], [type='submit'])):not(:where(:disabled, [aria-disabled='true'])) {
+  cursor: pointer;
+}
+:where(label:has(> input:is([type='checkbox'], [type='radio']):not(:disabled))) {
+  cursor: pointer;
 }

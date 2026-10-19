@@ -1041,7 +1041,7 @@ function UpdateSettings() {
   const dl = useUpdates((s) => s.dl);
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<UpdateInfo | null>(null);
-  const [support, setSupport] = useState<{ ok: boolean; reason?: string } | null>(null);
+  const [support, setSupport] = useState<{ ok: boolean; reason?: string; quitInstall?: boolean } | null>(null);
   useEffect(() => {
     let alive = true;
     void host.updates?.support?.().then((r) => alive && setSupport(r), () => undefined);
@@ -1060,6 +1060,8 @@ function UpdateSettings() {
     if (!v && useUpdates.getState().dl?.status === 'downloading') void host.updates?.cancel?.(false);
   };
   const autoOk = !!support?.ok;
+  // Windows : téléchargée toute seule, installée quand on choisit de redémarrer (rien à régler).
+  const askRestart = support?.quitInstall === false;
   const status =
     dl?.status === 'downloading'
       ? `Téléchargement de la version ${dl.version}… ${dl.total ? Math.floor((dl.received / dl.total) * 100) : 0} %`
@@ -1088,32 +1090,36 @@ function UpdateSettings() {
             <Download size={15} />
           </span>
           <div className="set-body">
-            <span className="set-title">Installer automatiquement les mises à jour</span>
+            <span className="set-title">{askRestart ? 'Mises à jour automatiques' : 'Installer automatiquement les mises à jour'}</span>
             <span className="set-desc">
               {support && !support.ok
                 ? support.reason
-                : mode === 'auto'
+                : askRestart
+                  ? 'La nouvelle version se télécharge en arrière-plan. Marginalia vous prévient quand elle est prête : vous choisissez quand redémarrer pour l’installer.'
+                  : mode === 'auto'
                   ? 'La nouvelle version se télécharge en arrière-plan, puis s’installe quand vous redémarrez Marginalia ou à sa fermeture.'
                   : 'La nouvelle version se télécharge en arrière-plan ; Marginalia vous demande quand l’installer.'}
             </span>
           </div>
-          <div className="set-control">
-            <div className="segmented set-seg" role="radiogroup" aria-label="Installer automatiquement les mises à jour">
-              {AUTO_INSTALL.map((o) => (
-                <button
-                  type="button"
-                  key={o.v}
-                  role="radio"
-                  aria-checked={mode === o.v}
-                  className={mode === o.v ? 'active' : ''}
-                  disabled={!check || !autoOk}
-                  onClick={() => useStore.getState().updateSettings({ updateAutoInstall: o.v })}
-                >
-                  {o.label}
-                </button>
-              ))}
+          {!askRestart && (
+            <div className="set-control">
+              <div className="segmented set-seg" role="radiogroup" aria-label="Installer automatiquement les mises à jour">
+                {AUTO_INSTALL.map((o) => (
+                  <button
+                    type="button"
+                    key={o.v}
+                    role="radio"
+                    aria-checked={mode === o.v}
+                    className={mode === o.v ? 'active' : ''}
+                    disabled={!check || !autoOk}
+                    onClick={() => useStore.getState().updateSettings({ updateAutoInstall: o.v })}
+                  >
+                    {o.label}
+                  </button>
+                ))}
+              </div>
             </div>
-          </div>
+          )}
         </li>
         <Row
           icon={<Info size={17} />}

@@ -1,0 +1,40 @@
+/* Infobulle de l'app (voir tooltips.ts) : petite étiquette encre sur papier, au-dessus de tout. */
+.app-tip {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 100000;
+  max-width: 280px;
+  padding: 5px 9px 6px;
+  border-radius: 7px;
+  background: var(--ink);
+  color: var(--bg-panel);
+  font-family: var(--font-ui);
+  font-size: var(--fs-sm);
+  font-weight: 500;
+  line-height: 1.35;
+  white-space: pre-line;
+  overflow-wrap: anywhere;
+  box-shadow: 0 6px 18px -6px rgba(20, 15, 8, 0.35);
+  pointer-events: none;
+  opacity: 0;
+  visibility: hidden;
+  translate: 0 2px;
+  transition: opacity 110ms var(--ease-out, ease), translate 110ms var(--ease-out, ease), visibility 0s linear 110ms;
+}
+.app-tip[data-side='above'] {
+  translate: 0 -2px;
+}
+.app-tip.on {
+  opacity: 1;
+  visibility: visible;
+  translate: 0 0;
+  transition: opacity 110ms var(--ease-out, ease), translate 110ms var(--ease-out, ease), visibility 0s;
+}
+@media (prefers-reduced-motion: reduce) {
+  .app-tip,
+  .app-tip.on {
+    transition: none;
+    translate: 0 0;
+  }
+}

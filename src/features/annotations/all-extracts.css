@@ -22,7 +22,7 @@
 .ax-book .muted { font-weight: 400; }
 .ax-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--sp-2); }
 .ax-item { background: var(--bg-panel); border: 1px solid var(--border); border-radius: var(--radius-md); display: flex; flex-direction: column; }
-.ax-main { display: flex; flex-direction: column; gap: 8px; text-align: left; border: 0; background: transparent; padding: 14px 16px 6px; color: var(--ink); cursor: default; width: 100%; font: inherit; border-radius: var(--radius-md) var(--radius-md) 0 0; }
+.ax-main { display: flex; flex-direction: column; gap: 8px; text-align: left; border: 0; background: transparent; padding: 14px 16px 6px; color: var(--ink); cursor: pointer; width: 100%; font: inherit; border-radius: var(--radius-md) var(--radius-md) 0 0; }
 .ax-main:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
 .ax-meta { display: flex; align-items: center; gap: 8px; font-size: var(--fs-xs); color: var(--ink-2); font-weight: 500; }
 .ax-meta .muted { font-weight: 400; }
@@ -38,7 +38,7 @@
 .ax-foot.float-foot .ax-concepts { display: none; }
 .ax-item:has(.float-foot) .ax-main { padding-bottom: 14px; border-radius: var(--radius-md); }
 .ax-concepts { flex: 1; display: flex; flex-wrap: wrap; gap: 4px; min-width: 0; }
-.ax-concept { border: 1px solid var(--border); background: var(--bg-inset); color: var(--ink-2); border-radius: 999px; height: 20px; padding: 0 8px; font-size: var(--fs-xs); cursor: default; transition: background var(--dur) var(--ease-out); }
+.ax-concept { border: 1px solid var(--border); background: var(--bg-inset); color: var(--ink-2); border-radius: 999px; height: 20px; padding: 0 8px; font-size: var(--fs-xs); cursor: pointer; transition: background var(--dur) var(--ease-out); }
 .ax-concept:hover { background: var(--bg-hover); }
 .ax-copy { opacity: 0; transition: opacity var(--dur) var(--ease-out); }
 .ax-item:hover .ax-copy, .ax-item:focus-within .ax-copy { opacity: 1; }

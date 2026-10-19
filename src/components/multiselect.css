@@ -84,7 +84,7 @@
   background: var(--bg-panel);
   color: #fff;
   box-shadow: var(--shadow-sm);
-  cursor: default;
+  cursor: pointer;
   transition: background var(--dur) var(--ease), border-color var(--dur) var(--ease), transform 80ms;
 }
 .msel-check:hover {

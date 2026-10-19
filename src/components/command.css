@@ -69,7 +69,7 @@
   height: 36px;
   padding: 0 10px;
   border-radius: 8px;
-  cursor: default;
+  cursor: pointer;
 }
 .cmd-item.focused {
   background: var(--bg-active);

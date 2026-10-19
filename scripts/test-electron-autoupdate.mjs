@@ -167,8 +167,8 @@ try {
   // Réglages
   await settingsShot(page, '14-reglages-clair.png');
   const row = page.locator('[data-testid="set-auto-install"]');
-  ok((await row.innerText()).includes('Installer automatiquement les mises à jour'), 'réglage « Installer automatiquement les mises à jour »');
-  ok((await row.locator('button[aria-checked="true"]').innerText()) === 'Oui', 'par défaut : Oui');
+  ok((await row.innerText()).includes('vous choisissez quand redémarrer'), 'Windows : réglage « vous choisissez quand redémarrer »', await row.innerText());
+  ok((await row.locator('button[role="radio"]').count()) === 0, 'Windows : pas de choix « installer à la fermeture »');
   ok((await page.locator('#set-updates').locator('..').innerText()).includes('La version 3.28 est téléchargée et vérifiée'), 'réglages : état de la mise à jour');
   await theme(page, 'dark');
   await page.waitForTimeout(250);
@@ -179,12 +179,11 @@ try {
   await page.click('[data-testid="update-ready"] button:has-text("Plus tard")');
   await page.waitForSelector('[data-testid="update-ready"]', { state: 'detached' });
   ok(true, '« Plus tard » : bannière fermée');
-  ok((await page.locator('body').innerText()).includes('La mise à jour s’installera à la fermeture'), '« Plus tard » : installation annoncée à la fermeture');
-  ok(spawnLog(H1).length === 0, 'rien n’est installé avant la fermeture');
+  ok((await page.locator('body').innerText()).includes('redémarrez quand vous voulez'), '« Plus tard » (Windows) : la mise à jour attend un redémarrage choisi');
   await app.close();
   let log = spawnLog(H1);
-  ok(log.length === 1 && log[0].cmd === dlFile && log[0].args.join(' ') === '/S --updated' && log[0].relaunch === false, 'fermeture : installateur lancé en silencieux, sans relance', log);
-  ok(fs.existsSync(path.join(H1, 'userData', 'updates', 'installing.json')), 'installation en cours notée (contrôle au lancement suivant)');
+  ok(log.length === 0, 'Windows, fermeture : rien n’est installé (on redémarre quand on veut)', log);
+  ok(fs.existsSync(dlFile), 'la mise à jour reste téléchargée pour plus tard');
 
   // Lancement suivant : la 3.28 tourne.
   ({ app, page } = await launch(H1, '3.28', WIN_ENV));
@@ -196,7 +195,7 @@ try {
   await page.waitForTimeout(5500);
   ok(!(await page.$('[data-testid="update-progress"]')) && !(await page.$('[data-testid="update-ready"]')), 'à jour : plus rien à télécharger');
   await app.close();
-  ok(spawnLog(H1).length === 1, 'à jour : rien d’installé à la fermeture');
+  ok(spawnLog(H1).length === 0, 'à jour : rien d’installé à la fermeture');
 
   // ── 2. Windows, « Me demander » ──
   const H2 = path.join(TMP, 'h2');
@@ -221,7 +220,7 @@ try {
   {
     const enc = log[0] && log[0].args[log[0].args.indexOf('-EncodedCommand') + 1];
     const script = enc ? Buffer.from(enc, 'base64').toString('utf16le') : '';
-    ok(log.length === 1 && /powershell\.exe$/i.test(log[0].cmd) && /Marginalia-win-x64-setup\.exe' -ArgumentList '\/S','--updated' -PassThru -Wait/.test(script) && script.includes(WIN_ENV.MARGINALIA_E2E_UPDATE_EXE.replace(/'/g, "''")) && log[0].relaunch === true, 'Redémarrer : installateur silencieux attendu, puis Marginalia rouverte', script || log);
+    ok(log.length === 1 && /powershell\.exe$/i.test(log[0].cmd) && /Marginalia-win-x64-setup\.exe' -ArgumentList '\/S','--updated' -PassThru/.test(script) && /while \(-not \$p\.HasExited\)/.test(script) && script.includes('Mise à jour de Marginalia…') && script.includes(WIN_ENV.MARGINALIA_E2E_UPDATE_EXE.replace(/'/g, "''")) && log[0].relaunch === true, 'Redémarrer : installateur silencieux attendu, puis Marginalia rouverte', script || log);
   }
   await app.close().catch(() => {});
 

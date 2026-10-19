@@ -161,7 +161,7 @@
   background: transparent;
   color: var(--muted);
   font-size: var(--fs-xs);
-  cursor: default;
+  cursor: pointer;
   transition: background var(--dur) var(--ease), color var(--dur) var(--ease), border-color var(--dur) var(--ease);
 }
 .cm-filter:hover {
@@ -189,7 +189,7 @@
   color: var(--ink);
   user-select: text;
   -webkit-user-select: text;
-  cursor: default;
+  cursor: pointer;
   animation: cm-in 260ms var(--ease-out) backwards;
   transition: box-shadow 180ms var(--ease-out), opacity 180ms var(--ease-out), background 180ms var(--ease-out);
 }

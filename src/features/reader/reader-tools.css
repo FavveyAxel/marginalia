@@ -37,7 +37,7 @@
   font-size: var(--fs-md);
   line-height: 1.35;
   color: var(--ink-2);
-  cursor: default;
+  cursor: pointer;
 }
 .toc-item.d0 {
   font-weight: 500;
@@ -186,7 +186,7 @@
   border-radius: 6px;
   background: transparent;
   text-align: left;
-  cursor: default;
+  cursor: pointer;
 }
 .search-bar-hit:hover {
   background: var(--bg-hover);

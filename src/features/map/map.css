@@ -1104,7 +1104,7 @@
   font-size: var(--fs-md);
   font-weight: 500;
   box-shadow: var(--shadow-md);
-  cursor: default;
+  cursor: pointer;
 }
 .map-drawer-open span {
   min-width: 18px;
@@ -1219,7 +1219,7 @@
   border-radius: 7px;
   background: transparent;
   color: color-mix(in srgb, var(--zc) 55%, var(--ink-2));
-  cursor: default;
+  cursor: pointer;
 }
 .map-zone-btn:hover {
   background: color-mix(in srgb, var(--zc) 15%, transparent);
@@ -1385,7 +1385,7 @@ body.map-zone-grabbing * {
   color: color-mix(in srgb, var(--cat-these) 55%, var(--ink));
   font: 500 var(--fs-sm) var(--font-ui);
   white-space: nowrap;
-  cursor: default;
+  cursor: pointer;
   transition: background var(--dur) var(--ease);
 }
 .map-gaps-pill:hover,
@@ -1455,7 +1455,7 @@ body.map-zone-grabbing * {
   color: var(--ink);
   font-size: var(--fs-sm);
   text-align: left;
-  cursor: default;
+  cursor: pointer;
 }
 .map-gap-item:hover {
   background: var(--bg-hover);
@@ -1813,7 +1813,7 @@ body.map-zone-grabbing * {
   background: var(--bg-page);
   color: var(--ink);
   text-align: left;
-  cursor: default;
+  cursor: pointer;
   transition:
     background var(--dur) var(--ease),
     border-color var(--dur) var(--ease);
@@ -1867,7 +1867,7 @@ body.map-zone-grabbing * {
   background: transparent;
   color: var(--ink);
   text-align: left;
-  cursor: default;
+  cursor: pointer;
 }
 .map-insert-row:hover {
   background: var(--bg-hover);

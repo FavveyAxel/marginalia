@@ -147,6 +147,8 @@ export interface UpdateState {
   received: number;
   total: number;
   error: string | null;
+  /** Installation possible à la fermeture (pas sous Windows : on redémarre quand on veut). */
+  quitInstall?: boolean;
 }
 export type UpdateEvent = UpdateState & { type: 'progress' | 'ready' | 'error' | 'cancelled' | 'installing' };
 
@@ -285,7 +287,7 @@ export interface UpdatesApi {
   version(): Promise<string>;
   check(): Promise<UpdateInfo>;
   /** Ce Marginalia peut-il s'installer lui-même (Mac/Windows installés) ? */
-  support?(): Promise<{ ok: boolean; reason?: string }>;
+  support?(): Promise<{ ok: boolean; reason?: string; quitInstall?: boolean }>;
   state?(): Promise<UpdateState>;
   /** Télécharge en arrière-plan le fichier vérifié par le dernier check() (repris s'il a été interrompu). */
   download?(): Promise<{ ok: boolean; error?: string; state?: UpdateState }>;

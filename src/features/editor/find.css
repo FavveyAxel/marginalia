@@ -37,7 +37,7 @@
   background: transparent;
   color: var(--muted);
   border-radius: var(--radius-sm);
-  cursor: default;
+  cursor: pointer;
 }
 .ed-find-chev svg {
   transition: transform 160ms var(--ease-out);
@@ -97,7 +97,7 @@
   background: transparent;
   color: var(--ink-2);
   border-radius: var(--radius-sm);
-  cursor: default;
+  cursor: pointer;
   transition: background 120ms var(--ease-out), color 120ms var(--ease-out);
 }
 .ed-find-opt {

@@ -109,7 +109,7 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  cursor: default;
+  cursor: pointer;
   font-variant-numeric: tabular-nums;
 }
 .ed-mk-tag > span {

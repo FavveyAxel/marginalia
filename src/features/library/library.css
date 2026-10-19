@@ -254,7 +254,7 @@
   display: flex;
   flex-direction: column;
   min-width: 0;
-  cursor: default;
+  cursor: pointer;
   outline: none;
 }
 .lib-card-cover {
@@ -334,7 +334,7 @@
   padding: 0 10px;
   border-radius: var(--radius-sm);
   font-size: var(--fs-md);
-  cursor: default;
+  cursor: pointer;
   outline: none;
 }
 .lib-row:not(.lib-row-head):hover,
@@ -714,3 +714,10 @@
 /* Livre papier : pastille sobre (encre de l'interface, pas de couleur vive). */
 .lib-paper-tag { display: inline-flex; align-items: center; padding: 0 7px; border-radius: 999px; font-size: var(--fs-xs); line-height: 1.6; font-weight: 500; letter-spacing: 0.02em; color: var(--ink-2); background: var(--bg-inset); border: 1px solid var(--border); }
 .lib-paper-tag.inline { margin-left: 8px; vertical-align: 1px; }
+
+/* Pas de main sur les cartes en chargement ni sur l’en-tête du tableau. */
+.lib-card.lib-skeleton,
+.lib-row.lib-skeleton,
+.lib-row.lib-row-head {
+  cursor: default;
+}

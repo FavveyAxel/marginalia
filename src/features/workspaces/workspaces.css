@@ -34,7 +34,7 @@
   border-radius: var(--radius-sm);
   color: var(--ink-2);
   font-size: var(--fs-md);
-  cursor: default;
+  cursor: pointer;
   outline-offset: -2px;
   transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out);
 }
@@ -67,7 +67,7 @@
   border-radius: 4px;
   background: transparent;
   color: var(--muted);
-  cursor: default;
+  cursor: pointer;
 }
 .ws-chev.empty svg {
   opacity: 0.35;
@@ -144,7 +144,7 @@
   background: transparent;
   color: var(--muted);
   font-size: var(--fs-sm);
-  cursor: default;
+  cursor: pointer;
   transition: background var(--dur-fast), color var(--dur-fast);
 }
 .ws-empty-cta:hover {
@@ -397,7 +397,7 @@
   height: 36px;
   padding: 0 8px;
   border-radius: var(--radius-sm);
-  cursor: default;
+  cursor: pointer;
 }
 .ws-pick-row:hover {
   background: var(--bg-hover);
@@ -438,7 +438,7 @@
   border-radius: var(--radius-sm);
   background: transparent;
   text-align: left;
-  cursor: default;
+  cursor: pointer;
 }
 .ws-move-row:hover:not(:disabled) {
   background: var(--bg-hover);
@@ -492,7 +492,7 @@
   background: transparent;
   color: var(--muted);
   font-size: var(--fs-md);
-  cursor: default;
+  cursor: pointer;
   transition: background var(--dur-fast), color var(--dur-fast);
 }
 .ws-crumb:hover {
@@ -597,7 +597,7 @@
   border-radius: var(--radius-md);
   background: var(--bg-panel);
   box-shadow: var(--shadow-sm);
-  cursor: default;
+  cursor: pointer;
 }
 .ws-tile-main {
   display: flex;
@@ -610,7 +610,7 @@
   background: transparent;
   text-align: left;
   color: inherit;
-  cursor: default;
+  cursor: pointer;
 }
 .ws-tile-ico {
   flex: none;
@@ -687,7 +687,7 @@
   border-radius: var(--radius-md);
   background: var(--bg-panel);
   box-shadow: var(--shadow-sm);
-  cursor: default;
+  cursor: pointer;
 }
 .ws-card-main {
   display: flex;
@@ -699,7 +699,7 @@
   background: transparent;
   text-align: left;
   color: inherit;
-  cursor: default;
+  cursor: pointer;
 }
 .ws-card-preview {
   position: relative;

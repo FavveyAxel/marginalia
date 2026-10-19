@@ -141,7 +141,7 @@
   background: transparent;
   color: var(--ink);
   text-align: left;
-  cursor: default;
+  cursor: pointer;
   transition: background var(--dur) var(--ease);
 }
 .ed-book-title:hover {
@@ -269,7 +269,7 @@
   background: transparent;
   color: var(--ink);
   text-align: left;
-  cursor: default;
+  cursor: pointer;
 }
 .ed-bookpick-item.is-cursor {
   background: var(--bg-hover);
@@ -314,7 +314,7 @@
   background: transparent;
   color: var(--ink);
   text-align: left;
-  cursor: default;
+  cursor: pointer;
 }
 .ed-cpt-head:hover {
   background: var(--bg-hover);

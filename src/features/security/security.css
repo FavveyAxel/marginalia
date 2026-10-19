@@ -79,7 +79,7 @@
 /* Interrupteur */
 .sec-switch {
   flex: none; position: relative; width: 36px; height: 21px; border-radius: 999px; border: 0; padding: 0;
-  background: var(--border-strong); transition: background var(--dur) var(--ease); cursor: default;
+  background: var(--border-strong); transition: background var(--dur) var(--ease); cursor: pointer;
 }
 .sec-switch span {
   position: absolute; top: 2px; left: 2px; width: 17px; height: 17px; border-radius: 50%;
@@ -178,7 +178,7 @@
 .lock-touch { height: 34px; }
 .lock-link {
   margin-top: 4px; align-self: center; border: 0; background: transparent; color: var(--muted); font-size: var(--fs-sm);
-  display: inline-flex; align-items: center; gap: 4px; padding: 4px 6px; border-radius: var(--radius-sm); cursor: default;
+  display: inline-flex; align-items: center; gap: 4px; padding: 4px 6px; border-radius: var(--radius-sm); cursor: pointer;
 }
 .lock-link:hover { color: var(--ink); background: var(--bg-hover); }
 .lock-foot { margin: 0; font-size: var(--fs-sm); color: var(--faint); }

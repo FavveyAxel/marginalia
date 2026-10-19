@@ -230,7 +230,7 @@
   text-decoration-color: var(--ink-2);
 }
 .html-link-ext {
-  cursor: default;
+  cursor: pointer;
   text-decoration-style: dotted;
 }
 

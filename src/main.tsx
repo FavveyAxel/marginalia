@@ -6,11 +6,14 @@ import { App } from './App';
 import { applyPlatformClass } from './lib/keys';
 import { installErrorReporting } from './lib/diagnostics';
 import { ErrorBoundary } from './components/ErrorBoundary';
+import { installTooltips } from './components/tooltips';
 
 // Classe platform-mac / platform-win sur <html> avant le premier rendu (barre de titre, raccourcis).
 applyPlatformClass();
 // Erreurs non rattrapées → journal de diagnostic local (app de bureau).
 installErrorReporting();
+// Infobulles HTML à la place des infobulles natives des attributs title.
+installTooltips();
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>

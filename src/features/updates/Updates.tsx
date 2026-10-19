@@ -42,7 +42,7 @@ const autoInstall = () => useStore.getState().settings.updateAutoInstall !== 'as
 /** Installer à la fermeture : réglage « Oui », ou « Plus tard » choisi explicitement. */
 export function syncInstallOnQuit() {
   const { dl, later } = useUpdates.getState();
-  void host.updates?.setInstallOnQuit?.(dl?.status === 'ready' && (autoInstall() || later));
+  void host.updates?.setInstallOnQuit?.(dl?.status === 'ready' && dl.quitInstall !== false && (autoInstall() || later));
 }
 
 function applyState(st: UpdateState | null | undefined) {
@@ -99,7 +99,10 @@ export async function restartToUpdate(): Promise<boolean> {
 export function installLater() {
   useUpdates.setState({ later: true });
   syncInstallOnQuit();
-  useStore.getState().toast('La mise à jour s’installera à la fermeture de Marginalia.', 'info');
+  // Windows : rien à la fermeture, la mise à jour attend qu'on choisisse de redémarrer.
+  if (useUpdates.getState().dl?.quitInstall === false)
+    useStore.getState().toast('La mise à jour reste prête : redémarrez quand vous voulez depuis Réglages › Mises à jour.', 'info');
+  else useStore.getState().toast('La mise à jour s’installera à la fermeture de Marginalia.', 'info');
 }
 
 /** Rouvre les nouveautés de la version installée (réglages). */

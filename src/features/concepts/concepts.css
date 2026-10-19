@@ -31,7 +31,7 @@
 .cpt-row {
   display: flex; align-items: center; gap: 8px; width: 100%; min-height: 32px; padding: 0 10px;
   border: 0; border-radius: var(--radius-sm); background: transparent; text-align: left;
-  font-size: var(--fs-md); color: var(--ink); cursor: default;
+  font-size: var(--fs-md); color: var(--ink); cursor: pointer;
   transition: background var(--dur-fast) var(--ease-out);
 }
 .cpt-row:hover { background: var(--bg-hover); }
@@ -92,14 +92,14 @@
 .cpt-quote-chip {
   flex: 1; min-width: 0; display: flex; align-items: center; gap: 6px; height: 26px; padding: 0 8px;
   border: 0; border-radius: var(--radius-sm); background: color-mix(in srgb, var(--cat-concept) 10%, transparent);
-  font-family: var(--font-read); font-size: var(--fs-sm); color: var(--ink-2); text-align: left; cursor: default;
+  font-family: var(--font-read); font-size: var(--fs-sm); color: var(--ink-2); text-align: left; cursor: pointer;
 }
 .cpt-quote-chip:hover { background: color-mix(in srgb, var(--cat-concept) 18%, transparent); }
 .cpt-quote-chip svg { flex: none; color: var(--cat-concept); }
 .cpt-sense-foot { display: flex; }
 .cpt-picker { display: flex; flex-direction: column; gap: var(--sp-2); padding-top: var(--sp-2); border-top: 1px dashed var(--border-strong); }
 .cpt-picker-list { list-style: none; margin: 0; padding: 0; max-height: 220px; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; }
-.cpt-pick { display: flex; flex-direction: column; gap: 2px; width: 100%; padding: 6px 8px; border: 0; border-radius: var(--radius-sm); background: transparent; text-align: left; cursor: default; }
+.cpt-pick { display: flex; flex-direction: column; gap: 2px; width: 100%; padding: 6px 8px; border: 0; border-radius: var(--radius-sm); background: transparent; text-align: left; cursor: pointer; }
 .cpt-pick:hover { background: var(--bg-hover); }
 .cpt-pick-text { font-family: var(--font-read); font-size: var(--fs-md); line-height: 1.45; color: var(--ink); }
 .cpt-pick-meta { font-size: var(--fs-xs); }
@@ -112,7 +112,7 @@
 .cpt-kind-distingue { color: var(--rel-precise); background: color-mix(in srgb, var(--rel-precise) 12%, transparent); }
 .cpt-kind-oppose { color: var(--rel-objecte); background: color-mix(in srgb, var(--rel-objecte) 12%, transparent); }
 .cpt-kind-proche { color: var(--rel-soutient); background: color-mix(in srgb, var(--rel-soutient) 12%, transparent); }
-.cpt-link-name { border: 0; background: transparent; padding: 0; font-family: var(--font-display); font-size: 21px; color: var(--ink); cursor: default; border-bottom: 1px solid var(--border-strong); line-height: 1.2; }
+.cpt-link-name { border: 0; background: transparent; padding: 0; font-family: var(--font-display); font-size: 21px; color: var(--ink); cursor: pointer; border-bottom: 1px solid var(--border-strong); line-height: 1.2; }
 .cpt-link-name:hover { border-bottom-color: var(--ink); }
 .cpt-recip { font-size: var(--fs-xs); color: var(--faint); font-style: italic; }
 .cpt-link-note { width: 100%; border: 0; background: transparent; outline: none; padding: 3px 0; font-size: var(--fs-md); color: var(--ink-2); font-family: var(--font-read); }
@@ -137,7 +137,7 @@
 .cpt-book-title .muted { font-weight: 400; }
 .cpt-exlist { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--sp-2); }
 .cpt-ex { position: relative; display: flex; align-items: flex-start; gap: var(--sp-2); border-radius: var(--radius-md); background: var(--bg-page); box-shadow: var(--shadow-sm); }
-.cpt-ex-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; padding: 12px 14px; border: 0; background: transparent; text-align: left; cursor: default; color: var(--ink); }
+.cpt-ex-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; padding: 12px 14px; border: 0; background: transparent; text-align: left; cursor: pointer; color: var(--ink); }
 .cpt-ex-cat { display: flex; align-items: center; gap: 6px; font-size: var(--fs-xs); font-weight: 600; color: var(--ink-2); }
 .cpt-ex-notedot { width: 8px; height: 8px; border-radius: 2px; background: var(--faint); }
 .cpt-ex-text { font-family: var(--font-read); font-size: 14.5px; line-height: 1.6; }

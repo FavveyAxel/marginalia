@@ -128,7 +128,7 @@ mark.cl-diff { color: inherit; background: color-mix(in srgb, var(--who) 22%, tr
 .cl-seat-x { position: absolute; right: -3px; bottom: -3px; display: grid; place-items: center; width: 18px; height: 18px; border-radius: 50%; background: var(--bg-panel); color: var(--ink-2); box-shadow: 0 0 0 1px color-mix(in srgb, var(--ink) 18%, transparent); opacity: 0; transform: scale(0.6); transition: opacity 0.15s, transform 0.15s; }
 .cl-seat-btn:hover .cl-seat-x, .cl-seat-btn:focus-visible .cl-seat-x, .cl-seat.asking .cl-seat-x { opacity: 1; transform: none; }
 .cl-seat.asking .cl-seat-face { box-shadow: 0 0 0 3px var(--bg-panel), 0 0 0 5px var(--danger, #c53030); }
-.cl-remove { display: flex; align-items: center; gap: 14px; width: 100%; margin-top: 4px; padding: 12px 14px; border-radius: 12px; border-left: 4px solid var(--who); background: color-mix(in srgb, var(--who) 8%, var(--bg-panel)); }
+.cl-remove { display: flex; align-items: center; gap: 14px; width: 100%; margin-top: 4px; padding: 12px 14px; border-radius: 12px; border: 1px solid color-mix(in srgb, var(--who) 30%, transparent); background: color-mix(in srgb, var(--who) 7%, var(--bg-panel)); }
 .cl-remove p { margin: 0; flex: 1; display: flex; flex-direction: column; gap: 3px; font-size: var(--fs-sm); color: var(--ink-2); }
 .cl-remove strong { color: var(--ink); font-size: var(--fs-md, 14px); }
 .cl-remove-actions { display: flex; gap: 8px; flex-shrink: 0; }

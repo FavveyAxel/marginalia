@@ -110,6 +110,7 @@ try {
     ok(ev && ev.isbn === '9782080706881' && ev.device === 'iPhone' && /^isbn:/.test(ev.name), 'ordinateur : ISBN reçu (événement « isbn »)', ev);
     ok(fs.readdirSync(dir).length === 0, 'rien n’est écrit dans la boîte de réception (seul un ISBN)');
 
+
     // 2. Devenir renvoyé au téléphone, chiffré.
     rx.report(ev.name, { state: 'waiting', label: 'Du contrat social — GF Flammarion, 2001 : à confirmer sur l’ordinateur' });
     await page.waitForFunction(() => /à confirmer sur l’ordinateur/.test(document.querySelector('.li-res')?.textContent || ''), null, { timeout: 8000 });
@@ -140,8 +141,33 @@ try {
     ok(events.filter((e) => e.type === 'isbn').pop()?.isbn === '9782081275232', 'ISBN tapé : envoyé');
 
     // 6. Chiffrement : aucun ISBN en clair dans le trafic (dans un sens comme dans l'autre).
+    // 1b. Photo réaliste : dos de livre sombre, étiquette blanche, le fond touche presque la dernière barre
+    //     (marge claire trop étroite pour une lecture directe), photo floue et bruitée en 1512 × 2016.
+    const n1 = events.length;
+    const real = await page.evaluate((bits) => {
+      const c = document.createElement('canvas');
+      c.width = 1512; c.height = 2016;
+      const g = c.getContext('2d');
+      g.fillStyle = '#2a2e36'; g.fillRect(0, 0, c.width, c.height);
+      for (let i = 0; i < 9000; i++) { g.fillStyle = `rgba(255,255,255,${Math.random() * 0.05})`; g.fillRect(Math.random() * c.width, Math.random() * c.height, 3, 3); }
+      g.fillStyle = '#f2f2ee'; g.fillRect(250, 980, 0, 0);
+      const m = 6.2, x0 = 470, top = 930;
+      g.fillStyle = '#f3f3ef'; g.fillRect(410, top - 15, x0 + bits.length * m + 3 - 410, 360);
+      g.fillStyle = '#16161a';
+      for (let i = 0; i < bits.length; i++) if (bits[i] === '1') g.fillRect(x0 + i * m, top, m, i < 3 || (i > 44 && i < 50) || i > 91 ? 175 : 160);
+      g.font = '60px sans-serif'; g.fillText('9 782350 000121', 430, top + 230);
+      const out = document.createElement('canvas'); out.width = c.width; out.height = c.height;
+      const o = out.getContext('2d'); o.filter = 'blur(1.4px)'; o.drawImage(c, 0, 0);
+      return out.toDataURL('image/jpeg', 0.82).split(',')[1];
+    }, ean13Bits('9782350000121'));
+    await page.setInputFiles('#shot', { name: 'IMG_0001.jpg', mimeType: 'image/jpeg', buffer: Buffer.from(real, 'base64') });
+    const t0 = Date.now();
+    while (Date.now() - t0 < 20000 && !events.slice(n1).some((e) => e.type === 'isbn')) await page.waitForTimeout(200);
+    const ev2 = events.slice(n1).find((e) => e.type === 'isbn');
+    ok(ev2 && ev2.isbn === '9782350000121', 'photo réaliste (fond sombre collé aux barres, flou) : code-barres retrouvé, recadré et lu', ev2 ? ev2.isbn : await page.locator('#status').innerText());
+
     const traffic = relay.traffic();
-    const found = leaks(traffic, ['9782080706881', '9782070328703', '9782081275232', '978-2-08-127523-2', 'Du contrat social', 'isbn']);
+    const found = leaks(traffic, ['9782350000121', '9782080706881', '9782070328703', '9782081275232', '978-2-08-127523-2', 'Du contrat social', 'isbn']);
     ok(traffic.length > 2000 && found.length === 0, 'ISBN et titres jamais en clair sur le réseau (corps, adresses, réponses)', found);
     ok(errors.length === 0, 'aucune erreur (CSP comprise)', errors);
     await page.screenshot({ path: path.join(SHOTS, '13-telephone-scan-clair.png') });

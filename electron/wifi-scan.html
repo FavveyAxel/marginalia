@@ -261,6 +261,106 @@ canvas { display: none; }
     g.drawImage(src, 0, 0, cw, ch);
     g.restore();
   }
+  // ── Code-barres collé au fond du livre ──
+  // L'EAN exige une marge claire de chaque côté des barres ; sur bien des livres, le fond sombre de la
+  // couverture touche presque la dernière barre et la lecture de la photo entière échoue. On repère donc la
+  // zone des barres (beaucoup de contraste à l'horizontale, peu à la verticale), on recadre dessus, on retire
+  // le fond sombre (plus large qu'une barre) et on rajoute une marge blanche avant de relire.
+  function lumOf(d, n) {
+    var L = new Float32Array(n);
+    for (var i = 0; i < n; i++) L[i] = 0.299 * d[i * 4] + 0.587 * d[i * 4 + 1] + 0.114 * d[i * 4 + 2];
+    return L;
+  }
+  function findBars(c) {
+    var W = c.width, H = c.height, g = c.getContext('2d', { willReadFrequently: true });
+    var L = lumOf(g.getImageData(0, 0, W, H).data, W * H);
+    var B = 12, bw = Math.floor(W / B), bh = Math.floor(H / B), on = new Uint8Array(bw * bh);
+    for (var by = 0; by < bh; by++) for (var bx = 0; bx < bw; bx++) {
+      var gx = 0, gy = 0;
+      for (var y = by * B; y < by * B + B; y++) for (var x = bx * B; x < bx * B + B - 1; x++) {
+        var i = y * W + x;
+        gx += Math.abs(L[i + 1] - L[i]);
+        if (y + 1 < H) gy += Math.abs(L[i + W] - L[i]);
+      }
+      on[by * bw + bx] = gx > 2.5 * gy && gx / (B * B) > 18 ? 1 : 0;
+    }
+    var seen = new Uint8Array(bw * bh), best = null, steps = [[1, 0], [-1, 0], [0, 1], [0, -1], [2, 0], [-2, 0]];
+    for (var s0 = 0; s0 < bw * bh; s0++) {
+      if (!on[s0] || seen[s0]) continue;
+      var st = [s0], n = 0, x0 = 1e9, y0 = 1e9, x1 = -1, y1 = -1;
+      seen[s0] = 1;
+      while (st.length) {
+        var k = st.pop(), kx = k % bw, ky = (k / bw) | 0;
+        n++; x0 = Math.min(x0, kx); x1 = Math.max(x1, kx); y0 = Math.min(y0, ky); y1 = Math.max(y1, ky);
+        for (var j = 0; j < steps.length; j++) {
+          var nx = kx + steps[j][0], ny = ky + steps[j][1];
+          if (nx < 0 || ny < 0 || nx >= bw || ny >= bh) continue;
+          var q = ny * bw + nx;
+          if (on[q] && !seen[q]) { seen[q] = 1; st.push(q); }
+        }
+      }
+      if (!best || n > best.n) best = { n: n, x: x0 * B, y: y0 * B, w: (x1 - x0 + 1) * B, h: (y1 - y0 + 1) * B };
+    }
+    return best && best.n >= 6 ? best : null;
+  }
+  var work = document.createElement('canvas'), crop = document.createElement('canvas'), line = document.createElement('canvas');
+  /** Lecture recadrée : `src` est un canevas (photo réduite, éventuellement tournée) ; `full` la même image en grand. */
+  function cropDecode(small, full) {
+    var box = findBars(small);
+    if (!box) return null;
+    var k = full.width / small.width, mx = box.w * 0.06, my = box.h * 0.1;
+    var sx = Math.max(0, (box.x - mx) * k), sy = Math.max(0, (box.y - my) * k);
+    var sw = Math.min(full.width - sx, (box.w + 2 * mx) * k), sh = Math.min(full.height - sy, (box.h + 2 * my) * k);
+    // Où commencent et finissent les barres (médiane de trois lignes) ; au-delà, du fond.
+    line.width = Math.max(1, Math.round(sw)); line.height = 1;
+    var lg = line.getContext('2d', { willReadFrequently: true }), mod = (box.w * k) / 95, wide = 4.5 * mod, ends = [];
+    [0.35, 0.5, 0.65].forEach(function (t) {
+      lg.drawImage(full, sx, sy + sh * t, sw, 1, 0, 0, line.width, 1);
+      var lum = lumOf(lg.getImageData(0, 0, line.width, 1).data, line.width);
+      var sorted = Array.prototype.slice.call(lum).sort(function (a, b) { return a - b; });
+      var thr = (sorted[Math.floor(lum.length * 0.1)] + sorted[Math.floor(lum.length * 0.9)]) / 2;
+      var bars = [], st = 0;
+      for (var x = 1; x <= lum.length; x++) {
+        if (x === lum.length || (lum[x] < thr) !== (lum[st] < thr)) {
+          if (lum[st] < thr && x - st <= wide) bars.push([st, x]);
+          st = x;
+        }
+      }
+      if (bars.length >= 20) ends.push([bars[0][0], bars[bars.length - 1][1]]);
+    });
+    var left = 0, right = sw;
+    if (ends.length) {
+      var ls = ends.map(function (e) { return e[0]; }).sort(function (a, b) { return a - b; });
+      var rs = ends.map(function (e) { return e[1]; }).sort(function (a, b) { return a - b; });
+      left = ls[ls.length >> 1]; right = rs[rs.length >> 1];
+    }
+    var tsx = sx + left, tsw = Math.max(1, right - left);
+    var sizes = [900, 600, 1200];
+    for (var i = 0; i < sizes.length; i++) {
+      var target = sizes[i], z = target / tsw, pad = Math.round(target * 0.12);
+      crop.width = target + 2 * pad; crop.height = Math.round(sh * z) + 2 * pad;
+      var cg = crop.getContext('2d', { willReadFrequently: true });
+      cg.fillStyle = '#fff'; cg.fillRect(0, 0, crop.width, crop.height);
+      cg.drawImage(full, tsx, sy, tsw, sh, pad, pad, target, Math.round(sh * z));
+      var code = zxDecode(crop);
+      if (code) return code;
+    }
+    return null;
+  }
+  /** Image entière (taille réelle, tournée ou non) dans un canevas, et sa version réduite pour repérer les barres. */
+  function cropTry(src, w, h, rotate) {
+    var fs = Math.min(1, 2400 / Math.max(w, h)), fw = Math.round(w * fs), fh = Math.round(h * fs);
+    work.width = rotate ? fh : fw; work.height = rotate ? fw : fh;
+    var g = work.getContext('2d', { willReadFrequently: true });
+    g.save();
+    if (rotate) { g.translate(fh, 0); g.rotate(Math.PI / 2); }
+    g.drawImage(src, 0, 0, fw, fh);
+    g.restore();
+    var ss = 1000 / Math.max(work.width, work.height);
+    canvas.width = Math.round(work.width * Math.min(1, ss)); canvas.height = Math.round(work.height * Math.min(1, ss));
+    canvas.getContext('2d', { willReadFrequently: true }).drawImage(work, 0, 0, canvas.width, canvas.height);
+    return cropDecode(canvas, work);
+  }
   function detect(src, w, h) {
     var p = detector ? detector.detect(src).then(function (codes) { return codes && codes[0] ? codes[0].rawValue : null; }, function () { return null; }) : Promise.resolve(null);
     return p.then(function (code) {
@@ -269,7 +369,9 @@ canvas { display: none; }
       code = zxDecode(canvas);
       if (code) return code;
       draw(src, w, h, true);
-      return zxDecode(canvas);
+      code = zxDecode(canvas);
+      if (code) return code;
+      return cropTry(src, w, h, false) || cropTry(src, w, h, true);
     });
   }
 

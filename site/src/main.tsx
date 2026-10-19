@@ -793,9 +793,17 @@ function App() {
   const travel = useTravel();
   const os = useOs();
   const mine = DOWNLOADS.filter((d) => d.os === (os ?? 'mac'));
+  // Barre du haut collée en haut : un filet apparaît dès qu'on a défilé.
+  const [scrolled, setScrolled] = useState(false);
+  useEffect(() => {
+    const f = () => setScrolled(window.scrollY > 8);
+    f();
+    window.addEventListener('scroll', f, { passive: true });
+    return () => window.removeEventListener('scroll', f);
+  }, []);
   return (
     <>
-      <header className="top">
+      <header className={`top${scrolled ? ' is-scrolled' : ''}`}>
         <a className="brand" href="#">
           <img src="/icon.png" alt="" width={28} height={28} /> Marginalia
         </a>

@@ -217,7 +217,7 @@ canvas { display: none; }
     if (valid10(c)) return to13(c);
     return null;
   }
-  function pretty(isbn) { return isbn.slice(0, 3) + '-' + isbn.slice(3, 4) + '-' + isbn.slice(4, 12) + '-' + isbn.slice(12); }
+  function pretty(isbn) { return isbn; }
 
   // ── Lecture du code-barres (sur le téléphone) ──
   var detector = null;

@@ -273,3 +273,5 @@
   .pb-hero { gap: 18px; }
   .pb-title { font-size: 30px; }
 }
+.pp-added { color: var(--ink-2); margin: 0 4px; }
+.pb-compose-foot .spacer, .pp-actions .spacer { flex: 1; }

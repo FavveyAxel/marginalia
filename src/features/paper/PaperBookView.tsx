@@ -23,7 +23,7 @@ function CategoryPicker({ value, onChange, name }: { value: CategoryId | null; o
   return (
     <div className="pb-cats" role="radiogroup" aria-label="Catégorie de l’extrait">
       <button type="button" role="radio" aria-checked={value === null} className={`pb-cat ${value === null ? 'is-on' : ''}`} onClick={() => onChange(null)} name={name}>
-        Sans catégorie
+        Aucune
       </button>
       {CATEGORIES.map((c) => (
         <button
@@ -95,17 +95,15 @@ function Composer({ bookId, compact, onAdded }: { bookId: string; compact?: bool
         aria-label="Texte de l’extrait"
         data-testid="paper-extract-text"
       />
-      <div className="pb-compose-row">
-        <label className="pb-page-field">
-          <span>p.</span>
-          <input className="input" value={page} onChange={(e) => setPage(e.target.value)} inputMode="numeric" placeholder="47" aria-label="Numéro de page" data-testid="paper-extract-page" />
-        </label>
-        {!compact && <CategoryPicker value={cat} onChange={setCat} name="pb-new-cat" />}
-      </div>
+      {!compact && <CategoryPicker value={cat} onChange={setCat} name="pb-new-cat" />}
       {withNote && (
         <textarea className="input pb-compose-note" placeholder="Ma note (reformulation, question, critique…)" value={note} onChange={(e) => setNote(e.target.value)} rows={2} aria-label="Ma note" />
       )}
       <div className="pb-compose-foot">
+        <label className="pb-page-field">
+          <span>Page</span>
+          <input className="input" value={page} onChange={(e) => setPage(e.target.value)} inputMode="numeric" placeholder="—" aria-label="Numéro de page" data-testid="paper-extract-page" />
+        </label>
         {!withNote && (
           <button type="button" className="btn btn-ghost btn-sm" onClick={() => setWithNote(true)}>
             <PenLine size={13} /> Ajouter une note
@@ -180,12 +178,29 @@ const ExtractCard = memo(function ExtractCard({ h, book, active, compact, onCite
     setEdit(false);
   };
   const copy = async () => {
+    const text = formatCitation(h, book);
+    // Presse-papiers : API asynchrone, sinon l'ancienne commande « copier » (fenêtre sans permission).
+    const fallback = () => {
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      try {
+        return document.execCommand('copy');
+      } finally {
+        ta.remove();
+      }
+    };
+    let done = false;
     try {
-      await navigator.clipboard.writeText(formatCitation(h, book));
-      useStore.getState().toast('Citation copiée, avec sa référence', 'success');
+      await navigator.clipboard.writeText(text);
+      done = true;
     } catch {
-      useStore.getState().toast('Copie impossible', 'error');
+      done = fallback();
     }
+    useStore.getState().toast(done ? 'Citation copiée, avec sa référence' : 'Copie impossible', done ? 'success' : 'error');
   };
   return (
     <li ref={ref} className={`pb-extract ${active ? 'is-active' : ''}`} data-hl={h.id} data-testid="paper-extract" style={{ ['--i' as string]: index, ...(c ? { ['--c' as string]: `var(${c.cssVar})` } : {}) }}>

@@ -148,7 +148,6 @@ function PaperAddMenu({ anchor, onClose, workspaceId, groupId }: { anchor: React
       {view === 'scan' && (
         <ScanView
           onBack={() => setView('main')}
-          onAdded={(title, id, existed) => added(title, id, existed)}
           onManual={(isbn) => {
             setPrefill({ isbn });
             setView('manual');
@@ -310,13 +309,11 @@ function MainView({ onPicked, onScan, onManual }: { onPicked(ed: PaperEdition): 
 
 function ScanView({
   onBack,
-  onAdded,
   onManual,
   workspaceId,
   groupId,
 }: {
   onBack(): void;
-  onAdded(title: string, id: string, existed: boolean): void;
   onManual(isbn: string): void;
   workspaceId?: string | null;
   groupId?: string | null;
@@ -328,6 +325,8 @@ function ScanView({
   const [got, setGot] = useState<{ isbn: string; name: string } | null>(null);
   const [found, setFound] = useState<{ busy: boolean; results: PaperEdition[]; error?: string } | null>(null);
   const [adding, setAdding] = useState(false);
+  // Dernier livre ajouté : la réception reste ouverte pour scanner le suivant.
+  const [last, setLast] = useState<{ title: string; id: string; existed: boolean } | null>(null);
 
   useEffect(() => {
     if (!api?.wifiStart) return;
@@ -375,7 +374,10 @@ function ScanView({
     try {
       const { book, existed } = await addEdition({ ...ed, isbn: ed.isbn || got.isbn }, { workspaceId, groupId });
       void api?.wifiReport?.(got.name, { state: 'library', label: existed ? `Déjà dans la bibliothèque : « ${book.title} »` : `Ajouté à la bibliothèque : « ${book.title} »` }).catch(() => undefined);
-      onAdded(book.title, book.id, existed);
+      useStore.getState().toast(existed ? `« ${book.title} » est déjà dans la bibliothèque` : `« ${book.title} » ajouté à la bibliothèque`, 'success', { label: 'Ouvrir', run: () => useStore.getState().openBook(book.id) });
+      setLast({ title: book.title, id: book.id, existed });
+      setGot(null);
+      setFound(null);
     } finally {
       setAdding(false);
     }
@@ -391,6 +393,11 @@ function ScanView({
         </button>
         <span>Scanner le code-barres</span>
       </div>
+      {last && !got && (
+        <p className="pp-note pp-added" role="status" data-testid="paper-scan-added">
+          <BookPlus size={13} /> « {last.title} » {last.existed ? 'est déjà dans la bibliothèque' : 'ajouté'}. Scannez le livre suivant, ou fermez.
+        </p>
+      )}
       {got ? (
         <div className="pp-found" data-testid="paper-scan-found">
           <span className="pp-found-isbn">ISBN {prettyIsbn(got.isbn)}</span>

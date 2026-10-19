@@ -80,9 +80,9 @@ export function authorsText(a: string[]): string {
   return l.length <= 1 ? (l[0] ?? '') : `${l.slice(0, -1).join(', ')} et ${l[l.length - 1]}`;
 }
 
-/** « 978-2-08-070688-1 » */
+/** ISBN affiché tel quel (13 chiffres) : la coupe en tirets dépend de l'éditeur et ne se devine pas. */
 export function prettyIsbn(isbn: string): string {
-  return /^97[89]\d{10}$/.test(isbn) ? `${isbn.slice(0, 3)}-${isbn.slice(3, 4)}-${isbn.slice(4, 12)}-${isbn.slice(12)}` : isbn;
+  return isbn;
 }
 
 /** « GF Flammarion, 2001 » */

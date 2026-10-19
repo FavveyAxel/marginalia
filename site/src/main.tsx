@@ -366,13 +366,13 @@ const STEPS = [
     shot: 'lire',
   },
   {
-    title: 'Organiser sa pensée',
-    text: 'Une carte pour organiser votre pensée : posez la problématique au centre, puis reliez-y thèses, arguments et objections tirés de vos lectures, même de plusieurs livres. Vos surlignages deviennent aussi une fiche du texte et des fiches de concepts.',
+    title: 'Comprendre',
+    text: 'Vos surlignages dessinent le raisonnement de l’auteur : thèse, arguments et objections se relient sur la carte du livre, d’un glisser depuis le texte. Ils deviennent aussi une fiche du texte et des fiches de concepts, prêtes à réviser.',
     shot: 'comprendre',
   },
   {
     title: 'Écrire',
-    text: 'Plans de dissertation et traitement de texte au format Word, avec notes de bas de page et citations reliées à leur passage. Export Word, PDF, page web ou Markdown, mise en page comprise.',
+    text: 'Du plan de dissertation au texte rédigé, dans un traitement de texte au format Word, avec notes de bas de page. Export Word, PDF, page web ou Markdown, mise en page comprise.',
     shot: 'ecrire',
   },
 ];

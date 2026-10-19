@@ -73,6 +73,50 @@ function rectOf(range: Range): DOMRect | null {
   return r.width === 0 && r.height === 0 ? null : r;
 }
 
+/**
+ * Caractère de référence du pointeur : celui de la ligne sous le pointeur. caretRangeFromPoint rend un point
+ * d'insertion entre deux caractères ; en bout de ligne, le caractère qui suit est déjà sur la ligne suivante
+ * (et, en début de ligne, celui qui précède sur la ligne d'avant). Prendre toujours « le caractère après le
+ * point d'insertion » faisait sauter le repère d'une ligne à l'autre pendant qu'on glisse le long du texte :
+ * chez les autres (mise en page différente), le pointeur sautait de ligne et revenait. On garde donc, des
+ * deux voisins, celui dont la ligne contient le pointeur (puis le plus proche horizontalement).
+ * Au-delà du dernier caractère d'une ligne, le repère reste ce caractère (rx > 1) : l'ancien passage à une
+ * fraction de la colonne (mx) dès 1,5 caractère de distance faisait bondir le pointeur chez les autres (le même
+ * caractère n'y est pas au même endroit de la ligne), puis revenir au caractère suivant.
+ */
+function charOnLine(root: HTMLElement, node: Text, off: number, x: number, y: number): { node: Text; at: number; r: DOMRect } | null {
+  // Voisins : dans le même nœud texte, ou à la frontière avec le nœud précédent / suivant (mot en italique…).
+  const cands: [Text, number][] = [];
+  const walker = () => {
+    const w = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+    w.currentNode = node;
+    return w;
+  };
+  if (off > 0) cands.push([node, off - 1]);
+  else {
+    const prev = walker().previousNode() as Text | null;
+    if (prev?.data.length) cands.push([prev, prev.data.length - 1]);
+  }
+  if (off < node.data.length) cands.push([node, off]);
+  else {
+    const next = walker().nextNode() as Text | null;
+    if (next?.data.length) cands.push([next, 0]);
+  }
+  let best: { node: Text; at: number; r: DOMRect; score: number } | null = null;
+  for (const [n, i] of cands) {
+    const c = charRect(n, i);
+    const r = c && rectOf(c.range);
+    if (!c || !r) continue;
+    const dy = y < r.top ? r.top - y : y > r.bottom ? y - r.bottom : 0;
+    const dx = x < r.left ? r.left - x : x > r.right ? x - r.right : 0;
+    // Espace de fin de ligne (largeur nulle) : on lui préfère le dernier caractère visible de la ligne, dont la
+    // largeur donne l'échelle de rx (sinon rx compterait des pixels, sans rapport avec la taille du texte d'ici).
+    const score = dy * 1e4 + dx + (r.width < 0.5 ? 5e3 : 0);
+    if (!best || score < best.score) best = { node: n, at: c.at, r, score };
+  }
+  return best;
+}
+
 /** Position à envoyer pour le pointeur en (x, y) ; null : hors du contenu. */
 function encode(host: HTMLElement, kind: Kind, t: Element | null, x: number, y: number): Loc | null {
   if (kind !== 'html') {
@@ -93,14 +137,16 @@ function encode(host: HTMLElement, kind: Kind, t: Element | null, x: number, y: 
   const cr = document.caretRangeFromPoint?.(cx, y);
   const node = cr?.startContainer;
   if (cr && node && node.nodeType === 3 && root.contains(node)) {
-    const c = charRect(node as Text, cr.startOffset);
-    const r = c && rectOf(c.range);
-    if (c && r) {
-      const o = offsetOf(root, node, c.at);
+    const c = charOnLine(root, node as Text, cr.startOffset, cx, y);
+    if (c) {
+      const { r } = c;
+      const o = offsetOf(root, c.node, c.at);
       const ry = clamp((y - r.top) / Math.max(r.height, 1), -40, 40);
-      const w = Math.max(r.width, 1);
-      const inText = x >= rr.left && x <= rr.right && x >= r.left - Math.max(w, 8) * 1.5 && x <= r.right + Math.max(w, 8) * 1.5;
-      if (o >= 0) return inText ? { u, o, rx: clamp((x - r.left) / w, -40, 40), ry } : { u, o, mx: clamp((x - rr.left) / rr.width, -1, 2), ry };
+      const rx = (x - r.left) / Math.max(r.width, 1);
+      // Repère continu le long de la ligne (rx, même au-delà de son dernier caractère) ; hors de la colonne
+      // de texte, ou très loin du caractère, fraction de la largeur du chapitre.
+      const inCol = x >= rr.left && x <= rr.right && Math.abs(rx) <= 40;
+      if (o >= 0) return inCol ? { u, o, rx, ry } : { u, o, mx: clamp((x - rr.left) / rr.width, -1, 2), ry };
     }
   }
   return { u, fx: clamp((x - rr.left) / rr.width, -1, 2), fy: clamp((y - rr.top) / rr.height, -1, 2) };

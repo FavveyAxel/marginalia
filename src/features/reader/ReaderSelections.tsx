@@ -19,7 +19,7 @@
 // redimensionnement et quand la mise en page change (taille de texte, page rendue).
 import { memo, useEffect, useReducer, useRef, type CSSProperties } from 'react';
 import { useCollab } from '../collab/collabState';
-import { MAX_SEL_RECTS, peersIn, selLabelled, subscribe, type Publisher, type Sel } from '../collab/cursors';
+import { MAX_SEL_RECTS, cursorShown, peersIn, selShown, subscribe, type Publisher, type Sel } from '../collab/cursors';
 import { mergeLineRects, type Px } from './pdf/textindex';
 import { offsetOf, rangeFor } from './html/anchoring';
 import '../collab/cursors.css';
@@ -199,14 +199,20 @@ export const RemoteSelections = memo(function RemoteSelections({ ctx, kind, host
       if (!root || !host) return;
       const lr = root.getBoundingClientRect();
       const clip = host.querySelector(SCROLL)?.getBoundingClientRect();
+      const now = performance.now();
+      const still = !!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+      let again = false;
       for (const p of peersIn(ctx)) {
         const g = groups.current.get(p.id);
         if (!g) continue;
+        // Rejouée au rythme du pointeur (même retard) : la teinte ne court pas devant lui.
+        const { sel, later } = selShown(p, now, still);
+        if (later) again = true;
         let rects: Px[] = [];
-        if (p.sel && clip) {
-          const json = JSON.stringify(p.sel);
+        if (sel && clip) {
+          const json = JSON.stringify(sel);
           let c = cache.get(p.id);
-          if (!c || c.json !== json) cache.set(p.id, (c = { json, f: decodeSel(host, kind, p.sel) }));
+          if (!c || c.json !== json) cache.set(p.id, (c = { json, f: decodeSel(host, kind, sel) }));
           rects = (c.f?.() ?? [])
             .map((q) => ({ left: Math.max(q.left, clip.left), right: Math.min(q.right, clip.right), top: Math.max(q.top, clip.top), bottom: Math.min(q.bottom, clip.bottom) }))
             .filter((q) => q.right - q.left > 0.5 && q.bottom - q.top > 0.5);
@@ -233,9 +239,11 @@ export const RemoteSelections = memo(function RemoteSelections({ ctx, kind, host
         }
         const state = end ? 'on' : 'off';
         if (g.dataset.state !== state) g.dataset.state = state;
-        if (end) selLabelled.add(p.id);
-        else selLabelled.delete(p.id);
+        // Prénom au bout de la sélection seulement quand son pointeur n'est pas à l'écran (il porte déjà le sien).
+        const tagOn = cursorShown(ctx, p.id) ? '0' : '1';
+        if (g.dataset.tag !== tagOn) g.dataset.tag = tagOn;
       }
+      if (again) kick.current();
     };
     kick.current = () => {
       if (!raf) raf = requestAnimationFrame(draw);
@@ -270,7 +278,6 @@ export const RemoteSelections = memo(function RemoteSelections({ ctx, kind, host
       window.removeEventListener('resize', onView);
       document.removeEventListener('scroll', onView, true);
       kick.current = () => undefined;
-      for (const p of peersIn(ctx)) selLabelled.delete(p.id);
     };
   }, [ctx, kind, hostRef]);
 
@@ -279,7 +286,6 @@ export const RemoteSelections = memo(function RemoteSelections({ ctx, kind, host
   const list = peersIn(ctx).filter((p) => p.sel);
   const who = (id: string) => members.find((m) => m.id === id && m.state === 'live');
   if (!list.length) {
-    for (const p of peersIn(ctx)) selLabelled.delete(p.id);
     return <div className="rs-layer" ref={layer} data-testid="remote-selections" />;
   }
   return (

@@ -50,6 +50,7 @@ import {
 import { OcrScan } from '../../components/OcrScan';
 import { WifiReceive } from './WifiReceive';
 import { AssemblePhotos } from '../library/AssemblePhotos';
+import { PaperProposal } from '../paper/PaperProposal';
 import './inbox.css';
 
 const KIND_LABEL: Record<InboxKind, string> = {
@@ -368,6 +369,7 @@ function SimpleBody({ it }: { it: InboxItem }) {
 
 function PassageBody({ it }: { it: InboxItem }) {
   const books = useStore((s) => s.books);
+  const hasPaper = books.some((b) => b.format === 'paper');
   const [pick, setPick] = useState('');
   const text = it.text ?? '';
   const edited = it.status === 'ready' && text.trim() !== (it.searchedText ?? '').trim();
@@ -392,7 +394,7 @@ function PassageBody({ it }: { it: InboxItem }) {
         </a>
       )}
       <div className="ib-passage-main">
-        {it.text !== undefined && (
+        {it.text !== undefined && !it.paper && (
           <label className="ib-text-label">
             <span>{it.kind === 'image' ? 'Texte lu sur la photo' : 'Texte reçu'} — vous pouvez le raccourcir ou le corriger</span>
             <textarea ref={area} className="input ib-text" value={text} spellCheck={false} onChange={(e) => setItemText(it.name, e.target.value)} disabled={!ready} />
@@ -402,12 +404,31 @@ function PassageBody({ it }: { it: InboxItem }) {
           <Step it={it} />
         ) : it.kind === 'image' && it.text === undefined ? (
           <>
-            <p className="ib-note">Photo reçue. Lisez son texte pour retrouver le passage dans vos livres, ou ajoutez-la telle quelle à la bibliothèque.</p>
+            <p className="ib-note">
+              {hasPaper
+                ? 'Photo reçue. Lisez son texte : Marginalia retrouve le passage dans vos livres, ou propose le livre papier et la page.'
+                : 'Photo reçue. Lisez son texte pour retrouver le passage dans vos livres, ou ajoutez-la telle quelle à la bibliothèque.'}
+            </p>
             <div className="ib-actions">
               <button className="btn btn-sm btn-primary" onClick={() => void readPhotoText(it.name)} data-testid="ib-read-photo">
                 <ScanText size={14} /> Lire le texte de la photo
               </button>
               <button className="btn btn-sm" onClick={() => void addToLibrary(it.name)} title="La photo devient un document de la bibliothèque, où vous pouvez surligner">
+                <ImageIcon size={14} /> Ajouter la photo à la bibliothèque
+              </button>
+            </div>
+          </>
+        ) : it.kind === 'image' && it.paper ? (
+          // Livre papier proposé (titre courant, série en cours, dernier extrait) : à confirmer.
+          <>
+            {(it.matches?.length ?? 0) > 0 && <Matches it={it} scope={scope ?? null} />}
+            <PaperProposal it={it} />
+            <div className="ib-actions ib-actions-foot">
+              <span className="spacer" />
+              <button className="btn btn-sm btn-ghost" onClick={() => void makeDraft(it.name)} title="Nouvel écrit contenant ce texte">
+                <FilePen size={14} /> Créer un écrit
+              </button>
+              <button className="btn btn-sm btn-ghost" onClick={() => void addToLibrary(it.name)} title="La photo devient un document de la bibliothèque, où vous pouvez surligner">
                 <ImageIcon size={14} /> Ajouter la photo à la bibliothèque
               </button>
             </div>

@@ -58,7 +58,7 @@ export function ShareDialog({ selection, onClose }: { selection: ShareSelection;
       const { bytes, summary } = await buildSharePackage(selection, { includeBooks: false });
       const { manifest } = await openSharePackage(bytes);
       if (!alive) return;
-      const books = manifest.books.map((b) => ({ title: b.title.slice(0, 90), size: b.size, included: false, sha256: b.sha256 }));
+      const books = manifest.books.map((b) => ({ title: b.title.slice(0, 90), size: b.size, included: false, sha256: b.sha256, ...(b.format === 'paper' ? { format: 'paper' } : {}) }));
       setBase({ bytes, summary, books, booksSize: manifest.books.reduce((n, b) => n + (b.sha256 ? b.size : 0), 0) });
     })().catch((e) => alive && setPrepError(errorMessage(e)));
     return () => {

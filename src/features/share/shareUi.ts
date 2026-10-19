@@ -69,7 +69,8 @@ export interface WireMeta {
   counts: Record<string, number>;
   booksIncluded: boolean;
   size: number;
-  books: { title: string; size: number; included: boolean; sha256: string | null }[];
+  /** `format` : 'paper' pour un livre papier (sans fichier, jamais compté « à importer »). */
+  books: { title: string; size: number; included: boolean; sha256: string | null; format?: string }[];
 }
 
 /** Secours quand les deux ordinateurs n'ont pas de Wi-Fi commun (le partage reste sur le réseau local). */

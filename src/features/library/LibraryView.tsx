@@ -991,7 +991,7 @@ function DeleteDialog({ book, nExtracts, onClose }: { book: Book; nExtracts: num
           </p>
           <p className="muted" style={{ margin: '6px 0 0' }}>
             {nExtracts > 0
-              ? `Le fichier, ses ${nExtracts} extrait${nExtracts > 1 ? 's' : ''}, sa carte, ses fiches-texte et ses cartes de révision iront avec lui dans la corbeille, où vous pourrez tout restaurer pendant 30 jours.`
+              ? `${book.format === 'paper' ? 'Le livre papier' : 'Le fichier'}, ses ${nExtracts} extrait${nExtracts > 1 ? 's' : ''}, sa carte, ses fiches-texte et ses cartes de révision iront avec lui dans la corbeille, où vous pourrez tout restaurer pendant 30 jours.`
               : 'Le document et ses données associées iront dans la corbeille, où vous pourrez tout restaurer pendant 30 jours.'}
           </p>
         </div>

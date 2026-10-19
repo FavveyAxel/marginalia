@@ -1,6 +1,7 @@
 // Mises à jour : fenêtre « Quoi de neuf » au premier lancement d'une nouvelle version (nouveautés
 // livrées avec l'app), et annonce d'une nouvelle version publiée (Release GitHub, vérifiée au
-// lancement si le réglage le permet ; seule connexion sortante de l'app, sans donnée envoyée).
+// lancement si le réglage le permet ; sans donnée envoyée. L'autre connexion sortante de l'app est la recherche
+// des livres papier, voir electron/books-net.cjs).
 // Mise à jour automatique (Mac et Windows installés, manifeste signé vérifié par le processus
 // principal) : téléchargement en arrière-plan, puis « Marginalia X est prête » avec « Redémarrer pour
 // mettre à jour » ou « Plus tard » (installation à la fermeture). Ailleurs, ou en cas d'échec :

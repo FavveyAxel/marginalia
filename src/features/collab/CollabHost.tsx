@@ -23,6 +23,8 @@ export function CollabHost() {
   const role = useCollab((s) => s.role);
   useEffect(() => {
     void session().then((m) => m.closeStale());
+    // Accès de test (app lancée par un test de bout en bout : ?e2e).
+    if (new URLSearchParams(location.search).has('e2e')) (window as unknown as { __collab?: unknown }).__collab = { state: useCollab, session };
   }, []);
   return (
     <>

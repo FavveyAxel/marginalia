@@ -58,6 +58,9 @@ import { LivePresence } from '../collab/LivePresence';
 import { useFormatPainter } from './painter';
 import { useTextDrag } from './dragText';
 
+/** Accès de test : développement, ou app lancée par un test de bout en bout (MARGINALIA_E2E=1 → ?e2e). */
+const TEST_HOOKS = typeof location !== 'undefined' && new URLSearchParams(location.search).has('e2e');
+
 type Phase = 'loading' | 'ready' | 'error';
 type Status = 'saved' | 'dirty' | 'saving' | 'blocked' | 'error';
 
@@ -1322,7 +1325,7 @@ function Editor({ draft }: { draft: Draft }) {
       {citeHover && phase === 'ready' && !focusMode && <CiteBar hover={citeHover} />}
 
       {spell.enabled && editable && <SpellMenu spell={spell} />}
-      {import.meta.env.DEV && <DevHandle engineRef={engineRef} save={save} exportAs={exportAs} undo={undo} />}
+      {(import.meta.env.DEV || TEST_HOOKS) && <DevHandle engineRef={engineRef} save={save} exportAs={exportAs} undo={undo} />}
     </div>
   );
 }

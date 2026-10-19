@@ -770,8 +770,8 @@ function Together() {
           <p>Écrits, cartes et extraits se mettent à jour chez tous. Celui qui ouvre la session accueille les autres, et peut retirer quelqu’un.</p>
         </li>
         <li>
-          <h3>Sur le même Wi-Fi</h3>
-          <p>Mac et Windows ensemble, sans compte ni serveur&nbsp;: tout passe par le réseau local, chiffré. Rien ne transite par Internet.</p>
+          <h3>Ici ou à distance</h3>
+          <p>Mac et Windows ensemble, sans compte ni serveur&nbsp;: sur le même Wi-Fi ou par Internet, en pair à pair. Le code suffit, et tout est chiffré de bout en bout.</p>
         </li>
         <li>
           <h3>Chacun garde son exemplaire</h3>
@@ -787,7 +787,7 @@ function Together() {
 }
 
 const PRIVACY = [
-  { icon: 'offline', title: 'Hors ligne, par construction', text: 'L’app bloque toute connexion vers Internet, sauf pour vérifier au lancement s’il existe une nouvelle version et pour retrouver l’édition d’un livre papier (seul le titre ou l’ISBN tapé part ; les deux sont désactivables). Elle fonctionne aussi bien en mode avion qu’au bureau.' },
+  { icon: 'offline', title: 'Hors ligne, par construction', text: 'L’app bloque toute connexion vers Internet, sauf pour vérifier au lancement s’il existe une nouvelle version, retrouver l’édition d’un livre papier (seul le titre ou l’ISBN tapé part) et travailler à plusieurs à distance (en pair à pair, chiffré de bout en bout). Les trois sont désactivables. Elle fonctionne aussi bien en mode avion qu’au bureau.' },
   { icon: 'noacc', title: 'Ni compte, ni pistage', text: 'Pas d’inscription, pas de publicité, pas de statistiques d’utilisation. Personne ne sait ce que vous lisez ni ce que vous écrivez.' },
   { icon: 'scan', title: 'La reconnaissance de texte reste chez vous', text: 'Le moteur et ses modèles sont livrés avec l’app : vos photos et vos scans ne sont envoyés nulle part.' },
   { icon: 'lock', title: 'Chiffrement AES-256', text: 'En option, toutes vos données sont chiffrées sur le disque. La clé est gardée par le Trousseau du Mac ou par Windows.' },

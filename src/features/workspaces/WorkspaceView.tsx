@@ -1,5 +1,6 @@
 // Vue d'un espace (ou d'un de ses groupes) : sous-groupes en tuiles, éléments en cartes.
 import { useEffect, useMemo, useRef, useState, type DragEvent } from 'react';
+import { ShareButton } from '../collab/ShareButton';
 import { Check, CheckSquare, ChevronRight, FilePen, Folder, FolderPlus, GitCompareArrows, MoreHorizontal, Network, PackagePlus, Pencil, Upload } from 'lucide-react';
 import { LassoBox, useLasso, useMultiSelect, useSelectionKeys, type MultiSelect } from '../../lib/useMultiSelect';
 import { useStore } from '../../lib/store';
@@ -191,6 +192,7 @@ export function WorkspaceView({ workspaceId, groupId }: { workspaceId: string; g
           ))}
         </nav>
         <span className="spacer" />
+        <ShareButton workspaceId={workspaceId} />
         <button className="icon-btn" aria-label="Actions" title="Actions" onClick={(e) => openMenuAt(e.currentTarget, menuEntries(), 'Menu')}>
           <MoreHorizontal size={16} />
         </button>

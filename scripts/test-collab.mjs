@@ -134,7 +134,28 @@ try {
   await A.page.click('button[aria-label="Actions"]');
   const menuText = await A.page.locator('[role="menu"]').first().textContent();
   ok(/Nouvelle carte ici\s*Travailler à plusieurs…/.test(menuText.replace(/\s+/g, ' ')) || menuText.includes('Travailler à plusieurs…'), 'menu ⋯ de l’espace : « Travailler à plusieurs… » sous « Nouvelle carte ici »', menuText.replace(/\s+/g, ' ').slice(0, 200));
-  await A.page.getByText('Travailler à plusieurs…').click();
+  await A.page.keyboard.press('Escape');
+  // Bouton « Partager » en haut à droite : deux choix.
+  await A.page.click('[data-testid="ws-share"]');
+  await A.page.waitForSelector('[data-testid="ws-share-pop"]');
+  const popText = (await A.page.textContent('[data-testid="ws-share-pop"]')).replace(/\s+/g, ' ');
+  ok(/Partager « Parjure »/.test(popText) && /Envoyer une copie/.test(popText) && /Travailler ensemble/.test(popText), 'bouton « Partager » : « Envoyer une copie » ou « Travailler ensemble »', popText);
+  for (const [t, label] of [['light', 'clair'], ['dark', 'sombre']]) {
+    await theme(A.page, t);
+    const vw = await A.page.evaluate(() => window.innerWidth);
+    await A.page.screenshot({ path: path.join(SHOTS, `00-bouton-partager-${label}.png`), clip: { x: vw - 560, y: 0, width: 560, height: 280 } });
+  }
+  await theme(A.page, 'light');
+  await A.page.click('[data-testid="ws-share-copy"]');
+  await A.page.waitForSelector('[data-testid="share-dialog"]');
+  ok(true, '« Envoyer une copie » ouvre la fenêtre de partage');
+  await A.page.keyboard.press('Escape');
+  await A.page.waitForSelector('[data-testid="share-dialog"]', { state: 'detached' });
+  await A.page.click('[data-testid="ws-share"]');
+  await A.page.keyboard.press('Escape');
+  ok(!(await A.page.isVisible('[data-testid="ws-share-pop"]')), 'Échap ferme le choix');
+  await A.page.click('[data-testid="ws-share"]');
+  await A.page.click('[data-testid="ws-share-collab"]');
   await A.page.waitForSelector('[data-testid="collab-start"]');
   await A.page.fill('[data-testid="collab-name"]', 'Léa');
   await A.page.click('.cl-swatch[data-color="#c2410c"]');
@@ -206,6 +227,20 @@ try {
     ok(ok3 && /Léa/.test(tip) && /Marc/.test(tip) && /Inès/.test(tip), `${X.name} : l’espace est encadré, « 3 » connectés, prénoms au survol`, tip);
   }
   await shotBoth(A.page, '.sidebar', '06-barre-laterale-hote');
+  // En haut à droite : « En direct » et les présents, qui ouvre la session.
+  for (const X of [A, C]) {
+    const faces = await until(X.page, () => document.querySelectorAll('[data-testid="ws-share-live"] .cl-face').length === 3, null, 10000);
+    ok(faces && /En direct/.test(await X.page.textContent('[data-testid="ws-share-live"]')), `${X.name} : le bouton « Partager » devient « En direct » avec les 3 présents`);
+  }
+  await A.page.click('[data-testid="ws-share-live"]');
+  ok(!!(await A.page.waitForSelector('[data-testid="collab-dialog"] [data-testid="collab-people"]', { timeout: 5000 }).catch(() => null)), 'un clic sur « En direct » ouvre la session');
+  for (const [t, label] of [['light', 'clair'], ['dark', 'sombre']]) {
+    await A.page.evaluate(() => window.__collab.state.setState({ panelFor: null }));
+    await theme(A.page, t);
+    const vw = await A.page.evaluate(() => window.innerWidth);
+    await A.page.screenshot({ path: path.join(SHOTS, `06b-bouton-en-direct-${label}.png`), clip: { x: vw - 560, y: 0, width: 560, height: 70 } });
+  }
+  await theme(A.page, 'light');
   await shotBoth(C.page, '.sidebar', '07-barre-laterale-invitee');
 
   globalThis.__ctx = { A, B, C, seeded, code, headless, wire, proxyPort };

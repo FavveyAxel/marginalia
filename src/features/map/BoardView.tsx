@@ -4,6 +4,7 @@
 import { useMemo, useState } from 'react';
 import { ArrowLeft, FileDown, FilePen, ListTree, MoreHorizontal, Pencil, Plus, Trash2 } from 'lucide-react';
 import { useStore } from '../../lib/store';
+import { ShareButton, useWorkspaceOf } from '../collab/ShareButton';
 import type { Route } from '../../lib/types';
 import { ContextMenu, InlineName, useMenu, type MenuEntry } from '../workspaces/wsUi';
 import { boardSource } from './BoardCanvas';
@@ -51,6 +52,7 @@ export function BoardView({ boardId }: { boardId: string }) {
   // Le panneau « Ajouter » ne s'ouvre qu'à la demande : à la création, le tiroir « À placer »
   // propose déjà les extraits des livres de l'espace de travail.
   const [adding, setAdding] = useState(false);
+  const boardWs = useWorkspaceOf('map', boardId);
   const m = useMenu();
   const back = backTarget(boardId);
   const [convert, setConvert] = useState<ConvertKind | null>(null);
@@ -135,6 +137,7 @@ export function BoardView({ boardId }: { boardId: string }) {
           {map.nodes.length} carte{map.nodes.length > 1 ? 's' : ''}
           {map.edges.length > 0 && ` · ${map.edges.length} lien${map.edges.length > 1 ? 's' : ''}`}
         </span>
+        <ShareButton workspaceId={boardWs} />
         <button className={`btn ${adding ? 'board-add-on' : 'btn-primary'}`} aria-pressed={adding} onClick={() => setAdding(!adding)} data-testid="board-add-toggle">
           <Plus size={14} /> Ajouter
         </button>

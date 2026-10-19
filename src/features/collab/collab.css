@@ -134,3 +134,25 @@ mark.cl-diff { color: inherit; background: color-mix(in srgb, var(--who) 22%, tr
 .cl-remove-actions { display: flex; gap: 8px; flex-shrink: 0; }
 .cl-ask-removed { font-size: var(--fs-sm); color: var(--warning, #b7791f); font-weight: 600; }
 @media (prefers-reduced-motion: reduce) { .cl-seat-x { transition: none; } }
+
+/* Bouton « Partager » (espace, carte) et son choix : une copie, ou ensemble en direct. */
+.cl-sharebtn { gap: 6px; }
+.cl-sharebtn.is-live { padding-left: 10px; padding-right: 5px; gap: 8px; }
+.cl-sharebtn-dot { width: 8px; height: 8px; border-radius: 50%; background: #16a34a; box-shadow: 0 0 0 0 color-mix(in srgb, #16a34a 50%, transparent); animation: cl-pulse 2.4s ease-out infinite; }
+.cl-sharebtn.off .cl-sharebtn-dot { background: var(--warning, #b7791f); animation: none; }
+@keyframes cl-pulse { 0% { box-shadow: 0 0 0 0 color-mix(in srgb, #16a34a 45%, transparent); } 70%, 100% { box-shadow: 0 0 0 6px transparent; } }
+.cl-sharebtn-faces { display: inline-flex; }
+.cl-sharebtn-faces .cl-face { width: 22px; height: 22px; font-size: 11px; box-shadow: 0 0 0 2px var(--bg-panel); }
+.cl-sharebtn-faces .cl-face + .cl-face { margin-left: -6px; }
+.cl-face-more { background: var(--bg-inset); color: var(--ink-2); font-weight: 600; }
+.cl-sharepop { position: fixed; z-index: 60; width: 320px; padding: 8px; border-radius: 14px; background: var(--bg-panel); box-shadow: 0 0 0 1px var(--border), 0 12px 32px rgba(0, 0, 0, 0.14); }
+.cl-sharepop-title { margin: 6px 10px 8px; font-family: var(--font-display); font-size: 17px; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cl-sharepop-opt { display: flex; align-items: center; gap: 12px; width: 100%; padding: 10px; border: 0; border-radius: 10px; background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.cl-sharepop-opt:hover, .cl-sharepop-opt:focus-visible { background: var(--bg-inset); outline: none; }
+.cl-sharepop-art { flex: none; display: grid; place-items: center; width: 44px; height: 44px; border-radius: 12px; color: var(--ink); background: var(--bg-inset); }
+.cl-sharepop-opt:hover .cl-sharepop-art, .cl-sharepop-opt:focus-visible .cl-sharepop-art { background: var(--bg-panel); box-shadow: 0 0 0 1px var(--border); }
+.cl-sharepop-art.is-live { color: #15803d; }
+.cl-sharepop-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.cl-sharepop-text strong { font-size: var(--fs-md, 14px); color: var(--ink); }
+.cl-sharepop-text span { font-size: var(--fs-sm); color: var(--muted); line-height: 1.35; }
+@media (prefers-reduced-motion: reduce) { .cl-sharebtn-dot { animation: none; } }

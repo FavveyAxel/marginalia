@@ -74,3 +74,15 @@ const base = ['Introduction.', 'Premier argument.', 'Deuxième argument.', 'Conc
   const A = await M.parseDocxBlocks(d);
   ok(A.blocks[0].xml === raw && A.blocks[0].text === 'Gras!' && /<w:sectPr>/.test(A.tail), 'blocs copiés à l’octet près, texte lu, <w:sectPr> à part');
 }
+// 6. Paragraphes voisins : le premier modifié des deux côtés, le second d'un seul côté → un seul choix.
+{
+  const b6 = ['Titre.', 'Premier paragraphe : peut-on promettre sans mentir ?', 'Deuxième paragraphe : la parole donnée engage.', ''];
+  const mine = await docx([p('Titre.'), p('Premier paragraphe selon Marc : peut-on promettre sans mentir ?'), p('Deuxième paragraphe : la parole donnée engage vraiment.'), p('')]);
+  const theirs = await docx([p('Titre.'), p('Premier paragraphe selon Léa : peut-on promettre sans mentir ?'), p('Deuxième paragraphe : la parole donnée engage.'), p(''), p('Ajout de Léa.')]);
+  const A = await M.parseDocxBlocks(mine);
+  const ch = M.merge3(b6, A.blocks, (await M.parseDocxBlocks(theirs)).blocks);
+  const conf = ch.filter((c) => c.kind === 'conflict');
+  ok(conf.length === 1 && conf[0].mine.length === 1 && conf[0].theirs.length === 1 && /Marc/.test(conf[0].mine[0].text) && /Léa/.test(conf[0].theirs[0].text), 'paragraphes voisins : seul le paragraphe modifié des deux côtés est proposé', conf.map((c) => [c.mine.map((x) => x.text), c.theirs.map((x) => x.text)]));
+  const r = await texts(await M.buildMerged(A, ch, ['theirs']));
+  ok(JSON.stringify(r) === JSON.stringify(['Titre.', 'Premier paragraphe selon Léa : peut-on promettre sans mentir ?', 'Deuxième paragraphe : la parole donnée engage vraiment.', '', 'Ajout de Léa.']), 'résultat : choix pour le premier, « vraiment » de Marc et l’ajout de Léa gardés', r);
+}

@@ -90,6 +90,8 @@ export interface RecordSyncOptions {
 export class RecordSync {
   clock = 0;
   tags = new Map<string, Tag>();
+  /** Dernière modification connue de chaque élément (ms) : « la dernière gagne » à la réunion. */
+  mtimes = new Map<string, number>();
   /** Alias de session : col:gid → id local (livres reconnus par empreinte), et l'inverse. */
   aliasToLocal = new Map<string, string>();
   aliasToGid = new Map<string, string>();
@@ -350,6 +352,7 @@ export class RecordSync {
       if (prev && prev.json === v.json) continue;
       const tag = this.tick();
       this.tags.set(k, tag);
+      this.mtimes.set(k, Date.now());
       recs.push({ c: v.c, g: v.g, d: v.d, tag });
     }
     for (const [k, v] of this.base) {
@@ -359,6 +362,7 @@ export class RecordSync {
       if (!this.gone(v, s)) continue;
       const tag = this.tick();
       this.tags.set(k, tag);
+      this.mtimes.set(k, Date.now());
       const r: Rec = { c: v.c, g: v.g, del: 1, tag };
       if (v.c === 'group') r.mode = (s.trash.find((t) => t.kind === 'group' && t.refId === v.id)?.mode as 'lift' | 'tree') ?? 'lift';
       recs.push(r);
@@ -387,6 +391,20 @@ export class RecordSync {
   }
 
   // ── Arrivée ──
+  /** Réunion : applique ces enregistrements quelles que soient les étiquettes (choix déjà faits). */
+  force(recs: Rec[], from: string) {
+    for (const r of recs) this.tags.delete(keyOf(r.c, r.g));
+    this.receive(recs, from);
+  }
+  /** Nouvelles étiquettes pour des enregistrements à envoyer (ils gagneront partout). */
+  stamp(recs: Rec[]): Rec[] {
+    return recs.map((r) => {
+      const tag = this.tick();
+      this.tags.set(keyOf(r.c, r.g), tag);
+      this.mtimes.set(keyOf(r.c, r.g), Date.now());
+      return { ...r, tag };
+    });
+  }
   /** Applique des enregistrements reçus (dernier qui écrit gagne). */
   receive(recs: Rec[], from: string) {
     if (this.stopped) return;
@@ -430,6 +448,7 @@ export class RecordSync {
       return false;
     }
     this.tags.set(k, rec.tag);
+    this.mtimes.set(k, Date.now());
     return true;
   }
 

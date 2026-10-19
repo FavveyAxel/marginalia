@@ -10,6 +10,7 @@
 //  6. Inès coupée : elle continue seule (texte et carte), revient, tout est réuni.
 //  7. Léa arrête : chacun garde son exemplaire à jour (fichier .docx compris), l'encadré disparaît.
 //  8. Rien en clair dans le trafic capturé par le relais.
+//  9. Étape B (test-collab-part3.mjs) : chacun travaille de son côté, puis réunion (choix, versions, aucun second espace).
 // Captures claires et sombres dans shots/collab/. Prérequis : npx vite build ; Xvfb (:99).
 // Lancer : DISPLAY=:99 LANG=C.UTF-8 timeout 900 node scripts/test-collab.mjs
 import { _electron as electron } from 'playwright-core';
@@ -209,6 +210,9 @@ try {
   globalThis.__ctx = { A, B, C, seeded, code, headless, wire, proxyPort };
   const part2 = await import('./test-collab-part2.mjs');
   await part2.run(globalThis.__ctx, { ok, wait, st, until, shotBoth, theme, collabNet, SHOTS });
+  console.log('── Étape B : réunion après un travail séparé ──');
+  const part3 = await import('./test-collab-part3.mjs');
+  await part3.run(globalThis.__ctx, { ok, wait, st, until, shotBoth, theme, collabNet, SHOTS });
 } finally {
   for (const X of [A, B, C]) if (X.errors.length) console.log(`(${X.name}) erreurs de page :`, [...new Set(X.errors)].slice(0, 8));
   for (const h of headless) h.g?.leave?.();

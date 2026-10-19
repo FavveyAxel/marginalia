@@ -2,6 +2,8 @@
 // La session elle-même (réseau, réplication, Yjs) est dans session.ts, chargé à la demande.
 import { create } from 'zustand';
 import type { CollabMember, CollabRequest } from '../../lib/platform';
+import type { ReunionItem } from './reunion';
+import type { Choice } from './docxMerge';
 
 export interface CollabProfile {
   name: string;
@@ -54,6 +56,8 @@ export interface CollabState {
   panelFor: string | null;
   joinOpen: boolean;
   error: string | null;
+  /** Réunion en attente des choix de l'utilisateur (reunion.ts). */
+  reunion: { hostName: string; items: ReunionItem[]; resolve: (c: Record<string, Choice>) => void } | null;
 }
 
 export const useCollab = create<CollabState>(() => ({
@@ -73,6 +77,7 @@ export const useCollab = create<CollabState>(() => ({
   panelFor: null,
   joinOpen: false,
   error: null,
+  reunion: null,
 }));
 
 /** Session en cours dans cet espace ? */

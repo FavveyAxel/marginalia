@@ -9,6 +9,7 @@ import { Check, Lock, RefreshCw, Users, X } from 'lucide-react';
 import { host, type CollabMember, type CollabRequest } from '../../lib/platform';
 import { useStore } from '../../lib/store';
 import { errorMessage, hotspotHint } from '../share/shareUi';
+import type { Choice } from './docxMerge';
 import { COLLAB_COLORS, dashed, isLiveIn, readProfile, stopCollab, useCollab, writeProfile, type CollabProfile } from './collabState';
 import '../inbox/inbox.css';
 import '../share/share.css';
@@ -21,6 +22,11 @@ export function CollabHost() {
   const joinOpen = useCollab((s) => s.joinOpen);
   const requests = useCollab((s) => s.requests);
   const role = useCollab((s) => s.role);
+  const reunion = useCollab((s) => s.reunion);
+  const ready = useStore((s) => s.ready);
+  useEffect(() => {
+    if (ready) void import('./memory').then((m) => m.initMemory());
+  }, [ready]);
   useEffect(() => {
     void session().then((m) => m.closeStale());
     // Accès de test (app lancée par un test de bout en bout : ?e2e).
@@ -29,7 +35,8 @@ export function CollabHost() {
   return (
     <>
       {panelFor && <CollabPanel workspaceId={panelFor} onClose={() => useCollab.setState({ panelFor: null })} />}
-      {joinOpen && <JoinDialog onClose={() => useCollab.setState({ joinOpen: false })} />}
+      {joinOpen && !reunion && <JoinDialog onClose={() => useCollab.setState({ joinOpen: false })} />}
+      {reunion && <ReunionDialog key={reunion.items.map((i) => i.id).join('|')} />}
       {role === 'host' && !panelFor && requests.length > 0 && createPortal(<div className="cl-asks" data-testid="collab-asks">{requests.map((r) => <Ask key={r.reqId} r={r} />)}</div>, document.body)}
     </>
   );
@@ -370,5 +377,65 @@ function JoinDialog({ onClose }: { onClose: () => void }) {
     <Frame title="Rejoindre un espace partagé" onClose={onClose} testid="join-dialog">
       {content}
     </Frame>
+  );
+}
+
+// ── Réunion : un paragraphe ou un texte modifié des deux côtés ─────────────
+function ReunionDialog() {
+  const r = useCollab((s) => s.reunion)!;
+  const [choices, setChoices] = useState<Record<string, Choice>>({});
+  const all = r.items.every((i) => choices[i.id]);
+  const set = (id: string, c: Choice) => setChoices((x) => ({ ...x, [id]: c }));
+  return createPortal(
+    <div className="wr-back anim-fade">
+      <div className="wr-dialog cl-dialog cl-reunion panel anim-scale" role="dialog" aria-modal="true" aria-labelledby="cl-reu-title" data-testid="reunion-dialog">
+        <header className="wr-head">
+          <h2 id="cl-reu-title">Réunir avec {r.hostName}</h2>
+        </header>
+        <div className="cl-body">
+          <p className="cl-lede">
+            Vous avez travaillé chacun de votre côté. Tout ce qui n’a changé que d’un côté est déjà réuni. {r.items.length > 1 ? `Ces ${r.items.length} passages ont été modifiés des deux côtés` : 'Ce passage a été modifié des deux côtés'} : choisissez ce que vous gardez. Une version « Avant la reconnexion avec {r.hostName} » garde chaque écrit tel qu’il était chez vous.
+          </p>
+          {r.items.map((it) => (
+            <section key={it.id} className="cl-conflict" data-testid="reunion-item" data-kind={it.kind}>
+              <p className="cl-section-title">
+                {it.kind === 'paragraph' ? 'Paragraphe' : 'Texte'} de {it.where}
+              </p>
+              <div className="cl-versions">
+                <div className={`cl-version ${choices[it.id] === 'mine' || choices[it.id] === 'both' ? 'kept' : ''}`}>
+                  <span className="sh-kicker">Votre version</span>
+                  <p data-testid="reunion-mine">{it.mine || <em>(vide)</em>}</p>
+                </div>
+                <div className={`cl-version ${choices[it.id] === 'theirs' || choices[it.id] === 'both' ? 'kept' : ''}`}>
+                  <span className="sh-kicker">Version de {r.hostName}</span>
+                  <p data-testid="reunion-theirs">{it.theirs || <em>(vide)</em>}</p>
+                </div>
+              </div>
+              <div className="cl-choices" role="radiogroup" aria-label="Que garder ?">
+                {(
+                  [
+                    ['mine', 'Garder la mienne'],
+                    ['theirs', `Garder celle de ${r.hostName}`],
+                    ['both', 'Garder les deux'],
+                  ] as [Choice, string][]
+                ).map(([c, l]) => (
+                  <button key={c} className={`btn btn-sm ${choices[it.id] === c ? 'btn-primary' : ''}`} role="radio" aria-checked={choices[it.id] === c} onClick={() => set(it.id, c)} data-choice={c}>
+                    {l}
+                  </button>
+                ))}
+              </div>
+            </section>
+          ))}
+          <div className="sh-actions">
+            <span className="cl-count">{Object.keys(choices).length} sur {r.items.length} choisi{r.items.length > 1 ? 's' : ''}</span>
+            <span className="spacer" />
+            <button className="btn btn-primary" disabled={!all} onClick={() => r.resolve(choices)} data-testid="reunion-go">
+              Réunir
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>,
+    document.body,
   );
 }

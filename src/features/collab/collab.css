@@ -51,3 +51,13 @@
 .cl-live.off svg { color: var(--warning, #b7791f); }
 
 @media (prefers-reduced-motion: reduce) { .cl-swatch { transition: none; } }
+
+/* Réunion : passages modifiés des deux côtés */
+.cl-reunion { width: min(760px, 95vw); }
+.cl-conflict { display: flex; flex-direction: column; gap: 8px; padding: 12px 14px; border-radius: var(--radius-md, 10px); border: 1px solid var(--border); }
+.cl-versions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.cl-version { display: flex; flex-direction: column; gap: 4px; padding: 10px 12px; border-radius: var(--radius-sm); background: var(--bg-inset); box-shadow: 0 0 0 1px transparent; transition: box-shadow 120ms; }
+.cl-version p { margin: 0; color: var(--ink); line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; font-family: var(--font-reading, var(--font-display)); }
+.cl-version.kept { box-shadow: 0 0 0 1.5px var(--primary); }
+.cl-choices { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; }
+@media (max-width: 560px) { .cl-versions { grid-template-columns: 1fr; } }

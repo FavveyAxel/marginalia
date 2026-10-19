@@ -163,6 +163,99 @@ export function merge3(base: string[] | null, mine: Block[], theirs: Block[]): C
     k = tk + 1;
   }
   flush(B.length, mine.length, theirs.length);
+  // Passages en conflit : on y retrouve les paragraphes qui se correspondent (même paragraphe retouché),
+  // pour ne proposer au choix que ceux modifiés des deux côtés.
+  return out.flatMap((ch) => (ch.kind === 'conflict' ? refine(ch) : [ch])).reduce<Chunk[]>((acc, ch) => {
+    const last = acc[acc.length - 1];
+    if (ch.kind === 'same' && last && last.kind === 'same') last.blocks.push(...ch.blocks);
+    else acc.push(ch.kind === 'same' ? { kind: 'same', blocks: [...ch.blocks] } : ch);
+    return acc;
+  }, []);
+}
+
+/** Ressemblance de deux paragraphes (0 à 1) : mots en commun. */
+function sim(a: string, b: string): number {
+  if (a === b) return 1;
+  const wa = a.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? [];
+  const wb = b.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? [];
+  if (!wa.length || !wb.length) return 0;
+  const count = new Map<string, number>();
+  for (const w of wa) count.set(w, (count.get(w) ?? 0) + 1);
+  let common = 0;
+  for (const w of wb) {
+    const n = count.get(w) ?? 0;
+    if (n > 0) {
+      common++;
+      count.set(w, n - 1);
+    }
+  }
+  return (2 * common) / (wa.length + wb.length);
+}
+/** Alignement (ordre gardé) qui maximise la ressemblance des paires ; paires à 0,5 au moins. */
+function align(a: string[], b: string[]): Map<number, number> {
+  const n = a.length;
+  const m = b.length;
+  const S: number[][] = Array.from({ length: n + 1 }, () => new Array(m + 1).fill(0));
+  for (let i = n - 1; i >= 0; i--)
+    for (let j = m - 1; j >= 0; j--) {
+      const v = sim(a[i], b[j]);
+      S[i][j] = Math.max(S[i + 1][j], S[i][j + 1], v >= 0.5 ? v + S[i + 1][j + 1] : -1);
+    }
+  const out = new Map<number, number>();
+  let i = 0;
+  let j = 0;
+  while (i < n && j < m) {
+    const v = sim(a[i], b[j]);
+    if (v >= 0.5 && S[i][j] === v + S[i + 1][j + 1]) {
+      out.set(i, j);
+      i++;
+      j++;
+    } else if (S[i][j] === S[i + 1][j]) i++;
+    else j++;
+  }
+  return out;
+}
+/** Un passage en conflit, repris paragraphe par paragraphe. */
+function refine(ch: Extract<Chunk, { kind: 'conflict' }>): Chunk[] {
+  const B = ch.base;
+  const M = ch.mine.map((b) => b.text);
+  const T = ch.theirs.map((b) => b.text);
+  const bm = align(B, M);
+  const bt = align(B, T);
+  const out: Chunk[] = [];
+  let i = 0;
+  let j = 0;
+  let k = 0;
+  const region = (bi: number, mj: number, tk: number) => {
+    const b = B.slice(i, bi);
+    const m = ch.mine.slice(j, mj);
+    const t = ch.theirs.slice(k, tk);
+    const mt = m.map((x) => x.text);
+    const tt = t.map((x) => x.text);
+    if (!m.length && !t.length) return;
+    if (eq(mt, b)) out.push({ kind: 'same', blocks: t });
+    else if (eq(tt, b)) out.push({ kind: 'same', blocks: m });
+    else if (eq(mt, tt)) out.push({ kind: 'same', blocks: m });
+    else if (!b.length && (!m.length || !t.length)) out.push({ kind: 'same', blocks: [...m, ...t] });
+    else out.push({ kind: 'conflict', base: b, mine: m, theirs: t });
+  };
+  for (let bi = 0; bi < B.length; bi++) {
+    const mj = bm.get(bi);
+    const tk = bt.get(bi);
+    if (mj === undefined || tk === undefined || mj < j || tk < k) continue;
+    region(bi, mj, tk);
+    const bx = B[bi];
+    const mx = ch.mine[mj];
+    const tx = ch.theirs[tk];
+    if (mx.text === bx) out.push({ kind: 'same', blocks: [tx] });
+    else if (tx.text === bx) out.push({ kind: 'same', blocks: [mx] });
+    else if (mx.text === tx.text) out.push({ kind: 'same', blocks: [mx] });
+    else out.push({ kind: 'conflict', base: [bx], mine: [mx], theirs: [tx] });
+    i = bi + 1;
+    j = mj + 1;
+    k = tk + 1;
+  }
+  region(B.length, ch.mine.length, ch.theirs.length);
   return out;
 }
 

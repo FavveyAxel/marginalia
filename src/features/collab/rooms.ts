@@ -297,6 +297,19 @@ export class Rooms {
     this.bindings.set(room, b);
     return b;
   }
+  /** Hôte : salle sans éditeur dont le fichier vient d'être remplacé (réunion) : elle sera ré-amorcée. */
+  dropRoom(room: string) {
+    if ((this.editors.get(room)?.length ?? 0) > 0) return;
+    const s = this.silent.get(room);
+    if (!s) return;
+    try {
+      s.provider.destroy();
+      s.doc.destroy();
+    } catch {
+      /* déjà détruit */
+    }
+    this.silent.delete(room);
+  }
   hasEditor(room: string) {
     return this.bindings.has(room);
   }

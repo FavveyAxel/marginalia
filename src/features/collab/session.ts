@@ -23,6 +23,8 @@ import { keyOf, newer, RecordSync, type Col, type Rec, type Tag } from './record
 import { Rooms } from './rooms';
 import { joinFiles, pack, splitFiles, unpack, type Head } from './wire';
 import { reunite } from './reunion';
+import { knownMtimes, stopWatch } from './memory';
+import { addVersionFromLibrary } from '../editor/versions';
 
 type Any = any; // eslint-disable-line @typescript-eslint/no-explicit-any
 
@@ -117,7 +119,9 @@ export async function startHost(workspaceId: string, profile: CollabProfile): Pr
     await s.rooms.ready(); // moteur Yjs prêt avant la première demande
     const info = await net().hostStart({ title: ws.name, shareId }, profile);
     if (S !== s) return;
+    stopWatch(shareId);
     s.records = makeRecords(s, workspaceId);
+    for (const [k, t] of Object.entries(await knownMtimes(shareId))) s.records.mtimes.set(k, t);
     s.records.start();
     useCollab.setState({ phase: 'live', role: 'host', me: 'h', workspaceId, shareId, title: ws.name, members: info.members ?? [], requests: [], code: info.code ?? null, codeState: info.codeState ?? 'open', addresses: info.addresses ?? [] });
   } catch (e) {
@@ -160,7 +164,7 @@ async function hostSendState(to: string, want: string[]) {
   const { bytes } = await buildSharePackage({ kind: 'workspace', workspaceId: s.workspaceId! }, { includeBooks: false, includeBookIds: want });
   const snap = s.records!.snapshot();
   const recs: Rec[] = [...snap.entries()].map(([k, v]) => ({ c: v.c, g: v.g, d: v.d, tag: s.records!.tags.get(k) ?? ([0, 'h'] as Tag) }));
-  send(to, { t: 'state', title: s.title, tags: [...s.records!.tags], keys: [...snap.keys()], recs, rooms: s.rooms.view }, bytes);
+  send(to, { t: 'state', title: s.title, tags: [...s.records!.tags], keys: [...snap.keys()], recs, rooms: s.rooms.view, mtimes: Object.fromEntries(s.records!.mtimes) }, bytes);
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -216,7 +220,7 @@ async function guestOnState(head: Head, body: Uint8Array) {
   let wsId = workspaceForShare(s.shareId);
   const alias: [string, string][] = (s as Any).bookAlias ?? [];
   useCollab.setState({ progress: 'Ajout à votre bibliothèque…' });
-  let reunion: Awaited<ReturnType<typeof reunite>> | null = null;
+  const had = !!wsId;
   if (!wsId) {
     const res = await importSharePackage(body);
     wsId = res.workspace?.id ?? null;
@@ -231,20 +235,26 @@ async function guestOnState(head: Head, body: Uint8Array) {
   for (const [k, v] of mine) if (!hostKeys.has(k) && (v.c === 'highlight' || v.c === 'map')) rec.privateKeys.add(k);
   for (const [k, t] of (Array.isArray(head.tags) ? head.tags : []) as [string, Tag][]) rec.tags.set(k, t);
   rec.clock = Math.max(0, ...[...rec.tags.values()].map((t) => t[0]));
-  if (st0.workspaces.some((w) => w.id === wsId)) {
-    // L'espace était déjà là : réunion de ce que chacun a fait entre-temps (reunion.ts).
-    reunion = await reunite({ records: rec, hostRecs: (Array.isArray(head.recs) ? head.recs : []) as Rec[], hostKeys, pkg: body, hostName: s.hostName, me: s.me });
-  }
+  stopWatch(s.shareId);
+  for (const [k, t] of Object.entries(await knownMtimes(s.shareId))) rec.mtimes.set(k, t);
   s.records = rec;
   rec.start();
+  if (had && st0.workspaces.some((w) => w.id === wsId)) {
+    // L'espace était déjà là : réunion de ce que chacun a fait entre-temps (reunion.ts).
+    useCollab.setState({ progress: 'Réunion de ce que chacun a fait…' });
+    const r = await reunite({ records: rec, shareId: s.shareId, hostRecs: (Array.isArray(head.recs) ? head.recs : []) as Rec[], hostMtimes: (head.mtimes as Record<string, number>) ?? {}, pkg: body, hostName: s.hostName });
+    if (r.mine.length) send('all', { t: 'recs', recs: r.mine });
+    for (const d of r.docx) send('all', { t: 'docx', g: d.g, words: d.words, merged: true, by: s.profile.name }, new Uint8Array(d.data));
+    for (const m of r.messages) toast(m, 'info');
+    if (r.mine.length || r.docx.length) toast(`Réuni avec ${s.hostName} : une version « Avant la reconnexion avec ${s.hostName} » garde chaque écrit d’avant.`, 'success');
+  }
+  void hostKeys;
   s.rooms.setView((head.rooms as Record<string, string[]>) ?? {});
   s.ready = true;
   useCollab.setState({ phase: 'live', workspaceId: wsId, progress: null });
   for (const q of s.queue.splice(0)) await onMessage(q.from, q.head, q.body);
-  if (reunion?.mine.length) send('all', { t: 'recs', recs: reunion.mine });
   useStore.getState().navigate({ name: 'workspace', workspaceId: wsId, groupId: null });
   toast(`Vous travaillez à plusieurs dans « ${s.title} »`, 'success');
-  reunion?.after?.();
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -356,6 +366,26 @@ async function onFiles(head: Head, body: Uint8Array) {
   s.records.resume();
 }
 
+/** Écrit réuni par un participant qui revient : version d'avant, puis le fichier réuni. */
+async function onMergedDocx(from: string, head: Head, body: Uint8Array) {
+  const s = S!;
+  const g = String(head.g ?? '');
+  const id = s.records?.local('draft', g);
+  const d = id ? useStore.getState().drafts.find((x) => x.id === id) : null;
+  if (!d) return;
+  if (s.role === 'host' && (s.rooms.view[g]?.length ?? 0) > 0) {
+    send(from, { t: 'docx-busy', g, title: d.title });
+    return;
+  }
+  if (s.rooms.hasEditor(g)) return;
+  await addVersionFromLibrary(d.id, { kind: 'manual', name: `Avant la reconnexion avec ${String(head.by ?? nameOf(from))}`, force: true }).catch((e) => console.warn('version', e));
+  await host.storeFile(d.id, d.fileName, body.slice().buffer as ArrayBuffer);
+  const words = Number(head.words);
+  if (Number.isFinite(words)) useStore.getState().applyExternal((st) => ({ drafts: st.drafts.map((x) => (x.id === d.id ? { ...x, wordCount: words } : x)) }));
+  // La salle Yjs gardée par l'hôte repart de ce fichier au prochain ouvrant.
+  if (s.role === 'host') s.rooms.dropRoom(g);
+}
+
 // ─────────────────────────────────────────────────────────────
 // Messages et événements
 // ─────────────────────────────────────────────────────────────
@@ -386,7 +416,11 @@ async function onMessage(from: string, head: Head, body: Uint8Array) {
         if (s.role === 'guest') s.rooms.setView(head.rooms as Record<string, string[]>);
         break;
       case 'docx':
-        await s.rooms.onDocx(head, body);
+        if (head.merged) await onMergedDocx(from, head, body);
+        else await s.rooms.onDocx(head, body);
+        break;
+      case 'docx-busy':
+        toast(`« ${String(head.title ?? 'Un écrit')} » est ouvert chez quelqu’un : votre version réunie est gardée dans ses versions ici.`, 'info');
         break;
       case 'fetch':
         await onFetch(from, head);

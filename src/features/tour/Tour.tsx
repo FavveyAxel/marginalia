@@ -234,6 +234,8 @@ function TourOverlay() {
   const step = TOUR[i];
   const last = i === TOUR.length - 1;
   const [box, setBox] = useState<Box | null>(null);
+  /** Étape pour laquelle la zone a été mesurée : la carte attend la mesure de la nouvelle étape. */
+  const [measuredFor, setMeasuredFor] = useState<string | null>(null);
   const [card, setCard] = useState<{ left: number; top: number } | null>(null);
   const [tick, setTick] = useState(0);
   const cardRef = useRef<HTMLDivElement>(null);
@@ -255,29 +257,47 @@ function TourOverlay() {
   }, [step]);
 
   // Mesure de l'élément mis en lumière (après rendu de la vue), et à chaque redimensionnement.
+  // La zone de l'étape précédente reste affichée pendant que la nouvelle vue se met en place : elle
+  // glisse ensuite de l'ancienne cible à la nouvelle (transition CSS), sans repartir du haut de l'écran.
+  // Une cible pas encore posée (taille nulle, vue en cours d'ouverture) est ignorée jusqu'à la mesure suivante.
   const measure = useCallback(() => {
     setTick((t) => t + 1);
     const el = findTarget(step.target);
-    if (!el) return setBox(null);
+    if (!el) {
+      if (!step.target) {
+        setBox(null);
+        setMeasuredFor(step.id);
+      }
+      return;
+    }
     const r = el.getBoundingClientRect();
-    setBox({ x: r.left - PAD, y: r.top - PAD, w: r.width + 2 * PAD, h: r.height + 2 * PAD });
+    if (r.width < 2 || r.height < 2) return;
+    const nb = { x: r.left - PAD, y: r.top - PAD, w: r.width + 2 * PAD, h: r.height + 2 * PAD };
+    setBox((b) => (b && Math.abs(b.x - nb.x) < 0.5 && Math.abs(b.y - nb.y) < 0.5 && Math.abs(b.w - nb.w) < 0.5 && Math.abs(b.h - nb.h) < 0.5 ? b : nb));
+    setMeasuredFor(step.id);
   }, [step]);
   useEffect(() => {
-    setBox(null);
-    const t1 = setTimeout(measure, 60);
-    const t2 = setTimeout(measure, 350);
+    const ts = [0, 60, 160, 350, 700].map((ms) => setTimeout(measure, ms));
+    // Cible introuvable après coup (vue sans cet élément) : voile plein plutôt qu'une zone périmée.
+    const giveUp = setTimeout(() => {
+      if (!findTarget(step.target)) {
+        setBox(null);
+        setMeasuredFor(step.id);
+      }
+    }, 900);
     window.addEventListener('resize', measure);
     return () => {
-      clearTimeout(t1);
-      clearTimeout(t2);
+      ts.forEach(clearTimeout);
+      clearTimeout(giveUp);
       window.removeEventListener('resize', measure);
     };
-  }, [measure]);
+  }, [measure, step]);
+  const placed = measuredFor === step.id;
 
   // Place la carte à côté de la zone (à droite de la barre latérale, sinon dessous / dessus), dans l'écran.
   useLayoutEffect(() => {
     const c = cardRef.current;
-    if (!c) return;
+    if (!c || !placed) return;
     const vw = window.innerWidth;
     const vh = window.innerHeight;
     const w = c.offsetWidth;
@@ -298,7 +318,7 @@ function TourOverlay() {
       top = box.y - 16 - h;
     }
     setCard({ left: Math.max(16, Math.min(vw - w - 16, left)), top: Math.max(16, Math.min(vh - h - 16, top)) });
-  }, [box, i, tick]);
+  }, [box, i, tick, placed]);
 
   // Clavier : → / Entrée suivant, ← précédent, Échap passer. Focus sur « Suivant ».
   useEffect(() => {
@@ -331,8 +351,8 @@ function TourOverlay() {
       <div className="tour-block" aria-hidden="true" />
       <div
         ref={cardRef}
-        className={`tour-card ${card ? 'is-placed' : ''}`}
-        style={card ? { left: card.left, top: card.top } : { left: -9999, top: 0 }}
+        className={`tour-card ${card && placed ? 'is-placed' : ''}`}
+        style={card && placed ? { left: card.left, top: card.top } : { left: -9999, top: 0 }}
         role="dialog"
         aria-modal="true"
         aria-labelledby="tour-title"

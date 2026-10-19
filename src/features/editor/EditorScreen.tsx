@@ -4,7 +4,7 @@ import { AlertTriangle, ChevronLeft, ChevronDown, Download, FileDown, FileText, 
 import { SendToPhone } from './SendToPhone';
 import { registerFlusher, useStore } from '../../lib/store';
 import { host, type ExportFormat } from '../../lib/platform';
-import type { Book, Draft, Highlight } from '../../lib/types';
+import type { Book, Draft, Highlight, Route } from '../../lib/types';
 import { formatFootnote } from '../../lib/citation';
 import { Kbd, Skeleton } from '../../components/ui';
 import type { DocEngine, EngineState, EngineStats, OutlineItem } from './engine';
@@ -71,6 +71,25 @@ const EXPORTS: { fmt: ExportFormat; label: string; ext: string }[] = [
   { fmt: 'html', label: 'Page web', ext: '.html' },
   { fmt: 'txt', label: 'Texte brut', ext: '.txt' },
 ];
+
+// Retour : vers l'espace de travail (ou son groupe) d'où l'écrit a été ouvert ; sinon, la liste des écrits.
+// Passer d'un écrit à un autre (citation, lien) garde le point de départ.
+let returnRoute: Route | null = null;
+useStore.subscribe((s, prev) => {
+  if (s.route.name === 'write' && s.route.draftId && !(prev.route.name === 'write' && prev.route.draftId)) returnRoute = prev.route;
+});
+function editorBack(): { route: Route; label: string } {
+  const s = useStore.getState();
+  const r = returnRoute;
+  if (r && r.name === 'workspace') {
+    const ws = s.workspaces.find((w) => w.id === r.workspaceId);
+    if (ws) {
+      const g = r.groupId ? s.groups.find((x) => x.id === r.groupId) : null;
+      return { route: r, label: g?.name ?? ws.name };
+    }
+  }
+  return { route: { name: 'write', draftId: null }, label: 'Écrits' };
+}
 
 const EXTRACTS_KEY = 'marginalia.ed.extractsOpen';
 const REVEAL_KEY = 'marginalia.ed.markReveal';
@@ -1073,8 +1092,8 @@ function Editor({ draft }: { draft: Draft }) {
       style={{ '--cm-col': `${comments.colW}px` } as React.CSSProperties}
     >
       <header className="topbar ed-topbar">
-        <button className="btn btn-ghost btn-sm ed-back" onClick={() => navigate({ name: 'write', draftId: null })}>
-          <ChevronLeft size={16} /> Écrits
+        <button className="btn btn-ghost btn-sm ed-back" onClick={() => navigate(editorBack().route)} title={`Retour à « ${editorBack().label} »`} data-testid="ed-back">
+          <ChevronLeft size={16} /> <span className="truncate">{editorBack().label}</span>
         </button>
         <input
           className="ed-title-input"

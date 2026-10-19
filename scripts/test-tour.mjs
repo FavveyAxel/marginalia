@@ -13,8 +13,19 @@ for (const [label, w, h, char] of [['large', 1440, 900, 'rousseau'], ['petit', 1
     await page.waitForSelector('[data-testid="tour"] .tour-card.is-placed');
     const n = await page.evaluate(async () => (await import('/src/features/tour/Tour.tsx')).TOUR.length);
     const seen = [];
+    const jumps = [];
     for (let k = 0; k < n; k++) {
-      await page.waitForTimeout(450);
+      await page.waitForTimeout(900);
+      // Passage d'une zone à l'autre : la zone glisse de l'ancienne cible à la nouvelle, sans repartir du haut.
+      const tr = await page.evaluate(() => { const r = window.__tourSamples; window.__tourSamples = null; return r; });
+      if (tr && tr.from && tr.samples.length) {
+        const to = tr.samples[tr.samples.length - 1];
+        if (to.top != null) {
+          const lo = Math.min(tr.from.top, to.top) - 3, hi = Math.max(tr.from.top, to.top) + 3;
+          const bad = tr.samples.filter((x) => x.top == null || x.top < lo || x.top > hi || x.swapped);
+          if (bad.length) jumps.push(`${tr.id}: ${JSON.stringify(bad.slice(0, 3))} (de ${Math.round(tr.from.top)} à ${Math.round(to.top)})`);
+        }
+      }
       const st = await page.evaluate(() => {
         const t = document.querySelector('[data-testid="tour"]');
         const c = t.querySelector('.tour-card').getBoundingClientRect();
@@ -25,10 +36,25 @@ for (const [label, w, h, char] of [['large', 1440, 900, 'rousseau'], ['petit', 1
       if (label === 'large') await shot(page, `shots/tour/${String(k + 1).padStart(2, '0')}-${st.id}.png`);
       // Une étape à la fois : bouton « Suivant » ou flèche →, en alternance.
       if (k < n - 1) {
+        // Échantillons de la zone à chaque image pendant le passage à l'étape suivante.
+        await page.evaluate(() => {
+          const h0 = document.querySelector('.tour-hole');
+          const from = h0 ? { top: h0.getBoundingClientRect().top } : null;
+          const rec = { id: document.querySelector('[data-testid="tour"]').dataset.step, from, samples: [] };
+          window.__tourSamples = rec;
+          const t0 = performance.now();
+          const f = () => {
+            const h = document.querySelector('.tour-hole');
+            rec.samples.push({ top: h ? h.getBoundingClientRect().top : null, swapped: !!(h0 && h && h !== h0) });
+            if (performance.now() - t0 < 800) requestAnimationFrame(f);
+          };
+          requestAnimationFrame(f);
+        });
         if (k % 2) await page.keyboard.press('ArrowRight');
         else await page.click('[data-testid="tour-next"]');
       }
     }
+    ok(jumps.length === 0, `[${label}] d’une étape à l’autre, la zone glisse de l’ancienne cible à la nouvelle (ni saut, ni départ du haut)`, jumps.slice(0, 3).join(' | '));
     const ids = seen.map((s) => s.id);
     ok(new Set(ids).size === n, `[${label}] ${n} étapes parcourues dans l’ordre`, ids.join(' › '));
     const inScreen = seen.every((s) => s.card[0] >= 0 && s.card[1] >= 0 && s.card[2] <= s.vw && s.card[3] <= s.vh);

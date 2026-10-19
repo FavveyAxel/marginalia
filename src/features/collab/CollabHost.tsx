@@ -232,13 +232,14 @@ function Frame({ title, onClose, children, testid, foot = true }: { title: strin
 function KeepDialog() {
   const a = useCollab((s) => s.afterSession)!;
   const keep = () => useCollab.setState({ afterSession: null });
-  const kinds: { k: WorkspaceItemKind; icon: JSX.Element; one: string; many: string }[] = [
+  const kinds: { k: WorkspaceItemKind | 'highlight'; icon: JSX.Element; one: string; many: string }[] = [
     { k: 'draft', icon: <FilePen size={13} />, one: 'écrit', many: 'écrits' },
     { k: 'map', icon: <Network size={13} />, one: 'carte', many: 'cartes' },
     { k: 'book', icon: <BookOpen size={13} />, one: 'livre', many: 'livres' },
     { k: 'plan', icon: <ListTree size={13} />, one: 'plan', many: 'plans' },
     { k: 'argument', icon: <Sigma size={13} />, one: 'argument', many: 'arguments' },
     { k: 'study', icon: <ScrollText size={13} />, one: 'fiche', many: 'fiches' },
+    { k: 'highlight', icon: <Highlighter size={13} />, one: 'extrait', many: 'extraits' },
   ];
   const what = kinds.map((x) => ({ ...x, n: a.targets.filter((t) => t.kind === x.k).length })).filter((x) => x.n > 0);
   const drop = () => {

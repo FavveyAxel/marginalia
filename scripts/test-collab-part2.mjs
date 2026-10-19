@@ -145,7 +145,7 @@ export async function run(ctx, h) {
     s.removeHighlight(s.highlights.find((x) => x.text.startsWith('la diversité')).id);
   });
   ok(await until(A.page, () => window.__store.getState().highlights.length === 1 && window.__store.getState().trash.some((t) => t.kind === 'highlight'), null, 15000), 'extrait supprimé par Marc : dans la corbeille de Léa');
-  ok(await until(C.page, () => window.__store.getState().highlights.length === 1 && window.__store.getState().trash.some((t) => t.kind === 'highlight'), null, 15000), '… et dans celle d’Inès');
+  ok(await until(C.page, () => window.__store.getState().highlights.filter((h) => h.text !== 'Note d’Inès').length === 1 && window.__store.getState().trash.some((t) => t.kind === 'highlight'), null, 15000), '… et dans celle d’Inès');
   // Nouvel écrit créé par Marc dans l'espace : arrive chez les autres (fichier compris).
   await B.page.evaluate(async () => {
     const ws = window.__collab.state.getState().workspaceId;
@@ -294,7 +294,19 @@ export async function run(ctx, h) {
   await C.page.click('[data-testid="collab-keep-drop"]');
   const afterC = await until(C.page, () => !window.__store.getState().workspaces.some((w) => w.name === 'Parjure'), null, 5000);
   const nowC = await st(C.page, () => { const s = window.__store.getState(); return { ws: s.workspaces.length, drafts: s.drafts.length, books: s.books.length, maps: Object.values(s.maps).filter((m) => m.kind === 'board').length, trash: s.trash.length, route: s.route.name, toasts: [...document.querySelectorAll('.toast')].map((t) => t.textContent).join(' | ') }; });
-  ok(afterC && nowC.ws === 0 && nowC.drafts === 0 && nowC.books === 0 && nowC.maps === 0, 'Inès ne garde pas : l’espace, les écrits, le livre et la carte reçus disparaissent (elle n’avait rien avant)', { beforeC, nowC });
+  const own = await st(C.page, () => {
+    const s = window.__store.getState();
+    return {
+      ws: s.workspaces.map((w) => w.name),
+      drafts: s.drafts.map((d) => d.title),
+      books: s.books.map((b) => b.title),
+      hl: s.highlights.map((h) => h.text),
+      perso: s.wsItems.filter((i) => s.workspaces.find((w) => w.name === 'Perso')?.id === i.workspaceId).map((i) => i.kind).sort().join(),
+    };
+  });
+  ok(afterC && nowC.maps === 0 && !own.drafts.includes('Le parjure') && own.ws.join() === 'Perso', 'Inès ne garde pas : l’espace « Parjure », son écrit et sa carte reçus disparaissent', own);
+  ok(own.drafts.includes('Mes notes') && own.books.length === 2 && own.perso === 'book,draft', 'ce qu’elle avait avant reste : son écrit, ses deux livres (dont le même que Léa), son espace « Perso »', own);
+  ok(own.hl.length === 1 && own.hl[0] === 'Note d’Inès', 'sur le livre qu’elle avait déjà : son extrait reste, ceux reçus de Léa partent', own.hl);
   ok(nowC.trash > beforeC.trash && /placés dans la corbeille/.test(nowC.toasts) && /Annuler/.test(nowC.toasts) && nowC.route === 'home', '… dans la corbeille (« Annuler » possible), et l’écrit ouvert se ferme', nowC);
 
   // ── 8. Rien en clair dans le trafic (relais d'écoute sur le chemin de Marc) ──

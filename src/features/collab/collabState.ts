@@ -60,7 +60,7 @@ export interface CollabState {
   /** Réunion en attente des choix de l'utilisateur (reunion.ts). */
   reunion: { hostName: string; items: ReunionItem[]; resolve: (c: Record<string, Choice>) => void } | null;
   /** Invité, fin de session : garder l'espace reçu sur cet ordinateur, ou le retirer (corbeille). */
-  afterSession: { workspaceId: string; name: string; hostName: string; targets: { kind: WorkspaceItemKind; id: string }[] } | null;
+  afterSession: { workspaceId: string; name: string; hostName: string; targets: { kind: WorkspaceItemKind | 'highlight'; id: string }[] } | null;
 }
 
 export const useCollab = create<CollabState>(() => ({

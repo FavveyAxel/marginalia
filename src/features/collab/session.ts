@@ -56,6 +56,7 @@ function libraryKeys(): Set<string> {
   const col: Record<(typeof KEEP_KINDS)[number], string> = { book: 'books', draft: 'drafts', plan: 'plans', argument: 'arguments', study: 'studies' };
   for (const k of KEEP_KINDS) for (const x of st[col[k]] ?? []) out.add(`${k}:${x.id}`);
   for (const id of Object.keys(st.maps ?? {})) out.add(`map:${id}`);
+  for (const h of (st as unknown as { highlights: { id: string }[] }).highlights ?? []) out.add(`highlight:${h.id}`);
   return out;
 }
 /**
@@ -63,19 +64,25 @@ function libraryKeys(): Set<string> {
  * (maintenant ou lors d'une session précédente) ou créés pendant la session, et qui ne servent à aucun
  * autre espace. Ce qu'il avait déjà dans sa bibliothèque reste.
  */
-function sessionTargets(wsId: string, shareId: string, before: Set<string>): { kind: WorkspaceItemKind; id: string }[] {
+function sessionTargets(wsId: string, shareId: string, before: Set<string>): { kind: WorkspaceItemKind | 'highlight'; id: string }[] {
   const st = useStore.getState() as unknown as Record<string, { id: string; shareOrigin?: { shareId: string } }[]> & {
     wsItems: WorkspaceItem[];
     maps: Record<string, { shareOrigin?: { shareId: string } }>;
   };
   const col: Record<string, string> = { book: 'books', draft: 'drafts', plan: 'plans', argument: 'arguments', study: 'studies' };
-  const out: { kind: WorkspaceItemKind; id: string }[] = [];
+  const out: { kind: WorkspaceItemKind | 'highlight'; id: string }[] = [];
   for (const it of st.wsItems.filter((i) => i.workspaceId === wsId)) {
     if (st.wsItems.some((o) => o.workspaceId !== wsId && o.kind === it.kind && o.refId === it.refId)) continue;
     const rec = it.kind === 'map' ? st.maps[it.refId] : (st[col[it.kind]] ?? []).find((x) => x.id === it.refId);
     if (!rec) continue;
     if (rec.shareOrigin?.shareId === shareId || !before.has(`${it.kind}:${it.refId}`)) out.push({ kind: it.kind, id: it.refId });
   }
+  // Livres gardés (ils étaient déjà là) : les extraits arrivés par le partage, ou faits pendant la session, partent ;
+  // ceux de l'invité restent.
+  const gone = new Set(out.filter((t) => t.kind === 'book').map((t) => t.id));
+  const kept = new Set(st.wsItems.filter((i) => i.workspaceId === wsId && i.kind === 'book' && !gone.has(i.refId)).map((i) => i.refId));
+  const hls = (st as unknown as { highlights: { id: string; bookId: string; shareOrigin?: { shareId: string } }[] }).highlights ?? [];
+  for (const h of hls) if (kept.has(h.bookId) && (h.shareOrigin?.shareId === shareId || !before.has(`highlight:${h.id}`))) out.push({ kind: 'highlight', id: h.id });
   return out;
 }
 

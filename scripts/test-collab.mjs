@@ -130,6 +130,29 @@ try {
   );
   ok(!!seeded.draft && (await st(A.page, () => window.__store.getState().wsItems.length)) === 3, 'Léa : espace « Parjure » prêt (livre, 2 extraits, écrit, carte)', seeded);
 
+  // Inès a déjà sa bibliothèque : le même livre que Léa (avec son propre extrait), un autre livre, un écrit à elle,
+  // dans son espace « Perso ». Si elle ne garde pas « Parjure » à la fin, tout cela doit rester.
+  const pdfB64 = fs.readFileSync(path.join(path.dirname(EPUB), 'discours.pdf')).toString('base64');
+  const inesOwn = await C.page.evaluate(
+    async ({ epubB64, pdfB64 }) => {
+      const s = () => window.__store.getState();
+      const bin = (b) => Uint8Array.from(atob(b), (c) => c.charCodeAt(0)).buffer;
+      const [same] = await s().importFiles([{ name: 'Discours de la méthode.epub', data: bin(epubB64) }]);
+      const [other] = await s().importFiles([{ name: 'Discours (PDF).pdf', data: bin(pdfB64) }]);
+      await s().importFiles([{ name: 'Mes notes.md', data: new TextEncoder().encode('# Mes notes\n\nÀ moi seule.\n').buffer }]);
+      const draft = s().drafts.find((d) => d.title === 'Mes notes');
+      const anchor = (i) => ({ kind: 'html', chapter: 0, start: i, end: i + 12, prefix: '', suffix: '' });
+      const h = s().addHighlight({ bookId: same.id, category: 'concept', text: 'Note d’Inès', anchor: anchor(120), locationLabel: 'Première partie' });
+      const ws = s().createWorkspace('Perso').id;
+      s().addToWorkspace(ws, null, 'book', other.id);
+      s().addToWorkspace(ws, null, 'draft', draft.id);
+      s().navigate({ name: 'home' });
+      return { same: same.id, other: other.id, draft: draft.id, h: h.id, ws };
+    },
+    { epubB64, pdfB64 },
+  );
+  ok(!!inesOwn.draft && !!inesOwn.h, 'Inès : sa bibliothèque d’avant (même livre + son extrait, un autre livre, un écrit, espace « Perso »)', inesOwn);
+
   // ── 1. Léa ouvre la session par le menu ⋯ de l'espace ──
   await A.page.click('button[aria-label="Actions"]');
   const menuText = await A.page.locator('[role="menu"]').first().textContent();
@@ -213,7 +236,9 @@ try {
       const ws = s.workspaces.find((w) => w.id === c.workspaceId);
       const items = s.wsItems.filter((i) => i.workspaceId === c.workspaceId);
       const board = Object.values(s.maps).find((m) => m.kind === 'board');
-      return { ws: ws?.name, items: items.map((i) => i.kind).sort().join(), drafts: s.drafts.length, hl: s.highlights.length, board: board?.nodes.length, book: s.books[0] ? { missing: !!s.books[0].missing } : null, route: s.route.name };
+      const wsBook = s.books.find((b) => items.some((i) => i.kind === 'book' && i.refId === b.id));
+      const inWs = (k) => items.filter((i) => i.kind === k).length;
+      return { ws: ws?.name, items: items.map((i) => i.kind).sort().join(), drafts: inWs('draft'), hl: s.highlights.filter((h) => h.bookId === wsBook?.id && h.text !== 'Note d’Inès').length, board: board?.nodes.length, book: wsBook ? { missing: !!wsBook.missing } : null, route: s.route.name };
     });
     ok(got.ws === 'Parjure' && got.items === 'book,draft,map' && got.drafts === 1 && got.hl === 2 && got.board === 2 && got.book && !got.book.missing && got.route === 'workspace', `${X.name} : espace « Parjure » complet (écrit, carte, 2 extraits, livre joint car absent)`, got);
   }

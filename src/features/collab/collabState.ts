@@ -49,6 +49,8 @@ export interface CollabState {
   code: string | null;
   codeState: 'open' | 'tries';
   addresses: string[];
+  /** Hôte : joignable aussi par Internet (le code suffit). */
+  internet: boolean;
   /** Écrits ouverts en direct : salle (gid de l'écrit) → personnes qui y écrivent. */
   rooms: Record<string, string[]>;
   /** Avancement de l'arrivée de l'espace chez un invité. */
@@ -75,6 +77,7 @@ export const useCollab = create<CollabState>(() => ({
   code: null,
   codeState: 'open',
   addresses: [],
+  internet: false,
   rooms: {},
   progress: null,
   panelFor: null,

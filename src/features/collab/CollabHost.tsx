@@ -19,6 +19,22 @@ import './collab.css';
 
 const session = () => import('./session');
 
+/** Collaboration par Internet : permise (réglage) et possible sur cet ordinateur (module présent). */
+function useInternetOk() {
+  const on = useStore((s) => s.settings.collabInternet !== false);
+  const [supported, setSupported] = useState(false);
+  useEffect(() => {
+    let alive = true;
+    void session()
+      .then((m) => m.internetState())
+      .then((r) => alive && setSupported(r.supported), () => undefined);
+    return () => {
+      alive = false;
+    };
+  }, []);
+  return on && supported;
+}
+
 export function CollabHost() {
   const panelFor = useCollab((s) => s.panelFor);
   const joinOpen = useCollab((s) => s.joinOpen);
@@ -206,6 +222,7 @@ function useEscape(onClose: () => void) {
 
 function Frame({ title, onClose, children, testid, foot = true }: { title: string; onClose: () => void; children: React.ReactNode; testid: string; foot?: boolean }) {
   useEscape(onClose);
+  const internet = useInternetOk();
   return createPortal(
     <div className="wr-back anim-fade" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
       <div className="wr-dialog cl-dialog panel anim-scale" role="dialog" aria-modal="true" aria-labelledby="cl-title" data-testid={testid}>
@@ -219,7 +236,7 @@ function Frame({ title, onClose, children, testid, foot = true }: { title: strin
         {foot && (
           <footer className="wr-foot">
             <Lock size={13} />
-            <span>Chiffré, sur votre réseau local, sans Internet.</span>
+            <span>{internet ? 'Chiffré de bout en bout, sur votre réseau ou par Internet.' : 'Chiffré, sur votre réseau local, sans Internet.'}</span>
           </footer>
         )}
       </div>
@@ -358,6 +375,11 @@ function CollabPanel({ workspaceId, onClose }: { workspaceId: string; onClose: (
         {c.codeState === 'open' && c.code ? (
           <>
             <BigCode code={c.code} testid="collab-code" />
+            {c.internet && (
+              <p className="sh-small center cl-anywhere" data-testid="collab-internet">
+                Même sans être sur le même Wi-Fi : le code suffit, d’où que l’on soit.
+              </p>
+            )}
             {c.requests.length === 0 && (
               <Steps
                 items={[
@@ -381,7 +403,7 @@ function CollabPanel({ workspaceId, onClose }: { workspaceId: string; onClose: (
         ))}
         <People members={c.members} me={c.me} canRemove />
         {n >= 6 && <p className="sh-note">Session complète : six personnes au plus.</p>}
-        <Trouble address={c.addresses[0]} />
+        <Trouble address={c.addresses[0]} internet={c.internet} />
         <div className="sh-actions">
           <button className="btn" onClick={onClose}>Fermer</button>
           <span className="spacer" />
@@ -424,6 +446,16 @@ function JoinDialog({ onClose }: { onClose: () => void }) {
   const [address, setAddress] = useState('');
   const [step, setStep] = useState<JoinStep>({ s: 'form' });
   const [error, setError] = useState<string | null>(null);
+  // Après un code faux ou introuvable : 10 s avant d'en essayer un autre (compte à rebours).
+  const [waitUntil, setWaitUntil] = useState(0);
+  const [now, setNow] = useState(() => Date.now());
+  const waitLeft = Math.max(0, Math.ceil((waitUntil - now) / 1000));
+  useEffect(() => {
+    if (!waitUntil || Date.now() >= waitUntil) return;
+    const t = setInterval(() => setNow(Date.now()), 250);
+    return () => clearInterval(t);
+  }, [waitUntil]);
+  const internet = useInternetOk();
   const alive = useRef(true);
   useEffect(
     () => () => {
@@ -439,7 +471,7 @@ function JoinDialog({ onClose }: { onClose: () => void }) {
   const go = async (digits = code) => {
     const p = { name: profile.name.trim(), color: profile.color };
     if (!p.name) return setError('Indiquez votre prénom : il s’affiche à côté de votre curseur.');
-    if (digits.length !== 6) return;
+    if (digits.length !== 6 || waitUntil > Date.now()) return;
     writeProfile(p);
     setError(null);
     setStep({ s: 'finding' });
@@ -455,6 +487,12 @@ function JoinDialog({ onClose }: { onClose: () => void }) {
       if (!alive.current) return;
       setError(errorMessage(e));
       setStep({ s: 'form' });
+      const m = await session();
+      const left = await m.guestWaitLeft();
+      if (alive.current && left > 0) {
+        setNow(Date.now());
+        setWaitUntil(Date.now() + left * 1000);
+      }
     }
   };
   const onCode = (raw: string) => {
@@ -486,7 +524,7 @@ function JoinDialog({ onClose }: { onClose: () => void }) {
           aria-label="Code à 6 chiffres"
           disabled={finding}
           onChange={(e) => onCode(e.target.value)}
-          onKeyDown={(e) => e.key === 'Enter' && code.length === 6 && void go()}
+          onKeyDown={(e) => e.key === 'Enter' && code.length === 6 && !waitLeft && void go()}
           spellCheck={false}
           data-testid="join-code"
         />
@@ -497,14 +535,16 @@ function JoinDialog({ onClose }: { onClose: () => void }) {
           </label>
         )}
         {finding ? (
-          <p className="sh-small center" aria-live="polite">Recherche sur le réseau…</p>
+          <p className="sh-small center" aria-live="polite">{internet && !manual ? 'Recherche sur le réseau et par Internet…' : 'Recherche sur le réseau…'}</p>
         ) : (
           <div className="sh-actions">
-            <Trouble summary="Rien n’est trouvé ?">
+            <Trouble summary="Rien n’est trouvé ?" internet={internet}>
               <button className="sh-link" onClick={() => setManual((m) => !m)}>{manual ? 'Chercher sur le réseau' : 'Saisir une adresse'}</button>
             </Trouble>
             <span className="spacer" />
-            <button className="btn btn-primary" disabled={code.length !== 6} onClick={() => void go()} data-testid="join-go">Rejoindre</button>
+            <button className="btn btn-primary" disabled={code.length !== 6 || waitLeft > 0} onClick={() => void go()} data-testid="join-go">
+              {waitLeft > 0 ? `Rejoindre (${waitLeft} s)` : 'Rejoindre'}
+            </button>
           </div>
         )}
         {error && <p className="sh-error" role="alert" data-testid="join-error">{error}</p>}

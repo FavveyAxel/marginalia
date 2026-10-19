@@ -236,6 +236,8 @@ export interface CollabHostInfo {
   codeState?: 'open' | 'tries';
   port?: number;
   discovery?: boolean;
+  /** Joignable aussi par Internet (le code suffit). */
+  internet?: boolean;
   addresses?: string[];
   members?: CollabMember[];
   requests?: CollabRequest[];
@@ -254,7 +256,7 @@ export interface CollabFound {
   ticket: string;
   meta: Record<string, unknown>;
   people: number;
-  from: { address: string; port: number; name: string; host: string };
+  from: { address: string; port: number; name: string; host: string; internet?: boolean };
 }
 export interface CollabNetApi {
   hostStart(meta: Record<string, unknown>, profile: { name: string; color: string }): Promise<CollabHostInfo>;
@@ -266,6 +268,10 @@ export interface CollabNetApi {
   hostRemove(memberId: string): Promise<boolean>;
   hostNewCode(): Promise<CollabHostInfo>;
   find(code: string, manualAddress: string | undefined, profile: { name: string; color: string }): Promise<CollabFound>;
+  /** Collaboration par Internet : réglage (true / false), ou l'état sans argument. */
+  internet?(on?: boolean): Promise<{ supported: boolean; enabled: boolean }>;
+  /** Secondes avant de pouvoir essayer un autre code (après un code faux ou introuvable). */
+  waitLeft?(): Promise<number>;
   join(ticket: string): Promise<{ you: string; meta: Record<string, unknown>; members: CollabMember[] }>;
   leave(): Promise<void>;
   /** `to` : 'all', 'h' (l'hôte) ou l'id d'un invité. */

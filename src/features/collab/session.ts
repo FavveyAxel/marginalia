@@ -109,6 +109,13 @@ export function workspaceForShare(shareId: string): string | null {
   return s.workspaces.find((w) => w.shareOrigin?.shareId === shareId)?.id ?? s.workspaces.find((w) => `ws-${w.id}` === shareId)?.id ?? null;
 }
 
+/** Réglage « Collaborer par Internet » appliqué au processus principal (avant d'ouvrir ou de chercher). */
+async function applyInternet() {
+  await net()
+    .internet?.(useStore.getState().settings.collabInternet !== false)
+    .catch(() => undefined);
+}
+
 function install() {
   if (installed || !host.collabNet) return;
   installed = true;
@@ -179,6 +186,7 @@ export async function startHost(workspaceId: string, profile: CollabProfile): Pr
   S = s;
   try {
     await s.rooms.ready(); // moteur Yjs prêt avant la première demande
+    await applyInternet();
     const info = await net().hostStart({ title: ws.name, shareId }, profile);
     if (S !== s) return;
     stopWatch(shareId);
@@ -186,7 +194,7 @@ export async function startHost(workspaceId: string, profile: CollabProfile): Pr
     for (const [k, t] of Object.entries(await knownMtimes(shareId))) s.records.mtimes.set(k, t);
     s.records.start();
     plugCursors(s);
-    useCollab.setState({ phase: 'live', role: 'host', me: 'h', workspaceId, shareId, title: ws.name, members: info.members ?? [], requests: [], code: info.code ?? null, codeState: info.codeState ?? 'open', addresses: info.addresses ?? [] });
+    useCollab.setState({ phase: 'live', role: 'host', me: 'h', workspaceId, shareId, title: ws.name, members: info.members ?? [], requests: [], code: info.code ?? null, codeState: info.codeState ?? 'open', addresses: info.addresses ?? [], internet: !!info.internet });
   } catch (e) {
     if (S === s) S = null;
     useCollab.setState({ phase: 'idle', role: null, workspaceId: null, error: errorMessage(e) });
@@ -213,8 +221,9 @@ export async function removeMember(memberId: string) {
   return ok;
 }
 export async function newCode() {
+  await applyInternet();
   const info = await net().hostNewCode();
-  useCollab.setState({ code: info.code ?? null, codeState: info.codeState ?? 'open' });
+  useCollab.setState({ code: info.code ?? null, codeState: info.codeState ?? 'open', internet: !!info.internet });
 }
 
 /** Hôte : l'état initial demandé par un invité. */
@@ -244,7 +253,19 @@ async function hostSendState(to: string, want: string[]) {
 // ─────────────────────────────────────────────────────────────
 export async function guestFind(code: string, manualAddress: string | undefined, profile: CollabProfile) {
   install();
+  await applyInternet();
   return net().find(code, manualAddress, profile);
+}
+
+/** Secondes avant de pouvoir essayer un autre code (0 : tout de suite). */
+export async function guestWaitLeft(): Promise<number> {
+  return (await net().waitLeft?.().catch(() => 0)) ?? 0;
+}
+
+/** Collaboration par Internet possible sur cet ordinateur (module présent) et permise (réglage) ? */
+export async function internetState(): Promise<{ supported: boolean; enabled: boolean }> {
+  if (!host.collabNet?.internet) return { supported: false, enabled: false };
+  return host.collabNet.internet().catch(() => ({ supported: false, enabled: false }));
 }
 
 export async function guestJoin(ticket: string, profile: CollabProfile, hostName: string): Promise<void> {

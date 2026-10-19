@@ -87,6 +87,16 @@ jobs:
       - name: Construire l'interface (Vite)
         run: npm run build
 
+      # Module natif iroh (collaboration par Internet) : rangé par système et processeur, seul le bon est
+      # embarqué. Pas de binaire publié pour les Mac Intel (ils gardent la collaboration sur le même Wi-Fi).
+      - name: Module iroh (Mac)
+        if: runner.os == 'macOS'
+        run: node scripts/fetch-iroh.mjs mac-arm64
+
+      - name: Module iroh (Windows)
+        if: runner.os == 'Windows'
+        run: node scripts/fetch-iroh.mjs win-x64 win-arm64
+
       - name: Empaqueter (Mac)
         if: runner.os == 'macOS'
         run: npx electron-builder --mac --arm64 --x64 --publish never

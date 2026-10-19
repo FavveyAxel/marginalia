@@ -22,6 +22,7 @@
     "@fontsource-variable/literata": "^5.3.0",
     "@fontsource/caveat": "^5.3.0",
     "@fontsource/instrument-serif": "^5.3.0",
+    "@number0/iroh": "^1.1.0",
     "@types/dompurify": "^3.0.5",
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
@@ -66,10 +67,15 @@
     "files": [
       "package.json",
       "electron/**/*",
+      "!electron/native/**",
+      "electron/native/${os}-${arch}/**",
       "dist/**/*",
       "!**/*.map"
     ],
     "asar": true,
+    "asarUnpack": [
+      "electron/native/**"
+    ],
     "npmRebuild": false,
     "nodeGypRebuild": false,
     "buildDependenciesFromSource": false,

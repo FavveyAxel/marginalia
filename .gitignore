@@ -17,3 +17,6 @@ site/dist/
 # Clés (la clé privée des mises à jour ne doit jamais entrer dans le dépôt)
 *.pem
 *.key
+
+# Modules natifs iroh (scripts/fetch-iroh.mjs, téléchargés à la fabrication)
+electron/native/

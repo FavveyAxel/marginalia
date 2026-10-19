@@ -160,14 +160,23 @@ export function ContentChips({ counts, bookNote }: { counts: ChipCounts; bookNot
 }
 
 /** Aide repliée : ce qui empêche souvent de se trouver, et l'adresse à saisir en secours. */
-export function Trouble({ address, children, summary = 'L’autre ordinateur ne trouve pas ?' }: { address?: string | null; children?: ReactNode; summary?: string }) {
+export function Trouble({ address, children, summary = 'L’autre ordinateur ne trouve pas ?', internet = false }: { address?: string | null; children?: ReactNode; summary?: string; internet?: boolean }) {
   const p = host.platform;
   return (
     <details className="br-trouble">
       <summary>{summary}</summary>
       <ul>
-        <li>Les deux ordinateurs doivent être sur le même Wi-Fi.</li>
-        <li>{hotspotHint(p)}</li>
+        {internet ? (
+          <>
+            <li>Vérifiez le code : après un essai raté, il faut attendre 10 secondes avant d’en essayer un autre.</li>
+            <li>Par Internet, la recherche peut prendre une dizaine de secondes. Sur le même Wi-Fi, c’est plus rapide.</li>
+          </>
+        ) : (
+          <>
+            <li>Les deux ordinateurs doivent être sur le même Wi-Fi.</li>
+            <li>{hotspotHint(p)}</li>
+          </>
+        )}
         {p === 'win32' && <li>Sous Windows, si le pare-feu le demande, autorisez Marginalia sur les réseaux privés.</li>}
         {p === 'darwin' && <li>Sur Mac, autorisez Marginalia à accéder au réseau local si le système le demande.</li>}
         {address && (

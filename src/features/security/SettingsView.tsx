@@ -27,6 +27,7 @@ import {
   Download,
   Sparkles,
   BookPlus,
+  Users,
 } from 'lucide-react';
 import { host, type SecurityStatus } from '../../lib/platform';
 import { useStore } from '../../lib/store';
@@ -1036,6 +1037,17 @@ const AUTO_INSTALL: { v: 'auto' | 'ask'; label: string }[] = [
 function UpdateSettings() {
   const check = useStore((s) => s.settings.updateCheck !== false);
   const paperOnline = useStore((s) => s.settings.paperOnline !== false);
+  const collabInternet = useStore((s) => s.settings.collabInternet !== false);
+  const [collabSupported, setCollabSupported] = useState<boolean | null>(null);
+  useEffect(() => {
+    let alive = true;
+    void import('../collab/session')
+      .then((m) => m.internetState())
+      .then((r) => alive && setCollabSupported(r.supported), () => undefined);
+    return () => {
+      alive = false;
+    };
+  }, []);
   const mode = useStore((s) => (s.settings.updateAutoInstall === 'ask' ? 'ask' : 'auto'));
   const version = useUpdates((s) => s.version);
   const dl = useUpdates((s) => s.dl);
@@ -1160,9 +1172,20 @@ function UpdateSettings() {
         <Row
           icon={<BookPlus size={17} />}
           title="Rechercher les livres papier sur Internet"
-          desc="Pour ajouter un livre que vous avez en papier : seul ce que vous tapez (titre, auteur ou ISBN) est envoyé à Google Books et Open Library, qui renvoient l’édition et sa couverture. Aucune photo ni aucun texte de photo ne part. Désactivé : vous remplissez l’édition à la main. Ce sont, avec les mises à jour, les seules connexions de Marginalia à Internet."
+          desc="Pour ajouter un livre que vous avez en papier : seul ce que vous tapez (titre, auteur ou ISBN) est envoyé à Google Books et Open Library, qui renvoient l’édition et sa couverture. Aucune photo ni aucun texte de photo ne part. Désactivé : vous remplissez l’édition à la main."
         >
           <Switch on={paperOnline} onChange={(v) => useStore.getState().updateSettings({ paperOnline: v })} label="Rechercher les livres papier sur Internet" />
+        </Row>
+        <Row
+          icon={<Users size={17} />}
+          title="Travailler à plusieurs par Internet"
+          desc={
+            collabSupported === false
+              ? 'Pas disponible sur cet ordinateur : la collaboration reste possible sur le même Wi-Fi.'
+              : 'Connexion pair à pair (peer-to-peer), chiffrée de bout en bout : le code suffit, même sans être sur le même Wi-Fi.'
+          }
+        >
+          <Switch on={collabInternet && collabSupported !== false} onChange={(v) => useStore.getState().updateSettings({ collabInternet: v })} label="Travailler à plusieurs par Internet" disabled={collabSupported === false} />
         </Row>
       </ul>
     </section>

@@ -6,8 +6,10 @@
 // messages (mises à jour Yjs des écrits, éléments de l'espace, cartes…) est défini et lu dans le rendu
 // (src/features/collab). Le relais ne lit que l'enveloppe (destinataire, expéditeur).
 //
-// Rien ne passe par Internet : aucun serveur relais, aucun service tiers ; seules les adresses du réseau
-// local (isLocalAddress de wifi.cjs) sont contactées ou acceptées, depuis le processus principal.
+// Réseau local d'abord : seules les adresses du réseau local (isLocalAddress de wifi.cjs) sont contactées
+// ou acceptées en TCP. Par Internet (réglage, activé par défaut) : le même protocole passe par des flux
+// iroh (collab-iroh.cjs) ; l'hôte est trouvé grâce au code, sans serveur à nous. Un invité qui vient par
+// Internet suit exactement la même poignée de main et doit être accepté par l'hôte.
 //
 // Poignée de main : CELLE DU PARTAGE PAR CODE (share-net.cjs), reprise brique par brique (rien de neuf) :
 //  1. Découverte : diffusion UDP { mg: 'collab?', v: 1 } sur le port 47804 → { mg: 'collab!', v: 1, id,
@@ -51,6 +53,7 @@ const PORT = 47804;
 const PREFIX = '/mg-collab/v1/';
 const MAX_PEOPLE = 6;
 const MAX_TRIES = 5;
+const RETRY_WAIT_MS = 10 * 1000; // après un code faux ou introuvable : 10 s avant d'en essayer un autre
 const REQUEST_TTL_MS = 2 * 60 * 1000;
 const AWAY_GRACE_MS = 10 * 60 * 1000; // un invité coupé garde sa place 10 minutes
 const RETRY_FOR_MS = 10 * 60 * 1000; // l'invité coupé réessaie 10 minutes
@@ -64,6 +67,8 @@ const COLORS = ['#c2410c', '#1d4ed8', '#15803d', '#7e22ce', '#be123c', '#0f766e'
 const MSG = {
   format: 'Le code doit compter 6 chiffres.',
   notFound: 'Aucune session trouvée avec ce code sur ce réseau. Vérifiez le code et que les deux ordinateurs sont sur le même Wi-Fi ; sinon, saisissez l’adresse affichée par l’hôte.',
+  notFoundAnywhere: 'Aucune session trouvée avec ce code, ni sur ce réseau ni par Internet. Vérifiez le code auprès de l’hôte.',
+  wait: (s) => `Patientez ${s} s avant d’essayer un autre code.`,
   badCode: (n) => `Code incorrect${n > 0 ? ` (encore ${n} essai${n > 1 ? 's' : ''})` : ''}.`,
   tries: 'Trop d’essais : ce code a été fermé par sécurité. Demandez un nouveau code à l’hôte.',
   full: 'Cet espace accueille déjà 6 personnes : réessayez quand quelqu’un sera parti.',
@@ -255,6 +260,8 @@ function rawReply(sock, code, obj) {
  * @param {(addr: string) => boolean} [o.isLocal]
  * @param {object} [o.scrypt]  tests : coût réduit
  * @param {number} [o.awayMs]  tests : place gardée à un invité coupé
+ * @param {ReturnType<import('./collab-iroh.cjs').createInternet>} [o.internet]  collaboration par Internet
+ * @param {number} [o.waitMs]  tests : attente imposée après un code faux (10 s)
  */
 function createCollabHost(o) {
   const diag = o.diag || (() => {});
@@ -323,6 +330,10 @@ function createCollabHost(o) {
   async function onProve(cur, req, res) {
     const q = await H.readJson(req);
     if (cur.codeState !== 'open') return H.json(res, 429, { error: 'tries' });
+    // Après un code faux, la même provenance attend 10 s avant d'essayer encore.
+    const from = sourceOf(req.socket);
+    const waitUntil = cur.waits.get(from) || 0;
+    if (Date.now() < waitUntil) return H.json(res, 429, { error: 'wait', retryIn: Math.ceil((waitUntil - Date.now()) / 1000) });
     const h = q && typeof q.hs === 'string' ? cur.handshakes.get(q.hs) : null;
     const ephR = H.unb64(q && q.eph, 32);
     const proof = H.unb64(q && q.proof, 32);
@@ -332,6 +343,8 @@ function createCollabHost(o) {
     const good = H.hmac(cur.keys.auth, 'proof', T);
     if (!crypto.timingSafeEqual(good, proof)) {
       cur.tries++;
+      cur.waits.set(from, Date.now() + (o.waitMs ?? RETRY_WAIT_MS));
+      if (cur.waits.size > 256) cur.waits.delete(cur.waits.keys().next().value);
       const remaining = MAX_TRIES - cur.tries;
       diag('collab', 'code faux', remaining);
       o.emit({ type: 'attempt', ok: false, remaining, at: Date.now() });
@@ -350,7 +363,7 @@ function createCollabHost(o) {
       return H.json(res, 400, { error: 'handshake' });
     }
     if (people(cur) >= MAX_PEOPLE) return H.json(res, 409, { error: 'full' });
-    const address = String(req.socket.remoteAddress || '').replace(/^::ffff:/, '');
+    const address = req.socket.mgInternet ? 'Internet' : String(req.socket.remoteAddress || '').replace(/^::ffff:/, '');
     const r = {
       id: shortId(),
       hs: q.hs,
@@ -482,10 +495,14 @@ function createCollabHost(o) {
     for (const m of cur.members.values()) if (m.link && m.id !== from && (to === 'all' || to === m.id)) m.link.send({ t: 'app', from }, body);
   }
 
+  /** Provenance d'une requête : adresse locale, ou identifiant iroh du pair (Internet). */
+  const sourceOf = (sock) => (sock.mgInternet ? `iroh:${sock.mgInternet}` : String(sock.remoteAddress || ''));
+  const allowed = (sock) => !!sock.mgInternet || isLocal(sock.remoteAddress);
+
   function handler(req, res) {
     const cur = s;
     if (!cur) return H.json(res, 503, { error: 'closed' });
-    if (!isLocal(req.socket.remoteAddress)) {
+    if (!allowed(req.socket)) {
       req.resume();
       return H.json(res, 403, { error: 'not-local' });
     }
@@ -518,7 +535,7 @@ function createCollabHost(o) {
 
   function onUpgrade(req, sock, head) {
     const cur = s;
-    if (!cur || !isLocal(req.socket.remoteAddress)) return rawReply(sock, 403, { error: 'not-local' });
+    if (!cur || !allowed(req.socket)) return rawReply(sock, 403, { error: 'not-local' });
     if (isLocked()) return rawReply(sock, 423, { error: 'locked' });
     let url;
     try {
@@ -606,6 +623,9 @@ function createCollabHost(o) {
       members: new Map(),
       removed: new Set(), // ids retirés par l'hôte : la reconnexion leur est refusée
       removedWho: new Set(), // « adresse|appareil » retirés : une nouvelle demande est signalée
+      waits: new Map(), // provenance → fin de l'attente après un code faux
+      rv: [], // points d'accès Internet (un par code ; les anciens restent pour les reconnexions)
+      internet: false,
     };
     try {
       const udp = dgram.createSocket({ type: 'udp4', reuseAddr: true });
@@ -628,7 +648,31 @@ function createCollabHost(o) {
     }
     s = cur;
     diag('collab', 'session ouverte', cur.port);
+    await openInternet(cur);
     return info();
+  }
+
+  /** Point d'accès Internet pour le code en cours (sans effet si le réglage est coupé ou le module absent). */
+  async function openInternet(cur) {
+    const net = o.internet;
+    if (!net || !net.available()) {
+      cur.internet = false;
+      return;
+    }
+    const code = cur.code;
+    try {
+      const rv = await net.host(code, (sock) => {
+        if (s === cur) cur.server.emit('connection', sock);
+        else sock.destroy();
+      });
+      if (s !== cur) return void rv.close();
+      cur.rv.push(rv);
+      cur.internet = cur.code === code;
+      diag('collab', 'internet : point d’accès ouvert');
+    } catch (e) {
+      cur.internet = false;
+      diag('collab', 'internet indisponible', e && e.message);
+    }
   }
 
   /** Nouveau code (après « Trop d’essais », ou à la demande) : les personnes présentes restent. */
@@ -645,6 +689,9 @@ function createCollabHost(o) {
     cur.tries = 0;
     cur.codeState = 'open';
     cur.handshakes.clear();
+    cur.waits.clear();
+    cur.internet = false;
+    await openInternet(cur);
     return info();
   }
 
@@ -656,6 +703,7 @@ function createCollabHost(o) {
       codeState: s.codeState,
       port: s.port,
       discovery: !!s.udp,
+      internet: !!s.internet,
       addresses: lanAddresses().map((a) => `${a.address}:${s.port}`),
       members: roster(s),
       requests: [...s.requests.values()].filter((r) => r.state === 'pending').map((r) => ({ reqId: r.id, device: r.device, name: r.name, color: r.color, address: r.address, wasRemoved: !!r.wasRemoved })),
@@ -743,6 +791,7 @@ function createCollabHost(o) {
     } catch {
       /* déjà fermée */
     }
+    for (const rv of cur.rv.splice(0)) void rv.close();
   }
 
   function stop(reason = 'closed') {
@@ -769,19 +818,35 @@ function createCollabHost(o) {
  * @param {number} [o.discoverMs]
  * @param {object} [o.scrypt]
  * @param {number} [o.retryForMs]
+ * @param {ReturnType<import('./collab-iroh.cjs').createInternet>} [o.internet]  collaboration par Internet
+ * @param {number} [o.waitMs]  tests : attente après un code faux ou introuvable
  */
 function createCollabGuest(o) {
   const diag = o.diag || (() => {});
   const tickets = new Map();
   const active = new Set();
   let generation = 0;
-  let cur = null; // { address, port, id, salt, mid, token, link, state, retryTimer, until, blockedUntil }
+  let cur = null; // { address, port, via, id, salt, mid, token, link, state, retryTimer, until, blockedUntil }
+  let waitUntil = 0; // après un code faux ou introuvable : pas de nouvel essai avant cette heure
 
-  function call(method, address, port, path, { body, timeout = 10000 } = {}) {
-    if (!isLocalAddress(address)) return Promise.reject(err('not-local', MSG.notLocal));
+  /**
+   * Options de http.request vers l'hôte : TCP sur le réseau local, ou flux iroh (`via`, Internet).
+   * @param {{ address: string, port: number, via?: { stream: () => Promise<import('node:stream').Duplex> } }} t
+   */
+  async function target(t, extra) {
+    if (t.via) {
+      const sock = await t.via.stream();
+      return { ...extra, createConnection: () => sock };
+    }
+    if (!isLocalAddress(t.address)) throw err('not-local', MSG.notLocal);
+    return { ...extra, host: t.address, port: t.port, agent: false };
+  }
+
+  async function call(method, t, path, { body, timeout = 10000 } = {}) {
+    const payload = body ? Buffer.from(JSON.stringify(body)) : null;
+    const opts = await target(t, { path: PREFIX + path, method, headers: payload ? { 'Content-Type': 'application/json', 'Content-Length': payload.length } : {} });
     return new Promise((resolve, reject) => {
-      const payload = body ? Buffer.from(JSON.stringify(body)) : null;
-      const req = http.request({ host: address, port, path: PREFIX + path, method, agent: false, headers: payload ? { 'Content-Type': 'application/json', 'Content-Length': payload.length } : {} }, (res) => {
+      const req = http.request(opts, (res) => {
         const chunks = [];
         let n = 0;
         res.on('data', (c) => {
@@ -867,11 +932,57 @@ function createCollabGuest(o) {
    * Cherche la session, prouve le code, envoie prénom / couleur / appareil (chiffrés). L'hôte voit la demande.
    * @returns {Promise<{ ticket: string, meta: object, from: { address: string, port: number, name: string, host: string }, people: number }>}
    */
-  async function find(code, { manualAddress, profile } = {}) {
+  async function find(code, opts = {}) {
+    const left = waitUntil - Date.now();
+    if (left > 0) throw Object.assign(err('wait', MSG.wait(Math.ceil(left / 1000))), { retryIn: Math.ceil(left / 1000) });
+    try {
+      return await findNow(code, opts);
+    } catch (e) {
+      // Code faux, ou personne avec ce code : 10 s avant le prochain essai.
+      if (e && ['bad-code', 'not-found', 'impostor', 'wait'].includes(e.code)) {
+        const ms = e.code === 'wait' && e.retryIn ? e.retryIn * 1000 : o.waitMs ?? RETRY_WAIT_MS;
+        waitUntil = Math.max(waitUntil, Date.now() + ms);
+        e.retryIn = Math.ceil(ms / 1000);
+      }
+      throw e;
+    }
+  }
+
+  /** Temps restant avant de pouvoir essayer un autre code (secondes, 0 : tout de suite). */
+  const waitLeft = () => Math.max(0, Math.ceil((waitUntil - Date.now()) / 1000));
+
+  /** Par Internet : point d'accès du code ; offre comme celle de la découverte locale, ou null. */
+  async function internetOffer(code) {
+    const net = o.internet;
+    if (!net || !net.available()) return null;
+    let via;
+    try {
+      via = await net.dial(code);
+    } catch (e) {
+      diag('collab', 'internet', e && e.message);
+      return null;
+    }
+    if (!via) return null;
+    try {
+      const r = await call('GET', { via }, 'hello', { timeout: 8000 });
+      const id = H.unb64(r.json && r.json.id, 12);
+      const salt = H.unb64(r.json && r.json.salt, 16);
+      if (r.status === 423) return { error: err('locked', MSG.locked) };
+      if (r.status !== 200 || !id || !salt) return null;
+      return { address: 'Internet', port: 0, via, id, salt, code };
+    } catch (e) {
+      diag('collab', 'internet : bonjour', e && (e.code || e.message));
+      via.close();
+      return null;
+    }
+  }
+
+  async function findNow(code, { manualAddress, profile } = {}) {
     code = String(code ?? '').replace(/[\s-]/g, '');
     if (!/^\d{6}$/.test(code)) throw err('format', MSG.format);
     const gen = generation;
     let offers;
+    let viaInternet = false;
     if (manualAddress) {
       let address, port;
       try {
@@ -883,7 +994,7 @@ function createCollabGuest(o) {
       if (!isLocalAddress(address)) throw err('not-local', MSG.notLocal);
       let r;
       try {
-        r = await call('GET', address, port, 'hello', { timeout: 5000 });
+        r = await call('GET', { address, port }, 'hello', { timeout: 5000 });
       } catch (e) {
         if (e.code === 'not-local') throw e;
         throw err('unreachable', MSG.unreachable);
@@ -893,9 +1004,19 @@ function createCollabGuest(o) {
       if (r.status === 423) throw err('locked', MSG.locked);
       if (r.status !== 200 || !id || !salt) throw err('unreachable', MSG.unreachable);
       offers = [{ address, port, id, salt }];
-    } else offers = await discover();
+    } else {
+      // Réseau local et Internet en même temps ; le réseau local a la priorité.
+      const far = o.internet && o.internet.available() ? internetOffer(code) : null;
+      offers = await discover();
+      if (!offers.length && far) {
+        const of = await far;
+        viaInternet = true;
+        if (of && of.error) throw of.error;
+        if (of) offers = [of];
+      } else if (far) void far.then((of) => of && of.via && of.via.close());
+    }
     if (gen !== generation) throw err('cancelled', MSG.cancelled);
-    if (!offers.length) throw err('not-found', MSG.notFound);
+    if (!offers.length) throw err('not-found', viaInternet ? MSG.notFoundAnywhere : MSG.notFound);
     const keyCache = new Map();
     const keysFor = (salt) => {
       const k = H.b64(salt);
@@ -907,7 +1028,7 @@ function createCollabGuest(o) {
         try {
           const keys = await keysFor(of.salt);
           const n = crypto.randomBytes(16);
-          const r = await call('POST', of.address, of.port, 'open', { body: { id: H.b64(of.id), n: H.b64(n) } });
+          const r = await call('POST', of, 'open', { body: { id: H.b64(of.id), n: H.b64(n) } });
           if (r.status === 423) return { of, error: err('locked', MSG.locked) };
           if (r.status !== 200 || !r.json) return null;
           if (r.json.hint !== H.hintOf(keys, of.id, n)) return manualAddress ? { of, error: err('bad-code', MSG.badCode(0)) } : null;
@@ -920,7 +1041,7 @@ function createCollabGuest(o) {
       }),
     );
     let lastErr = null;
-    const rank = { impostor: 1, full: 2, locked: 3, 'bad-code': 4, tries: 5 };
+    const rank = { impostor: 1, full: 2, locked: 3, wait: 4, 'bad-code': 4, tries: 5 };
     const keep = (e) => {
       if (!lastErr || (rank[e.code] || 0) >= (rank[lastErr.code] || 0)) lastErr = e;
     };
@@ -948,13 +1069,14 @@ function createCollabGuest(o) {
       const dev = { device: H.cleanDevice(o.deviceName ? o.deviceName() : H.hostName()), name: cleanName(profile && profile.name, 'Invité'), color: cleanColor(profile && profile.color) };
       let r;
       try {
-        r = await call('POST', of.address, of.port, 'prove', { body: { hs, eph: H.b64(eph.pub), proof: H.b64(proof), dev: H.seal(k.r2s, 'DEVN', dev) } });
+        r = await call('POST', of, 'prove', { body: { hs, eph: H.b64(eph.pub), proof: H.b64(proof), dev: H.seal(k.r2s, 'DEVN', dev) } });
       } catch (e) {
         diag('collab', 'preuve', e && e.message);
         continue;
       }
       const e2 = r.json && r.json.error;
       if (r.status === 403 && e2 === 'bad-code') keep(err('bad-code', MSG.badCode(Number(r.json.remaining) || 0)));
+      else if (r.status === 429 && e2 === 'wait') keep(Object.assign(err('wait', MSG.wait(Number(r.json.retryIn) || 10)), { retryIn: Number(r.json.retryIn) || 10 }));
       else if (r.status === 429) keep(err('tries', MSG.tries));
       else if (r.status === 409 && e2 === 'full') keep(err('full', MSG.full));
       else if (r.status === 423) keep(err('locked', MSG.locked));
@@ -968,17 +1090,19 @@ function createCollabGuest(o) {
         }
         const ticket = H.b64(crypto.randomBytes(12));
         tickets.clear();
-        tickets.set(ticket, { address: of.address, port: of.port, id: of.id, salt: of.salt, hs, k, at: Date.now() });
-        return { ticket, meta: box.meta ?? {}, people: Number(box.people) || 1, from: { address: of.address, port: of.port, name: H.cleanDevice(box.name), host: cleanName(box.host, 'Hôte') } };
+        tickets.set(ticket, { address: of.address, port: of.port, via: of.via || null, code: of.code || null, id: of.id, salt: of.salt, hs, k, at: Date.now() });
+        waitUntil = 0;
+        return { ticket, meta: box.meta ?? {}, people: Number(box.people) || 1, from: { address: of.address, port: of.port, internet: !!of.via, name: H.cleanDevice(box.name), host: cleanName(box.host, 'Hôte') } };
       }
     }
     throw lastErr || err('not-found', MSG.notFound);
   }
 
   /** Connexion « Upgrade » vers l'hôte ; résout avec le socket et les octets déjà lus. */
-  function upgrade(address, port, path, headers, timeout) {
+  async function upgrade(t, path, headers, timeout) {
+    const opts = await target(t, { path: PREFIX + path, method: 'GET', headers: { ...headers, Connection: 'Upgrade', Upgrade: 'mg-collab' } });
     return new Promise((resolve, reject) => {
-      const req = http.request({ host: address, port, path: PREFIX + path, method: 'GET', agent: false, headers: { ...headers, Connection: 'Upgrade', Upgrade: 'mg-collab' } });
+      const req = http.request(opts);
       active.add(req);
       let settled = false;
       const done = (fn, v) => {
@@ -1045,6 +1169,7 @@ function createCollabGuest(o) {
           if (c.leaving) return end(c, 'left');
           if (!c.mid) return end(c, 'closed');
           diag('collab', 'lien perdu', why);
+          if (c.via) c.viaDead = true;
           c.state = 'reconnecting';
           c.until = Date.now() + (o.retryForMs || RETRY_FOR_MS);
           o.emit({ type: 'link', state: 'reconnecting', reason: why });
@@ -1061,6 +1186,7 @@ function createCollabGuest(o) {
     clearTimeout(c.retryTimer);
     cur = null;
     if (c.link) c.link.close('closed');
+    if (c.via) setTimeout(() => c.via.close(), 1500).unref?.();
     o.emit({ type: 'link', state: 'closed', reason });
   }
 
@@ -1075,7 +1201,7 @@ function createCollabGuest(o) {
     if (Date.now() > c.until) return end(c, 'gone');
     if (c.blockedUntil && Date.now() < c.blockedUntil) return scheduleRetry(c, c.blockedUntil - Date.now() + 50);
     try {
-      const r = await call('POST', c.address, c.port, 'resume', { body: { mid: c.mid }, timeout: 4000 });
+      const r = await call('POST', c, 'resume', { body: { mid: c.mid }, timeout: 4000 });
       if (cur !== c) return;
       if (r.status === 410 && r.json && r.json.error === 'removed') return end(c, 'removed');
       if (r.status === 410 || r.status === 503) return end(c, 'gone');
@@ -1088,12 +1214,20 @@ function createCollabGuest(o) {
       const T = H.transcript(Buffer.from('collab-resume'), c.id, c.salt, Buffer.from(c.mid), challenge, ephS, eph.pub);
       const k = H.sessionKeys(tk, H.x25519Shared(eph.privateKey, ephS), T);
       const proof = H.hmac(tk.auth, 'resume', T);
-      const { sock, head } = await upgrade(c.address, c.port, `link?hs=${encodeURIComponent(r.json.hs)}&mid=${encodeURIComponent(c.mid)}`, { 'x-mg-eph': H.b64(eph.pub), 'x-mg-proof': H.b64(proof) }, 8000);
+      if (c.via && c.code && c.viaDead) {
+        // Connexion Internet perdue : on retrouve l'hôte par le code d'origine (son point d'accès reste ouvert).
+        const via = await o.internet.dial(c.code);
+        if (!via) throw new Error('hôte introuvable');
+        c.via = via;
+        c.viaDead = false;
+      }
+      const { sock, head } = await upgrade(c, `link?hs=${encodeURIComponent(r.json.hs)}&mid=${encodeURIComponent(c.mid)}`, { 'x-mg-eph': H.b64(eph.pub), 'x-mg-proof': H.b64(proof) }, 8000);
       if (cur !== c) return sock.destroy();
       attach(sock, head, k);
     } catch (e) {
       if (cur !== c) return;
       if (e && (e.code === 'gone' || e.status === 410)) return end(c, 'gone');
+      if (c.via) c.viaDead = true;
       diag('collab', 'reconnexion', e && (e.code || e.message));
       scheduleRetry(c, 2000);
     }
@@ -1108,14 +1242,14 @@ function createCollabGuest(o) {
     if (!t) return Promise.reject(err('ticket', MSG.ticket));
     tickets.delete(String(ticketId));
     leave();
-    const c = { address: t.address, port: t.port, id: t.id, salt: t.salt, mid: null, token: null, link: null, state: 'joining', retryTimer: null, until: 0, blockedUntil: 0, leaving: false, byeReason: null, onHello: null };
+    const c = { address: t.address, port: t.port, via: t.via, code: t.code, viaDead: false, id: t.id, salt: t.salt, mid: null, token: null, link: null, state: 'joining', retryTimer: null, until: 0, blockedUntil: 0, leaving: false, byeReason: null, onHello: null };
     cur = c;
     return new Promise((resolve, reject) => {
       c.onHello = (h) => {
         c.onHello = null;
         resolve({ you: h.you, meta: h.meta, members: h.members });
       };
-      upgrade(t.address, t.port, `link?hs=${encodeURIComponent(t.hs)}`, { 'x-mg-auth': H.b64(H.hmac(t.k.mac, 'link', Buffer.from(t.hs))) }, REQUEST_TTL_MS + 30000)
+      upgrade(t, `link?hs=${encodeURIComponent(t.hs)}`, { 'x-mg-auth': H.b64(H.hmac(t.k.mac, 'link', Buffer.from(t.hs))) }, REQUEST_TTL_MS + 30000)
         .then(({ sock, head }) => {
           if (cur !== c) {
             sock.destroy();
@@ -1174,7 +1308,7 @@ function createCollabGuest(o) {
     return true;
   }
 
-  return { find, join, send, leave, cut, state: () => (cur ? { state: cur.state, mid: cur.mid, connected: !!cur.link } : { state: 'none' }) };
+  return { find, join, send, leave, cut, waitLeft, state: () => (cur ? { state: cur.state, mid: cur.mid, connected: !!cur.link } : { state: 'none' }) };
 }
 
 module.exports = { createCollabHost, createCollabGuest, PORT, MAX_PEOPLE, MSG, COLORS };

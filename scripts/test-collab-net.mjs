@@ -50,10 +50,10 @@ dgram.Socket.prototype.send = function (msg, ...rest) {
 
 const SECRETS = ['Parjure', 'Léa', 'Marc', 'Inès', 'Ordinateur-de-Marc', 'PHRASE-SECRETE-TAPEE', 'contenu-du-paquet-initial'];
 const hostEv = [];
-const host = collab.createCollabHost({ emit: (e) => hostEv.push(e), awayMs: 4000, diag: process.env.DBG ? (...a) => /reprise/.test(a[1]) && console.log('  [hôte]', ...a) : undefined });
+const host = collab.createCollabHost({ emit: (e) => hostEv.push(e), awayMs: 4000, waitMs: 0, diag: process.env.DBG ? (...a) => /reprise/.test(a[1]) && console.log('  [hôte]', ...a) : undefined });
 const mkGuest = (name) => {
   const ev = [];
-  const g = collab.createCollabGuest({ emit: (e) => ev.push(e), diag: name === 'Marc' && process.env.DBG ? (...a) => console.log('  [Marc]', ...a) : undefined, deviceName: () => `Ordinateur-de-${name}`, retryForMs: 30000 });
+  const g = collab.createCollabGuest({ emit: (e) => ev.push(e), diag: name === 'Marc' && process.env.DBG ? (...a) => console.log('  [Marc]', ...a) : undefined, deviceName: () => `Ordinateur-de-${name}`, retryForMs: 30000, waitMs: 0 });
   return { g, ev, name };
 };
 
@@ -127,6 +127,16 @@ const wrongs = mkGuest('Intrus');
 const wrong = String((Number(codes[0]) + 1) % 1e6).padStart(6, '0');
 const ew = await errOf(wrongs.g.find(wrong, { manualAddress: `127.0.0.1:${host.info().port}` }));
 ok(ew && ew.code === 'bad-code', 'code faux (adresse saisie) : « Code incorrect »', ew && ew.message);
+// Attente de 10 s entre deux codes (comportement par défaut de l'invité) : le second essai est refusé tout de suite.
+{
+  const impatient = collab.createCollabGuest({ emit: () => {}, deviceName: () => 'Impatient' });
+  const w1 = await errOf(impatient.find(wrong, { manualAddress: `127.0.0.1:${host.info().port}` }));
+  const t0 = Date.now();
+  const w2 = await errOf(impatient.find(codes[0], { manualAddress: `127.0.0.1:${host.info().port}` }));
+  ok(w1 && w1.code === 'bad-code' && w2 && w2.code === 'wait' && Date.now() - t0 < 200 && w2.retryIn >= 9 && /Patientez \d+ s avant d’essayer un autre code/.test(w2.message), 'code faux → 10 s d’attente avant un autre code (refus immédiat, sans contacter l’hôte)', [w1 && w1.message, w2 && w2.message, w2 && w2.retryIn]);
+  ok(impatient.waitLeft() >= 9, 'temps restant exposé (waitLeft)', impatient.waitLeft());
+  impatient.leave();
+}
 // Les preuves fausses : on rejoue la poignée de main avec un mauvais code via la diffusion (indice différent :
 // ignoré sans essai), puis par adresse : l'indice 4 bits peut coïncider ; on force 5 preuves fausses par codes voisins.
 let tries = 0;

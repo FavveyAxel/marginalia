@@ -2738,6 +2738,14 @@ dataHandle('marginalia:shareReceive', async (_e, id) => {
 // L'hôte relaie des octets opaques entre les participants (6 personnes au plus) ; le rendu les lit
 // (src/features/collab). Événements 'marginalia:collab' : { side: 'host' | 'guest', type, … }.
 const collabNet = require('./collab-net.cjs');
+// Par Internet (réglage « Collaborer par Internet ») : flux iroh, voir electron/collab-iroh.cjs. Coupé
+// dans les tests de bout en bout (sauf MARGINALIA_E2E_INTERNET=1) : ils n'ont pas accès à Internet.
+// Tests de bout en bout par Internet : iroh en 127.0.0.1, annuaire dans un fichier (pas d'accès à n0).
+const collabInternet = require('./collab-iroh.cjs').createInternet({
+  diag: (...a) => diag(...a),
+  ...(E2E && process.env.MARGINALIA_E2E_IROH_REGISTRY ? { local: true, registryFile: process.env.MARGINALIA_E2E_IROH_REGISTRY, dialMs: 4000 } : {}),
+});
+if (E2E && process.env.MARGINALIA_E2E_INTERNET !== '1') collabInternet.setEnabled(false);
 const collabEmit = (evt) => {
   for (const w of BrowserWindow.getAllWindows()) if (!w.isDestroyed()) w.webContents.send('marginalia:collab', evt);
 };
@@ -2745,8 +2753,21 @@ const collabHost = collabNet.createCollabHost({
   isLocked: () => isLocked(),
   diag: (...a) => diag(...a),
   emit: (evt) => collabEmit({ side: 'host', ...evt }),
+  internet: collabInternet,
 });
-const collabGuest = collabNet.createCollabGuest({ diag: (...a) => diag(...a), emit: (evt) => collabEmit({ side: 'guest', ...evt }) });
+const collabGuest = collabNet.createCollabGuest({
+  diag: (...a) => diag(...a),
+  emit: (evt) => collabEmit({ side: 'guest', ...evt }),
+  internet: collabInternet,
+  // Tests : pas de réseau local commun (on ne trouve l'hôte que par Internet).
+  ...(E2E && process.env.MARGINALIA_E2E_COLLAB_NO_LAN === '1' ? { targets: () => [], discoverMs: 300 } : {}),
+});
+// Réglage du rendu (true / false) ; sans argument : l'état. supported : module natif présent (pas sur Mac Intel).
+handle('marginalia:collabInternet', (_e, on) => {
+  if (typeof on === 'boolean' && !(E2E && process.env.MARGINALIA_E2E_INTERNET !== '1')) collabInternet.setEnabled(on);
+  return { supported: collabInternet.supported(), enabled: collabInternet.available() };
+});
+handle('marginalia:collabWaitLeft', () => collabGuest.waitLeft());
 const collabMessage = (e) => (e && e.code && typeof e.message === 'string' ? e.message : `Session impossible (${(e && e.code) || (e && e.message) || e}).`);
 const collabBytes = (b) => (ArrayBuffer.isView(b) ? Buffer.from(b.buffer, b.byteOffset, b.byteLength) : toBuffer(b || new Uint8Array(0)));
 dataHandle('marginalia:collabHostStart', async (_e, meta, profile) => {

@@ -473,3 +473,47 @@ a.btn-primary:hover { background: #3a342b; }
   .qr h2 { font-size: 2.5rem; }
   .qr-phone { width: 40%; border-width: 0.25rem; border-radius: 1rem; }
 }
+
+/* ── À plusieurs : la carte partagée, et trois philosophes devant, chacun à sa couleur ── */
+.together {
+  max-width: 75rem; margin: 9rem auto 0; padding: 0 var(--gutter);
+  display: grid; grid-template-columns: minmax(0, 4fr) minmax(0, 7fr); gap: 2rem 4.5rem; align-items: center;
+}
+.together h2 { font-size: 3.5rem; }
+.together-text p { margin: 1rem 0 0; color: var(--ink-2); max-width: 40ch; }
+.together-stage { position: relative; padding-bottom: 7.5rem; }
+.together-shot { display: block; width: 100%; height: auto; border-radius: 0.75rem; box-shadow: var(--shadow-lg); }
+.together-card {
+  position: absolute; right: -2.5rem; bottom: 0; width: 42%; height: auto; border-radius: 0.875rem;
+  box-shadow: 0 1px 2px rgba(30, 24, 14, 0.08), 0 24px 48px -16px rgba(30, 24, 14, 0.35);
+}
+.crew { list-style: none; margin: 0; padding: 0; position: absolute; left: 1.5rem; bottom: 0.25rem; display: flex; align-items: flex-end; gap: 0.75rem; }
+.crew-one { position: relative; display: flex; flex-direction: column; align-items: center; color: var(--ink); }
+.crew-rousseau { display: block; position: relative; }
+.crew-rousseau .book-seat { position: absolute; inset: 0; width: 100%; height: 100%; color: var(--ink); }
+.crew-tag {
+  display: inline-flex; align-items: flex-start; gap: 0.125rem; margin-bottom: -0.25rem;
+  font-family: var(--font-ui); font-size: 0.75rem; font-weight: 600; line-height: 1; color: #fff;
+}
+.crew-tag svg { flex: none; margin-top: -0.375rem; filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.2)); }
+.crew-tag span { padding: 0.25rem 0.4375rem; border-radius: 0.375rem; background: var(--who); box-shadow: 0 1px 2px rgba(0, 0, 0, 0.15); }
+.together-points {
+  grid-column: 1 / -1; list-style: none; margin: 1.5rem 0 0; padding: 0;
+  display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 2.5rem;
+}
+.together-points h3 { margin: 0; font-family: var(--font-display); font-weight: 400; font-size: 1.625rem; line-height: 1.15; }
+.together-points p { margin: 0.5rem 0 0; color: var(--ink-2); font-size: 1rem; }
+.together-copy { grid-column: 1 / -1; margin: 0; color: var(--muted); font-size: 1rem; }
+.nowrap { white-space: nowrap; }
+@media (max-width: 900px) {
+  .together { grid-template-columns: minmax(0, 1fr); gap: 1.75rem; }
+  .together-card { display: none; }
+  .together-stage { padding-bottom: 6.5rem; }
+  .crew { left: 0.5rem; }
+  .together-points { grid-template-columns: minmax(0, 1fr); gap: 1.5rem; }
+}
+@media (max-width: 620px) {
+  .together { margin-top: 6rem; }
+  .together h2 { font-size: 2.5rem; }
+  .crew { gap: 0.25rem; }
+}

@@ -35,6 +35,11 @@ export const NEWS: NewsEntry[] = [
         text: 'Partagez un espace ou une sélection : un fichier « .marginalia » à donner, ou un envoi direct par le Wi-Fi avec un code à 6 chiffres, sans Internet. L’autre personne reçoit une copie, ajoutée sans rien écraser ; les livres ne partent que si vous le choisissez.',
         action: { label: 'Importer', run: 'import' },
       },
+      {
+        icon: 'map',
+        title: 'Travailler à plusieurs, en direct',
+        text: 'Dans un espace, « Partager › Travailler ensemble » : jusqu’à 6 personnes sur le même Wi-Fi modifient en direct les écrits et les cartes. Chacun a sa couleur : on voit les pointeurs des autres sur les cartes et dans les livres, et le texte qu’ils sélectionnent. Tout est chiffré et ne passe pas par Internet.',
+      },
     ],
   },
   {

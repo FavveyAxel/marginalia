@@ -4,6 +4,10 @@ import { createPortal } from 'react-dom';
 import { Sprite, anchorOf, isSeated, VB_H, VB_W, type Pose } from '../../src/features/mascot/Sprite';
 import { extraPose } from '../../src/features/mascot/activities';
 import { rousseau } from '../../src/features/mascot/characters/rousseau';
+import { socrate } from '../../src/features/mascot/characters/socrate';
+import { platon } from '../../src/features/mascot/characters/platon';
+import { aristote } from '../../src/features/mascot/characters/aristote';
+import type { CharacterDef } from '../../src/features/mascot/characters/types';
 import { DOWNLOADS, VERSION, type Download } from './downloads';
 import './site.css';
 
@@ -35,7 +39,7 @@ function BookSeat() {
   );
 }
 
-function Rousseau({ seq, size, className, poke, facing, seat }: { seq: [Pose, number][]; size: number; className?: string; poke?: boolean; facing?: 1 | -1; seat?: boolean }) {
+function Rousseau({ seq, size, className, poke, facing, seat, character = rousseau }: { seq: [Pose, number][]; size: number; className?: string; poke?: boolean; facing?: 1 | -1; seat?: boolean; character?: CharacterDef }) {
   const [i, setI] = useState(0);
   const [frame, setFrame] = useState(0);
   const [jumping, setJumping] = useState(false);
@@ -62,7 +66,7 @@ function Rousseau({ seq, size, className, poke, facing, seat }: { seq: [Pose, nu
   const sprite = (
     <>
       {seat && isSeated(pose) && <BookSeat />}
-      <Sprite pose={pose} frame={frame} level={2} character={rousseau} facing={facing} />
+      <Sprite pose={pose} frame={frame} level={2} character={character} facing={facing} />
     </>
   );
   // tailles en rem : la mascotte suit l'échelle fluide de la page
@@ -115,6 +119,7 @@ type PerchDef = { side: 'left' | 'right' | 'slot'; inset: number; seat?: boolean
 const PERCHES: Record<string, PerchDef> = {
   hero: { side: 'right', inset: 2, seq: () => HERO_SEQ },
   apercu: { side: 'right', inset: 3, seq: (b) => [[TAB_POSES[b.tab] ?? 'wave', 600000]] },
+  ensemble: { side: 'right', inset: 2.5, seq: () => [['wave', 3200], ['think', 5000]] },
   cote: { side: 'right', inset: 2.5, seq: () => [['question', 4500], ['wave', 2500]] },
   photo: { side: 'right', inset: 2.5, seq: () => [['guitar', 7000], ['coffee', 6000]] },
   carte: { side: 'right', inset: 2.5, seq: () => [['classify', 600000]] },
@@ -645,6 +650,66 @@ function Features({ travel }: { travel: boolean }) {
   );
 }
 
+// ── Travailler à plusieurs : la table des philosophes ──
+const CREW: { who: string; color: string; character: CharacterDef; seq: [Pose, number][] }[] = [
+  { who: 'Socrate', color: '#c2410c', character: socrate, seq: [['wave', 2600], ['think', 5200]] },
+  { who: 'Platon', color: '#1d4ed8', character: platon, seq: [['write', 6000], ['think', 3600]] },
+  { who: 'Aristote', color: '#15803d', character: aristote, seq: [['classify', 6500], ['read', 4200]] },
+];
+
+function Together() {
+  return (
+    <section className="together reveal" id="ensemble" aria-labelledby="together-title">
+      <div className="together-text">
+        <h2 id="together-title">À plusieurs, sur le même travail</h2>
+        <p>
+          Un exposé à préparer, un mémoire à deux, une dissertation en groupe&nbsp;: cliquez sur «&nbsp;Partager&nbsp;», puis «&nbsp;Travailler ensemble&nbsp;».
+          Les autres tapent le code à six chiffres, et l’espace de travail arrive chez eux, avec ses livres, ses écrits et ses cartes.
+        </p>
+        <p>
+          Chacun a sa couleur. Vous voyez où les autres écrivent, leur pointeur glisser sur la carte, le passage qu’ils sélectionnent dans le livre.
+          Une phrase tapée chez l’un apparaît aussitôt chez tous.
+        </p>
+      </div>
+      <div className="together-stage">
+        <div className="shot-wrap" data-perch="ensemble">
+          <img className="together-shot" src="/captures/ensemble-carte.png" alt="Une carte partagée dans l’espace « Parjure » : les pointeurs de Léa et d’Inès, et la carte que Léa déplace, entourée de sa couleur" width={1040} height={760} loading="lazy" />
+        </div>
+        <img className="together-card" src="/captures/ensemble-code.png" alt="La fenêtre « Travailler à plusieurs » : le code 324-508, les trois étapes sur l’autre ordinateur, et les six places" width={640} height={476} loading="lazy" />
+        <ul className="crew" aria-label="Trois philosophes travaillent ensemble">
+          {CREW.map((c) => (
+            <li key={c.who} className="crew-one" style={{ ['--who' as string]: c.color }}>
+              <span className="crew-tag" aria-hidden="true">
+                <svg viewBox="0 0 12 14" width="12" height="14"><path d="M1 1 L1 12 L4 9 L6.5 13.2 L8.3 12.3 L5.9 8.3 L10.5 8.3 Z" fill="var(--who)" stroke="#fff" strokeWidth="1.1" strokeLinejoin="round" /></svg>
+                <span>{c.who}</span>
+              </span>
+              <Rousseau seq={c.seq} size={92} className="crew-rousseau" character={c.character} seat />
+            </li>
+          ))}
+        </ul>
+      </div>
+      <ul className="together-points">
+        <li>
+          <h3>Jusqu’à six, en direct</h3>
+          <p>Écrits, cartes et extraits se mettent à jour chez tous. Celui qui ouvre la session accueille les autres, et peut retirer quelqu’un.</p>
+        </li>
+        <li>
+          <h3>Sur le même Wi-Fi</h3>
+          <p>Mac et Windows ensemble, sans compte ni serveur&nbsp;: tout passe par le réseau local, chiffré. Rien ne transite par Internet.</p>
+        </li>
+        <li>
+          <h3>Chacun garde son exemplaire</h3>
+          <p>Après la session, chacun continue de son côté. À la séance suivante, les deux versions d’une même phrase se comparent, et vous choisissez.</p>
+        </li>
+      </ul>
+      <p className="together-copy">
+        Juste donner une copie&nbsp;? «&nbsp;Envoyer une copie&nbsp;» la transmet par le Wi-Fi avec un code, ou dans un fichier <span className="nowrap">.marginalia</span> à
+        mettre sur une clé USB.
+      </p>
+    </section>
+  );
+}
+
 const PRIVACY = [
   { icon: 'offline', title: 'Hors ligne, par construction', text: 'L’app bloque toute connexion vers Internet, sauf pour vérifier au lancement s’il existe une nouvelle version (désactivable, aucune donnée envoyée). Elle fonctionne aussi bien en mode avion qu’au bureau.' },
   { icon: 'noacc', title: 'Ni compte, ni pistage', text: 'Pas d’inscription, pas de publicité, pas de statistiques d’utilisation. Personne ne sait ce que vous lisez ni ce que vous écrivez.' },
@@ -696,6 +761,7 @@ function App() {
         </a>
         <nav className="top-nav" aria-label="Sections">
           <a href="#apercu">Aperçu</a>
+          <a href="#ensemble">À plusieurs</a>
           <a href="#fonctions">Fonctions</a>
           <a href="#confidentialite">Confidentialité</a>
           <a className="btn btn-primary" href="#telecharger">Télécharger</a>
@@ -724,6 +790,8 @@ function App() {
         </section>
 
         <Showcase />
+
+        <Together />
 
         <section className="cote reveal" aria-labelledby="cote-title">
           <div className="cote-text">

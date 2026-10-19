@@ -2510,7 +2510,7 @@ async function prepareInstall(relaunch) {
 function launchInstaller(relaunch) {
   const version = upd.release.version;
   let cmd, args;
-  if (updatePlatform() === 'win32') ({ cmd, args } = updater.windowsInstallCommand(upd.file, { relaunch }));
+  if (updatePlatform() === 'win32') ({ cmd, args } = updater.windowsInstallCommand(upd.file, { relaunch, exe: updateExe() }));
   else {
     cmd = '/bin/sh';
     args = [upd.prepared.scriptPath];

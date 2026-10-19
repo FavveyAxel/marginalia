@@ -322,8 +322,23 @@ function windowsInstallCheck({ exe, env = process.env }) {
   return { ok: true };
 }
 
-function windowsInstallCommand(setupPath, { relaunch }) {
-  return { cmd: setupPath, args: ['/S', '--updated', ...(relaunch ? ['--force-run'] : [])] };
+// Relance : on ne compte pas sur l'installateur (en mode silencieux, sa relance par le raccourci ne part pas
+// toujours). Un petit PowerShell caché attend la fin de l'installateur, puis rouvre l'app elle-même. Le
+// script passe en -EncodedCommand (UTF-16LE, base64) : chemins avec espaces, accents ou apostrophes compris.
+const psQuote = (s) => "'" + String(s).replace(/'/g, "''") + "'";
+function windowsInstallCommand(setupPath, { relaunch, exe = null, env = process.env }) {
+  if (!relaunch || !exe) return { cmd: setupPath, args: ['/S', '--updated'] };
+  const script = [
+    `$p = Start-Process -FilePath ${psQuote(setupPath)} -ArgumentList '/S','--updated' -PassThru -Wait`,
+    'Start-Sleep -Milliseconds 800',
+    `if (Test-Path -LiteralPath ${psQuote(exe)}) { Start-Process -FilePath ${psQuote(exe)} -ArgumentList '--updated' }`,
+  ].join('; ');
+  const ps = path.win32.join(env.SystemRoot || 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
+  return {
+    cmd: ps,
+    args: ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden', '-EncodedCommand', Buffer.from(script, 'utf16le').toString('base64')],
+    script,
+  };
 }
 
 // ── Mac ──────────────────────────────────────────────────────

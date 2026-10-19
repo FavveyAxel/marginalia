@@ -21,6 +21,26 @@ export interface NewsEntry {
 
 export const NEWS: NewsEntry[] = [
   {
+    version: '3.34',
+    items: [
+      {
+        icon: 'update',
+        title: 'Windows : Marginalia se rouvre après une mise à jour',
+        text: 'Après « Redémarrer pour mettre à jour », Marginalia attend la fin de l’installation puis se rouvre d’elle-même.',
+      },
+    ],
+  },
+  {
+    version: '3.34',
+    items: [
+      {
+        icon: 'update',
+        title: 'Windows : Marginalia se rouvre après une mise à jour',
+        text: 'Après « Redémarrer pour mettre à jour », Marginalia attend la fin de l’installation puis se rouvre d’elle-même.',
+      },
+    ],
+  },
+  {
     version: '3.33',
     items: [
       {

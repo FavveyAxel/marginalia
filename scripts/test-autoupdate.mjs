@@ -282,8 +282,14 @@ fs.writeFileSync(path.join(winDir, 'Uninstall Marginalia.exe'), '');
 ok(U.windowsInstallCheck({ exe: path.join(winDir, 'Marginalia.exe'), env: {} }).ok, 'Windows installé : installation automatique possible');
 const pc = U.windowsInstallCheck({ exe: path.join(winDir, 'Marginalia.exe'), env: { PORTABLE_EXECUTABLE_DIR: 'C:\\x' } });
 ok(!pc.ok && /portable/i.test(pc.reason), 'Windows portable : jamais d’installation automatique', pc.reason);
-let cmd = U.windowsInstallCommand('C:\\U\\Marginalia-win-x64-setup.exe', { relaunch: true });
-ok(cmd.cmd === 'C:\\U\\Marginalia-win-x64-setup.exe' && cmd.args.join(' ') === '/S --updated --force-run', 'installateur : /S --updated --force-run (redémarrer)', cmd.args);
+let cmd = U.windowsInstallCommand('C:\\Users\\Léa O\'Neil\\AppData\\setup.exe', { relaunch: true, exe: 'C:\\Users\\Léa O\'Neil\\AppData\\Local\\Programs\\Marginalia\\Marginalia.exe', env: { SystemRoot: 'C:\\Windows' } });
+{
+  const enc = cmd.args[cmd.args.indexOf('-EncodedCommand') + 1];
+  const script = Buffer.from(enc, 'base64').toString('utf16le');
+  ok(/powershell\.exe$/i.test(cmd.cmd) && cmd.args.includes('-WindowStyle') && cmd.args.includes('Hidden') && !cmd.args.includes('--force-run'), 'Redémarrer : PowerShell caché (pas de relance laissée à l’installateur)', cmd.cmd);
+  ok(script.includes("-FilePath 'C:\\Users\\Léa O''Neil\\AppData\\setup.exe' -ArgumentList '/S','--updated' -PassThru -Wait"), 'il attend la fin de l’installateur silencieux (chemin avec espace, accent et apostrophe)', script);
+  ok(/-Wait;.*Start-Sleep.*Start-Process -FilePath 'C:\\Users\\Léa O''Neil\\AppData\\Local\\Programs\\Marginalia\\Marginalia\.exe'/.test(script), 'puis rouvre Marginalia elle-même', script);
+}
 cmd = U.windowsInstallCommand('C:\\U\\s.exe', { relaunch: false });
 ok(cmd.args.join(' ') === '/S --updated', 'installateur à la fermeture : sans relance', cmd.args);
 

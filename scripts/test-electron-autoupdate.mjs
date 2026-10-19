@@ -3,7 +3,7 @@
 //     réglage « Installer automatiquement », « Plus tard » → installation à la fermeture
 //     (installateur /S --updated, sans relance) ; relance en 3.28 : « Quoi de neuf », dossier nettoyé ;
 //  2. Windows simulé, « Me demander » : fermer sans rien choisir n'installe rien ; relance : fichier
-//     déjà vérifié réutilisé ; « Redémarrer pour mettre à jour » → /S --updated --force-run, l'app quitte ;
+//     déjà vérifié réutilisé ; « Redémarrer pour mettre à jour » → installateur /S --updated attendu puis app rouverte, l'app quitte ;
 //  3. Mac simulé (hdiutil/ditto/xattr/open remplacés dans le PATH) : « Redémarrer » prépare la copie et
 //     lance le script, qu'on exécute ensuite pour de vrai sur le faux .app ;
 //  4. signature fausse : aucune mise à jour automatique, annonce classique (page du site) ;
@@ -218,7 +218,11 @@ try {
   const code = await Promise.race([gone.then(() => 'quit'), new Promise((r) => setTimeout(() => r('timeout'), 15000))]);
   ok(code === 'quit', '« Redémarrer pour mettre à jour » : l’app quitte d’elle-même');
   log = spawnLog(H2);
-  ok(log.length === 1 && log[0].cmd.endsWith('Marginalia-win-x64-setup.exe') && log[0].args.join(' ') === '/S --updated --force-run' && log[0].relaunch === true, 'Redémarrer : installateur /S --updated --force-run', log);
+  {
+    const enc = log[0] && log[0].args[log[0].args.indexOf('-EncodedCommand') + 1];
+    const script = enc ? Buffer.from(enc, 'base64').toString('utf16le') : '';
+    ok(log.length === 1 && /powershell\.exe$/i.test(log[0].cmd) && /Marginalia-win-x64-setup\.exe' -ArgumentList '\/S','--updated' -PassThru -Wait/.test(script) && script.includes(WIN_ENV.MARGINALIA_E2E_UPDATE_EXE.replace(/'/g, "''")) && log[0].relaunch === true, 'Redémarrer : installateur silencieux attendu, puis Marginalia rouverte', script || log);
+  }
   await app.close().catch(() => {});
 
   // ── 3. Mac simulé ──

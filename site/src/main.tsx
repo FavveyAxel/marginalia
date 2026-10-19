@@ -653,7 +653,7 @@ function Features({ travel }: { travel: boolean }) {
 // ── Travailler à plusieurs : la table des philosophes ──
 const CREW: { who: string; color: string; character: CharacterDef; seq: [Pose, number][] }[] = [
   { who: 'Socrate', color: '#c2410c', character: socrate, seq: [['question', 5200], ['wave', 2600], ['stand', 1800]] },
-  { who: 'Platon', color: '#1d4ed8', character: platon, seq: [['write', 7000], ['think', 3500]] },
+  { who: 'Platon', color: '#1d4ed8', character: platon, seq: [['write', 600000]] },
   { who: 'Aristote', color: '#15803d', character: aristote, seq: [['read', 600000]] },
 ];
 

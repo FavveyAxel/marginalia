@@ -21,6 +21,16 @@ export interface NewsEntry {
 
 export const NEWS: NewsEntry[] = [
   {
+    version: '3.33',
+    items: [
+      {
+        icon: 'phone',
+        title: 'Le code-barres se lit mieux',
+        text: 'Quand le fond sombre du livre touche le code-barres, le téléphone repère maintenant les barres, recadre et relit : la plupart des livres de poche passent du premier coup.',
+      },
+    ],
+  },
+  {
     version: '3.32',
     items: [
       {

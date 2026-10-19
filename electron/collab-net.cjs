@@ -205,6 +205,7 @@ function makeChannel(sock, keys, role, h, head0) {
   };
   sock.on('data', onData);
   sock.on('error', () => close('error'));
+  sock.on('end', () => close('closed'));
   sock.on('close', () => close('closed'));
   const beat = setInterval(() => {
     const now = Date.now();
@@ -212,7 +213,8 @@ function makeChannel(sock, keys, role, h, head0) {
     if (now - lastSent > PING_MS) send({ t: 'ping' });
   }, 1000);
   beat.unref?.();
-  if (head0 && head0.length) onData(head0);
+  // Octets déjà lus avec la réponse « Upgrade » : traités après le retour (l'appelant garde le canal d'abord).
+  if (head0 && head0.length) queueMicrotask(() => onData(head0));
   return {
     send,
     close: (why = 'closed') => close(why),
@@ -399,8 +401,10 @@ function createCollabHost(o) {
       const proof = H.unb64(String(req.headers['x-mg-proof'] || ''), 32);
       if (!m || !rs || rs.hs !== hs || Date.now() - rs.at > 60000 || !ephR || !proof) return rawReply(sock, 410, { error: 'gone' });
       m.resume = null;
-      const T = H.transcript(Buffer.from('collab-resume'), cur.id, cur.salt, Buffer.from(mid), rs.challenge, rs.eph.pub, ephR);
-      if (!crypto.timingSafeEqual(H.hmac(m.tk.auth, 'resume', T), proof)) return rawReply(sock, 403, { error: 'auth' });
+      const T = H.transcript(Buffer.from('collab-resume'), cur.rid, cur.rsalt, Buffer.from(mid), rs.challenge, rs.eph.pub, ephR);
+      if (!crypto.timingSafeEqual(H.hmac(m.tk.auth, 'resume', T), proof)) {
+                return rawReply(sock, 403, { error: 'auth' });
+      }
       let k;
       try {
         k = H.sessionKeys(m.tk, H.x25519Shared(rs.eph.privateKey, ephR), T);
@@ -424,7 +428,7 @@ function createCollabHost(o) {
     cur.requests.delete(r.id);
     clearTimeout(r.timer);
     const token = crypto.randomBytes(32);
-    const m = { id: shortId(), name: r.name, color: r.color, device: r.device, address: r.address, token, tk: tokenKeys(token, cur.salt), link: null, awayTimer: null, resume: null };
+    const m = { id: shortId(), name: r.name, color: r.color, device: r.device, address: r.address, token, tk: tokenKeys(token, cur.rsalt), link: null, awayTimer: null, resume: null };
     cur.members.set(m.id, m);
     return openLink(cur, m, sock, r.k, head, false);
   }
@@ -466,7 +470,7 @@ function createCollabHost(o) {
       head,
     );
     m.link = link;
-    link.send({ t: 'hello', you: m.id, token: m.token.toString('base64url'), resumed, meta: cur.meta, members: roster(cur) });
+    link.send({ t: 'hello', you: m.id, token: m.token.toString('base64url'), rid: cur.rid.toString('base64url'), rsalt: cur.rsalt.toString('base64url'), resumed, meta: cur.meta, members: roster(cur) });
     diag('collab', resumed ? 'invité revenu' : 'invité accepté', m.id);
     pushMembers(cur);
   }
@@ -577,8 +581,12 @@ function createCollabHost(o) {
     } catch {
       await listen(0);
     }
+    const rid = crypto.randomBytes(12);
     const cur = {
-      id: crypto.randomBytes(12),
+      id: rid,
+      /** Identité fixe de la session (jetons de reconnexion), même après un nouveau code. */
+      rid,
+      rsalt: salt,
       code,
       salt,
       keys,
@@ -626,7 +634,7 @@ function createCollabHost(o) {
     if (!cur) return info();
     const { code, salt, keys } = await newKeys(cur);
     if (s !== cur) return info();
-    // Le sel sert aussi aux jetons de reconnexion : on les dérive à nouveau pour les présents.
+    // Les jetons de reconnexion restent liés à l'identité de la session (rid, rsalt), qui ne change pas.
     cur.code = code;
     cur.salt = salt;
     cur.keys = keys;
@@ -634,8 +642,6 @@ function createCollabHost(o) {
     cur.tries = 0;
     cur.codeState = 'open';
     cur.handshakes.clear();
-    for (const m of cur.members.values()) m.tk = tokenKeys(m.token, salt);
-    for (const m of cur.members.values()) m.link?.send({ t: 'rekey', salt: salt.toString('base64url'), id: cur.id.toString('base64url') });
     return info();
   }
 
@@ -988,20 +994,19 @@ function createCollabGuest(o) {
           if (h.t === 'hello') {
             c.mid = h.you;
             c.token = Buffer.from(String(h.token || ''), 'base64url');
+            const rid = H.unb64(h.rid, 12);
+            const rsalt = H.unb64(h.rsalt, 16);
+            if (rid && rsalt) {
+              c.id = rid;
+              c.salt = rsalt;
+            }
             c.state = 'live';
             o.emit({ type: 'hello', you: h.you, resumed: !!h.resumed, meta: h.meta, members: h.members });
             o.emit({ type: 'link', state: 'connected' });
             c.onHello?.(h);
           } else if (h.t === 'members') o.emit({ type: 'members', members: h.members });
           else if (h.t === 'app') o.emit({ type: 'message', from: typeof h.from === 'string' ? h.from : 'h', bytes: body });
-          else if (h.t === 'rekey') {
-            const salt = H.unb64(h.salt, 16);
-            const id = H.unb64(h.id, 12);
-            if (salt && id) {
-              c.salt = salt;
-              c.id = id;
-            }
-          } else if (h.t === 'bye') {
+          else if (h.t === 'bye') {
             c.byeReason = String(h.reason || 'closed');
           }
         },
@@ -1097,6 +1102,7 @@ function createCollabGuest(o) {
           }, 15000).unref?.();
         })
         .catch((e) => {
+          diag('collab', 'lien refusé', e && (e.code || e.message));
           if (cur === c) cur = null;
           const map = { rejected: ['rejected', MSG.rejected], 'no-answer': ['no-answer', MSG.noAnswer], full: ['full', MSG.full], ticket: ['ticket', MSG.ticket], locked: ['locked', MSG.locked] };
           const [code, m] = map[e && e.code] || (e && e.code === 'ECONNREFUSED' ? ['closed', MSG.closed] : e && e.code === 'cancelled' ? ['cancelled', MSG.cancelled] : ['closed', MSG.closed]);

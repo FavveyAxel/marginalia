@@ -1,5 +1,5 @@
 // Contenu des menus contextuels (identique dans l'arbre et dans la vue).
-import { ArrowRightLeft, ExternalLink, GitCompareArrows, FolderPlus, FolderX, Palette, PackagePlus, Pencil, Trash2, Ungroup, Upload, FilePen, Network, Share2, Users, UserX } from 'lucide-react';
+import { ArrowRightLeft, Copy, ExternalLink, GitCompareArrows, FolderPlus, FolderX, Palette, PackagePlus, Pencil, Trash2, Ungroup, Upload, FilePen, Network, Share2, Users, UserX } from 'lucide-react';
 import { collabAvailable, isLiveIn, openCollabPanel, stopCollab, useCollab } from '../collab/collabState';
 import { useStore } from '../../lib/store';
 import type { WorkspaceGroup, WorkspaceItem } from '../../lib/types';
@@ -30,7 +30,7 @@ export function workspaceMenu(ctx: MenuCtx, workspaceId: string, tint: string): 
     ...(ctx.newBoardHere ? [{ label: 'Nouvelle carte ici', icon: <Network size={14} />, onClick: () => ctx.newBoardHere!(workspaceId, null) }] : []),
     ...collabEntry(workspaceId),
     { sep: true },
-    { label: 'Partager l’espace…', icon: <Share2 size={14} />, onClick: () => openShareDialog({ kind: 'workspace', workspaceId }) },
+    shareEntry(workspaceId),
     { label: 'Renommer', icon: <Pencil size={14} />, onClick: () => ctx.rename('ws', workspaceId) },
     {
       label: 'Changer la teinte',
@@ -42,12 +42,24 @@ export function workspaceMenu(ctx: MenuCtx, workspaceId: string, tint: string): 
   ];
 }
 
-/** « Travailler à plusieurs… », qui devient « Arrêter le partage » pendant la session (« Quitter le partage » chez un invité). */
+/** Pendant une session dans cet espace : « Arrêter le partage » (« Quitter le partage » chez un invité). */
 function collabEntry(workspaceId: string): MenuEntry[] {
   if (!collabAvailable()) return [];
   const c = useCollab.getState();
   if (isLiveIn(c, workspaceId)) return [{ label: c.role === 'host' ? 'Arrêter le partage' : 'Quitter le partage', icon: <UserX size={14} />, onClick: () => void stopCollab() }];
-  return [{ label: 'Travailler à plusieurs…', icon: <Users size={14} />, onClick: () => openCollabPanel(workspaceId) }];
+  return [];
+}
+
+/** « Partager » : le même choix que le bouton en haut à droite — une copie, ou travailler ensemble en direct. */
+function shareEntry(workspaceId: string): MenuEntry {
+  const copy = { label: 'Envoyer une copie…', icon: <Copy size={14} />, onClick: () => openShareDialog({ kind: 'workspace', workspaceId }) };
+  if (!collabAvailable()) return { ...copy, label: 'Partager l’espace…', icon: <Share2 size={14} /> };
+  const live = isLiveIn(useCollab.getState(), workspaceId);
+  return {
+    label: 'Partager',
+    icon: <Share2 size={14} />,
+    children: [copy, { label: live ? 'Session en direct…' : 'Travailler ensemble…', icon: <Users size={14} />, onClick: () => openCollabPanel(workspaceId) }],
+  };
 }
 
 export function groupMenu(ctx: MenuCtx, g: WorkspaceGroup): MenuEntry[] {

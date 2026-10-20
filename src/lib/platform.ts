@@ -180,12 +180,14 @@ export interface ShareFound {
   id: string;
   meta: Record<string, unknown>;
   size: number;
-  from: { address: string; port: number; name: string };
+  from: { address: string; port: number; name: string; internet?: boolean };
 }
 
 export type ShareNetEvent =
   | { side: 'send'; type: 'request'; device: string; address: string; at: number }
   | { side: 'send'; type: 'request-closed'; reason: 'no-answer'; at: number }
+  /** Le code a expiré pendant une demande : la demande va au bout, personne d'autre ne peut venir. */
+  | { side: 'send'; type: 'code-expired'; at: number }
   | { side: 'send'; type: 'attempt'; ok: false; remaining: number; at: number }
   | { side: 'send'; type: 'progress'; done: number; total: number }
   | { side: 'send'; type: 'done'; size: number; device: string; at: number }

@@ -110,7 +110,7 @@ export function workspaceForShare(shareId: string): string | null {
 }
 
 /** Réglage « Collaborer par Internet » appliqué au processus principal (avant d'ouvrir ou de chercher). */
-async function applyInternet() {
+export async function applyInternet() {
   await net()
     .internet?.(useStore.getState().settings.collabInternet !== false)
     .catch(() => undefined);

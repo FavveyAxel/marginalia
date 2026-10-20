@@ -110,7 +110,8 @@ export async function run(ctx, h) {
   // ── Léa rouvre une session ; Marc la rejoint ──
   await A.page.evaluate((ws) => window.__store.getState().navigate({ name: 'workspace', workspaceId: ws, groupId: null }), seeded.ws);
   await A.page.click('button[aria-label="Actions"]');
-  await A.page.getByText('Travailler à plusieurs…').click();
+  await A.page.locator('.ws-menu .menu-item', { hasText: 'Partager' }).click();
+  await A.page.getByText('Travailler ensemble…').click();
   await A.page.waitForSelector('[data-testid="collab-start"]');
   ok((await A.page.inputValue('[data-testid="collab-name"]')) === 'Léa', 'Léa : prénom retenu');
   await A.page.click('[data-testid="collab-open"]');

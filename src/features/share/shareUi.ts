@@ -1,6 +1,9 @@
 // État et outils de l'interface du partage : quelle fenêtre est ouverte (Partager, Recevoir), et
 // quelques aides communes. Les fenêtres elles-mêmes : ShareDialog.tsx, ReceiveDialog.tsx (montées par ShareHost.tsx).
+import { useEffect, useState } from 'react';
 import { create } from 'zustand';
+import { host } from '../../lib/platform';
+import { useStore } from '../../lib/store';
 import type { ShareSelection } from './sharePackage';
 
 export interface ReceiveSource {
@@ -36,6 +39,33 @@ export const openReceiveDialog = (src?: ReceiveSource) => useShareUi.getState().
 
 /** Partage par le réseau local disponible ? (app de bureau seulement.) */
 export const shareNetAvailable = () => typeof window !== 'undefined' && !!window.marginalia?.shareNet;
+
+/**
+ * Par Internet, en pair à pair (réglage « Partager et travailler à plusieurs par Internet ») : le réglage
+ * est appliqué au processus principal avant d'ouvrir un envoi ou de chercher un code.
+ */
+export async function applyP2p(): Promise<boolean> {
+  const api = host.collabNet?.internet;
+  if (!api) return false;
+  const r = await api(useStore.getState().settings.collabInternet !== false).catch(() => null);
+  return !!r?.enabled;
+}
+
+/** Envoi et réception par Internet possibles (module présent sur cet ordinateur) et permis (réglage) ? */
+export function useP2pOk(): boolean {
+  const on = useStore((s) => s.settings.collabInternet !== false);
+  const [supported, setSupported] = useState(false);
+  useEffect(() => {
+    let alive = true;
+    void host.collabNet
+      ?.internet?.()
+      .then((r) => alive && setSupported(r.supported && r.enabled), () => undefined);
+    return () => {
+      alive = false;
+    };
+  }, []);
+  return on && supported;
+}
 
 /** « 12 Ko », « 3,4 Mo », « 1,2 Go ». */
 export function fmtSize(bytes: number): string {

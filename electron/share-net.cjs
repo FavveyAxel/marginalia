@@ -8,8 +8,10 @@
 // l'expéditeur accepte la demande et le paquet passe, chiffré. Le paquet est opaque pour ce module
 // (son format est défini ailleurs, src/features/share) : ici, on transporte des octets.
 //
-// Rien ne passe par Internet : aucun serveur relais ni service tiers ; seules les adresses du réseau
-// local (privées, lien local, boucle locale ; isLocalAddress de wifi.cjs) sont contactées ou acceptées.
+// Réseau local d'abord : seules les adresses du réseau local (privées, lien local, boucle locale ;
+// isLocalAddress de wifi.cjs) sont contactées ou acceptées en TCP. Par Internet (réglage, activé par
+// défaut) : le même protocole passe par des flux iroh pair à pair (collab-iroh.cjs, usage « share ») ;
+// l'envoi est retrouvé grâce au code, sans serveur à nous. Le code ne vaut qu'une minute.
 // Ces connexions partent du processus principal (Node), pas du rendu : le blocage des requêtes
 // sortantes du rendu (session.webRequest, main.cjs) reste entier.
 //
@@ -77,7 +79,7 @@ const { isLocalAddress, lanAddresses } = require('./wifi.cjs');
 
 const HTTP_PORT = 47802;
 const UDP_PORT = 47803;
-const CODE_TTL_MS = 10 * 60 * 1000;
+const CODE_TTL_MS = 60 * 1000; // une minute : une demande déjà faite va au bout (accord, transfert)
 const REQUEST_TTL_MS = 2 * 60 * 1000; // l'émetteur a 2 minutes pour accepter une demande
 const TOMB_MS = 2 * 60 * 1000; // après expiration ou trop d'essais : on répond encore « expiré » 2 minutes
 const MAX_TRIES = 5;
@@ -93,6 +95,7 @@ const X25519_SPKI = Buffer.from('302a300506032b656e032100', 'hex');
 const MSG = {
   format: 'Le code doit compter 6 chiffres.',
   notFound: 'Aucun envoi trouvé avec ce code sur ce réseau. Vérifiez le code et que les deux ordinateurs sont sur le même Wi-Fi ; sinon, saisissez l’adresse affichée par l’expéditeur.',
+  notFoundAnywhere: 'Aucun envoi trouvé avec ce code, ni sur ce réseau ni par Internet. Vérifiez le code (il n’est valable qu’une minute).',
   badCode: (n) => `Code incorrect${n > 0 ? ` (encore ${n} essai${n > 1 ? 's' : ''})` : ''}.`,
   expired: 'Code expiré : demandez un nouveau code à l’expéditeur.',
   tries: 'Trop d’essais : cet envoi a été fermé par sécurité. Demandez un nouveau code à l’expéditeur.',
@@ -278,6 +281,7 @@ function readJson(req) {
  * @param {number} [o.ttlMs]  validité du code (tests : raccourcie)
  * @param {number} [o.requestTtlMs]  délai d'accord de l'émetteur (tests)
  * @param {(addr: string) => boolean} [o.isLocal]  tests : filtre d'adresse imposé
+ * @param {ReturnType<import('./collab-iroh.cjs').createInternet>} [o.internet]  envoi par Internet (pair à pair)
  */
 function createShareSender(o) {
   const diag = o.diag || (() => {});
@@ -336,6 +340,8 @@ function createShareSender(o) {
     } catch {
       /* déjà fermée */
     }
+    if (cur.rv) void cur.rv.close();
+    cur.rv = null;
   }
 
   function offer(cur) {
@@ -343,7 +349,7 @@ function createShareSender(o) {
   }
 
   function onUdp(cur, msg, rinfo) {
-    if (s !== cur || !isLocal(rinfo.address) || msg.length > 256 || isLocked()) return;
+    if (s !== cur || !isLocal(rinfo.address) || msg.length > 256 || isLocked() || cur.expiredPending) return;
     const now = Date.now();
     if (now - cur.udpWindow > 1000) {
       cur.udpWindow = now;
@@ -365,7 +371,7 @@ function createShareSender(o) {
     const n = unb64(q && q.n, 16);
     if (!q || q.id !== b64(cur.id) || !n) return json(res, 400, { error: 'request' });
     const hint = hintOf(cur.keys, cur.id, n);
-    if (cur.state !== 'open') return json(res, 200, { state: cur.state, hint });
+    if (cur.state !== 'open' || cur.expiredPending) return json(res, 200, { state: cur.state !== 'open' ? cur.state : 'expired', hint });
     // Poignées de main en attente : 32 au plus, 60 secondes chacune.
     const now = Date.now();
     for (const [k, h] of cur.handshakes) if (now - h.at > 60000 || cur.handshakes.size >= 32) cur.handshakes.delete(k);
@@ -378,7 +384,7 @@ function createShareSender(o) {
 
   async function onProve(cur, req, res) {
     const q = await readJson(req);
-    if (cur.state === 'expired') return json(res, 410, { error: 'expired' });
+    if (cur.state === 'expired' || cur.expiredPending) return json(res, 410, { error: 'expired' });
     if (cur.state !== 'open') return json(res, 429, { error: 'tries' });
     const h = q && typeof q.hs === 'string' ? cur.handshakes.get(q.hs) : null;
     const ephR = unb64(q && q.eph, 32);
@@ -406,12 +412,13 @@ function createShareSender(o) {
     } catch {
       return json(res, 400, { error: 'handshake' });
     }
-    const address = String(req.socket.remoteAddress || '').replace(/^::ffff:/, '');
+    const address = req.socket.mgInternet ? 'Internet' : String(req.socket.remoteAddress || '').replace(/^::ffff:/, '');
     const r = { hs: q.hs, k, device, address, state: 'pending', waiters: [], timer: null };
     r.timer = setTimeout(() => {
       if (cur.request === r && r.state === 'pending') {
         closeRequest(cur, 'no-answer');
         o.emit({ type: 'request-closed', reason: 'no-answer', at: Date.now() });
+        if (cur.expiredPending) end(cur, 'expired'); // code déjà expiré : plus personne ne peut venir
       }
     }, requestTtlMs);
     r.timer.unref?.();
@@ -432,7 +439,7 @@ function createShareSender(o) {
     const r = cur.request && cur.request.hs === hs ? cur.request : null;
     const auth = unb64(String(req.headers['x-mg-auth'] || ''), 32);
     if (!r) {
-      const why = cur.closed.get(hs) || (cur.state !== 'open' ? cur.state : 'ticket');
+      const why = cur.closed.get(hs) || (cur.state !== 'open' ? cur.state : cur.expiredPending ? 'expired' : 'ticket');
       const codeOf = { rejected: 403, 'no-answer': 408, expired: 410, tries: 429 };
       return json(res, codeOf[why] || 404, { error: why });
     }
@@ -500,8 +507,8 @@ function createShareSender(o) {
   function handler(req, res) {
     const cur = s;
     if (!cur) return json(res, 503, { error: 'closed' });
-    // Réseau local uniquement.
-    if (!isLocal(req.socket.remoteAddress)) {
+    // Réseau local, ou flux iroh (Internet, pair à pair).
+    if (!req.socket.mgInternet && !isLocal(req.socket.remoteAddress)) {
       req.resume();
       return json(res, 403, { error: 'not-local' });
     }
@@ -608,6 +615,7 @@ function createShareSender(o) {
       expireTimer: null,
       tombTimer: null,
       expiredPending: false,
+      rv: null, // point d'accès Internet (iroh)
     };
     // Découverte : port UDP partagé (plusieurs Marginalia sur une machine) ; sans lui, saisie manuelle.
     try {
@@ -625,9 +633,15 @@ function createShareSender(o) {
     } catch (e) {
       diag('partage', 'découverte indisponible', e && e.code);
     }
+    // Code expiré : plus personne de nouveau ; une demande déjà faite (en attente d'accord, acceptée, en
+    // cours d'envoi) va au bout.
     cur.expireTimer = setTimeout(() => {
-      if (cur.request && cur.request.state === 'sending') cur.expiredPending = true; // le transfert en cours va au bout
-      else end(cur, 'expired');
+      if (cur.request) {
+        cur.expiredPending = true;
+        cur.handshakes.clear();
+        cur.rv?.refuseNew();
+        o.emit({ type: 'code-expired', at: Date.now() });
+      } else end(cur, 'expired');
     }, ttlMs);
     cur.expireTimer.unref?.();
     if (ticket !== starting) {
@@ -636,6 +650,22 @@ function createShareSender(o) {
     }
     s = cur;
     diag('partage', 'envoi ouvert', cur.port, data.length);
+    if (o.internet && o.internet.available()) {
+      try {
+        const rv = await o.internet.host(
+          code,
+          (sock) => {
+            if (s === cur && cur.state === 'open') cur.server.emit('connection', sock);
+            else sock.destroy();
+          },
+          'share',
+        );
+        if (s !== cur) void rv.close();
+        else cur.rv = rv;
+      } catch (e) {
+        diag('partage', 'internet indisponible', e && e.message);
+      }
+    }
     return info();
   }
 
@@ -647,6 +677,8 @@ function createShareSender(o) {
       expiresAt: s.expiresAt,
       port: s.port,
       discovery: !!s.udp,
+      internet: !!s.rv,
+      codeOpen: !s.expiredPending,
       addresses: lanAddresses().map((a) => `${a.address}:${s.port}`),
       request: s.request ? { device: s.request.device, address: s.request.address, state: s.request.state } : null,
     };
@@ -666,8 +698,10 @@ function createShareSender(o) {
   function reject() {
     const r = s ? s.request : null;
     if (!r || r.state === 'sending') return false;
-    closeRequest(s, 'rejected');
+    const cur = s;
+    closeRequest(cur, 'rejected');
     diag('partage', 'demande refusée');
+    if (cur.expiredPending) end(cur, 'expired');
     return true;
   }
 
@@ -694,20 +728,34 @@ function createShareSender(o) {
  * @param {number} [o.udpPort]  port de découverte (47803)
  * @param {() => string[]} [o.targets]  tests : adresses de diffusion imposées
  * @param {number} [o.discoverMs]  durée d'écoute des réponses (2 s)
+ * @param {ReturnType<import('./collab-iroh.cjs').createInternet>} [o.internet]  réception par Internet (pair à pair)
  */
 function createShareReceiver(o = {}) {
   const diag = o.diag || (() => {});
-  const tickets = new Map(); // id → { address, port, hs, k, size, meta, name, at }
+  const tickets = new Map(); // id → { address, port, via, hs, k, size, meta, name, at }
   const active = new Set(); // requêtes et sockets en cours (annulation)
   let generation = 0;
 
-  /** Requête HTTP vers une adresse locale ; { status, json } ou erreur réseau. */
-  function call(method, address, port, path, { body, headers = {}, timeout = 10000 } = {}) {
-    if (!isLocalAddress(address)) return Promise.reject(shareError('not-local', MSG.notLocal));
+  /**
+   * Options de http.request vers l'émetteur : TCP sur le réseau local, ou flux iroh (`via`, Internet).
+   * @param {{ address: string, port: number, via?: { stream: () => Promise<import('node:stream').Duplex> } }} t
+   */
+  async function target(t, extra) {
+    if (t.via) {
+      const sock = await t.via.stream();
+      return { ...extra, createConnection: () => sock };
+    }
+    if (!isLocalAddress(t.address)) throw shareError('not-local', MSG.notLocal);
+    return { ...extra, host: t.address, port: t.port, agent: false };
+  }
+
+  /** Requête HTTP vers l'émetteur ; { status, json } ou erreur réseau. */
+  async function call(method, t, path, { body, headers = {}, timeout = 10000 } = {}) {
+    const payload = body ? Buffer.from(JSON.stringify(body)) : null;
+    const opts = await target(t, { path: PREFIX + path, method, headers: { ...headers, ...(payload ? { 'Content-Type': 'application/json', 'Content-Length': payload.length } : {}) } });
     return new Promise((resolve, reject) => {
-      const payload = body ? Buffer.from(JSON.stringify(body)) : null;
       const req = http.request(
-        { host: address, port, path: PREFIX + path, method, agent: false, headers: { ...headers, ...(payload ? { 'Content-Type': 'application/json', 'Content-Length': payload.length } : {}) } },
+        opts,
         (res) => {
           const chunks = [];
           let n = 0;
@@ -807,12 +855,13 @@ function createShareReceiver(o = {}) {
     if (!/^\d{6}$/.test(code)) throw shareError('format', MSG.format);
     const gen = generation;
     let offers;
+    let viaInternet = false;
     if (manualAddress) {
       const { address, port } = parseManualAddress(manualAddress);
       if (!isLocalAddress(address)) throw shareError('not-local', MSG.notLocal);
       let r;
       try {
-        r = await call('GET', address, port, 'hello', { timeout: 5000 });
+        r = await call('GET', { address, port }, 'hello', { timeout: 5000 });
       } catch (e) {
         if (e.code === 'not-local') throw e;
         throw shareError('unreachable', MSG.unreachable);
@@ -823,10 +872,18 @@ function createShareReceiver(o = {}) {
       if (r.status !== 200 || !id || !salt) throw shareError('unreachable', MSG.unreachable);
       offers = [{ address, port, id, salt }];
     } else {
+      // Réseau local et Internet en même temps ; le réseau local a la priorité.
+      const far = o.internet && o.internet.available() ? internetOffer(code) : null;
       offers = await discover();
+      if (!offers.length && far) {
+        const of = await far;
+        viaInternet = true;
+        if (of && of.error) throw of.error;
+        if (of) offers = [of];
+      } else if (far) void far.then((of) => of && of.via && of.via.close());
     }
     if (gen !== generation) throw shareError('cancelled', MSG.cancelled);
-    if (!offers.length) throw shareError('not-found', MSG.notFound);
+    if (!offers.length) throw shareError('not-found', viaInternet ? MSG.notFoundAnywhere : MSG.notFound);
 
     const keyCache = new Map();
     const keysFor = (salt) => {
@@ -840,7 +897,7 @@ function createShareReceiver(o = {}) {
         try {
           const keys = await keysFor(of.salt);
           const n = crypto.randomBytes(16);
-          const r = await call('POST', of.address, of.port, 'open', { body: { id: b64(of.id), n: b64(n) } });
+          const r = await call('POST', of, 'open', { body: { id: b64(of.id), n: b64(n) } });
           if (r.status === 423) return { of, error: shareError('locked', MSG.locked) };
           if (r.status !== 200 || !r.json) return null;
           // Indice différent : un autre envoi, ou un code faux (adresse saisie : on le dit tout de suite).
@@ -883,7 +940,7 @@ function createShareReceiver(o = {}) {
       const deviceName = cleanDevice(o.deviceName ? o.deviceName() : hostName());
       let r;
       try {
-        r = await call('POST', of.address, of.port, 'prove', { body: { hs, eph: b64(eph.pub), proof: b64(proof), dev: seal(k.r2s, 'DEVN', deviceName) } });
+        r = await call('POST', of, 'prove', { body: { hs, eph: b64(eph.pub), proof: b64(proof), dev: seal(k.r2s, 'DEVN', deviceName) } });
       } catch (e) {
         diag('partage', 'preuve', e && e.message);
         continue;
@@ -909,8 +966,8 @@ function createShareReceiver(o = {}) {
         if (box.size > MAX_BYTES) throw shareError('too-big', MSG.tooBig);
         const id = b64(crypto.randomBytes(12));
         for (const [tid, t] of tickets) if (Date.now() - t.at > CODE_TTL_MS + REQUEST_TTL_MS) tickets.delete(tid);
-        const from = { address: of.address, port: of.port, name: cleanDevice(box.name) };
-        tickets.set(id, { address: of.address, port: of.port, hs, k, size: box.size, meta: box.meta, from, at: Date.now() });
+        const from = { address: of.address, port: of.port, internet: !!of.via, name: cleanDevice(box.name) };
+        tickets.set(id, { address: of.address, port: of.port, via: of.via || null, hs, k, size: box.size, meta: box.meta, from, at: Date.now() });
         diag('partage', 'envoi trouvé', of.address, box.size);
         return { id, meta: box.meta ?? {}, size: box.size, from };
       }
@@ -924,10 +981,16 @@ function createShareReceiver(o = {}) {
    * @param {{ onProgress?: (done: number, total: number) => void }} [p]
    * @returns {Promise<Buffer>}
    */
-  function receiveShare(id, { onProgress } = {}) {
+  async function receiveShare(id, { onProgress } = {}) {
     const t = tickets.get(String(id));
-    if (!t) return Promise.reject(shareError('ticket', MSG.ticket));
+    if (!t) throw shareError('ticket', MSG.ticket);
     const auth = b64(hmac(t.k.mac, 'data', Buffer.from(t.hs)));
+    let opts;
+    try {
+      opts = await target(t, { path: `${PREFIX}data?hs=${encodeURIComponent(t.hs)}`, method: 'GET', headers: { 'x-mg-auth': auth } });
+    } catch (e) {
+      throw e && e.code === 'not-local' ? e : shareError('interrupted', MSG.interrupted);
+    }
     return new Promise((resolve, reject) => {
       const out = Buffer.allocUnsafe(t.size);
       let got = 0;
@@ -978,7 +1041,7 @@ function createShareReceiver(o = {}) {
           }
         }
       };
-      const req = http.request({ host: t.address, port: t.port, path: `${PREFIX}data?hs=${encodeURIComponent(t.hs)}`, method: 'GET', agent: false, headers: { 'x-mg-auth': auth } }, (res) => {
+      const req = http.request(opts, (res) => {
         if (res.statusCode !== 200) {
           const chunks = [];
           res.on('data', (c) => chunks.length < 64 && chunks.push(c));
@@ -1018,10 +1081,11 @@ function createShareReceiver(o = {}) {
           tickets.delete(String(id));
           // Accusé de réception (l'émetteur ferme la session) ; son échec ne change rien aux octets reçus.
           try {
-            await call('POST', t.address, t.port, 'done', { body: { hs: t.hs, mac: b64(hmac(t.k.mac, 'done', Buffer.from(t.hs))) }, timeout: 5000 });
+            await call('POST', t, 'done', { body: { hs: t.hs, mac: b64(hmac(t.k.mac, 'done', Buffer.from(t.hs))) }, timeout: 5000 });
           } catch (e) {
             diag('partage', 'accusé', e && e.message);
           }
+          if (t.via) setTimeout(() => t.via.close(), 1500).unref?.();
           resolve(out);
         });
       });
@@ -1035,6 +1099,30 @@ function createShareReceiver(o = {}) {
       });
       req.end();
     });
+  }
+
+  /** Par Internet : point d'accès du code d'envoi ; offre comme celle de la découverte locale, ou null. */
+  async function internetOffer(code) {
+    let via;
+    try {
+      via = await o.internet.dial(code, 'share');
+    } catch (e) {
+      diag('partage', 'internet', e && e.message);
+      return null;
+    }
+    if (!via) return null;
+    try {
+      const r = await call('GET', { via }, 'hello', { timeout: 8000 });
+      const id = unb64(r.json && r.json.id, 12);
+      const salt = unb64(r.json && r.json.salt, 16);
+      if (r.status === 423) return { error: shareError('locked', MSG.locked) };
+      if (r.status !== 200 || !id || !salt) return null;
+      return { address: 'Internet', port: 0, via, id, salt };
+    } catch (e) {
+      diag('partage', 'internet : bonjour', e && (e.code || e.message));
+      via.close();
+      return null;
+    }
   }
 
   /** Annule recherches et réceptions en cours, oublie les demandes (verrouillage, fermeture). */

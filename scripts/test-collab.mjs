@@ -156,7 +156,11 @@ try {
   // ── 1. Léa ouvre la session par le menu ⋯ de l'espace ──
   await A.page.click('button[aria-label="Actions"]');
   const menuText = await A.page.locator('[role="menu"]').first().textContent();
-  ok(/Nouvelle carte ici\s*Travailler à plusieurs…/.test(menuText.replace(/\s+/g, ' ')) || menuText.includes('Travailler à plusieurs…'), 'menu ⋯ de l’espace : « Travailler à plusieurs… » sous « Nouvelle carte ici »', menuText.replace(/\s+/g, ' ').slice(0, 200));
+  ok(menuText.includes('Partager'), 'menu ⋯ de l’espace : « Partager »', menuText.replace(/\s+/g, ' ').slice(0, 200));
+  await A.page.locator('.ws-menu .menu-item', { hasText: 'Partager' }).click();
+  const sub = (await A.page.locator('.ws-menu').first().textContent()).replace(/\s+/g, ' ');
+  ok(sub.includes('Envoyer une copie…') && sub.includes('Travailler ensemble…'), 'menu ⋯ › Partager : « Envoyer une copie… » ou « Travailler ensemble… »', sub.slice(0, 160));
+  await A.page.keyboard.press('Escape');
   await A.page.keyboard.press('Escape');
   // Bouton « Partager » en haut à droite : deux choix.
   await A.page.click('[data-testid="ws-share"]');

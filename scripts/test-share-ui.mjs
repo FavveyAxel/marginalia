@@ -98,7 +98,8 @@ try {
 
   // ── 1. Menu « ⋯ » de l'espace › Partager l'espace… ──
   await A.page.click('button[aria-label="Actions"]');
-  await A.page.getByText('Partager l’espace…').click();
+  await A.page.locator('.ws-menu .menu-item', { hasText: 'Partager' }).click();
+  await A.page.getByText('Envoyer une copie…').click();
   await A.page.waitForSelector('[data-testid="share-dialog"]');
   await A.page.waitForSelector('[data-testid="share-summary"]');
   const sum = await A.page.textContent('[data-testid="share-summary"]');
@@ -112,7 +113,7 @@ try {
   await A.page.waitForSelector('[data-testid="share-code"]');
   const code1 = await A.page.getAttribute('[data-testid="share-code"]', 'data-code');
   ok(/^\d{6}$/.test(code1), 'Envoyer par le Wi-Fi : grand code à 6 chiffres', code1);
-  ok(/Valable encore \d+ min \d+ s/.test(await A.page.textContent('.sh-left')), 'durée restante affichée');
+  ok(/Valable encore (\d+ min )?\d+ s/.test(await A.page.textContent('.sh-left')), 'durée restante affichée');
   ok(/En attente…/.test(await A.page.textContent('[data-testid="share-status"]')), '« En attente… »');
   ok(/Pas de Wi-Fi commun \?/.test(await A.page.textContent('.br-trouble')), 'indication « Pas de Wi-Fi commun ? »');
   await shotBoth(A.page, '[data-testid="share-dialog"]', '02-wifi-code');
@@ -160,7 +161,8 @@ try {
 
   // ── 2. Refus, déjà reçu, mauvais code ──
   await A.page.click('button[aria-label="Actions"]');
-  await A.page.getByText('Partager l’espace…').click();
+  await A.page.locator('.ws-menu .menu-item', { hasText: 'Partager' }).click();
+  await A.page.getByText('Envoyer une copie…').click();
   await A.page.click('[data-testid="share-wifi"]');
   await A.page.waitForSelector('[data-testid="share-code"]');
   const code2 = await A.page.getAttribute('[data-testid="share-code"]', 'data-code');

@@ -1,12 +1,12 @@
 // Fenêtre « Partager » : ce qui part (résumé), les livres joints ou non, puis deux façons de le donner à
 // une autre Marginalia : un fichier « .marginalia » à enregistrer, ou un envoi direct par le Wi-Fi (code à
-// 6 chiffres, réseau local, rien ne passe par Internet). Partager = donner une copie : aucun lien ensuite.
+// 6 chiffres valable une minute, sur le même Wi-Fi ou par Internet en pair à pair, chiffré de bout en bout). Partager = donner une copie : aucun lien ensuite.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { BookOpen, Check, Clock, Hash, Laptop, Lock, ShieldAlert, Upload, WifiOff, X } from 'lucide-react';
 import { host } from '../../lib/platform';
 import { buildSharePackage, describeCounts, openSharePackage, SHARE_EXTENSION, type ShareSelection, type ShareSummary } from './sharePackage';
-import { errorMessage, fileNameFor, fmtSize, shareNetAvailable, type WireMeta } from './shareUi';
+import { applyP2p, errorMessage, fileNameFor, fmtSize, shareNetAvailable, useP2pOk, type WireMeta } from './shareUi';
 import { BigCode, Bridge, ContentChips, FileArt, Steps, Trouble } from './shareVisuals';
 import '../inbox/inbox.css';
 import './share.css';
@@ -14,10 +14,10 @@ import './share.css';
 type Wifi =
   | { step: 'starting' }
   | { step: 'waiting'; code: string; expiresAt: number; addresses: string[]; discovery: boolean; note?: string }
-  | { step: 'request'; code: string; expiresAt: number; device: string; addresses: string[] }
+  | { step: 'request'; code: string; expiresAt: number; device: string; addresses: string[]; codeClosed?: boolean }
   | { step: 'sending'; device: string; done: number; total: number }
   | { step: 'done'; device: string; size: number }
-  | { step: 'stopped'; message: string }
+  | { step: 'stopped'; message: string; expired?: boolean }
   | { step: 'error'; message: string };
 
 interface Base {
@@ -31,7 +31,7 @@ interface Base {
 const toBuffer = (b: Uint8Array): ArrayBuffer => b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength) as ArrayBuffer;
 
 const STOP_TEXT: Record<string, string> = {
-  expired: 'Le code a expiré (il est valable 10 minutes). Rouvrez l’envoi pour obtenir un nouveau code.',
+  expired: 'Le code a expiré : il n’est valable qu’une minute.',
   tries: 'Trop d’essais avec un mauvais code : l’envoi a été fermé par sécurité. Rouvrez-le pour obtenir un nouveau code.',
   locked: 'Marginalia s’est verrouillée : l’envoi a été fermé.',
   quit: 'L’envoi a été fermé.',
@@ -39,6 +39,7 @@ const STOP_TEXT: Record<string, string> = {
 
 export function ShareDialog({ selection, onClose }: { selection: ShareSelection; onClose: () => void }) {
   const net = host.shareNet;
+  const p2p = useP2pOk();
   const [base, setBase] = useState<Base | null>(null);
   const [prepError, setPrepError] = useState<string | null>(null);
   const [include, setInclude] = useState(false);
@@ -95,6 +96,7 @@ export function ShareDialog({ selection, onClose }: { selection: ShareSelection;
       setWifi((w) => {
         if (!w) return w;
         if (e.type === 'request' && (w.step === 'waiting' || w.step === 'request')) return { step: 'request', code: w.code, expiresAt: w.expiresAt, device: e.device, addresses: w.addresses };
+        if (e.type === 'code-expired' && w.step === 'request') return { ...w, codeClosed: true };
         if (e.type === 'request-closed' && w.step === 'request') return { step: 'waiting', code: w.code, expiresAt: w.expiresAt, addresses: w.addresses, discovery: true, note: 'La demande est restée sans réponse et s’est fermée. Le code reste valable : le destinataire peut le saisir de nouveau.' };
         if (e.type === 'attempt' && w.step === 'waiting') return { ...w, note: `Quelqu’un a essayé un mauvais code${e.remaining > 0 ? ` (encore ${e.remaining} essai${e.remaining > 1 ? 's' : ''} avant la fermeture)` : ''}.` };
         if (e.type === 'progress' && (w.step === 'sending' || w.step === 'request')) return { step: 'sending', device: w.device, done: e.done, total: e.total };
@@ -102,7 +104,7 @@ export function ShareDialog({ selection, onClose }: { selection: ShareSelection;
         if (e.type === 'stopped') {
           if (w.step === 'done' || e.reason === 'sent' || e.reason === 'closed') return w;
           wifiOn.current = false;
-          return { step: 'stopped', message: STOP_TEXT[e.reason] ?? 'L’envoi s’est fermé.' };
+          return { step: 'stopped', message: STOP_TEXT[e.reason] ?? 'L’envoi s’est fermé.', expired: e.reason === 'expired' };
         }
         return w;
       });
@@ -170,6 +172,7 @@ export function ShareDialog({ selection, onClose }: { selection: ShareSelection;
       };
       setWifi({ step: 'starting' });
       wifiOn.current = true;
+      await applyP2p();
       const info = await net.sendStart(toBuffer(bytes), meta as unknown as Record<string, unknown>);
       setNow(Date.now());
       setWifi({ step: 'waiting', code: info.code, expiresAt: info.expiresAt, addresses: info.addresses, discovery: info.discovery });
@@ -194,7 +197,7 @@ export function ShareDialog({ selection, onClose }: { selection: ShareSelection;
   };
 
   const left = wifi && 'expiresAt' in wifi ? Math.max(0, Math.round((wifi.expiresAt - now) / 1000)) : 0;
-  const mmss = `${Math.floor(left / 60)} min ${String(left % 60).padStart(2, '0')} s`;
+  const mmss = left >= 60 ? `${Math.floor(left / 60)} min ${String(left % 60).padStart(2, '0')} s` : `${left} s`;
 
   let body: JSX.Element;
   if (prepError) {
@@ -207,7 +210,25 @@ export function ShareDialog({ selection, onClose }: { selection: ShareSelection;
   } else if (!base) {
     body = <p className="wr-wait">Préparation du partage…</p>;
   } else if (wifi) {
-    body = <WifiBody wifi={wifi} mmss={mmss} title={base.summary.title} onAnswer={answer} onRetry={() => { stopWifi(); setWifi(null); }} />;
+    body = (
+      <WifiBody
+        wifi={wifi}
+        mmss={mmss}
+        left={left}
+        title={base.summary.title}
+        p2p={p2p}
+        onAnswer={answer}
+        onRetry={() => {
+          stopWifi();
+          setWifi(null);
+        }}
+        onNewCode={() => {
+          stopWifi();
+          setWifi(null);
+          void startWifi();
+        }}
+      />
+    );
   } else if (saved) {
     body = (
       <div className="sh-saved" role="status" data-testid="share-saved" data-path={saved}>
@@ -254,8 +275,8 @@ export function ShareDialog({ selection, onClose }: { selection: ShareSelection;
               <span className="sh-mini-link" />
               <Laptop size={26} strokeWidth={1.4} />
             </span>
-            <strong>Par le Wi-Fi</strong>
-            <span>{shareNetAvailable() ? 'Avec un code, sur le même réseau' : 'Dans l’app de bureau'}</span>
+            <strong>Avec un code</strong>
+            <span>{!shareNetAvailable() ? 'Dans l’app de bureau' : p2p ? 'Sur le même Wi-Fi ou par Internet' : 'Sur le même Wi-Fi'}</span>
           </button>
         </div>
         {busy && <p className="sh-busy" role="status">{busy}</p>}
@@ -276,7 +297,7 @@ export function ShareDialog({ selection, onClose }: { selection: ShareSelection;
         {body}
         <footer className="wr-foot">
           <Lock size={13} />
-          <span>Vous donnez une copie, chiffrée, sans passer par Internet.</span>
+          <span>{p2p ? 'Vous donnez une copie, chiffrée de bout en bout.' : 'Vous donnez une copie, chiffrée, sans passer par Internet.'}</span>
         </footer>
       </div>
     </div>,
@@ -284,7 +305,7 @@ export function ShareDialog({ selection, onClose }: { selection: ShareSelection;
   );
 }
 
-function WifiBody({ wifi, mmss, title, onAnswer, onRetry }: { wifi: Wifi; mmss: string; title: string; onAnswer(ok: boolean): void; onRetry(): void }) {
+function WifiBody({ wifi, mmss, left, title, p2p, onAnswer, onRetry, onNewCode }: { wifi: Wifi; mmss: string; left: number; title: string; p2p: boolean; onAnswer(ok: boolean): void; onRetry(): void; onNewCode(): void }) {
   if (wifi.step === 'starting') {
     return (
       <div className="sh-wifi">
@@ -298,7 +319,14 @@ function WifiBody({ wifi, mmss, title, onAnswer, onRetry }: { wifi: Wifi; mmss: 
       <div className="wr-problem" role="alert" data-testid="share-problem">
         <WifiOff size={22} strokeWidth={1.6} />
         <p>{wifi.message}</p>
-        <button className="btn btn-sm" onClick={onRetry}>Revenir au choix</button>
+        <div className="sh-actions center">
+          <button className="btn btn-sm" onClick={onRetry}>Revenir au choix</button>
+          {wifi.step === 'stopped' && wifi.expired && (
+            <button className="btn btn-sm btn-primary" onClick={onNewCode} data-testid="share-new-code">
+              Nouveau code
+            </button>
+          )}
+        </div>
       </div>
     );
   }
@@ -326,9 +354,9 @@ function WifiBody({ wifi, mmss, title, onAnswer, onRetry }: { wifi: Wifi; mmss: 
   return (
     <div className="sh-wifi" data-testid="share-waiting">
       <Bridge state={asking ? 'ask' : 'wait'} right={asking ? wifi.device : 'L’autre ordinateur'} rightFace={asking ? { letter: wifi.device.charAt(0).toUpperCase(), color: 'var(--primary)' } : null} />
-      <BigCode code={wifi.code} testid="share-code" />
-      <p className="sh-left">
-        <Clock size={12} /> Valable encore {mmss}
+      <BigCode code={wifi.code} testid="share-code" copy={!(asking && (wifi.codeClosed || left === 0))} />
+      <p className="sh-left" data-testid="share-left">
+        <Clock size={12} /> {asking && (wifi.codeClosed || left === 0) ? 'Code expiré : la demande en cours reste valable' : `Valable encore ${mmss}`}
       </p>
       {asking ? (
         <div className="sh-ask" role="alertdialog" aria-label="Demande de réception" data-testid="share-request">
@@ -354,7 +382,7 @@ function WifiBody({ wifi, mmss, title, onAnswer, onRetry }: { wifi: Wifi; mmss: 
         </>
       )}
       {wifi.step === 'waiting' && wifi.note && <p className="sh-note" role="status">{wifi.note}</p>}
-      <Trouble address={wifi.addresses[0]} />
+      <Trouble address={wifi.addresses[0]} internet={p2p} />
     </div>
   );
 }

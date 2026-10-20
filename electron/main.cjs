@@ -2693,12 +2693,26 @@ handle('marginalia:sendStop', () => wifiSender.stop('closed'));
 const shareEmit = (evt) => {
   for (const w of BrowserWindow.getAllWindows()) if (!w.isDestroyed()) w.webContents.send('marginalia:share', evt);
 };
+// Par Internet, en pair à pair (réglage « Partager et travailler à plusieurs par Internet ») : flux iroh,
+// voir electron/collab-iroh.cjs ; sert à l'envoi d'une copie et au travail à plusieurs. Coupé dans les
+// tests de bout en bout (sauf MARGINALIA_E2E_INTERNET=1) : ils n'ont pas accès à Internet. Tests par
+// Internet : iroh en 127.0.0.1, annuaire dans un fichier (pas d'accès à n0).
+const collabInternet = require('./collab-iroh.cjs').createInternet({
+  diag: (...a) => diag(...a),
+  ...(E2E && process.env.MARGINALIA_E2E_IROH_REGISTRY ? { local: true, registryFile: process.env.MARGINALIA_E2E_IROH_REGISTRY, dialMs: 4000 } : {}),
+});
+if (E2E && process.env.MARGINALIA_E2E_INTERNET !== '1') collabInternet.setEnabled(false);
 const shareSender = shareNet.createShareSender({
   isLocked: () => isLocked(),
   diag: (...a) => diag(...a),
   emit: (evt) => shareEmit({ side: 'send', ...evt }),
+  internet: collabInternet,
 });
-const shareReceiver = shareNet.createShareReceiver({ diag: (...a) => diag(...a) });
+const shareReceiver = shareNet.createShareReceiver({
+  diag: (...a) => diag(...a),
+  internet: collabInternet,
+  ...(E2E && process.env.MARGINALIA_E2E_COLLAB_NO_LAN === '1' ? { targets: () => [], discoverMs: 300 } : {}),
+});
 const shareMessage = (e) => (e && e.code && typeof e.message === 'string' ? e.message : `Partage impossible (${(e && e.code) || (e && e.message) || e}).`);
 dataHandle('marginalia:shareSendStart', async (_e, bytes, meta) => {
   // Vue sans copie sur les octets reçus du rendu (jusqu'à 2 Go).
@@ -2738,14 +2752,6 @@ dataHandle('marginalia:shareReceive', async (_e, id) => {
 // L'hôte relaie des octets opaques entre les participants (6 personnes au plus) ; le rendu les lit
 // (src/features/collab). Événements 'marginalia:collab' : { side: 'host' | 'guest', type, … }.
 const collabNet = require('./collab-net.cjs');
-// Par Internet (réglage « Collaborer par Internet ») : flux iroh, voir electron/collab-iroh.cjs. Coupé
-// dans les tests de bout en bout (sauf MARGINALIA_E2E_INTERNET=1) : ils n'ont pas accès à Internet.
-// Tests de bout en bout par Internet : iroh en 127.0.0.1, annuaire dans un fichier (pas d'accès à n0).
-const collabInternet = require('./collab-iroh.cjs').createInternet({
-  diag: (...a) => diag(...a),
-  ...(E2E && process.env.MARGINALIA_E2E_IROH_REGISTRY ? { local: true, registryFile: process.env.MARGINALIA_E2E_IROH_REGISTRY, dialMs: 4000 } : {}),
-});
-if (E2E && process.env.MARGINALIA_E2E_INTERNET !== '1') collabInternet.setEnabled(false);
 const collabEmit = (evt) => {
   for (const w of BrowserWindow.getAllWindows()) if (!w.isDestroyed()) w.webContents.send('marginalia:collab', evt);
 };

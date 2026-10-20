@@ -204,7 +204,8 @@ try {
 
   // ── Session ──
   await A.page.click('button[aria-label="Actions"]');
-  await A.page.getByText('Travailler à plusieurs…').click();
+  await A.page.locator('.ws-menu .menu-item', { hasText: 'Partager' }).click();
+  await A.page.getByText('Travailler ensemble…').click();
   await A.page.waitForSelector('[data-testid="collab-start"]');
   await A.page.fill('[data-testid="collab-name"]', 'Léa');
   await A.page.click('.cl-swatch[data-color="#c2410c"]');

@@ -27,7 +27,7 @@ function useInternetOk() {
     let alive = true;
     void session()
       .then((m) => m.internetState())
-      .then((r) => alive && setSupported(r.supported), () => undefined);
+      .then((r) => alive && setSupported(r.supported && r.enabled), () => undefined);
     return () => {
       alive = false;
     };
@@ -45,6 +45,8 @@ export function CollabHost() {
   const ready = useStore((s) => s.ready);
   useEffect(() => {
     if (ready) void import('./memory').then((m) => m.initMemory());
+    // Réglage « Partager et travailler à plusieurs par Internet » appliqué dès le lancement.
+    if (ready) void session().then((m) => m.applyInternet());
   }, [ready]);
   useEffect(() => {
     void session().then((m) => m.closeStale());

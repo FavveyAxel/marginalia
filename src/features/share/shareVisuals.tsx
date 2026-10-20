@@ -189,7 +189,7 @@ export function Trouble({ address, children, summary = 'L’autre ordinateur ne 
       <ul>
         {internet ? (
           <>
-            <li>Vérifiez le code : après un essai raté, il faut attendre 10 secondes avant d’en essayer un autre.</li>
+            <li>Vérifiez le code auprès de l’autre personne.</li>
             <li>Par Internet, la recherche peut prendre une dizaine de secondes. Sur le même Wi-Fi, c’est plus rapide.</li>
           </>
         ) : (

@@ -8,7 +8,7 @@ import { host } from '../../lib/platform';
 import { useStore } from '../../lib/store';
 import { alreadyReceived, findLocalBook, readSharePackage } from './sharePackage';
 import { importSharePackage, type ShareImportResult } from './shareMerge';
-import { errorMessage, fmtSize, type ReceiveSource, type WireMeta } from './shareUi';
+import { applyP2p, errorMessage, fmtSize, useP2pOk, type ReceiveSource, type WireMeta } from './shareUi';
 import { Bridge, ContentChips, FileArt, Steps, Trouble } from './shareVisuals';
 import '../inbox/inbox.css';
 import './share.css';
@@ -65,6 +65,7 @@ async function viewFromMeta(meta: Record<string, unknown>, size: number, from: s
 
 export function ReceiveDialog({ source, onClose }: { source: ReceiveSource; onClose: () => void }) {
   const net = host.shareNet;
+  const p2p = useP2pOk();
   const [step, setStep] = useState<Step>(source.file ? { s: 'finding' } : { s: 'code' });
   const [digits, setDigits] = useState<string[]>(['', '', '', '', '', '']);
   const [manual, setManual] = useState(false);
@@ -128,6 +129,7 @@ export function ReceiveDialog({ source, onClose }: { source: ReceiveSource; onCl
     setError(null);
     setStep({ s: 'finding' });
     try {
+      await applyP2p();
       const found = await net.find(c, manual && address.trim() ? address.trim() : undefined);
       const view = await viewFromMeta(found.meta, found.size, found.from?.name || found.from?.address || 'un autre ordinateur');
       if (alive.current) setStep({ s: 'preview', view, found: { id: found.id } });
@@ -179,7 +181,7 @@ export function ReceiveDialog({ source, onClose }: { source: ReceiveSource; onCl
         <Steps
           items={[
             { icon: <Share2 size={18} />, label: 'Partager' },
-            { icon: <Wifi size={18} />, label: 'Par le Wi-Fi' },
+            { icon: <Wifi size={18} />, label: 'Avec un code' },
             { icon: <Hash size={18} />, label: 'Le code s’affiche' },
           ]}
         />
@@ -205,10 +207,10 @@ export function ReceiveDialog({ source, onClose }: { source: ReceiveSource; onCl
           </label>
         )}
         {finding ? (
-          <p className="sh-small center" aria-live="polite">Recherche sur le réseau…</p>
+          <p className="sh-small center" aria-live="polite">{p2p && !manual ? 'Recherche sur le réseau et par Internet…' : 'Recherche sur le réseau…'}</p>
         ) : (
           <div className="sh-actions">
-            <Trouble summary="Rien n’est trouvé ?">
+            <Trouble summary="Rien n’est trouvé ?" internet={p2p}>
               <button className="sh-link" onClick={() => setManual((m) => !m)} data-testid="receive-manual">
                 {manual ? 'Chercher sur le réseau' : 'Saisir une adresse'}
               </button>
@@ -308,7 +310,7 @@ export function ReceiveDialog({ source, onClose }: { source: ReceiveSource; onCl
         {content}
         <footer className="wr-foot">
           <Lock size={13} />
-          <span>{source.file ? 'Le fichier est lu sur cet ordinateur, sans Internet.' : 'Transfert chiffré, sur votre réseau local, sans Internet.'}</span>
+          <span>{source.file ? 'Le fichier est lu sur cet ordinateur, sans Internet.' : p2p ? 'Transfert chiffré de bout en bout, sur votre réseau ou par Internet.' : 'Transfert chiffré, sur votre réseau local, sans Internet.'}</span>
         </footer>
       </div>
     </div>,

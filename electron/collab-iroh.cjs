@@ -27,8 +27,11 @@ const crypto = require('node:crypto');
 const path = require('node:path');
 const { Duplex } = require('node:stream');
 
-const ALPN = Array.from(Buffer.from('mg-collab/1', 'utf8'));
-const SALT = Buffer.from('marginalia collab internet v1', 'utf8');
+// Deux usages, séparés : « collab » (travailler à plusieurs) et « share » (envoyer une copie). Clé et
+// protocole (ALPN) différents : un code d'envoi ne mène jamais à une session, ni l'inverse.
+const alpnOf = (kind) => Array.from(Buffer.from(`mg-${kind}/1`, 'utf8'));
+const saltOf = (kind) => Buffer.from(`marginalia ${kind} internet v1`, 'utf8');
+const ALPN = alpnOf('collab');
 const SCRYPT = { N: 2 ** 17, r: 8, p: 1, maxmem: 256 * 1024 * 1024 };
 const CHUNK = 64 * 1024;
 
@@ -53,9 +56,9 @@ function load() {
 }
 
 /** Clé secrète du point d'accès (32 octets) tirée du code. */
-function secretFor(code, cost = SCRYPT) {
+function secretFor(code, cost = SCRYPT, kind = 'collab') {
   return new Promise((resolve, reject) => {
-    crypto.scrypt(Buffer.from(String(code), 'utf8'), SALT, 32, cost, (err, k) => (err ? reject(err) : resolve(k)));
+    crypto.scrypt(Buffer.from(String(code), 'utf8'), saltOf(kind), 32, cost, (err, k) => (err ? reject(err) : resolve(k)));
   });
 }
 
@@ -156,7 +159,7 @@ function createInternet(o = {}) {
   const diag = o.diag || (() => {});
   let enabled = true;
 
-  async function bind(secret) {
+  async function bind(secret, kind = 'collab') {
     const L = load();
     const b = L.Endpoint.builder();
     if (o.local) {
@@ -164,22 +167,24 @@ function createInternet(o = {}) {
       b.bindAddr('127.0.0.1:0');
     } else L.presetN0(b);
     if (secret) b.secretKey(Array.from(secret));
-    b.alpns([ALPN]);
+    b.alpns([alpnOf(kind)]);
     return b.bind();
   }
   const closeEp = (ep) => withTimeout(ep.close(), 3000, 'fermeture').catch(() => {});
 
   /**
    * Hôte : ouvre le point d'accès du code ; chaque flux entrant est remis à `onSocket`.
-   * @returns {Promise<{ id: string, addr: () => any, close: () => Promise<void> }>}
+   * `refuseNew()` : plus de nouvelles connexions (code expiré), celles en cours continuent.
+   * @returns {Promise<{ id: string, addr: () => any, refuseNew: () => void, close: () => Promise<void> }>}
    */
-  async function host(code, onSocket) {
-    const secret = await secretFor(code, o.scrypt);
-    const ep = await bind(secret);
+  async function host(code, onSocket, kind = 'collab') {
+    const secret = await secretFor(code, o.scrypt, kind);
+    const ep = await bind(secret, kind);
     secret.fill(0);
     if (o.registry) o.registry.set(ep.id().toString(), ep.addr());
     if (o.registryFile) fileRegistry(ep.id().toString(), ep.addr().directAddresses());
     let closed = false;
+    let refusing = false;
     const conns = new Set();
     (async () => {
       while (!closed) {
@@ -190,12 +195,16 @@ function createInternet(o = {}) {
           break;
         }
         if (!inc) break;
+        if (refusing) {
+          inc.refuse().catch(() => {});
+          continue;
+        }
         (async () => {
           try {
             const conn = await (await inc.accept()).connect();
             conns.add(conn);
             const remote = conn.remoteId().toString();
-            diag('collab', 'internet : pair connecté', remote.slice(0, 10));
+            diag(kind === 'share' ? 'partage' : 'collab', 'internet : pair connecté', remote.slice(0, 10));
             for (;;) {
               const bi = await conn.acceptBi();
               onSocket(new IrohSocket(bi, remote));
@@ -209,6 +218,10 @@ function createInternet(o = {}) {
     return {
       id: ep.id().toString(),
       addr: () => ep.addr(),
+      refuseNew: () => {
+        refusing = true;
+        if (o.registry) o.registry.delete(ep.id().toString());
+      },
       close: async () => {
         closed = true;
         if (o.registry) o.registry.delete(ep.id().toString());
@@ -235,9 +248,9 @@ function createInternet(o = {}) {
 
   let guestEp = null;
   /** Invité : se connecte au point d'accès du code. Résout avec de quoi ouvrir des flux, ou null (personne). */
-  async function dial(code) {
+  async function dial(code, kind = 'collab') {
     const L = load();
-    const secret = await secretFor(code, o.scrypt);
+    const secret = await secretFor(code, o.scrypt, kind);
     const id = L.SecretKey.fromBytes(Array.from(secret)).public();
     secret.fill(0);
     if (!guestEp || guestEp.isClosed()) guestEp = await bind(null);
@@ -250,7 +263,7 @@ function createInternet(o = {}) {
     if (!target) return null;
     let conn;
     try {
-      conn = await withTimeout(guestEp.connect(target, ALPN), o.dialMs ?? 12000, 'personne');
+      conn = await withTimeout(guestEp.connect(target, alpnOf(kind)), o.dialMs ?? 12000, 'personne');
     } catch (e) {
       diag('collab', 'internet : introuvable', e && (e.code || e.message));
       return null;

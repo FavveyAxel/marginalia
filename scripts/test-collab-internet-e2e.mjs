@@ -121,7 +121,42 @@ try {
   });
   ok(got.ws === 'Parjure' && got.drafts === 1 && got.people === 2, 'chez Marc : « Parjure », l’écrit, 2 personnes', got);
 
-  // ── 4. Réglage ──
+  // ── 4. Envoyer une copie par Internet : clic droit › Partager › Envoyer une copie ──
+  await A.page.click('[data-testid="collab-dialog"] button[aria-label="Fermer"]').catch(() => A.page.keyboard.press('Escape'));
+  await A.page.locator('.ws-row', { hasText: 'Parjure' }).first().click({ button: 'right' });
+  await A.page.locator('.ws-menu .menu-item', { hasText: 'Partager' }).click();
+  const sub = (await A.page.locator('.ws-menu').first().textContent()).replace(/\s+/g, ' ');
+  ok(sub.includes('Envoyer une copie…') && /Session en direct…|Travailler ensemble…/.test(sub), 'clic droit › Partager : « Envoyer une copie… » et la session à plusieurs', sub.slice(0, 120));
+  await A.page.locator('.ws-menu').first().screenshot({ path: path.join(SHOTS, '04-clic-droit-partager.png') });
+  await A.page.getByText('Envoyer une copie…').click();
+  await A.page.waitForSelector('[data-testid="share-summary"]');
+  const way = await A.page.textContent('[data-testid="share-wifi"]');
+  ok(/Avec un code/.test(way) && /par Internet/.test(way), '« Avec un code : sur le même Wi-Fi ou par Internet »', way.replace(/\s+/g, ' '));
+  await A.page.click('[data-testid="share-wifi"]');
+  await A.page.waitForSelector('[data-testid="share-code"]');
+  const sc = await A.page.getAttribute('[data-testid="share-code"]', 'data-code');
+  const left = await A.page.textContent('[data-testid="share-left"]');
+  ok(/Valable encore (1 min 00 s|\d+ s)/.test(left), 'code d’envoi valable 1 minute', left.trim());
+  await A.page.click('[data-testid="share-code-copy"]');
+  await A.page.waitForTimeout(300);
+  const clip = await A.app.evaluate(({ clipboard }) => clipboard.readText());
+  ok(clip === `${sc.slice(0, 3)}-${sc.slice(3)}`, '« Copier le code » : le code d’envoi est dans le presse-papiers', clip);
+  await shotBoth(A.page, '[data-testid="share-dialog"]', '05-envoi-code');
+  await B.page.evaluate(() => window.__store.getState().navigate({ name: 'import' }));
+  await B.page.click('[data-testid="import-share-open"]');
+  await B.page.waitForSelector('[data-testid="receive-code-input"]', { timeout: 10000 });
+  await B.page.fill('[data-testid="receive-code-input"]', clip);
+  await B.page.waitForSelector('[data-testid="receive-preview"]', { timeout: 30000 });
+  ok(true, 'Marc : envoi trouvé par Internet avec le code collé');
+  await A.page.waitForSelector('[data-testid="share-request"]', { timeout: 15000 });
+  await B.page.click('[data-testid="receive-go"]');
+  await A.page.click('[data-testid="share-accept"]');
+  const recv = await B.page.waitForSelector('[data-testid="receive-result"]', { timeout: 60000 }).then(() => true, () => false);
+  ok(recv, 'Marc : copie reçue par Internet');
+  await B.page.keyboard.press('Escape');
+  await A.page.keyboard.press('Escape');
+
+  // ── 5. Réglage ──
   await B.page.evaluate(() => window.__store.getState().navigate({ name: 'settings' }));
   await B.page.waitForSelector('#set-updates');
   const row = B.page.locator('.set-row', { hasText: 'Travailler à plusieurs par Internet' });

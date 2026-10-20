@@ -1178,14 +1178,17 @@ function UpdateSettings() {
         </Row>
         <Row
           icon={<Users size={17} />}
-          title="Travailler à plusieurs par Internet"
+          title="Partager et travailler à plusieurs par Internet"
           desc={
             collabSupported === false
-              ? 'Pas disponible sur cet ordinateur : la collaboration reste possible sur le même Wi-Fi.'
+              ? 'Pas disponible sur cet ordinateur : le partage et la collaboration restent possibles sur le même Wi-Fi.'
               : 'Connexion pair à pair (peer-to-peer), chiffrée de bout en bout : le code suffit, même sans être sur le même Wi-Fi.'
           }
         >
-          <Switch on={collabInternet && collabSupported !== false} onChange={(v) => useStore.getState().updateSettings({ collabInternet: v })} label="Travailler à plusieurs par Internet" disabled={collabSupported === false} />
+          <Switch on={collabInternet && collabSupported !== false} onChange={(v) => {
+              useStore.getState().updateSettings({ collabInternet: v });
+              void host.collabNet?.internet?.(v).catch(() => undefined);
+            }} label="Partager et travailler à plusieurs par Internet" disabled={collabSupported === false} />
         </Row>
       </ul>
     </section>

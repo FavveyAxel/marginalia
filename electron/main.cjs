@@ -2782,7 +2782,7 @@ dataHandle('marginalia:collabHostStart', async (_e, meta, profile) => {
   collabGuest.leave();
   try {
     const p = profile && typeof profile === 'object' ? profile : {};
-    return await collabHost.start({ meta: meta && typeof meta === 'object' ? meta : {}, profile: p, maxPeople: Number(p.maxPeople) || undefined });
+    return await collabHost.start({ meta: meta && typeof meta === 'object' ? meta : {}, profile: p, maxPeople: Number(p.maxPeople) || undefined, perm: p.perm && typeof p.perm === 'object' ? p.perm : undefined });
   } catch (e) {
     diag('collab', 'ouverture', e && e.message);
     throw new Error(collabMessage(e));
@@ -2795,6 +2795,7 @@ handle('marginalia:collabHostReject', (_e, reqId) => collabHost.reject(String(re
 handle('marginalia:collabHostRemove', (_e, mid) => collabHost.remove(String(mid ?? '')));
 dataHandle('marginalia:collabHostNewCode', () => collabHost.newCode());
 handle('marginalia:collabHostSetMax', (_e, n) => collabHost.setMax(Number(n)));
+handle('marginalia:collabHostSetPerm', (_e, p) => collabHost.setPerm(p && typeof p === 'object' ? p : null));
 dataHandle('marginalia:collabFind', async (_e, code, manualAddress, profile) => {
   try {
     return await collabGuest.find(String(code ?? ''), { manualAddress: manualAddress ? String(manualAddress) : undefined, profile: profile && typeof profile === 'object' ? profile : {} });

@@ -142,6 +142,17 @@ try {
   // ── 4. Espace encore vide partagé : l'invité arrive quand même (avant : bloqué « en arrivée ») ──
   await B.page.evaluate(() => window.__collab.session().then((m) => m.stopSession()));
   await C.page.evaluate(() => window.__collab.session().then((m) => m.stopSession()));
+  // En quittant : les livres reçus pendant la session font partie de ce qu'Inès peut ne pas garder ;
+  // son propre livre (complété) reste à elle.
+  const after = await C.page.evaluate(() => {
+    const a = window.__collab.state.getState().afterSession;
+    const s = window.__store.getState();
+    return a ? a.targets.filter((t) => t.kind === 'book').map((t) => s.books.find((b) => b.id === t.id)?.title ?? t.id) : null;
+  });
+  ok(after && after.includes('Discours de la méthode') && after.includes('Traité sans fichier') && !after.includes('Livre attendu par Inès'), 'Inès quitte : les livres reçus en session sont proposés au retrait, pas le sien', after);
+  await C.page.evaluate(() => window.__collab.session().then((m) => m.dropSharedWorkspace()));
+  const left = await C.page.evaluate(() => window.__store.getState().books.map((b) => b.title));
+  ok(!left.includes('Traité sans fichier') && !left.includes('Discours de la méthode') && left.includes('Livre attendu par Inès'), '« Ne pas garder » : les livres reçus partent à la corbeille, le sien reste', left);
   await A.page.evaluate(() => window.__collab.session().then((m) => m.stopSession()));
   await A.page.waitForTimeout(1500);
   await B.page.evaluate(() => window.__collab.state.setState({ afterSession: null }));

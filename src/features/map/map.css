@@ -2434,3 +2434,6 @@ body {
   border-color: var(--border-strong);
 }
 /* ═══ fin Portails ═══ */
+
+/* Travailler à plusieurs : carte en lecture seule pour un invité (choix de l'hôte). */
+.map-readonly-badge { position: absolute; left: 50%; bottom: 18px; transform: translateX(-50%); z-index: 6; padding: 6px 12px; border-radius: 999px; background: var(--bg-panel); box-shadow: var(--shadow-md); font-size: var(--fs-sm); color: var(--ink-2); pointer-events: none; }

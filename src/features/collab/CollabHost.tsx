@@ -12,7 +12,7 @@ import { useStore } from '../../lib/store';
 import { errorMessage } from '../share/shareUi';
 import { BigCode, Bridge, Steps, Trouble } from '../share/shareVisuals';
 import type { Choice } from './docxMerge';
-import { COLLAB_COLORS, dashed, isLiveIn, readProfile, stopCollab, useCollab, writeProfile, type CollabProfile } from './collabState';
+import { COLLAB_COLORS, dashed, isLiveIn, ALL_PERMS, PERM_ITEMS, permText, readProfile, stopCollab, useCollab, writeProfile, type CollabPerm, type CollabProfile } from './collabState';
 import '../inbox/inbox.css';
 import '../share/share.css';
 import './collab.css';
@@ -66,6 +66,7 @@ export function CollabHost() {
 
 function Ask({ r }: { r: CollabRequest }) {
   const title = useCollab((s) => s.title);
+  const perm = useCollab((s) => s.perm);
   const [busy, setBusy] = useState(false);
   const act = (ok: boolean) => {
     setBusy(true);
@@ -79,7 +80,9 @@ function Ask({ r }: { r: CollabRequest }) {
         <span>
           sur {r.device} demande à rejoindre « {title} »
         </span>
-        <span className="cl-ask-sub">Pourra tout lire et modifier · {r.address}</span>
+        <span className="cl-ask-sub">
+          Pourra {permText(perm)} · {r.address}
+        </span>
         {r.wasRemoved && (
           <span className="cl-ask-removed" data-testid="collab-request-removed">
             Retiré de cette session tout à l’heure
@@ -158,6 +161,37 @@ function Places({ value, min = 2, onChange }: { value: number; min?: number; onC
     </div>
   );
 }
+
+/** Ce que les invités peuvent faire (tous voient tout) : des cases à cocher, les mêmes pour tous. */
+function Perms({ value, onChange }: { value: CollabPerm; onChange: (p: CollabPerm) => void }) {
+  return (
+    <fieldset className="cl-perms" data-testid="collab-perms">
+      <legend>Les invités voient tout. Ils peuvent aussi :</legend>
+      {PERM_ITEMS.map((it) => (
+        <label key={it.k} className="cl-perm">
+          <input type="checkbox" checked={value[it.k]} onChange={(e) => onChange({ ...value, [it.k]: e.target.checked })} data-perm={it.k} />
+          <span>{it.label}</span>
+        </label>
+      ))}
+    </fieldset>
+  );
+}
+const PERM_KEY = 'marginalia:collab-perms';
+const readPerm = (): CollabPerm => {
+  try {
+    const p = JSON.parse(localStorage.getItem(PERM_KEY) || 'null');
+    return p && typeof p === 'object' ? { notes: p.notes !== false, drafts: p.drafts !== false, maps: p.maps !== false, organize: p.organize !== false } : ALL_PERMS;
+  } catch {
+    return ALL_PERMS;
+  }
+};
+const writePerm = (p: CollabPerm) => {
+  try {
+    localStorage.setItem(PERM_KEY, JSON.stringify(p));
+  } catch {
+    /* sans mémoire du choix */
+  }
+};
 
 const PLACES_KEY = 'marginalia:collab-places';
 const readPlaces = () => {
@@ -362,6 +396,7 @@ function CollabPanel({ workspaceId, onClose }: { workspaceId: string; onClose: (
   const live = isLiveIn(c, workspaceId);
   const [profile, setProfile] = useState<CollabProfile>(() => readProfile() ?? { name: '', color: COLLAB_COLORS[0] });
   const [places, setPlaces] = useState(readPlaces);
+  const [perm, setPermChoice] = useState<CollabPerm>(readPerm);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   if (!ws) return null;
@@ -387,7 +422,8 @@ function CollabPanel({ workspaceId, onClose }: { workspaceId: string; onClose: (
       setError(null);
       try {
         writePlaces(places);
-        await (await session()).startHost(workspaceId, p, places);
+        writePerm(perm);
+        await (await session()).startHost(workspaceId, p, places, perm);
       } catch (e) {
         setError(errorMessage(e));
       } finally {
@@ -407,6 +443,7 @@ function CollabPanel({ workspaceId, onClose }: { workspaceId: string; onClose: (
         </div>
         <Who profile={profile} setProfile={setProfile} />
         <Places value={places} onChange={setPlaces} />
+        <Perms value={perm} onChange={setPermChoice} />
         <div className="sh-actions">
           <button className="btn" onClick={onClose}>Annuler</button>
           <span className="spacer" />
@@ -459,6 +496,14 @@ function CollabPanel({ workspaceId, onClose }: { workspaceId: string; onClose: (
             void session().then((m) => m.setMaxPeople(v));
           }}
         />
+        <Perms
+          value={c.perm}
+          onChange={(v) => {
+            writePerm(v);
+            useCollab.setState({ perm: v }); // tout de suite à l'écran (plusieurs cases d'affilée)
+            void session().then((m) => m.setPerm(v));
+          }}
+        />
         {n >= c.maxPeople && <p className="sh-note">Session complète : ajoutez une place pour accueillir quelqu’un d’autre.</p>}
         <Trouble address={c.addresses[0]} internet={c.internet} />
         <div className="sh-actions">
@@ -477,6 +522,9 @@ function CollabPanel({ workspaceId, onClose }: { workspaceId: string; onClose: (
           {c.phase === 'reconnecting' ? 'Connexion perdue : vous continuez seul, Marginalia se reconnecte…' : <>En direct dans « {ws.name} »</>}
         </p>
         <People members={c.members} me={c.me} />
+        <p className="sh-small center" data-testid="collab-my-perm">
+          {c.members.find((m) => m.host)?.name ?? 'L’hôte'} a choisi : vous pouvez {permText(c.perm)}.
+        </p>
         <div className="sh-actions">
           <button className="btn" onClick={onClose}>Fermer</button>
           <span className="spacer" />

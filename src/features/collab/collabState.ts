@@ -53,6 +53,8 @@ export interface CollabState {
   internet: boolean;
   /** Nombre de places de la session (2 à 6, hôte compris), choisi par l'hôte. */
   maxPeople: number;
+  /** Ce que les invités peuvent faire (une permission pour toute la session, choisie par l'hôte). */
+  perm: CollabPerm;
   /** Écrits ouverts en direct : salle (gid de l'écrit) → personnes qui y écrivent. */
   rooms: Record<string, string[]>;
   /** Avancement de l'arrivée de l'espace chez un invité. */
@@ -66,6 +68,34 @@ export interface CollabState {
   /** Invité, fin de session : garder l'espace reçu sur cet ordinateur, ou le retirer (corbeille). */
   afterSession: { workspaceId: string; name: string; hostName: string; targets: { kind: WorkspaceItemKind | 'highlight'; id: string }[] } | null;
 }
+
+/**
+ * Ce que les invités peuvent faire, en plus de tout voir : des cases cochées par l'hôte (les mêmes pour
+ * tous). Le transport les applique aussi chez l'hôte (electron/collab-net.cjs).
+ */
+export interface CollabPerm {
+  notes: boolean;
+  drafts: boolean;
+  maps: boolean;
+  organize: boolean;
+}
+export const ALL_PERMS: CollabPerm = { notes: true, drafts: true, maps: true, organize: true };
+export const PERM_ITEMS: { k: keyof CollabPerm; label: string; short: string }[] = [
+  { k: 'notes', label: 'Ajouter des extraits et des notes', short: 'ajouter des extraits et des notes' },
+  { k: 'drafts', label: 'Modifier les écrits', short: 'modifier les écrits' },
+  { k: 'maps', label: 'Modifier les cartes', short: 'modifier les cartes' },
+  { k: 'organize', label: 'Ajouter et ranger des éléments dans l’espace', short: 'ajouter et ranger des éléments' },
+];
+/** « tout lire et modifier les écrits, modifier les cartes » ; « tout lire, sans rien modifier ». */
+export function permText(p: CollabPerm): string {
+  const on = PERM_ITEMS.filter((i) => p[i.k]).map((i) => i.short);
+  if (!on.length) return 'tout lire, sans rien modifier';
+  if (on.length === PERM_ITEMS.length) return 'tout lire et tout modifier';
+  return `tout lire et ${on.length > 1 ? `${on.slice(0, -1).join(', ')} et ${on[on.length - 1]}` : on[0]}`;
+}
+export const samePerm = (a: CollabPerm, b: CollabPerm) => PERM_ITEMS.every((i) => a[i.k] === b[i.k]);
+/** Permission d'un participant : l'hôte peut tout faire. */
+export const myPerm = (s: { role: string | null; perm: CollabPerm }): CollabPerm => (s.role === 'guest' ? s.perm : ALL_PERMS);
 
 export const useCollab = create<CollabState>(() => ({
   role: null,
@@ -81,6 +111,7 @@ export const useCollab = create<CollabState>(() => ({
   addresses: [],
   internet: false,
   maxPeople: 6,
+  perm: ALL_PERMS,
   rooms: {},
   progress: null,
   panelFor: null,

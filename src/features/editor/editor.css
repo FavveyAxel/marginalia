@@ -1773,3 +1773,6 @@
 .ed-tb-overflow-pop button :is(svg, svg *) {
   pointer-events: none;
 }
+
+/* Travailler à plusieurs : invité qui ne peut pas modifier les écrits (choix de l'hôte). */
+.ed-live-readonly :is(.ed-toolbar, .ed-selbar) { opacity: 0.45; pointer-events: none; }

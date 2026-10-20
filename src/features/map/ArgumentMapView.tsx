@@ -66,6 +66,7 @@ import { portalNode } from './model/portals';
 import { CHAIN_KEY, ChainButton, ChainPanel, useChainCtl } from './ui/chain';
 import './map.css';
 import { MapCursors } from './ui/MapCursors';
+import { useCollab } from '../collab/collabState';
 
 const EMPTY_MAP: ArgumentMap = { bookId: '', nodes: [], edges: [], viewport: null };
 /** Distance d'aimantation, en pixels d'écran. */
@@ -154,6 +155,17 @@ function Inner({ source, tools }: { source: MapSource; tools?: MapToolbarItem[] 
   const storeMap = useStore((s) => s.maps[key]);
   const srcRef = useRef(source);
   srcRef.current = source;
+  // Travailler à plusieurs : invité qui ne peut pas modifier (choix de l'hôte), sur une carte de l'espace
+  // partagé : lecture seule (rien n'est écrit, la carte se parcourt et se zoome).
+  const collabWs = useCollab((c) => (c.role === 'guest' && !c.perm.maps ? c.workspaceId : null));
+  const readOnly = useStore((s) => {
+    if (!collabWs) return false;
+    const inWs = s.wsItems.filter((i) => i.workspaceId === collabWs);
+    return source.kind === 'board' ? inWs.some((i) => i.kind === 'map' && i.refId === source.mapId) : inWs.some((i) => i.kind === 'book' && i.refId === source.bookId);
+  });
+  const roRef = useRef(readOnly);
+  roRef.current = readOnly;
+  const roToast = useRef(0);
   const map = useMemo<ArgumentMap>(() => {
     if (source.kind === 'board') return source.get();
     return storeMap ?? { ...EMPTY_MAP, bookId };
@@ -209,6 +221,13 @@ function Inner({ source, tools }: { source: MapSource; tools?: MapToolbarItem[] 
 
   const mutate = useCallback(
     (fn: (m: ArgumentMap) => ArgumentMap) => {
+      if (roRef.current) {
+        if (Date.now() - roToast.current > 4000) {
+          roToast.current = Date.now();
+          useStore.getState().toast('Lecture seule : l’hôte n’a pas autorisé les invités à modifier les cartes.', 'info');
+        }
+        return;
+      }
       const s = srcRef.current;
       if (s.kind === 'board') {
         s.set(fn(s.get()));
@@ -532,7 +551,10 @@ function Inner({ source, tools }: { source: MapSource; tools?: MapToolbarItem[] 
   const ctx = useMemo<MapUiCtx>(
     () => ({
       editingId,
-      setEditingId,
+      setEditingId: (id: string | null) => {
+        if (id && roRef.current) return mutate((m) => m); // lecture seule : rien ne s'ouvre (et on le dit)
+        setEditingId(id);
+      },
       setIdeaText: (id, text) => mutate((m) => ({ ...m, nodes: m.nodes.map((n) => (n.id === id ? { ...n, text } : n)) })),
       editTab: (id, text) => {
         setEditingId(null);
@@ -1327,12 +1349,14 @@ function Inner({ source, tools }: { source: MapSource; tools?: MapToolbarItem[] 
           nodeTypes={nodeTypes}
           edgeTypes={edgeTypes}
           onNodesChange={handleNodesChange}
+          nodesDraggable={!readOnly}
+          nodesConnectable={!readOnly}
           onConnect={onConnect}
           onConnectEnd={onConnectEnd}
           onDelete={onDelete}
           connectionMode={ConnectionMode.Loose}
           connectionRadius={36}
-          deleteKeyCode={['Backspace', 'Delete']}
+          deleteKeyCode={readOnly ? null : ['Backspace', 'Delete']}
           multiSelectionKeyCode={isMac ? 'Meta' : 'Control'}
           selectionKeyCode="Shift"
           selectionOnDrag={selectTool}
@@ -1511,7 +1535,12 @@ function Inner({ source, tools }: { source: MapSource; tools?: MapToolbarItem[] 
           priority={priority}
         />
 
-        <MapToolbar
+        {readOnly && (
+          <div className="map-readonly-badge" role="status" data-testid="map-readonly">
+            Lecture seule · choix de l’hôte
+          </div>
+        )}
+        {!readOnly && <MapToolbar
           empty={empty}
           hasSelection={selIds.length > 0}
           selectTool={selectTool}
@@ -1521,7 +1550,7 @@ function Inner({ source, tools }: { source: MapSource; tools?: MapToolbarItem[] 
           onZoomSelection={zoomSelection}
           onFitAll={() => fitAll(450)}
           items={toolbarItems}
-        />
+        />}
 
         {sidePanel === 'gaps' && (
           <GapsPanel

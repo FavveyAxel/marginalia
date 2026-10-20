@@ -53,6 +53,66 @@ const PORT = 47804;
 const PREFIX = '/mg-collab/v1/';
 const MAX_PEOPLE = 6;
 const MIN_PEOPLE = 2;
+// ── Permissions des invités (cases cochées par l'hôte, les mêmes pour tous les invités) ──
+// Tout le monde voit tout. En plus, chaque case permet :
+//  notes    : ajouter des extraits et des notes (extraits, concepts) ;
+//  drafts   : modifier les écrits (texte en direct, versions réunies) ;
+//  maps     : modifier les cartes ;
+//  organize : ajouter, ranger et retirer les éléments de l'espace (livres, groupes, plans, arguments…).
+// Appliquées PAR L'HÔTE à chaque message d'un invité (avant de le lire et de le relayer) : un invité
+// modifié ne peut pas passer outre. Le rendu de l'invité bloque aussi ces modifications à l'écran.
+const PERM_KEYS = ['notes', 'drafts', 'maps', 'organize'];
+const ALL_PERMS = { notes: true, drafts: true, maps: true, organize: true };
+function cleanPerm(p) {
+  if (p === 'read') return { notes: false, drafts: false, maps: false, organize: false };
+  if (p === 'annotate') return { notes: true, drafts: false, maps: false, organize: false };
+  if (!p || typeof p !== 'object') return { ...ALL_PERMS };
+  const out = {};
+  for (const k of PERM_KEYS) out[k] = p[k] === true;
+  return out;
+}
+const COL_PERM = { highlight: 'notes', concept: 'notes', draft: 'drafts', map: 'maps', node: 'maps', edge: 'maps', ws: 'organize', group: 'organize', item: 'organize', book: 'organize', plan: 'organize', argument: 'organize', study: 'organize' };
+// Toujours permis : curseurs, demandes d'état ou de fichiers, entrée/sortie d'un écrit, réponses.
+const ALWAYS = new Set(['cur', 'hi', 'want', 'resync', 'flushed', 'fetch', 'files', 'room-join', 'room-leave']);
+/**
+ * Message d'un invité (enveloppe JSON + octets, format de src/features/collab/wire.ts) filtré selon ses
+ * permissions : le message tel quel, réduit (enregistrements permis seulement), ou null (refusé).
+ */
+function permitted(perm, bytes) {
+  if (PERM_KEYS.every((k) => perm[k])) return bytes;
+  let head, n;
+  try {
+    n = bytes.readUInt32BE(0);
+    if (n > bytes.length - 4 || n > 64 * 1024 * 1024) return null;
+    head = JSON.parse(bytes.subarray(4, 4 + n).toString('utf8'));
+  } catch {
+    return null;
+  }
+  if (!head || typeof head.t !== 'string') return null;
+  const t = head.t;
+  if (ALWAYS.has(t)) return bytes;
+  if (t === 'y') {
+    // Protocole y-websocket : [0 = synchro, 0 = demande d'état | 1 = état | 2 = mise à jour] ou [1 = présence].
+    // Sans « écrits » : demander l'état et montrer sa présence, jamais modifier l'écrit.
+    if (perm.drafts) return bytes;
+    const body = bytes.subarray(4 + n);
+    if (body[0] === 1) return bytes;
+    if (body[0] === 0 && body[1] === 0) return bytes;
+    return null;
+  }
+  if (t === 'docx') return perm.drafts ? bytes : null;
+  if (t === 'recs' && Array.isArray(head.recs)) {
+    const recs = head.recs.filter((r) => r && COL_PERM[r.c] && perm[COL_PERM[r.c]]);
+    if (!recs.length) return null;
+    if (recs.length === head.recs.length) return bytes;
+    const h = Buffer.from(JSON.stringify({ ...head, recs }), 'utf8');
+    const len = Buffer.alloc(4);
+    len.writeUInt32BE(h.length);
+    return Buffer.concat([len, h, bytes.subarray(4 + n)]);
+  }
+  return null;
+}
+
 /** Nombre de places choisi par l'hôte (2 à 6, hôte compris). */
 const clampPeople = (n) => Math.min(MAX_PEOPLE, Math.max(MIN_PEOPLE, Math.round(Number(n)) || MAX_PEOPLE));
 const MAX_TRIES = 5;
@@ -281,8 +341,8 @@ function createCollabHost(o) {
   const people = (cur) => 1 + cur.members.size + [...cur.requests.values()].filter((r) => r.state === 'pending' || r.state === 'accepted').length;
   function pushMembers(cur) {
     const list = roster(cur);
-    o.emit({ type: 'members', members: list, max: cur.max });
-    for (const m of cur.members.values()) m.link?.send({ t: 'members', members: list, max: cur.max });
+    o.emit({ type: 'members', members: list, max: cur.max, perm: cur.perm });
+    for (const m of cur.members.values()) m.link?.send({ t: 'members', members: list, max: cur.max, perm: cur.perm });
   }
 
   function closeRequest(cur, r, why) {
@@ -487,13 +547,17 @@ function createCollabHost(o) {
       head,
     );
     m.link = link;
-    link.send({ t: 'hello', you: m.id, token: m.token.toString('base64url'), rid: cur.rid.toString('base64url'), rsalt: cur.rsalt.toString('base64url'), resumed, meta: cur.meta, members: roster(cur), max: cur.max });
+    link.send({ t: 'hello', you: m.id, token: m.token.toString('base64url'), rid: cur.rid.toString('base64url'), rsalt: cur.rsalt.toString('base64url'), resumed, meta: cur.meta, members: roster(cur), max: cur.max, perm: cur.perm });
     diag('collab', resumed ? 'invité revenu' : 'invité accepté', m.id);
     pushMembers(cur);
   }
 
   /** Aiguillage : `to` = 'all' (tous sauf l'expéditeur), 'h' (l'hôte) ou l'id d'un invité. */
   function route(cur, from, to, body) {
+    if (from !== 'h') {
+      body = permitted(cur.perm, body);
+      if (!body) return;
+    }
     if (to === 'all' || to === 'h') o.emit({ type: 'message', from, bytes: body });
     for (const m of cur.members.values()) if (m.link && m.id !== from && (to === 'all' || to === m.id)) m.link.send({ t: 'app', from }, body);
   }
@@ -564,9 +628,9 @@ function createCollabHost(o) {
 
   /**
    * Ouvre la session (remplace la précédente).
-   * @param {{ meta: object, profile: { name: string, color: string }, maxPeople?: number }} p
+   * @param {{ meta: object, profile: { name: string, color: string }, maxPeople?: number, perm?: string }} p
    */
-  async function start({ meta, profile, maxPeople }) {
+  async function start({ meta, profile, maxPeople, perm }) {
     stop('replaced');
     const ticket = ++starting;
     const cleanMeta = JSON.parse(JSON.stringify(meta == null ? {} : meta));
@@ -614,6 +678,7 @@ function createCollabHost(o) {
       codeState: 'open',
       tries: 0,
       max: clampPeople(maxPeople ?? MAX_PEOPLE),
+      perm: cleanPerm(perm),
       meta: cleanMeta,
       profile: { name: cleanName(profile && profile.name, 'Hôte'), color: cleanColor(profile && profile.color) },
       server,
@@ -709,6 +774,7 @@ function createCollabHost(o) {
       discovery: !!s.udp,
       internet: !!s.internet,
       maxPeople: s.max,
+      perm: s.perm,
       addresses: lanAddresses().map((a) => `${a.address}:${s.port}`),
       members: roster(s),
       requests: [...s.requests.values()].filter((r) => r.state === 'pending').map((r) => ({ reqId: r.id, device: r.device, name: r.name, color: r.color, address: r.address, wasRemoved: !!r.wasRemoved })),
@@ -782,6 +848,15 @@ function createCollabHost(o) {
     return info();
   }
 
+  /** Permission des invités pour toute la session ; les invités l'apprennent aussitôt. */
+  function setPerm(p) {
+    const cur = s;
+    if (!cur || !p || typeof p !== 'object') return info();
+    cur.perm = cleanPerm(p);
+    pushMembers(cur);
+    return info();
+  }
+
   /** Message de l'hôte (rendu) : à un invité, ou à tous ('all'). */
   function send(to, bytes) {
     const cur = s;
@@ -826,7 +901,7 @@ function createCollabHost(o) {
     if (reason !== 'replaced') o.emit({ type: 'stopped', reason });
   }
 
-  return { start, stop, info, accept, reject, remove, send, newCode, setMax, isOpen: () => !!s };
+  return { start, stop, info, accept, reject, remove, send, newCode, setMax, setPerm, isOpen: () => !!s };
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -1176,10 +1251,10 @@ function createCollabGuest(o) {
               c.salt = rsalt;
             }
             c.state = 'live';
-            o.emit({ type: 'hello', you: h.you, resumed: !!h.resumed, meta: h.meta, members: h.members, max: h.max });
+            o.emit({ type: 'hello', you: h.you, resumed: !!h.resumed, meta: h.meta, members: h.members, max: h.max, perm: h.perm });
             o.emit({ type: 'link', state: 'connected' });
             c.onHello?.(h);
-          } else if (h.t === 'members') o.emit({ type: 'members', members: h.members, max: h.max });
+          } else if (h.t === 'members') o.emit({ type: 'members', members: h.members, max: h.max, perm: h.perm });
           else if (h.t === 'app') o.emit({ type: 'message', from: typeof h.from === 'string' ? h.from : 'h', bytes: body });
           else if (h.t === 'bye') {
             c.byeReason = String(h.reason || 'closed');
@@ -1270,7 +1345,7 @@ function createCollabGuest(o) {
     return new Promise((resolve, reject) => {
       c.onHello = (h) => {
         c.onHello = null;
-        resolve({ you: h.you, meta: h.meta, members: h.members, max: h.max });
+        resolve({ you: h.you, meta: h.meta, members: h.members, max: h.max, perm: h.perm });
       };
       upgrade(t, `link?hs=${encodeURIComponent(t.hs)}`, { 'x-mg-auth': H.b64(H.hmac(t.k.mac, 'link', Buffer.from(t.hs))) }, REQUEST_TTL_MS + 30000)
         .then(({ sock, head }) => {
@@ -1334,4 +1409,4 @@ function createCollabGuest(o) {
   return { find, join, send, leave, cut, waitLeft, state: () => (cur ? { state: cur.state, mid: cur.mid, connected: !!cur.link } : { state: 'none' }) };
 }
 
-module.exports = { createCollabHost, createCollabGuest, PORT, MAX_PEOPLE, MIN_PEOPLE, MSG, COLORS };
+module.exports = { createCollabHost, createCollabGuest, PORT, MAX_PEOPLE, MIN_PEOPLE, MSG, COLORS, permitted };

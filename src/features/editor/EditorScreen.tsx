@@ -55,6 +55,7 @@ import { hasPrivateNotes } from './privateNotes';
 import { shareableDocx } from '../share/sharePackage';
 import type { CollabBinding } from '../collab/editorBridge';
 import { LivePresence } from '../collab/LivePresence';
+import { useCollab } from '../collab/collabState';
 import { useFormatPainter } from './painter';
 import { useTextDrag } from './dragText';
 
@@ -238,6 +239,16 @@ function Editor({ draft }: { draft: Draft }) {
   // Travailler à plusieurs : lien Yjs de l'écrit ('live'), ou invité coupé ('offline', lecture seule).
   const collabRef = useRef<CollabBinding | null>(null);
   const [liveMode, setLiveMode] = useState<'live' | 'offline' | null>(null);
+  // Invité qui ne peut pas modifier les écrits (choix de l'hôte) : l'écrit en direct est en lecture seule.
+  const collabCanEdit = useCollab((s) => s.role !== 'guest' || s.perm.drafts);
+  const readOnlyRef = useRef(false);
+  const liveReadOnly = liveMode === 'live' && !collabCanEdit;
+  readOnlyRef.current = liveReadOnly;
+  useEffect(() => {
+    const eng = engineRef.current;
+    if (!eng || liveMode !== 'live' || guardRef.current) return;
+    eng.setEditable(collabCanEdit);
+  }, [collabCanEdit, liveMode]);
   const [versionNonce, setVersionNonce] = useState(0);
   const [citeHover, setCiteHover] = useState<CiteHover | null>(null);
 
@@ -772,7 +783,7 @@ function Editor({ draft }: { draft: Draft }) {
     const onKey = (ev: KeyboardEvent) => {
       const eng = engineRef.current;
       // Windows : isMod exclut Ctrl+Alt (AltGr) ; les raccourcis ⌘⌥ y deviennent Ctrl+Maj (lib/keys).
-      if (!eng || guardRef.current || !isMod(ev) || !inDocument(ev.target)) return;
+      if (!eng || guardRef.current || readOnlyRef.current || !isMod(ev) || !inDocument(ev.target)) return;
       const k = ev.key;
       const lk = k.toLowerCase();
       const code = ev.code;
@@ -1088,7 +1099,7 @@ function Editor({ draft }: { draft: Draft }) {
   return (
     <div
       ref={rootRef}
-      className={`ed-root ed-root-in ${focusMode ? 'ed-focus' : ''} ${chrome.hidden ? 'ed-chrome-off' : ''} ${dimOn ? 'ed-dim' : ''} ${focusPrefs.typewriter ? 'ed-typewriter' : ''} ${showMarks ? 'ed-marks' : ''} ${extractsOpen ? 'ed-has-extracts' : ''} ${comments.columnOn ? 'ed-cm-on' : ''} ${comments.shown ? '' : 'ed-cm-hidden'} ${painter.mode ? 'ed-painting' : ''}`}
+      className={`ed-root ed-root-in ${focusMode ? 'ed-focus' : ''} ${chrome.hidden ? 'ed-chrome-off' : ''} ${dimOn ? 'ed-dim' : ''} ${focusPrefs.typewriter ? 'ed-typewriter' : ''} ${showMarks ? 'ed-marks' : ''} ${extractsOpen ? 'ed-has-extracts' : ''} ${comments.columnOn ? 'ed-cm-on' : ''} ${comments.shown ? '' : 'ed-cm-hidden'} ${painter.mode ? 'ed-painting' : ''} ${liveReadOnly ? 'ed-live-readonly' : ''}`}
       style={{ '--cm-col': `${comments.colW}px` } as React.CSSProperties}
     >
       <header className="topbar ed-topbar">
@@ -1256,7 +1267,7 @@ function Editor({ draft }: { draft: Draft }) {
         />
       </div>
       {layoutBusy && <div className="progress-indeterminate ed-progress" role="progressbar" aria-label="Mise en page en cours" />}
-      {selRect && editable && !layoutBusy && !linkPop.isOpen && (
+      {selRect && editable && !liveReadOnly && !layoutBusy && !linkPop.isOpen && (
         <SelectionBar
           engine={() => engineRef.current}
           fmt={fmt}

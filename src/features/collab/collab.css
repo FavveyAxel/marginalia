@@ -194,3 +194,10 @@ mark.cl-diff { color: inherit; background: color-mix(in srgb, var(--who) 22%, tr
 .cl-places { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 2px 2px 0; font-size: var(--fs-md); color: var(--ink-2); }
 .cl-places-seg button { min-width: 34px; font-variant-numeric: tabular-nums; }
 .cl-places-seg button:disabled { opacity: 0.4; cursor: default; }
+
+/* Permissions des invités : cases à cocher */
+.cl-perms { margin: 0; padding: 10px 12px 12px; border: 1px solid var(--border); border-radius: var(--radius-md, 10px); display: grid; grid-template-columns: 1fr 1fr; gap: 8px 16px; }
+.cl-perms legend { padding: 0 4px; font-size: var(--fs-sm); color: var(--ink-2); }
+.cl-perm { display: flex; align-items: center; gap: 8px; font-size: var(--fs-md); color: var(--ink); cursor: pointer; }
+.cl-perm input { width: 15px; height: 15px; margin: 0; accent-color: var(--primary); cursor: pointer; }
+@media (max-width: 560px) { .cl-perms { grid-template-columns: 1fr; } }

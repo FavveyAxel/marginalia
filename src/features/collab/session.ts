@@ -18,7 +18,7 @@ import type { Book, Draft, WorkspaceItem, WorkspaceItemKind } from '../../lib/ty
 import { bookExtraFiles, bookFingerprint, bookSourceFiles, buildSharePackage, findLocalBook, shareableDocx } from '../share/sharePackage';
 import { importSharePackage } from '../share/shareMerge';
 import { errorMessage } from '../share/shareUi';
-import { useCollab, type CollabProfile } from './collabState';
+import { ALL_PERMS, permText, samePerm, useCollab, type CollabPerm, type CollabProfile } from './collabState';
 import { keyOf, newer, RecordSync, type Col, type Rec, type Tag } from './records';
 import { Rooms } from './rooms';
 import { joinFiles, pack, splitFiles, unpack, type Head } from './wire';
@@ -44,6 +44,8 @@ interface Session {
   hostName: string;
   flushed: Set<string>;
   fetchTimers: Map<string, ReturnType<typeof setTimeout>>;
+  /** Livres et écrits demandés (« c:g ») : seuls ceux-là sont acceptés à leur arrivée (onFiles). */
+  asked: Set<string>;
   /** Demandes de livre ou d'écrit reçues avant de l'avoir soi-même (« c:g » → demandeurs) : servies à son arrivée. */
   waitingFetch: Map<string, Set<string>>;
   /** Invité : ce qui était déjà dans la bibliothèque à l'arrivée (« kind:id »), gardé quoi qu'il arrive. */
@@ -94,7 +96,27 @@ const net = () => host.collabNet!;
 const toast = (m: string, t: 'info' | 'error' | 'success' = 'info') => useStore.getState().toast(m, t);
 const nameOf = (id: string) => useCollab.getState().members.find((m) => m.id === id)?.name ?? (id === 'h' ? (S?.hostName ?? 'L’hôte') : 'Quelqu’un');
 
-function send(to: string, head: Head, body?: Uint8Array) {
+// Permission des invités (choisie par l'hôte) : ce qu'un invité n'a pas le droit de modifier ne part pas
+// de chez lui (l'hôte le refuse aussi de son côté, electron/collab-net.cjs).
+const COL_PERM: Partial<Record<string, keyof CollabPerm>> = { highlight: 'notes', concept: 'notes', draft: 'drafts', map: 'maps', node: 'maps', edge: 'maps', ws: 'organize', group: 'organize', item: 'organize', book: 'organize', plan: 'organize', argument: 'organize', study: 'organize' };
+const ALWAYS_OUT = new Set(['cur', 'hi', 'want', 'resync', 'flushed', 'fetch', 'files', 'room-join', 'room-leave']);
+function allowedOut(head: Head, body?: Uint8Array): Head | null {
+  const s = S;
+  const perm = useCollab.getState().perm;
+  if (!s || s.role !== 'guest' || samePerm(perm, ALL_PERMS)) return head;
+  if (ALWAYS_OUT.has(head.t)) return head;
+  if (head.t === 'y') return perm.drafts || (body && (body[0] === 1 || (body[0] === 0 && body[1] === 0))) ? head : null;
+  if (head.t === 'docx') return perm.drafts ? head : null;
+  if (head.t === 'recs' && Array.isArray(head.recs)) {
+    const recs = (head.recs as Rec[]).filter((r) => COL_PERM[r.c] && perm[COL_PERM[r.c]!]);
+    return recs.length ? { ...head, recs } : null;
+  }
+  return null;
+}
+
+function send(to: string, head0: Head, body?: Uint8Array) {
+  const head = allowedOut(head0, body);
+  if (!head) return;
   void net()
     .send(to, pack(head, body))
     .catch((e) => console.warn('collab : envoi', e));
@@ -177,26 +199,26 @@ function plugCursors(s: Session) {
 // ─────────────────────────────────────────────────────────────
 // Hôte
 // ─────────────────────────────────────────────────────────────
-export async function startHost(workspaceId: string, profile: CollabProfile, maxPeople = 6): Promise<void> {
+export async function startHost(workspaceId: string, profile: CollabProfile, maxPeople = 6, perm: CollabPerm = ALL_PERMS): Promise<void> {
   install();
   if (S) await stopSession();
   const ws = useStore.getState().workspaces.find((w) => w.id === workspaceId);
   if (!ws) throw new Error('Cet espace n’existe plus.');
   useCollab.setState({ phase: 'starting', role: 'host', workspaceId, error: null });
   const shareId = shareIdOf(workspaceId);
-  const s: Session = { role: 'host', me: 'h', profile, workspaceId, shareId, title: ws.name, records: null, rooms: makeRooms('host'), queue: [], ready: true, hostName: profile.name, flushed: new Set(), fetchTimers: new Map(), waitingFetch: new Map() };
+  const s: Session = { role: 'host', me: 'h', profile, workspaceId, shareId, title: ws.name, records: null, rooms: makeRooms('host'), queue: [], ready: true, hostName: profile.name, flushed: new Set(), fetchTimers: new Map(), waitingFetch: new Map(), asked: new Set() };
   S = s;
   try {
     await s.rooms.ready(); // moteur Yjs prêt avant la première demande
     await applyInternet();
-    const info = await net().hostStart({ title: ws.name, shareId }, { ...profile, maxPeople });
+    const info = await net().hostStart({ title: ws.name, shareId }, { ...profile, maxPeople, perm });
     if (S !== s) return;
     stopWatch(shareId);
     s.records = makeRecords(s, workspaceId);
     for (const [k, t] of Object.entries(await knownMtimes(shareId))) s.records.mtimes.set(k, t);
     s.records.start();
     plugCursors(s);
-    useCollab.setState({ phase: 'live', role: 'host', me: 'h', workspaceId, shareId, title: ws.name, members: info.members ?? [], requests: [], code: info.code ?? null, codeState: info.codeState ?? 'open', addresses: info.addresses ?? [], internet: !!info.internet, maxPeople: info.maxPeople ?? maxPeople });
+    useCollab.setState({ phase: 'live', role: 'host', me: 'h', workspaceId, shareId, title: ws.name, members: info.members ?? [], requests: [], code: info.code ?? null, codeState: info.codeState ?? 'open', addresses: info.addresses ?? [], internet: !!info.internet, maxPeople: info.maxPeople ?? maxPeople, perm: info.perm ?? perm });
   } catch (e) {
     if (S === s) S = null;
     useCollab.setState({ phase: 'idle', role: null, workspaceId: null, error: errorMessage(e) });
@@ -223,6 +245,12 @@ export async function removeMember(memberId: string) {
   return ok;
 }
 /** Hôte : nombre de places de la session (2 à 6), jamais moins que les présents. */
+/** Hôte : ce que les invités peuvent faire (une permission pour toute la session). */
+export async function setPerm(p: CollabPerm) {
+  const info = await net().hostSetPerm?.(p);
+  if (info?.perm) useCollab.setState({ perm: info.perm });
+}
+
 export async function setMaxPeople(n: number) {
   const info = await net().hostSetMax?.(n);
   if (info?.maxPeople) useCollab.setState({ maxPeople: info.maxPeople });
@@ -282,7 +310,7 @@ export async function guestJoin(ticket: string, profile: CollabProfile, hostName
   install();
   if (S) await stopSession();
   useCollab.setState({ phase: 'joining', role: 'guest', error: null, progress: 'En attente de l’accord de l’hôte…' });
-  const s: Session = { role: 'guest', me: '?', profile, workspaceId: null, shareId: '', title: '', records: null, rooms: makeRooms('guest'), queue: [], ready: false, hostName, flushed: new Set(), fetchTimers: new Map(), waitingFetch: new Map() };
+  const s: Session = { role: 'guest', me: '?', profile, workspaceId: null, shareId: '', title: '', records: null, rooms: makeRooms('guest'), queue: [], ready: false, hostName, flushed: new Set(), fetchTimers: new Map(), waitingFetch: new Map(), asked: new Set() };
   S = s;
   try {
     await s.rooms.ready();
@@ -298,7 +326,7 @@ export async function guestJoin(ticket: string, profile: CollabProfile, hostName
     s.shareId = String(r.meta.shareId ?? '');
     s.title = String(r.meta.title ?? 'Espace partagé');
     const haveWs = workspaceForShare(s.shareId);
-    useCollab.setState({ me: r.you, members: r.members, maxPeople: r.max ?? 6, shareId: s.shareId, title: s.title, progress: 'Réception de l’espace…' });
+    useCollab.setState({ me: r.you, members: r.members, maxPeople: r.max ?? 6, perm: r.perm ?? ALL_PERMS, shareId: s.shareId, title: s.title, progress: 'Réception de l’espace…' });
     send('h', { t: 'hi', haveWs: !!haveWs });
   } catch (e) {
     if (S === s) S = null;
@@ -380,8 +408,9 @@ function askFetch(c: 'book' | 'draft', g: string, from: string) {
   const s = S;
   if (!s) return;
   const to = from && from !== s.me ? from : 'h';
-  send(to, { t: 'fetch', c, g });
   const k = keyOf(c, g);
+  s.asked.add(k);
+  send(to, { t: 'fetch', c, g });
   clearTimeout(s.fetchTimers.get(k));
   // Sans réponse (il est parti ?) : on demande à l'hôte, qui répond dès qu'il l'a lui-même ; puis, toujours
   // rien, on oublie la demande et on la refait (l'élément attend encore : nouvelle demande, à tous).
@@ -471,6 +500,8 @@ async function onFiles(head: Head, body: Uint8Array) {
   const meta = (head.rec ?? {}) as Any;
   const files = splitFiles(head.list, body);
   if (!s?.records || !c || !g || !files || !files.every((f) => SAFE.test(f.name) && !f.name.includes('..'))) return;
+  // Seulement ce qu'on a demandé : personne ne peut glisser un livre ou un écrit dans la bibliothèque.
+  if (!s.asked.has(keyOf(c, g))) return;
   clearTimeout(s.fetchTimers.get(keyOf(c, g)));
   if (s.records.local(c, g)) {
     s.records.fetchDone(c, g);
@@ -684,7 +715,7 @@ async function onEvent(e: CollabEvent) {
       useCollab.setState((st) => ({ requests: st.requests.filter((r) => r.reqId !== e.reqId) }));
     } else if (e.type === 'members') {
       const before = useCollab.getState().members;
-      useCollab.setState(e.max ? { members: e.members, maxPeople: e.max } : { members: e.members });
+      useCollab.setState({ members: e.members, ...(e.max ? { maxPeople: e.max } : {}), ...(e.perm ? { perm: e.perm } : {}) });
       for (const m of before) if (!m.host && !e.members.some((x) => x.id === m.id)) s.rooms.hostLeave(m.id);
       for (const m of e.members) {
         const was = before.find((x) => x.id === m.id);
@@ -697,10 +728,14 @@ async function onEvent(e: CollabEvent) {
       endLocal('stopped');
     }
   } else if (e.side === 'guest' && s.role === 'guest') {
-    if (e.type === 'members') useCollab.setState(e.max ? { members: e.members, maxPeople: e.max } : { members: e.members });
+    if (e.type === 'members') {
+      const was = useCollab.getState().perm;
+      useCollab.setState({ members: e.members, ...(e.max ? { maxPeople: e.max } : {}), ...(e.perm ? { perm: e.perm } : {}) });
+      if (e.perm && !samePerm(e.perm, was)) toast(`${s.hostName} a changé ce que vous pouvez faire : ${permText(e.perm)}.`, 'info');
+    }
     else if (e.type === 'hello' && e.resumed) {
       s.rooms.setLink(true);
-      useCollab.setState({ phase: 'live', members: e.members, ...(e.max ? { maxPeople: e.max } : {}) });
+      useCollab.setState({ phase: 'live', members: e.members, ...(e.max ? { maxPeople: e.max } : {}), ...(e.perm ? { perm: e.perm } : {}) });
       if (s.records) send('h', { t: 'resync', tags: [...s.records.tags] });
       toast('Connexion rétablie : vos modifications sont réunies', 'success');
     } else if (e.type === 'link' && e.state === 'reconnecting') {
@@ -740,7 +775,7 @@ function endLocal(_reason: string) {
   // Invité : garder l'espace reçu, ou non (il n'avait peut-être besoin de travailler ensemble qu'une fois).
   const ws = s.role === 'guest' && s.ready && s.workspaceId ? useStore.getState().workspaces.find((w) => w.id === s.workspaceId) : undefined;
   const afterSession = ws && s.before ? { workspaceId: ws.id, name: ws.name, hostName: s.hostName, targets: sessionTargets(ws.id, s.shareId, s.before) } : null;
-  useCollab.setState({ afterSession, role: null, phase: 'idle', workspaceId: null, shareId: null, me: null, members: [], requests: [], code: null, progress: null, rooms: {}, maxPeople: 6 });
+  useCollab.setState({ afterSession, role: null, phase: 'idle', workspaceId: null, shareId: null, me: null, members: [], requests: [], code: null, progress: null, rooms: {}, maxPeople: 6, perm: ALL_PERMS });
 }
 
 /** « Arrêter le partage » (hôte : pour tous, après le dernier enregistrement de chacun) ou « Quitter » (invité). */

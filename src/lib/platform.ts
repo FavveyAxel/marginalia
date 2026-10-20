@@ -238,6 +238,8 @@ export interface CollabHostInfo {
   discovery?: boolean;
   /** Joignable aussi par Internet (le code suffit). */
   internet?: boolean;
+  /** Nombre de places choisi par l'hôte (2 à 6, hôte compris). */
+  maxPeople?: number;
   addresses?: string[];
   members?: CollabMember[];
   requests?: CollabRequest[];
@@ -247,10 +249,10 @@ export type CollabEvent =
   | { side: 'host'; type: 'request-closed'; reqId: string; reason: string }
   | { side: 'host'; type: 'attempt'; ok: false; remaining: number }
   | { side: 'host'; type: 'code-closed'; reason: 'tries' }
-  | { side: 'host' | 'guest'; type: 'members'; members: CollabMember[] }
+  | { side: 'host' | 'guest'; type: 'members'; members: CollabMember[]; max?: number }
   | { side: 'host' | 'guest'; type: 'message'; from: string; bytes: Uint8Array }
   | { side: 'host'; type: 'stopped'; reason: string }
-  | { side: 'guest'; type: 'hello'; you: string; resumed: boolean; meta: Record<string, unknown>; members: CollabMember[] }
+  | { side: 'guest'; type: 'hello'; you: string; resumed: boolean; meta: Record<string, unknown>; members: CollabMember[]; max?: number }
   | { side: 'guest'; type: 'link'; state: 'connected' | 'reconnecting' | 'closed'; reason?: string };
 export interface CollabFound {
   ticket: string;
@@ -259,7 +261,9 @@ export interface CollabFound {
   from: { address: string; port: number; name: string; host: string; internet?: boolean };
 }
 export interface CollabNetApi {
-  hostStart(meta: Record<string, unknown>, profile: { name: string; color: string }): Promise<CollabHostInfo>;
+  hostStart(meta: Record<string, unknown>, profile: { name: string; color: string; maxPeople?: number }): Promise<CollabHostInfo>;
+  /** Nombre de places (2 à 6), jamais moins que les présents. */
+  hostSetMax?(n: number): Promise<CollabHostInfo>;
   hostStop(): Promise<void>;
   hostInfo(): Promise<CollabHostInfo>;
   hostAccept(reqId: string): Promise<boolean>;
@@ -272,7 +276,7 @@ export interface CollabNetApi {
   internet?(on?: boolean): Promise<{ supported: boolean; enabled: boolean }>;
   /** Secondes avant de pouvoir essayer un autre code (après un code faux ou introuvable). */
   waitLeft?(): Promise<number>;
-  join(ticket: string): Promise<{ you: string; meta: Record<string, unknown>; members: CollabMember[] }>;
+  join(ticket: string): Promise<{ you: string; meta: Record<string, unknown>; members: CollabMember[]; max?: number }>;
   leave(): Promise<void>;
   /** `to` : 'all', 'h' (l'hôte) ou l'id d'un invité. */
   send(to: string, bytes: Uint8Array): Promise<boolean | number>;

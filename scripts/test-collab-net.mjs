@@ -117,10 +117,21 @@ for (const x of more) await joinAs(x);
 ok(host.info().members.length === 6, '6 personnes (hôte compris)', host.info().members.map((m) => m.name));
 const seventh = mkGuest('Septième');
 const e7 = await errOf(seventh.g.find(codes[0], { profile: { name: 'Septième' } }));
-ok(e7 && e7.code === 'full' && /déjà 6 personnes/.test(e7.message), '7e personne refusée : « Cet espace accueille déjà 6 personnes… »', e7 && e7.message);
+ok(e7 && e7.code === 'full' && /complet \(6 personnes au plus\)/.test(e7.message), '7e personne refusée : « Cet espace est complet (6 personnes au plus)… »', e7 && e7.message);
 more[2].g.leave();
 await until(() => host.info().members.length === 5);
 ok(host.info().members.length === 5, 'départ volontaire : la place est libérée');
+// Nombre de places choisi par l'hôte : jamais moins que les présents ; les invités l'apprennent.
+{
+  const i3 = host.setMax(3);
+  ok(i3.maxPeople === 5, 'places réduites à 3 avec 5 présents : ramenées à 5 (personne n’est exclu)', i3.maxPeople);
+  await until(() => marc.ev.some((e) => e.type === 'members' && e.max === 5));
+  ok(marc.ev.some((e) => e.type === 'members' && e.max === 5), 'les invités reçoivent le nombre de places (5)');
+  const extra = mkGuest('Sixième');
+  const e6 = await errOf(extra.g.find(codes[0], { profile: { name: 'Sixième' } }));
+  ok(e6 && e6.code === 'full' && /complet \(5 personnes au plus\)/.test(e6.message), '5 places, 5 présents : la suivante est refusée « complet (5 personnes au plus) »', e6 && e6.message);
+  ok(host.setMax(6).maxPeople === 6 && host.setMax(9).maxPeople === 6 && host.setMax(6).maxPeople === 6, 'places remises à 6 (jamais plus de 6)');
+}
 
 // ── 4. Code faux ; 5 essais → code fermé ; nouveau code ──
 const wrongs = mkGuest('Intrus');

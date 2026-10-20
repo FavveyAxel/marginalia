@@ -189,3 +189,8 @@ mark.cl-diff { color: inherit; background: color-mix(in srgb, var(--who) 22%, tr
 .cl-keep-note { margin: 0; font-size: var(--fs-sm); color: var(--muted); text-align: center; }
 @media (max-width: 560px) { .cl-keep-ways { grid-template-columns: 1fr; } }
 @media (prefers-reduced-motion: reduce) { .cl-keep-way { transition: none; } }
+
+/* Nombre de places (2 à 6, hôte compris) */
+.cl-places { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 2px 2px 0; font-size: var(--fs-md); color: var(--ink-2); }
+.cl-places-seg button { min-width: 34px; font-variant-numeric: tabular-nums; }
+.cl-places-seg button:disabled { opacity: 0.4; cursor: default; }

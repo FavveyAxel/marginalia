@@ -51,6 +51,8 @@ export interface CollabState {
   addresses: string[];
   /** Hôte : joignable aussi par Internet (le code suffit). */
   internet: boolean;
+  /** Nombre de places de la session (2 à 6, hôte compris), choisi par l'hôte. */
+  maxPeople: number;
   /** Écrits ouverts en direct : salle (gid de l'écrit) → personnes qui y écrivent. */
   rooms: Record<string, string[]>;
   /** Avancement de l'arrivée de l'espace chez un invité. */
@@ -78,6 +80,7 @@ export const useCollab = create<CollabState>(() => ({
   codeState: 'open',
   addresses: [],
   internet: false,
+  maxPeople: 6,
   rooms: {},
   progress: null,
   panelFor: null,

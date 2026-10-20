@@ -2773,7 +2773,8 @@ const collabBytes = (b) => (ArrayBuffer.isView(b) ? Buffer.from(b.buffer, b.byte
 dataHandle('marginalia:collabHostStart', async (_e, meta, profile) => {
   collabGuest.leave();
   try {
-    return await collabHost.start({ meta: meta && typeof meta === 'object' ? meta : {}, profile: profile && typeof profile === 'object' ? profile : {} });
+    const p = profile && typeof profile === 'object' ? profile : {};
+    return await collabHost.start({ meta: meta && typeof meta === 'object' ? meta : {}, profile: p, maxPeople: Number(p.maxPeople) || undefined });
   } catch (e) {
     diag('collab', 'ouverture', e && e.message);
     throw new Error(collabMessage(e));
@@ -2785,6 +2786,7 @@ dataHandle('marginalia:collabHostAccept', (_e, reqId) => collabHost.accept(Strin
 handle('marginalia:collabHostReject', (_e, reqId) => collabHost.reject(String(reqId ?? '')));
 handle('marginalia:collabHostRemove', (_e, mid) => collabHost.remove(String(mid ?? '')));
 dataHandle('marginalia:collabHostNewCode', () => collabHost.newCode());
+handle('marginalia:collabHostSetMax', (_e, n) => collabHost.setMax(Number(n)));
 dataHandle('marginalia:collabFind', async (_e, code, manualAddress, profile) => {
   try {
     return await collabGuest.find(String(code ?? ''), { manualAddress: manualAddress ? String(manualAddress) : undefined, profile: profile && typeof profile === 'object' ? profile : {} });

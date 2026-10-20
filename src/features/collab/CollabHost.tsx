@@ -131,8 +131,52 @@ function Who({ profile, setProfile, taken = [] }: { profile: CollabProfile; setP
  * Les six places de la session : les présents en couleur, les places libres en pointillé.
  * `canRemove` (hôte) : un clic sur un invité propose de le retirer, avec une confirmation sur place.
  */
+/** Nombre de places de la session (vous compris) : 2 à 6 ; jamais moins que les présents. */
+function Places({ value, min = 2, onChange }: { value: number; min?: number; onChange: (n: number) => void }) {
+  return (
+    <div className="cl-places">
+      <span id="cl-places-label">Places, vous compris</span>
+      <div className="segmented cl-places-seg" role="radiogroup" aria-labelledby="cl-places-label" data-testid="collab-places">
+        {[2, 3, 4, 5, 6].map((n) => (
+          <button
+            key={n}
+            type="button"
+            role="radio"
+            aria-checked={value === n}
+            className={value === n ? 'active' : ''}
+            disabled={n < min}
+            title={n < min ? 'Moins de places que de présents' : undefined}
+            onClick={() => onChange(n)}
+            data-places={n}
+          >
+            {n}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+const PLACES_KEY = 'marginalia:collab-places';
+const readPlaces = () => {
+  try {
+    const n = Number(localStorage.getItem(PLACES_KEY));
+    return n >= 2 && n <= 6 ? n : 6;
+  } catch {
+    return 6;
+  }
+};
+const writePlaces = (n: number) => {
+  try {
+    localStorage.setItem(PLACES_KEY, String(n));
+  } catch {
+    /* sans mémoire du choix */
+  }
+};
+
 function People({ members, me, canRemove = false }: { members: CollabMember[]; me: string | null; canRemove?: boolean }) {
-  const free = Math.max(0, 6 - members.length);
+  const max = useCollab((s) => s.maxPeople);
+  const free = Math.max(0, max - members.length);
   const [ask, setAsk] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const target = ask ? members.find((m) => m.id === ask && !m.host) : undefined;
@@ -150,7 +194,7 @@ function People({ members, me, canRemove = false }: { members: CollabMember[]; m
   };
   return (
     <div className="cl-seats-wrap">
-      <ul className="cl-seats" data-testid="collab-people" aria-label={`Présents : ${members.length} sur 6`}>
+      <ul className="cl-seats" data-testid="collab-people" aria-label={`Présents : ${members.length} sur ${max}`}>
         {members.map((m) => {
           const face = (
             <>
@@ -201,7 +245,7 @@ function People({ members, me, canRemove = false }: { members: CollabMember[]; m
           </div>
         </div>
       ) : (
-        <p className="cl-count">{members.length} sur 6</p>
+        <p className="cl-count">{members.length} sur {max}</p>
       )}
     </div>
   );
@@ -315,6 +359,7 @@ function CollabPanel({ workspaceId, onClose }: { workspaceId: string; onClose: (
   const c = useCollab();
   const live = isLiveIn(c, workspaceId);
   const [profile, setProfile] = useState<CollabProfile>(() => readProfile() ?? { name: '', color: COLLAB_COLORS[0] });
+  const [places, setPlaces] = useState(readPlaces);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   if (!ws) return null;
@@ -339,7 +384,8 @@ function CollabPanel({ workspaceId, onClose }: { workspaceId: string; onClose: (
       setBusy(true);
       setError(null);
       try {
-        await (await session()).startHost(workspaceId, p);
+        writePlaces(places);
+        await (await session()).startHost(workspaceId, p, places);
       } catch (e) {
         setError(errorMessage(e));
       } finally {
@@ -354,10 +400,11 @@ function CollabPanel({ workspaceId, onClose }: { workspaceId: string; onClose: (
             <li><FilePen size={16} /> Écrits</li>
             <li><Network size={16} /> Cartes</li>
             <li><Highlighter size={16} /> Extraits</li>
-            <li><Users size={16} /> Jusqu’à 6</li>
+            <li><Users size={16} /> Jusqu’à {places}</li>
           </ul>
         </div>
         <Who profile={profile} setProfile={setProfile} />
+        <Places value={places} onChange={setPlaces} />
         <div className="sh-actions">
           <button className="btn" onClick={onClose}>Annuler</button>
           <span className="spacer" />
@@ -402,7 +449,15 @@ function CollabPanel({ workspaceId, onClose }: { workspaceId: string; onClose: (
           <Ask key={r.reqId} r={r} />
         ))}
         <People members={c.members} me={c.me} canRemove />
-        {n >= 6 && <p className="sh-note">Session complète : six personnes au plus.</p>}
+        <Places
+          value={c.maxPeople}
+          min={Math.max(2, n)}
+          onChange={(v) => {
+            writePlaces(v);
+            void session().then((m) => m.setMaxPeople(v));
+          }}
+        />
+        {n >= c.maxPeople && <p className="sh-note">Session complète : ajoutez une place pour accueillir quelqu’un d’autre.</p>}
         <Trouble address={c.addresses[0]} internet={c.internet} />
         <div className="sh-actions">
           <button className="btn" onClick={onClose}>Fermer</button>

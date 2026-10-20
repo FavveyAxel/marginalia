@@ -52,6 +52,9 @@ const H = share.handshake;
 const PORT = 47804;
 const PREFIX = '/mg-collab/v1/';
 const MAX_PEOPLE = 6;
+const MIN_PEOPLE = 2;
+/** Nombre de places choisi par l'hôte (2 à 6, hôte compris). */
+const clampPeople = (n) => Math.min(MAX_PEOPLE, Math.max(MIN_PEOPLE, Math.round(Number(n)) || MAX_PEOPLE));
 const MAX_TRIES = 5;
 const RETRY_WAIT_MS = 10 * 1000; // après un code faux ou introuvable : 10 s avant d'en essayer un autre
 const REQUEST_TTL_MS = 2 * 60 * 1000;
@@ -71,7 +74,7 @@ const MSG = {
   wait: (s) => `Patientez ${s} s avant d’essayer un autre code.`,
   badCode: (n) => `Code incorrect${n > 0 ? ` (encore ${n} essai${n > 1 ? 's' : ''})` : ''}.`,
   tries: 'Trop d’essais : ce code a été fermé par sécurité. Demandez un nouveau code à l’hôte.',
-  full: 'Cet espace accueille déjà 6 personnes : réessayez quand quelqu’un sera parti.',
+  full: (n = MAX_PEOPLE) => `Cet espace est complet (${n} personnes au plus) : réessayez quand quelqu’un sera parti, ou demandez à l’hôte d’ouvrir une place.`,
   locked: 'Marginalia est verrouillée sur l’ordinateur de l’hôte.',
   notLocal: 'Cette adresse n’est pas sur le réseau local : Marginalia ne passe jamais par Internet.',
   unreachable: 'L’ordinateur indiqué ne répond pas. Vérifiez l’adresse et que la session est toujours ouverte.',
@@ -278,8 +281,8 @@ function createCollabHost(o) {
   const people = (cur) => 1 + cur.members.size + [...cur.requests.values()].filter((r) => r.state === 'pending' || r.state === 'accepted').length;
   function pushMembers(cur) {
     const list = roster(cur);
-    o.emit({ type: 'members', members: list });
-    for (const m of cur.members.values()) m.link?.send({ t: 'members', members: list });
+    o.emit({ type: 'members', members: list, max: cur.max });
+    for (const m of cur.members.values()) m.link?.send({ t: 'members', members: list, max: cur.max });
   }
 
   function closeRequest(cur, r, why) {
@@ -362,7 +365,7 @@ function createCollabHost(o) {
     } catch {
       return H.json(res, 400, { error: 'handshake' });
     }
-    if (people(cur) >= MAX_PEOPLE) return H.json(res, 409, { error: 'full' });
+    if (people(cur) >= cur.max) return H.json(res, 409, { error: 'full', max: cur.max });
     const address = req.socket.mgInternet ? 'Internet' : String(req.socket.remoteAddress || '').replace(/^::ffff:/, '');
     const r = {
       id: shortId(),
@@ -484,7 +487,7 @@ function createCollabHost(o) {
       head,
     );
     m.link = link;
-    link.send({ t: 'hello', you: m.id, token: m.token.toString('base64url'), rid: cur.rid.toString('base64url'), rsalt: cur.rsalt.toString('base64url'), resumed, meta: cur.meta, members: roster(cur) });
+    link.send({ t: 'hello', you: m.id, token: m.token.toString('base64url'), rid: cur.rid.toString('base64url'), rsalt: cur.rsalt.toString('base64url'), resumed, meta: cur.meta, members: roster(cur), max: cur.max });
     diag('collab', resumed ? 'invité revenu' : 'invité accepté', m.id);
     pushMembers(cur);
   }
@@ -561,9 +564,9 @@ function createCollabHost(o) {
 
   /**
    * Ouvre la session (remplace la précédente).
-   * @param {{ meta: object, profile: { name: string, color: string } }} p
+   * @param {{ meta: object, profile: { name: string, color: string }, maxPeople?: number }} p
    */
-  async function start({ meta, profile }) {
+  async function start({ meta, profile, maxPeople }) {
     stop('replaced');
     const ticket = ++starting;
     const cleanMeta = JSON.parse(JSON.stringify(meta == null ? {} : meta));
@@ -610,6 +613,7 @@ function createCollabHost(o) {
       keys,
       codeState: 'open',
       tries: 0,
+      max: clampPeople(maxPeople ?? MAX_PEOPLE),
       meta: cleanMeta,
       profile: { name: cleanName(profile && profile.name, 'Hôte'), color: cleanColor(profile && profile.color) },
       server,
@@ -704,6 +708,7 @@ function createCollabHost(o) {
       port: s.port,
       discovery: !!s.udp,
       internet: !!s.internet,
+      maxPeople: s.max,
       addresses: lanAddresses().map((a) => `${a.address}:${s.port}`),
       members: roster(s),
       requests: [...s.requests.values()].filter((r) => r.state === 'pending').map((r) => ({ reqId: r.id, device: r.device, name: r.name, color: r.color, address: r.address, wasRemoved: !!r.wasRemoved })),
@@ -714,7 +719,7 @@ function createCollabHost(o) {
     const cur = s;
     const r = cur && cur.requests.get(String(reqId));
     if (!r || r.state !== 'pending') return false;
-    if (1 + cur.members.size >= MAX_PEOPLE) {
+    if (1 + cur.members.size >= cur.max) {
       closeRequest(cur, r, 'full');
       o.emit({ type: 'request-closed', reqId: r.id, reason: 'full' });
       return false;
@@ -757,6 +762,24 @@ function createCollabHost(o) {
     diag('collab', 'invité retiré', m.id);
     pushMembers(cur);
     return true;
+  }
+
+  /**
+   * Nombre de places (2 à 6, hôte compris), changeable pendant la session : jamais moins que les présents.
+   * Les demandes en trop sont refusées (« complet »).
+   */
+  function setMax(n) {
+    const cur = s;
+    if (!cur) return info();
+    cur.max = Math.max(clampPeople(n), 1 + cur.members.size);
+    for (const r of [...cur.requests.values()]) {
+      if (r.state === 'pending' && people(cur) > cur.max) {
+        closeRequest(cur, r, 'full');
+        o.emit({ type: 'request-closed', reqId: r.id, reason: 'full' });
+      }
+    }
+    pushMembers(cur);
+    return info();
   }
 
   /** Message de l'hôte (rendu) : à un invité, ou à tous ('all'). */
@@ -803,7 +826,7 @@ function createCollabHost(o) {
     if (reason !== 'replaced') o.emit({ type: 'stopped', reason });
   }
 
-  return { start, stop, info, accept, reject, remove, send, newCode, isOpen: () => !!s };
+  return { start, stop, info, accept, reject, remove, send, newCode, setMax, isOpen: () => !!s };
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -1078,7 +1101,7 @@ function createCollabGuest(o) {
       if (r.status === 403 && e2 === 'bad-code') keep(err('bad-code', MSG.badCode(Number(r.json.remaining) || 0)));
       else if (r.status === 429 && e2 === 'wait') keep(Object.assign(err('wait', MSG.wait(Number(r.json.retryIn) || 10)), { retryIn: Number(r.json.retryIn) || 10 }));
       else if (r.status === 429) keep(err('tries', MSG.tries));
-      else if (r.status === 409 && e2 === 'full') keep(err('full', MSG.full));
+      else if (r.status === 409 && e2 === 'full') keep(err('full', MSG.full(Number(r.json.max) || MAX_PEOPLE)));
       else if (r.status === 423) keep(err('locked', MSG.locked));
       else if (r.status === 200 && r.json && r.json.box) {
         let box;
@@ -1153,10 +1176,10 @@ function createCollabGuest(o) {
               c.salt = rsalt;
             }
             c.state = 'live';
-            o.emit({ type: 'hello', you: h.you, resumed: !!h.resumed, meta: h.meta, members: h.members });
+            o.emit({ type: 'hello', you: h.you, resumed: !!h.resumed, meta: h.meta, members: h.members, max: h.max });
             o.emit({ type: 'link', state: 'connected' });
             c.onHello?.(h);
-          } else if (h.t === 'members') o.emit({ type: 'members', members: h.members });
+          } else if (h.t === 'members') o.emit({ type: 'members', members: h.members, max: h.max });
           else if (h.t === 'app') o.emit({ type: 'message', from: typeof h.from === 'string' ? h.from : 'h', bytes: body });
           else if (h.t === 'bye') {
             c.byeReason = String(h.reason || 'closed');
@@ -1247,7 +1270,7 @@ function createCollabGuest(o) {
     return new Promise((resolve, reject) => {
       c.onHello = (h) => {
         c.onHello = null;
-        resolve({ you: h.you, meta: h.meta, members: h.members });
+        resolve({ you: h.you, meta: h.meta, members: h.members, max: h.max });
       };
       upgrade(t, `link?hs=${encodeURIComponent(t.hs)}`, { 'x-mg-auth': H.b64(H.hmac(t.k.mac, 'link', Buffer.from(t.hs))) }, REQUEST_TTL_MS + 30000)
         .then(({ sock, head }) => {
@@ -1267,7 +1290,7 @@ function createCollabGuest(o) {
         .catch((e) => {
           diag('collab', 'lien refusé', e && (e.code || e.message));
           if (cur === c) cur = null;
-          const map = { rejected: ['rejected', MSG.rejected], 'no-answer': ['no-answer', MSG.noAnswer], full: ['full', MSG.full], ticket: ['ticket', MSG.ticket], locked: ['locked', MSG.locked] };
+          const map = { rejected: ['rejected', MSG.rejected], 'no-answer': ['no-answer', MSG.noAnswer], full: ['full', MSG.full()], ticket: ['ticket', MSG.ticket], locked: ['locked', MSG.locked] };
           const [code, m] = map[e && e.code] || (e && e.code === 'ECONNREFUSED' ? ['closed', MSG.closed] : e && e.code === 'cancelled' ? ['cancelled', MSG.cancelled] : ['closed', MSG.closed]);
           reject(err(code, m));
         });
@@ -1311,4 +1334,4 @@ function createCollabGuest(o) {
   return { find, join, send, leave, cut, waitLeft, state: () => (cur ? { state: cur.state, mid: cur.mid, connected: !!cur.link } : { state: 'none' }) };
 }
 
-module.exports = { createCollabHost, createCollabGuest, PORT, MAX_PEOPLE, MSG, COLORS };
+module.exports = { createCollabHost, createCollabGuest, PORT, MAX_PEOPLE, MIN_PEOPLE, MSG, COLORS };

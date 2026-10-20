@@ -193,7 +193,7 @@ export async function run(ctx, h) {
   ok(await until(B.page, () => document.querySelector('[data-testid="ws-collab-badge"]')?.textContent.trim() === '6', null, 10000), 'encadré chez Marc : « 6 »');
   const seventh = mk('Septième');
   const e7 = await seventh.g.find(code, { profile: { name: 'Septième', color: '#0f766e' } }).then(() => null, (e) => e);
-  ok(e7 && /déjà 6 personnes/.test(e7.message), '7e personne refusée : « Cet espace accueille déjà 6 personnes… »', e7 && e7.message);
+  ok(e7 && /complet \(6 personnes au plus\)/.test(e7.message), '7e personne refusée : « Cet espace est complet (6 personnes au plus)… »', e7 && e7.message);
   // Léa retire Zoé depuis sa fenêtre : clic sur la place, confirmation sur place.
   const zoe = headless.find((x) => x.name === 'Zoé');
   await A.page.evaluate((ws) => window.__collab.state.setState({ panelFor: ws }), seeded.ws);

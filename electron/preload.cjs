@@ -226,6 +226,7 @@ api.collabNet = {
   hostReject: (reqId) => ipcRenderer.invoke('marginalia:collabHostReject', String(reqId)),
   hostRemove: (memberId) => ipcRenderer.invoke('marginalia:collabHostRemove', String(memberId)),
   hostNewCode: () => ipcRenderer.invoke('marginalia:collabHostNewCode'),
+  hostSetMax: (n) => ipcRenderer.invoke('marginalia:collabHostSetMax', Number(n)),
   find: (code, manualAddress, profile) => ipcRenderer.invoke('marginalia:collabFind', String(code), manualAddress ? String(manualAddress) : undefined, profile),
   internet: (on) => ipcRenderer.invoke('marginalia:collabInternet', typeof on === 'boolean' ? on : undefined),
   waitLeft: () => ipcRenderer.invoke('marginalia:collabWaitLeft'),

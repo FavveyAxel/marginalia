@@ -21,6 +21,32 @@ export interface NewsEntry {
 
 export const NEWS: NewsEntry[] = [
   {
+    version: '3.37',
+    items: [
+      {
+        icon: 'lock',
+        title: 'Ce que les invités peuvent faire',
+        text: 'En ouvrant une session à plusieurs, cochez ce que les invités peuvent modifier : extraits et notes, écrits, cartes, rangement de l’espace. Le reste est en lecture seule.',
+      },
+      {
+        icon: 'sparkles',
+        title: 'Envoyer une copie par Internet',
+        text: 'Le code à 6 chiffres suffit, même loin : de pair à pair, chiffré de bout en bout, valable une minute. Clic droit sur un espace › Partager.',
+      },
+      {
+        icon: 'update',
+        title: 'Mises à jour quand vous voulez',
+        text: 'Une nouvelle version est proposée, téléchargée si vous le demandez, installée au redémarrage que vous choisissez.',
+      },
+      {
+        icon: 'lock',
+        title: 'Connexion par Internet renforcée',
+        text: 'Le rendez-vous tiré du code change toutes les 10 minutes. Par Internet, la 3.37 ne se connecte plus aux 3.35 et 3.36 : mettez à jour chaque ordinateur.',
+        action: { label: 'Voir le réglage', run: 'settings' },
+      },
+    ],
+  },
+  {
     version: '3.36',
     items: [
       {

@@ -38,6 +38,7 @@ import { familyName } from './fonts';
 import { PRIVATE_STYLE_DEF, PRIVATE_STYLE_ID, VIEW_META, inPrivateNote, privateParagraphs, setNotesHidden, stripClipboard, textblocksOf, togglePrivateNote } from './privateNotes';
 import { moveSection as moveSectionOp, stepSection, type LevelOf } from './outlineMove';
 import { FIT_MAX, FIT_MIN, ZOOM_MAX, ZOOM_MIN, readZoomPref, type ZoomPref } from './view';
+import { attachLineBreakKeys, isolateSelectedLines } from './lineBreaks';
 
 export type ParaStyle = 'title' | 'h1' | 'h2' | 'h3' | 'body' | 'quote' | 'caption';
 export type MarkName = 'bold' | 'italic' | 'underline' | 'strike' | 'superscript' | 'subscript' | 'smallCaps';
@@ -635,6 +636,7 @@ export async function openDocEngine(host: HTMLElement, data: ArrayBuffer, opts: 
     const e = docs?.[0]?.getEditor?.() ?? sd.activeEditor;
     return e;
   };
+  attachLineBreakKeys(body()); // Retour arrière / Suppr à côté d'un ↵ (src/features/editor/lineBreaks.ts)
   const pres = (): Any => {
     const docs = sd.superdocStore?.documents;
     return docs?.[0]?.getPresentationEditor?.() ?? body()?.presentationEditor ?? null;
@@ -846,6 +848,7 @@ export async function openDocEngine(host: HTMLElement, data: ArrayBuffer, opts: 
     sd = await create(buf);
     resetDocFontHistory();
     await waitPainted();
+    attachLineBreakKeys(body()); // Retour arrière / Suppr à côté d'un ↵ (src/features/editor/lineBreaks.ts)
     if (proofingCfg) applyProofing();
     stylesXml = await readStylesXml(buf).catch(() => stylesXml);
     if (zoomValue !== 'fit') engine.setZoom(zoomValue);
@@ -1848,6 +1851,8 @@ export async function openDocEngine(host: HTMLElement, data: ArrayBuffer, opts: 
       touched = true;
       const ed = body();
       if (!ed) return;
+      // Paragraphe découpé de ↵ : seules les lignes sélectionnées (ou celle du curseur) s'alignent.
+      isolateSelectedLines(ed);
       ed.commands.setTextAlign(a);
       ed.view.focus();
     },

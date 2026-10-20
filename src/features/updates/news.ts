@@ -21,6 +21,16 @@ export interface NewsEntry {
 
 export const NEWS: NewsEntry[] = [
   {
+    version: '3.41',
+    items: [
+      {
+        icon: 'notes',
+        title: 'Écrire : lignes vides et alignement',
+        text: 'Supprimer une ligne vide n’efface plus le texte au-dessus, et centrer une sélection ne change que les lignes choisies.',
+      },
+    ],
+  },
+  {
     version: '3.40',
     items: [
       {

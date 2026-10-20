@@ -1,9 +1,10 @@
 // Mise à jour automatique, de bout en bout (Release GitHub simulée par un serveur local, clé de test) :
-//  1. Windows simulé, réglage « Oui » : téléchargement en arrière-plan (bannière discrète), « prête »,
-//     réglage « Installer automatiquement », « Plus tard » → installation à la fermeture
-//     (installateur /S --updated, sans relance) ; relance en 3.28 : « Quoi de neuf », dossier nettoyé ;
-//  2. Windows simulé, « Me demander » : fermer sans rien choisir n'installe rien ; relance : fichier
-//     déjà vérifié réutilisé ; « Redémarrer pour mettre à jour » → installateur /S --updated attendu puis app rouverte, l'app quitte ;
+//  1. Windows simulé : la nouvelle version est PROPOSÉE (rien ne se télécharge sans accord) ;
+//     « Télécharger la mise à jour » → téléchargement en arrière-plan (bannière discrète), « prête » ;
+//     « Plus tard » : rien ne s'installe à la fermeture ; relance en 3.28 : « Quoi de neuf », dossier nettoyé ;
+//  2. Windows simulé : fermer sans rien choisir n'installe rien ; relance : fichier déjà vérifié
+//     réutilisé ; « Redémarrer pour mettre à jour » → cmd.exe (start /wait installateur /S --updated,
+//     puis Marginalia rouverte ; plus de PowerShell), l'app quitte ;
 //  3. Mac simulé (hdiutil/ditto/xattr/open remplacés dans le PATH) : « Redémarrer » prépare la copie et
 //     lance le script, qu'on exécute ensuite pour de vrai sur le faux .app ;
 //  4. signature fausse : aucune mise à jour automatique, annonce classique (page du site) ;
@@ -136,6 +137,13 @@ try {
   fs.mkdirSync(H1);
   let { app, page } = await launch(H1, '3.27', WIN_ENV);
   await theme(page, 'light');
+  await page.waitForSelector('[data-testid="update-banner"]', { timeout: 20000 });
+  const offer = await page.locator('[data-testid="update-banner"]').innerText();
+  ok(/Marginalia 3\.28 est disponible/.test(offer) && /Télécharger la mise à jour/.test(offer), 'nouvelle version proposée : « Télécharger la mise à jour »', offer.replace(/\n/g, ' | '));
+  await page.waitForTimeout(1500);
+  ok(!srv.hits.some((h) => h.url.endsWith('.exe')), 'rien n’est téléchargé sans accord', srv.hits.map((h) => h.url));
+  await page.screenshot({ path: path.join(SHOTS, '09-proposition-clair.png') });
+  await page.click('[data-testid="update-download"]');
   await page.waitForSelector('[data-testid="update-progress"]', { timeout: 20000 });
   await page.waitForFunction(() => {
     const t = document.querySelector('[data-testid="update-progress"] .up-mini-pct')?.textContent || '';
@@ -150,7 +158,7 @@ try {
   await page.waitForTimeout(250);
   await page.screenshot({ path: path.join(SHOTS, '11-telechargement-sombre.png') });
   await theme(page, 'light');
-  ok(!(await page.$('[data-testid="update-banner"]')), 'pas d’annonce « Télécharger » quand la mise à jour est automatique');
+  ok(!(await page.$('[data-testid="update-banner"]')), 'pendant le téléchargement : plus d’annonce, la progression');
   await page.waitForSelector('[data-testid="update-ready"]', { timeout: 20000 });
   const readyText = await page.locator('[data-testid="update-ready"]').innerText();
   ok(readyText.includes('Marginalia 3.28 est prête') && readyText.includes('Redémarrer pour mettre à jour') && readyText.includes('Plus tard'), '« Marginalia 3.28 est prête » : Redémarrer / Plus tard', readyText.replace(/\n/g, ' | '));
@@ -167,8 +175,8 @@ try {
   // Réglages
   await settingsShot(page, '14-reglages-clair.png');
   const row = page.locator('[data-testid="set-auto-install"]');
-  ok((await row.innerText()).includes('vous choisissez quand redémarrer'), 'Windows : réglage « vous choisissez quand redémarrer »', await row.innerText());
-  ok((await row.locator('button[role="radio"]').count()) === 0, 'Windows : pas de choix « installer à la fermeture »');
+  ok((await row.innerText()).includes('vous choisissez de la télécharger, puis quand redémarrer'), 'réglage : « vous choisissez de la télécharger, puis quand redémarrer »', await row.innerText());
+  ok((await row.locator('button[role="radio"]').count()) === 0, 'pas de choix « installer à la fermeture »');
   ok((await page.locator('#set-updates').locator('..').innerText()).includes('La version 3.28 est téléchargée et vérifiée'), 'réglages : état de la mise à jour');
   await theme(page, 'dark');
   await page.waitForTimeout(250);
@@ -179,7 +187,7 @@ try {
   await page.click('[data-testid="update-ready"] button:has-text("Plus tard")');
   await page.waitForSelector('[data-testid="update-ready"]', { state: 'detached' });
   ok(true, '« Plus tard » : bannière fermée');
-  ok((await page.locator('body').innerText()).includes('redémarrez quand vous voulez'), '« Plus tard » (Windows) : la mise à jour attend un redémarrage choisi');
+  ok((await page.locator('body').innerText()).includes('redémarrez quand vous voulez'), '« Plus tard » : la mise à jour attend un redémarrage choisi');
   await app.close();
   let log = spawnLog(H1);
   ok(log.length === 0, 'Windows, fermeture : rien n’est installé (on redémarre quand on veut)', log);
@@ -202,14 +210,17 @@ try {
   fs.mkdirSync(H2);
   srv.hits.length = 0;
   ({ app, page } = await launch(H2, '3.27', WIN_ENV));
-  await page.evaluate(() => window.__store.getState().updateSettings({ updateAutoInstall: 'ask' }));
+  await page.waitForSelector('[data-testid="update-download"]', { timeout: 20000 });
+  await page.click('[data-testid="update-download"]');
   await page.waitForSelector('[data-testid="update-ready"]', { timeout: 30000 });
-  ok(true, '« Me demander » : téléchargée puis proposée');
+  ok(true, 'téléchargée après accord, puis « Redémarrer » proposé');
   await page.waitForTimeout(300);
   await app.close();
-  ok(spawnLog(H2).length === 0, '« Me demander », fermeture sans choix : rien n’est installé');
+  ok(spawnLog(H2).length === 0, 'fermeture sans choix : rien n’est installé');
   srv.hits.length = 0;
   ({ app, page } = await launch(H2, '3.27', WIN_ENV));
+  await page.waitForSelector('[data-testid="update-download"]', { timeout: 20000 });
+  await page.click('[data-testid="update-download"]');
   await page.waitForSelector('[data-testid="update-ready"]', { timeout: 20000 });
   ok(!srv.hits.some((h) => h.url.endsWith('.exe')), 'relance : fichier déjà vérifié réutilisé (pas de nouveau téléchargement)', srv.hits.map((h) => h.url));
   const gone = exited(app);
@@ -218,9 +229,8 @@ try {
   ok(code === 'quit', '« Redémarrer pour mettre à jour » : l’app quitte d’elle-même');
   log = spawnLog(H2);
   {
-    const enc = log[0] && log[0].args[log[0].args.indexOf('-EncodedCommand') + 1];
-    const script = enc ? Buffer.from(enc, 'base64').toString('utf16le') : '';
-    ok(log.length === 1 && /powershell\.exe$/i.test(log[0].cmd) && /Marginalia-win-x64-setup\.exe' -ArgumentList '\/S','--updated' -PassThru/.test(script) && /while \(-not \$p\.HasExited\)/.test(script) && script.includes('Mise à jour de Marginalia…') && script.includes(WIN_ENV.MARGINALIA_E2E_UPDATE_EXE.replace(/'/g, "''")) && log[0].relaunch === true, 'Redémarrer : installateur silencieux attendu, puis Marginalia rouverte', script || log);
+    const line = (log[0] && log[0].args[3]) || '';
+    ok(log.length === 1 && /cmd\.exe$/i.test(log[0].cmd) && log[0].args.slice(0, 3).join(' ') === '/d /s /c' && /^"start "" \/wait ".*Marginalia-win-x64-setup\.exe" \/S --updated & ping -n 2 127\.0\.0\.1 >nul & start "" ".*Marginalia\.exe" --updated"$/.test(line) && !/powershell/i.test(JSON.stringify(log)) && log[0].relaunch === true, 'Redémarrer : invite de commandes cachée (pas de PowerShell) : installateur attendu, puis Marginalia rouverte', line || log);
   }
   await app.close().catch(() => {});
 
@@ -253,6 +263,8 @@ try {
   };
   srv.hits.length = 0;
   ({ app, page } = await launch(H3, '3.27', MAC_ENV));
+  await page.waitForSelector('[data-testid="update-download"]', { timeout: 20000 });
+  await page.click('[data-testid="update-download"]');
   await page.waitForSelector('[data-testid="update-ready"]', { timeout: 30000 });
   ok(srv.hits.some((h) => h.url.endsWith('Marginalia-mac-arm64.dmg')) && !srv.hits.some((h) => h.url.endsWith('.exe') || h.url.includes('mac-x64')), 'Mac arm64 : le .dmg arm64 est téléchargé');
   const gone3 = exited(app);
@@ -293,7 +305,9 @@ try {
   srv.corrupt = true;
   srv.throttle = false;
   ({ app, page } = await launch(H5, '3.27', WIN_ENV));
-  await page.waitForSelector('[data-testid="update-banner"]', { timeout: 30000 });
+  await page.waitForSelector('[data-testid="update-download"]', { timeout: 20000 });
+  await page.click('[data-testid="update-download"]');
+  await page.waitForFunction(() => /Empreinte/.test(document.querySelector('[data-testid="update-banner"]')?.textContent || ''), null, { timeout: 30000 });
   const fb = await page.locator('[data-testid="update-banner"]').innerText();
   ok(/Empreinte du fichier de mise à jour incorrecte/.test(fb) && /depuis le site/.test(fb), 'empreinte fausse : refus expliqué, repli sur la page', fb.replace(/\n/g, ' | '));
   ok(!fs.existsSync(path.join(H5, 'userData/updates/3.28/Marginalia-win-x64-setup.exe')), 'empreinte fausse : aucun fichier prêt');
@@ -309,7 +323,7 @@ try {
   await page.evaluate(() => window.__store.getState().navigate({ name: 'settings' }));
   await page.waitForSelector('[data-testid="set-auto-install"]');
   await page.waitForTimeout(300);
-  ok((await page.locator('[data-testid="set-auto-install"]').innerText()).includes('proposée sur Mac et Windows') && (await page.locator('[data-testid="set-auto-install"] button[role="radio"]').first().isDisabled()), 'Linux : réglage désactivé, raison affichée');
+  ok((await page.locator('[data-testid="set-auto-install"]').innerText()).includes('proposée sur Mac et Windows'), 'Linux : raison affichée (pas de mise à jour automatique)');
   await app.close();
 } finally {
   server.close();

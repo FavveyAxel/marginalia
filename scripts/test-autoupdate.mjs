@@ -284,12 +284,12 @@ const pc = U.windowsInstallCheck({ exe: path.join(winDir, 'Marginalia.exe'), env
 ok(!pc.ok && /portable/i.test(pc.reason), 'Windows portable : jamais d’installation automatique', pc.reason);
 let cmd = U.windowsInstallCommand('C:\\Users\\Léa O\'Neil\\AppData\\setup.exe', { relaunch: true, exe: 'C:\\Users\\Léa O\'Neil\\AppData\\Local\\Programs\\Marginalia\\Marginalia.exe', env: { SystemRoot: 'C:\\Windows' } });
 {
-  const enc = cmd.args[cmd.args.indexOf('-EncodedCommand') + 1];
-  const script = Buffer.from(enc, 'base64').toString('utf16le');
-  ok(/powershell\.exe$/i.test(cmd.cmd) && cmd.args.includes('-WindowStyle') && cmd.args.includes('Hidden') && !cmd.args.includes('--force-run'), 'Redémarrer : PowerShell caché (pas de relance laissée à l’installateur)', cmd.cmd);
-  ok(script.includes("-FilePath 'C:\\Users\\Léa O''Neil\\AppData\\setup.exe' -ArgumentList '/S','--updated' -PassThru") && /while \(-not \$p\.HasExited\)/.test(script), 'il attend la fin de l’installateur silencieux (chemin avec espace, accent et apostrophe)', script);
-  ok(/HasExited[\s\S]*Start-Sleep[\s\S]*Start-Process -FilePath 'C:\\Users\\Léa O''Neil\\AppData\\Local\\Programs\\Marginalia\\Marginalia\.exe'/.test(script), 'puis rouvre Marginalia elle-même', script);
-  ok(script.includes('Mise à jour de Marginalia…') && /try \{[\s\S]*Windows\.Forms[\s\S]*\} catch/.test(script), 'fenêtre « Mise à jour de Marginalia… » pendant l’installation (sans bloquer si elle échoue)', script);
+  const line = cmd.args[3];
+  ok(/cmd\.exe$/i.test(cmd.cmd) && cmd.verbatim === true && cmd.args.slice(0, 3).join(' ') === '/d /s /c' && !/powershell/i.test(JSON.stringify(cmd)), 'Redémarrer : invite de commandes cachée, plus de PowerShell (bloqué par certains antivirus)', cmd.cmd);
+  ok(line.startsWith('"start "" /wait "C:\\Users\\Léa O\'Neil\\AppData\\setup.exe" /S --updated &'), 'il attend la fin de l’installateur silencieux (chemin avec espace, accent et apostrophe)', line);
+  ok(/& ping -n 2 127\.0\.0\.1 >nul & start "" "C:\\Users\\Léa O'Neil\\AppData\\Local\\Programs\\Marginalia\\Marginalia\.exe" --updated"$/.test(line), 'puis rouvre Marginalia elle-même', line);
+  const odd = U.windowsInstallCommand('C:\\Users\\100%\\setup.exe', { relaunch: true, exe: 'C:\\M\\Marginalia.exe', env: {} });
+  ok(odd.cmd.endsWith('setup.exe') && odd.args.join(' ') === '/S --updated --force-run', 'chemin avec « % » : l’installateur seul, qui relance l’app', odd);
 }
 cmd = U.windowsInstallCommand('C:\\U\\s.exe', { relaunch: false });
 ok(cmd.args.join(' ') === '/S --updated', 'installateur à la fermeture : sans relance', cmd.args);

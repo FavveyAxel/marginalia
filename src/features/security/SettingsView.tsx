@@ -1028,10 +1028,6 @@ function InboxSettings() {
   );
 }
 
-const AUTO_INSTALL: { v: 'auto' | 'ask'; label: string }[] = [
-  { v: 'auto', label: 'Oui' },
-  { v: 'ask', label: 'Me demander' },
-];
 
 /** Mises à jour : vérification au lancement (Release GitHub), installation automatique, recherche manuelle, nouveautés. */
 function UpdateSettings() {
@@ -1048,7 +1044,6 @@ function UpdateSettings() {
       alive = false;
     };
   }, []);
-  const mode = useStore((s) => (s.settings.updateAutoInstall === 'ask' ? 'ask' : 'auto'));
   const version = useUpdates((s) => s.version);
   const dl = useUpdates((s) => s.dl);
   const [busy, setBusy] = useState(false);
@@ -1072,8 +1067,6 @@ function UpdateSettings() {
     if (!v && useUpdates.getState().dl?.status === 'downloading') void host.updates?.cancel?.(false);
   };
   const autoOk = !!support?.ok;
-  // Windows : téléchargée toute seule, installée quand on choisit de redémarrer (rien à régler).
-  const askRestart = support?.quitInstall === false;
   const status =
     dl?.status === 'downloading'
       ? `Téléchargement de la version ${dl.version}… ${dl.total ? Math.floor((dl.received / dl.total) * 100) : 0} %`
@@ -1102,36 +1095,13 @@ function UpdateSettings() {
             <Download size={15} />
           </span>
           <div className="set-body">
-            <span className="set-title">{askRestart ? 'Mises à jour automatiques' : 'Installer automatiquement les mises à jour'}</span>
+            <span className="set-title">Mises à jour</span>
             <span className="set-desc">
               {support && !support.ok
                 ? support.reason
-                : askRestart
-                  ? 'La nouvelle version se télécharge en arrière-plan. Marginalia vous prévient quand elle est prête : vous choisissez quand redémarrer pour l’installer.'
-                  : mode === 'auto'
-                  ? 'La nouvelle version se télécharge en arrière-plan, puis s’installe quand vous redémarrez Marginalia ou à sa fermeture.'
-                  : 'La nouvelle version se télécharge en arrière-plan ; Marginalia vous demande quand l’installer.'}
+                : 'Marginalia vous propose chaque nouvelle version : vous choisissez de la télécharger, puis quand redémarrer pour l’installer. Rien ne s’installe sans vous.'}
             </span>
           </div>
-          {!askRestart && (
-            <div className="set-control">
-              <div className="segmented set-seg" role="radiogroup" aria-label="Installer automatiquement les mises à jour">
-                {AUTO_INSTALL.map((o) => (
-                  <button
-                    type="button"
-                    key={o.v}
-                    role="radio"
-                    aria-checked={mode === o.v}
-                    className={mode === o.v ? 'active' : ''}
-                    disabled={!check || !autoOk}
-                    onClick={() => useStore.getState().updateSettings({ updateAutoInstall: o.v })}
-                  >
-                    {o.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
         </li>
         <Row
           icon={<Info size={17} />}

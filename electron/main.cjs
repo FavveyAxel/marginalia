@@ -2363,9 +2363,10 @@ const upd = {
   relaunch: false, // « Redémarrer pour mettre à jour »
   prepared: null, // Mac : app copiée et script écrit
 };
-// Windows : jamais d'installation à la fermeture (l'installateur silencieux tournait encore quand on
-// relançait l'app, qui semblait alors lente à s'ouvrir) ; on redémarre quand on veut.
-const quitInstall = () => updatePlatform() !== 'win32';
+// Jamais d'installation à la fermeture (Windows : l'installateur silencieux tournait encore quand on
+// relançait l'app, qui semblait alors lente à s'ouvrir) : on télécharge quand on veut, puis on redémarre
+// quand on veut (« Redémarrer pour mettre à jour »).
+const quitInstall = () => false;
 const updState = () => ({ status: upd.status, version: upd.release ? upd.release.version : null, received: upd.received, total: upd.total, error: upd.error, quitInstall: quitInstall() });
 function updEmit(evt) {
   for (const w of BrowserWindow.getAllWindows()) if (!w.isDestroyed()) w.webContents.send('marginalia:updateEvent', evt);
@@ -2513,7 +2514,8 @@ async function prepareInstall(relaunch) {
 function launchInstaller(relaunch) {
   const version = upd.release.version;
   let cmd, args;
-  if (updatePlatform() === 'win32') ({ cmd, args } = updater.windowsInstallCommand(upd.file, { relaunch, exe: updateExe() }));
+  let verbatim = false;
+  if (updatePlatform() === 'win32') ({ cmd, args, verbatim = false } = updater.windowsInstallCommand(upd.file, { relaunch, exe: updateExe() }));
   else {
     cmd = '/bin/sh';
     args = [upd.prepared.scriptPath];
@@ -2526,7 +2528,7 @@ function launchInstaller(relaunch) {
     return;
   }
   if (E2E) return;
-  const child = require('node:child_process').spawn(cmd, args, { detached: true, stdio: 'ignore', windowsHide: true });
+  const child = require('node:child_process').spawn(cmd, args, { detached: true, stdio: 'ignore', windowsHide: true, windowsVerbatimArguments: verbatim });
   child.unref();
 }
 

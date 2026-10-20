@@ -53,7 +53,7 @@ function applyState(st: UpdateState | null | undefined) {
 }
 
 /** Lance le téléchargement en arrière-plan (fichier choisi et vérifié par le processus principal). */
-async function startAutoUpdate() {
+export async function startAutoUpdate() {
   const api = host.updates;
   if (!api?.download) return;
   const r = await api.download().catch(() => null);
@@ -65,10 +65,7 @@ export async function checkForUpdate(): Promise<UpdateInfo | null> {
   const api = host.updates;
   if (!api) return null;
   const r = await api.check().catch(() => null);
-  if (r?.newer) {
-    useUpdates.setState({ update: r });
-    if (r.auto?.ok) await startAutoUpdate();
-  }
+  if (r?.newer) useUpdates.setState({ update: r });
   return r;
 }
 
@@ -95,14 +92,11 @@ export async function restartToUpdate(): Promise<boolean> {
   return true;
 }
 
-/** « Plus tard » sur « prête » : installée à la fermeture (réglage « Oui » ou choix explicite). */
+/** « Plus tard » sur « prête » : rien ne s'installe tout seul ; on redémarre quand on veut. */
 export function installLater() {
   useUpdates.setState({ later: true });
   syncInstallOnQuit();
-  // Windows : rien à la fermeture, la mise à jour attend qu'on choisisse de redémarrer.
-  if (useUpdates.getState().dl?.quitInstall === false)
-    useStore.getState().toast('La mise à jour reste prête : redémarrez quand vous voulez depuis Réglages › Mises à jour.', 'info');
-  else useStore.getState().toast('La mise à jour s’installera à la fermeture de Marginalia.', 'info');
+  useStore.getState().toast('La mise à jour reste prête : redémarrez quand vous voulez depuis Réglages › Mises à jour.', 'info');
 }
 
 /** Rouvre les nouveautés de la version installée (réglages). */
@@ -154,13 +148,12 @@ export function useUpdatesSync() {
       if (cur && cur.status !== 'idle') applyState(cur);
       if (st.settings.updateCheck === false) return;
       // Un peu après le lancement : l'interface d'abord.
+      // Nouvelle version : on la propose ; elle ne se télécharge que si l'on clique « Télécharger ».
       timer = setTimeout(async () => {
         const r = await api.check().catch(() => null);
         if (!r?.newer || !r.latest) return;
-        if (r.auto?.ok) {
-          useUpdates.setState({ update: r });
-          await startAutoUpdate();
-        } else if (useStore.getState().settings.updateDismissed !== r.latest) useUpdates.setState({ update: r });
+        if (useUpdates.getState().dl) return; // déjà en cours ou prête (interface rechargée)
+        if (useStore.getState().settings.updateDismissed !== r.latest) useUpdates.setState({ update: r });
       }, 4000);
     })();
     return () => clearTimeout(timer);
@@ -281,6 +274,8 @@ function ReleaseNotes({ u }: { u: UpdateInfo }) {
   useEscape(close);
   const html = useMemo(() => notesHtml(u.notes || ''), [u.notes]);
   const ready = useUpdates((s) => s.dl?.status === 'ready');
+  const downloading = useUpdates((s) => s.dl?.status === 'downloading');
+  const dlFailed = useUpdates((s) => s.dl?.status === 'error');
   return createPortal(
     <div className="up-back anim-fade" onMouseDown={(e) => e.target === e.currentTarget && close()}>
       <div className="up-dialog panel anim-scale" role="dialog" aria-modal="true" aria-labelledby="up-notes-title" data-testid="release-notes">
@@ -305,6 +300,21 @@ function ReleaseNotes({ u }: { u: UpdateInfo }) {
             <p className="up-how">Mise à jour téléchargée et vérifiée. Vos livres, notes et écrits sont enregistrés avant le redémarrage.</p>
             <button className="btn btn-primary" onClick={() => void restartToUpdate()}>
               <RotateCw size={14} /> Redémarrer pour mettre à jour
+            </button>
+          </footer>
+        ) : u.auto?.ok && !dlFailed ? (
+          <footer className="up-foot">
+            <p className="up-how">Téléchargée en arrière-plan, vérifiée, puis Marginalia vous propose de redémarrer : vos livres, notes et écrits sont conservés.</p>
+            <button
+              className="btn btn-primary"
+              disabled={downloading}
+              onClick={() => {
+                useUpdates.setState({ notesOpen: false });
+                void startAutoUpdate();
+              }}
+              data-testid="release-notes-download"
+            >
+              <Download size={14} /> {downloading ? 'Téléchargement…' : 'Télécharger la mise à jour'}
             </button>
           </footer>
         ) : (
@@ -351,9 +361,15 @@ function UpdateBanner({ u, note }: { u: UpdateInfo; note?: string }) {
         <button className="btn btn-sm" onClick={() => useUpdates.setState({ notesOpen: true })}>
           Voir les nouveautés
         </button>
-        <a className="btn btn-sm btn-primary" href={u.downloadUrl} target="_blank" rel="noreferrer">
-          <Download size={13} /> Télécharger
-        </a>
+        {u.auto?.ok && !note ? (
+          <button className="btn btn-sm btn-primary" onClick={() => void startAutoUpdate()} data-testid="update-download">
+            <Download size={13} /> Télécharger la mise à jour
+          </button>
+        ) : (
+          <a className="btn btn-sm btn-primary" href={u.downloadUrl} target="_blank" rel="noreferrer">
+            <Download size={13} /> Télécharger
+          </a>
+        )}
       </div>
       <button className="icon-btn sm up-banner-close" onClick={later} aria-label="Plus tard (ne plus annoncer cette version)" title="Plus tard">
         <X size={14} />

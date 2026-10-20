@@ -35,6 +35,7 @@ import type {
   WorkspaceItem,
   WorkspaceItemKind,
 } from '../../lib/types';
+import { isReservedKey } from '../../lib/safeKey';
 
 export type Col = 'ws' | 'group' | 'item' | 'book' | 'draft' | 'concept' | 'highlight' | 'study' | 'argument' | 'plan' | 'map' | 'node' | 'edge';
 export type Tag = [number, string];
@@ -58,7 +59,8 @@ const ORDER: Col[] = ['ws', 'group', 'book', 'draft', 'concept', 'highlight', 's
 const SEP = '§';
 export const keyOf = (c: Col, g: string) => `${c}:${g}`;
 export const newer = (a: Tag, b?: Tag | null) => !b || a[0] > b[0] || (a[0] === b[0] && a[1] > b[1]);
-const isStr = (x: unknown): x is string => typeof x === 'string' && x.length > 0 && x.length <= 300;
+// Identifiants reçus (jamais de titres ici) : ni vides, ni trop longs, ni « __proto__ » & co.
+const isStr = (x: unknown): x is string => typeof x === 'string' && x.length > 0 && x.length <= 300 && !isReservedKey(x);
 
 type Any = Record<string, any>;
 

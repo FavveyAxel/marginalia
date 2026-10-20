@@ -10,7 +10,16 @@ import os from 'node:os';
 
 const ROOT = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..');
 const PACKAGED = path.join(ROOT, 'release/Marginalia-darwin-arm64/Marginalia.app/Contents/Resources/app');
-const APP_DIR = fs.existsSync(PACKAGED) ? PACKAGED : ROOT;
+// L'app empaquetée seulement si elle est à jour (même code Electron que le dépôt) : un paquet ancien,
+// laissé par une fabrication précédente, n'a pas forcément les dernières fonctions.
+const same = (f) => {
+  try {
+    return fs.readFileSync(path.join(PACKAGED, f), 'utf8') === fs.readFileSync(path.join(ROOT, f), 'utf8');
+  } catch {
+    return false;
+  }
+};
+const APP_DIR = same('electron/main.cjs') && same('electron/preload.cjs') ? PACKAGED : ROOT;
 const HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'mg-inbox-'));
 const INBOX = path.join(HOME, 'Documents/Marginalia');
 const ok = (c, m, extra = '') => {

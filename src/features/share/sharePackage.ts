@@ -39,6 +39,7 @@ import type {
 } from '../../lib/types';
 import { CITE_BOOKMARK_PREFIX, hasPrivateNotes, stripForExport } from '../editor/privateNotes';
 import { newFsrs } from '../revision/fsrs';
+import { isReservedKey } from '../../lib/safeKey';
 
 export const SHARE_FORMAT = 'marginalia-share';
 export const SHARE_VERSION = 1;
@@ -53,7 +54,7 @@ const MAX_ENTRIES = 20000;
 
 /** Nom de fichier ou id utilisable comme élément de chemin (ni « .. », ni séparateur, ni chemin absolu). */
 const SAFE_SEGMENT = /^[A-Za-z0-9_][A-Za-z0-9._-]{0,127}$/;
-export const isSafeSegment = (s: unknown): s is string => typeof s === 'string' && SAFE_SEGMENT.test(s) && !s.includes('..');
+export const isSafeSegment = (s: unknown): s is string => typeof s === 'string' && SAFE_SEGMENT.test(s) && !s.includes('..') && !isReservedKey(s);
 
 /** Document de photos : pages dans `pages` (champ ajouté par les documents de photos, facultatif). */
 type BookWithPages = Book & { pages?: string[] };
@@ -691,7 +692,7 @@ export interface OpenedShare {
 const isObj = (x: unknown): x is Record<string, unknown> => !!x && typeof x === 'object' && !Array.isArray(x);
 const isStr = (x: unknown): x is string => typeof x === 'string';
 const isNum = (x: unknown): x is number => typeof x === 'number' && Number.isFinite(x);
-const isId = (x: unknown): x is string => isStr(x) && x.length > 0 && x.length <= 200;
+const isId = (x: unknown): x is string => isStr(x) && x.length > 0 && x.length <= 200 && !isReservedKey(x);
 const isOptId = (x: unknown) => x == null || isId(x);
 const FORMATS: BookFormat[] = ['epub', 'pdf', 'docx', 'md', 'txt', 'html', 'image', 'paper'];
 

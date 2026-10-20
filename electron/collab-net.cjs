@@ -124,7 +124,8 @@ const PING_MS = 4000;
 const DEAD_MS = 15000;
 const FRAME = 1024 * 1024;
 const PAD = 256;
-const MAX_MESSAGE = 1024 * 1024 * 1024; // 1 Go (paquet initial avec les livres)
+const MAX_MESSAGE = 1024 * 1024 * 1024; // 1 Go : de l'hôte vers un invité (paquet initial avec les livres)
+const MAX_GUEST_MESSAGE = 256 * 1024 * 1024; // 256 Mo : d'un invité vers l'hôte (un livre ajouté), gardé en mémoire puis relayé
 const COLORS = ['#c2410c', '#1d4ed8', '#15803d', '#7e22ce', '#be123c', '#0f766e', '#a16207', '#4338ca'];
 
 const MSG = {
@@ -159,6 +160,9 @@ const shortId = () => crypto.randomBytes(5).toString('hex');
 
 // ── Clés de reconnexion (jeton aléatoire au lieu du code ; mêmes dérivations HKDF) ──
 const tokenKeys = (token, salt) => ({ auth: H.hkdf(token, salt, 'mg-collab v1 resume auth'), mix: H.hkdf(token, salt, 'mg-collab v1 resume mix') });
+/** Demande de reprise : preuve du jeton liée à l'invité et à l'heure (voir onResumeOpen). */
+const resumeAsk = (tk, mid, ts) => H.hmac(tk.auth, 'resume-ask', Buffer.from(`${mid}|${ts}`, 'utf8'));
+const RESUME_SKEW_MS = 15 * 60 * 1000; // horloges des deux ordinateurs
 
 // ─────────────────────────────────────────────────────────────
 // Canal chiffré sur une connexion TCP (après « Upgrade »).
@@ -179,6 +183,8 @@ function makeChannel(sock, keys, role, h, head0) {
   const recvKey = role === 'host' ? keys.r2s : keys.s2r;
   const sendLabel = Buffer.from(role === 'host' ? 'H2G ' : 'G2H ', 'ascii');
   const recvLabel = Buffer.from(role === 'host' ? 'G2H ' : 'H2G ', 'ascii');
+  // L'hôte reçoit des invités (plafond plus bas : il garde le message et le relaie à chacun).
+  const maxMessage = role === 'host' ? MAX_GUEST_MESSAGE : MAX_MESSAGE;
   let sendSeq = 0;
   let recvSeq = 0;
   let queue = [];
@@ -255,7 +261,7 @@ function makeChannel(sock, keys, role, h, head0) {
         if (len > pt.length - 5) throw new Error('longueur');
         parts.push(pt.subarray(5, 5 + len));
         partsLen += len;
-        if (partsLen > MAX_MESSAGE) throw new Error('message trop long');
+        if (partsLen > maxMessage) throw new Error('message trop long');
         if (pt[0] & 1) continue;
         const msg = parts.length === 1 ? parts[0] : Buffer.concat(parts, partsLen);
         parts = [];
@@ -455,8 +461,22 @@ function createCollabHost(o) {
 
   async function onResumeOpen(cur, req, res) {
     const q = await H.readJson(req);
-    const m = q && typeof q.mid === 'string' ? cur.members.get(q.mid) : null;
-    if (!m) return H.json(res, 410, { error: q && cur.removed.has(q.mid) ? 'removed' : 'gone' });
+    // L'invité prouve qu'il a son jeton de reconnexion (HMAC horodaté, jamais deux fois le même) avant
+    // qu'un défi soit créé : sans jeton, toujours la même réponse (« gone »), et le défi d'un invité
+    // coupé ne peut pas être écrasé par quelqu'un d'autre.
+    const mid = q && typeof q.mid === 'string' ? q.mid : '';
+    const ts = q && Number.isSafeInteger(q.ts) ? q.ts : 0;
+    const ask = H.unb64(q && q.ask, 32);
+    const gone = () => H.json(res, 410, { error: 'gone' });
+    if (!mid || !ask || Math.abs(Date.now() - ts) > RESUME_SKEW_MS) return gone();
+    const proves = (tk) => crypto.timingSafeEqual(resumeAsk(tk, mid, ts), ask);
+    const m = cur.members.get(mid);
+    if (!m) {
+      const tk = cur.removed.get(mid);
+      return tk && proves(tk) ? H.json(res, 410, { error: 'removed' }) : gone();
+    }
+    if (!proves(m.tk) || ts <= (m.lastAsk || 0)) return gone();
+    m.lastAsk = ts;
     const hs = crypto.randomBytes(16);
     const challenge = crypto.randomBytes(32);
     const eph = H.x25519();
@@ -690,7 +710,7 @@ function createCollabHost(o) {
       handshakes: new Map(),
       requests: new Map(),
       members: new Map(),
-      removed: new Set(), // ids retirés par l'hôte : la reconnexion leur est refusée
+      removed: new Map(), // id retiré par l'hôte → clés de son jeton : la reconnexion lui est refusée
       removedWho: new Set(), // « adresse|appareil » retirés : une nouvelle demande est signalée
       waits: new Map(), // provenance → fin de l'attente après un code faux
       rv: [], // points d'accès Internet (un par code ; les anciens restent pour les reconnexions)
@@ -736,6 +756,8 @@ function createCollabHost(o) {
       });
       if (s !== cur) return void rv.close();
       cur.rv.push(rv);
+      // Le code précédent reste joignable (reconnexion de ceux venus avec lui) ; les plus anciens non.
+      while (cur.rv.length > 2) void cur.rv.shift().close();
       cur.internet = cur.code === code;
       diag('collab', 'internet : point d’accès ouvert');
     } catch (e) {
@@ -818,7 +840,7 @@ function createCollabHost(o) {
     const m = cur && cur.members.get(String(mid));
     if (!m) return false;
     cur.members.delete(m.id);
-    cur.removed.add(m.id);
+    cur.removed.set(m.id, m.tk);
     cur.removedWho.add(`${m.address}|${m.device}`);
     clearTimeout(m.awayTimer);
     m.resume = null;
@@ -1299,7 +1321,10 @@ function createCollabGuest(o) {
     if (Date.now() > c.until) return end(c, 'gone');
     if (c.blockedUntil && Date.now() < c.blockedUntil) return scheduleRetry(c, c.blockedUntil - Date.now() + 50);
     try {
-      const r = await call('POST', c, 'resume', { body: { mid: c.mid }, timeout: 4000 });
+      const tk = tokenKeys(c.token, c.salt);
+      const ts = Math.max(Date.now(), (c.lastAsk || 0) + 1);
+      c.lastAsk = ts;
+      const r = await call('POST', c, 'resume', { body: { mid: c.mid, ts, ask: H.b64(resumeAsk(tk, c.mid, ts)) }, timeout: 4000 });
       if (cur !== c) return;
       if (r.status === 410 && r.json && r.json.error === 'removed') return end(c, 'removed');
       if (r.status === 410 || r.status === 503) return end(c, 'gone');
@@ -1308,7 +1333,6 @@ function createCollabGuest(o) {
       const ephS = H.unb64(r.json.eph, 32);
       if (!challenge || !ephS || typeof r.json.hs !== 'string') throw new Error('reprise');
       const eph = H.x25519();
-      const tk = tokenKeys(c.token, c.salt);
       const T = H.transcript(Buffer.from('collab-resume'), c.id, c.salt, Buffer.from(c.mid), challenge, ephS, eph.pub);
       const k = H.sessionKeys(tk, H.x25519Shared(eph.privateKey, ephS), T);
       const proof = H.hmac(tk.auth, 'resume', T);

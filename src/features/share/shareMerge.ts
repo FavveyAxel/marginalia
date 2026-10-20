@@ -46,6 +46,7 @@ import type {
 import { CITE_BOOKMARK_PREFIX } from '../editor/privateNotes';
 import { newFsrs } from '../revision/fsrs';
 import { alreadyReceived, bookExtraFiles, bookSourceFiles, describeCounts, findLocalBook, findLocalPaperBook, openSharePackage, rewriteDocxXml, ShareError, type ShareCounts } from './sharePackage';
+import { isReservedKey } from '../../lib/safeKey';
 
 export interface ShareImportOptions {
   /** Avancement de l'écriture des fichiers reçus. */
@@ -87,7 +88,7 @@ const RELATIONS: RelationId[] = ['soutient', 'objecte', 'precise', 'illustre', '
 const WS_KINDS: WorkspaceItemKind[] = ['book', 'draft', 'plan', 'argument', 'study', 'map'];
 
 const isObj = (x: unknown): x is Record<string, unknown> => !!x && typeof x === 'object' && !Array.isArray(x);
-const isId = (x: unknown): x is string => typeof x === 'string' && x.length > 0 && x.length <= 200;
+const isId = (x: unknown): x is string => typeof x === 'string' && x.length > 0 && x.length <= 200 && !isReservedKey(x);
 const str = (x: unknown, d = '') => (typeof x === 'string' ? x : d);
 const num = (x: unknown, d: number) => (typeof x === 'number' && Number.isFinite(x) ? x : d);
 const ids = (x: unknown): string[] => (Array.isArray(x) ? x.filter(isId) : []);

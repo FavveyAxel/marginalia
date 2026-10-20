@@ -53,20 +53,28 @@ interface Session {
 }
 
 const KEEP_KINDS = ['book', 'draft', 'plan', 'argument', 'study'] as const;
+/** Fichiers d'un livre qu'un invité envoie en un message (l'hôte refuse au-delà de 256 Mo). */
+const GUEST_FILES_MAX = 240 * 1024 * 1024;
 /** Tout ce qui est dans la bibliothèque maintenant, en « kind:id » (cartes : leur clé). */
-function libraryKeys(): Set<string> {
-  const st = useStore.getState() as unknown as Record<string, { id: string }[]> & { maps: Record<string, unknown> };
+/**
+ * Ce qui appartient à l'invité au début de la session : sa bibliothèque, sauf ce qui vient déjà de ce
+ * partage (session précédente). Pris avant toute arrivée : un de ses livres complété pendant la session
+ * (et relié au partage à ce moment-là) reste le sien.
+ */
+function libraryKeys(shareId: string): Set<string> {
+  const st = useStore.getState() as unknown as Record<string, { id: string; shareOrigin?: { shareId: string } }[]> & { maps: Record<string, { shareOrigin?: { shareId: string } }> };
   const out = new Set<string>();
+  const mine = (x: { shareOrigin?: { shareId: string } } | undefined) => x?.shareOrigin?.shareId !== shareId;
   const col: Record<(typeof KEEP_KINDS)[number], string> = { book: 'books', draft: 'drafts', plan: 'plans', argument: 'arguments', study: 'studies' };
-  for (const k of KEEP_KINDS) for (const x of st[col[k]] ?? []) out.add(`${k}:${x.id}`);
-  for (const id of Object.keys(st.maps ?? {})) out.add(`map:${id}`);
-  for (const h of (st as unknown as { highlights: { id: string }[] }).highlights ?? []) out.add(`highlight:${h.id}`);
+  for (const k of KEEP_KINDS) for (const x of st[col[k]] ?? []) if (mine(x)) out.add(`${k}:${x.id}`);
+  for (const [id, m] of Object.entries(st.maps ?? {})) if (mine(m)) out.add(`map:${id}`);
+  for (const h of (st as unknown as { highlights: { id: string; shareOrigin?: { shareId: string } }[] }).highlights ?? []) if (mine(h)) out.add(`highlight:${h.id}`);
   return out;
 }
 /**
  * Ce qu'un invité retirerait en ne gardant pas l'espace : les éléments de l'espace arrivés par ce partage
  * (maintenant ou lors d'une session précédente) ou créés pendant la session, et qui ne servent à aucun
- * autre espace. Ce qu'il avait déjà dans sa bibliothèque reste.
+ * autre espace. Ce qu'il avait déjà dans sa bibliothèque (`before`, voir libraryKeys) reste.
  */
 function sessionTargets(wsId: string, shareId: string, before: Set<string>): { kind: WorkspaceItemKind | 'highlight'; id: string }[] {
   const st = useStore.getState() as unknown as Record<string, { id: string; shareOrigin?: { shareId: string } }[]> & {
@@ -79,14 +87,14 @@ function sessionTargets(wsId: string, shareId: string, before: Set<string>): { k
     if (st.wsItems.some((o) => o.workspaceId !== wsId && o.kind === it.kind && o.refId === it.refId)) continue;
     const rec = it.kind === 'map' ? st.maps[it.refId] : (st[col[it.kind]] ?? []).find((x) => x.id === it.refId);
     if (!rec) continue;
-    if (rec.shareOrigin?.shareId === shareId || !before.has(`${it.kind}:${it.refId}`)) out.push({ kind: it.kind, id: it.refId });
+    if (!before.has(`${it.kind}:${it.refId}`)) out.push({ kind: it.kind, id: it.refId });
   }
   // Livres gardés (ils étaient déjà là) : les extraits arrivés par le partage, ou faits pendant la session, partent ;
   // ceux de l'invité restent.
   const gone = new Set(out.filter((t) => t.kind === 'book').map((t) => t.id));
   const kept = new Set(st.wsItems.filter((i) => i.workspaceId === wsId && i.kind === 'book' && !gone.has(i.refId)).map((i) => i.refId));
   const hls = (st as unknown as { highlights: { id: string; bookId: string; shareOrigin?: { shareId: string } }[] }).highlights ?? [];
-  for (const h of hls) if (kept.has(h.bookId) && (h.shareOrigin?.shareId === shareId || !before.has(`highlight:${h.id}`))) out.push({ kind: 'highlight', id: h.id });
+  for (const h of hls) if (kept.has(h.bookId) && !before.has(`highlight:${h.id}`)) out.push({ kind: 'highlight', id: h.id });
   return out;
 }
 
@@ -354,7 +362,7 @@ async function guestOnBooks(head: Head) {
 async function guestOnState(head: Head, body: Uint8Array) {
   const s = S!;
   const st0 = useStore.getState();
-  s.before = libraryKeys();
+  s.before = libraryKeys(s.shareId);
   let wsId = workspaceForShare(s.shareId);
   const alias: [string, string][] = (s as Any).bookAlias ?? [];
   useCollab.setState({ progress: 'Ajout à votre bibliothèque…' });
@@ -471,7 +479,10 @@ async function onFetch(from: string, head: Head) {
     }
     // Sans son fichier (livre « sans fichier », ou fichier illisible) : on envoie quand même ses métadonnées ;
     // chez l'autre, il arrive « sans fichier », avec ses extraits, et se complète en important le même livre.
-    const missing = !paper && (!!b.missing || !files.some((f) => f.name === b.fileName));
+    // Invité : l'hôte refuse un message de plus de 256 Mo (electron/collab-net.cjs) ; un livre plus gros
+    // part « sans fichier », comme ci-dessous.
+    const tooBig = s.role === 'guest' && files.reduce((n, f) => n + f.data.byteLength, 0) > GUEST_FILES_MAX;
+    const missing = !paper && (tooBig || !!b.missing || !files.some((f) => f.name === b.fileName));
     const fp = missing ? null : await bookFingerprint(b);
     const sha256 = fp?.sha256 ?? b.sourceSha256 ?? null;
     const { list, body } = joinFiles(missing ? [] : files);
@@ -490,6 +501,15 @@ async function onFetch(from: string, head: Head) {
     const { list, body } = joinFiles([{ name: d.fileName, data: shared }]);
     send(from, { t: 'files', c, g, rec: { title: d.title, fileName: d.fileName, template: d.template, wordCount: d.wordCount, wordGoal: d.wordGoal }, list }, body);
   }
+}
+
+/**
+ * Livre de l'invité reconnu comme le livre partagé (même empreinte), éventuellement complété par le fichier
+ * reçu : il reste à lui s'il ne garde pas l'espace en partant, même ajouté à sa bibliothèque pendant la
+ * session (il ne venait pas du partage).
+ */
+function keepAsMine(s: Session, b: Book) {
+  if (b.shareOrigin?.shareId !== s.shareId) s.before?.add(`book:${b.id}`);
 }
 
 const SAFE = /^[A-Za-z0-9_][A-Za-z0-9._-]{0,127}$/;
@@ -533,8 +553,11 @@ async function onFiles(head: Head, body: Uint8Array) {
         }),
       }));
       s.records.addAlias('book', g, target);
-    } else if (local) s.records.addAlias('book', g, local.id);
-    else {
+      keepAsMine(s, local);
+    } else if (local) {
+      s.records.addAlias('book', g, local.id);
+      keepAsMine(s, local);
+    } else {
       if (!paper && !missing) for (const f of files) await host.storeFile(id, f.name, f.data);
       const now = Date.now();
       const fileName = paper ? '' : SAFE.test(String(meta.fileName)) ? String(meta.fileName) : files[0]?.name ?? 'source.bin';

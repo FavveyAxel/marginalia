@@ -180,13 +180,22 @@ export function useAutoTour() {
       setTimeout(() => {
         if (!alive) return;
         if (atHome()) return go();
-        unsub = useStore.subscribe((s, prev) => {
-          if (s.route.name === 'home' && prev.route.name !== 'home') {
-            unsub?.();
-            unsub = null;
-            setTimeout(go, 600);
-          }
-        });
+        // Au retour à l'accueil, après un court instant : seulement s'il y est toujours (repassé par
+        // l'accueil pour ouvrir aussitôt autre chose, il n'est pas ramené en arrière) ; sinon au retour suivant.
+        const wait = () => {
+          unsub = useStore.subscribe((s, prev) => {
+            if (s.route.name === 'home' && prev.route.name !== 'home') {
+              unsub?.();
+              unsub = null;
+              setTimeout(() => {
+                if (!alive) return;
+                if (useStore.getState().route.name === 'home') go();
+                else wait();
+              }, 600);
+            }
+          });
+        };
+        wait();
       }, 1500);
     });
     return () => {

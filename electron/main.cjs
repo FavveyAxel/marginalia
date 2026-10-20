@@ -395,19 +395,44 @@ let loadedVersion = null;
 let migrationBackupDone = false;
 let lastItemCount = 0;
 let savesBlocked = false; // restauration en cours : les écritures de l'ancienne page sont ignorées
+// .docx de l'utilisateur que Marginalia peut réécrire (⌘S d'un écrit lié) : ceux qu'il a choisis dans
+// « Ouvrir un .docx ». La liste est tenue ICI, dans un fichier à part que seul ce processus écrit ; elle
+// ne vient pas de la base (écrite par la page) : une page détournée ne peut pas y ajouter un chemin.
 const externalAllowed = new Set();
-function onDbLoaded(r) {
-  loadedVersion = r.data.version ?? null;
-  migrationBackupDone = false;
-  lastItemCount = countItems(r.data);
-  // Écrits liés à un .docx de l'utilisateur (y compris dans la corbeille et l'historique d'annulation).
-  for (const m of r.text.matchAll(/"externalPath":("(?:[^"\\]|\\.)*")/g)) {
+const externalFile = () => path.join(userData(), 'docx-ouverts.json');
+const EXTERNAL_MAX = 5000;
+let externalLoaded = false;
+function loadExternalAllowed(dbText) {
+  if (externalLoaded) return;
+  externalLoaded = true;
+  try {
+    const j = JSON.parse(fs.readFileSync(externalFile(), 'utf8'));
+    if (Array.isArray(j.paths)) for (const f of j.paths.slice(-EXTERNAL_MAX)) if (typeof f === 'string' && path.isAbsolute(f)) externalAllowed.add(path.resolve(f));
+    return;
+  } catch {
+    /* absent : première ouverture de cette version */
+  }
+  // Une seule fois, à la mise à jour : les écrits déjà liés à un .docx (base d'avant, écrite par
+  // l'utilisateur lui-même) gardent leur enregistrement direct.
+  for (const m of String(dbText || '').matchAll(/"externalPath":("(?:[^"\\]|\\.)*")/g)) {
     try {
-      externalAllowed.add(path.resolve(JSON.parse(m[1])));
+      const f = JSON.parse(m[1]);
+      if (typeof f === 'string' && path.isAbsolute(f) && path.extname(f).toLowerCase() === '.docx') externalAllowed.add(path.resolve(f));
     } catch {
       /* chaîne illisible */
     }
   }
+  saveExternalAllowed();
+}
+function saveExternalAllowed() {
+  const paths = [...externalAllowed].slice(-EXTERNAL_MAX);
+  writeAtomic(externalFile(), Buffer.from(JSON.stringify({ v: 1, paths }), 'utf8')).catch((e) => diag('docx', 'liste des fichiers ouverts non enregistrée', e && e.message));
+}
+function onDbLoaded(r) {
+  loadedVersion = r.data.version ?? null;
+  migrationBackupDone = false;
+  lastItemCount = countItems(r.data);
+  loadExternalAllowed(r.text);
   dailyBackup(r.text).catch((e) => diag('sauvegarde', 'quotidienne impossible', e && e.message));
 }
 
@@ -419,7 +444,10 @@ async function loadDbSafely() {
     onDbLoaded(main);
     return main.data;
   }
-  if (main.missing && !fs.existsSync(dbPath() + '.bak')) return null; // premier lancement
+  if (main.missing && !fs.existsSync(dbPath() + '.bak')) {
+    loadExternalAllowed(''); // premier lancement : liste vide, jamais amorcée plus tard depuis la base
+    return null;
+  }
   if (!main.missing) diag('base', 'illisible', (main.error && main.error.message) || main.error);
   // Candidats : copie .bak, puis sauvegardes du plus récent au plus ancien.
   const candidates = [dbPath() + '.bak'];
@@ -1506,14 +1534,16 @@ dataHandle('marginalia:openDocx', async () => {
   if (r.canceled || !r.filePaths[0]) return null;
   const file = r.filePaths[0];
   const picked = await readPicked(file);
+  externalAllowed.delete(path.resolve(file));
   externalAllowed.add(path.resolve(file));
+  saveExternalAllowed();
   return { path: file, name: picked.name, data: picked.data };
 });
 
 /**
  * Réécrit un .docx déjà présent sur le disque (jamais de création) après copie .bak.
- * Seuls les fichiers choisis par l'utilisateur (« Ouvrir un .docx », cette session ou une précédente :
- * chemins liés présents dans la base au démarrage) peuvent être réécrits.
+ * Seuls les fichiers choisis par l'utilisateur dans « Ouvrir un .docx » (cette session ou une précédente,
+ * liste tenue par ce processus : voir externalAllowed) peuvent être réécrits.
  */
 dataHandle('marginalia:writeExternal', async (_e, target, data) => {
   if (typeof target !== 'string' || !path.isAbsolute(target) || path.extname(target).toLowerCase() !== '.docx') {
@@ -2868,9 +2898,11 @@ dataHandle('marginalia:saveBinary', async (_e, defaultName, data, format) => {
 // pourrait ne pas être encore décodée et le PDF partirait avec la police de repli.
 const PRINT_CSP = `<meta http-equiv="Content-Security-Policy" content="script-src 'none'; object-src 'none'">`;
 function withPrintCsp(html) {
+  // Tout en tête (juste après le doctype, qui doit rester premier) : une meta CSP ne couvre que ce qui la
+  // suit, donc aucun élément du document ne peut la précéder.
   const s = String(html);
-  const m = /<head\b[^>]*>/i.exec(s);
-  return m ? s.slice(0, m.index + m[0].length) + PRINT_CSP + s.slice(m.index + m[0].length) : PRINT_CSP + s;
+  const m = /^\s*<!doctype[^>]*>/i.exec(s);
+  return m ? m[0] + PRINT_CSP + s.slice(m[0].length) : PRINT_CSP + s;
 }
 
 /**

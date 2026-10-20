@@ -6,16 +6,25 @@
 // par le code, accord de l'hôte, canal AES-256-GCM). Rien n'est lu ici.
 //
 // Rendez-vous : l'hôte ouvre un « point d'accès » iroh dont la clé est tirée du code à 6 chiffres
-// (scrypt, N = 2^17, sel fixe propre à Marginalia). L'invité qui a le même code calcule la même clé
-// publique et s'y connecte : l'annuaire public de n0 (DNS / pkarr) donne l'adresse, la connexion est
-// directe quand c'est possible (perçage de NAT), sinon elle passe par un relais public de n0 (HTTPS 443).
-// Aucun serveur à nous, aucun compte.
+// (scrypt, N = 2^17) et d'un sel qui change toutes les 10 minutes (« fenêtre »). L'invité qui a le même
+// code calcule la même clé publique pour la fenêtre en cours et s'y connecte : l'annuaire public de n0
+// (DNS / pkarr) donne l'adresse, la connexion est directe quand c'est possible (perçage de NAT), sinon
+// elle passe par un relais public de n0 (HTTPS 443). Aucun serveur à nous, aucun compte.
+//
+// Pourquoi une fenêtre : l'identifiant publié dépend du code. Avec un sel fixe (protocole v1), une table
+// « code → identifiant » calculée une seule fois (10^6 scrypt) servait pour toujours à repérer toutes les
+// sessions ouvertes, leur adresse IP et leur code, sans contacter personne. Avec la fenêtre, une table ne
+// vaut que 10 minutes : il faudrait refaire les 10^6 scrypt sans arrêt. L'hôte publie la fenêtre en cours
+// et ses deux voisines (horloges décalées jusqu'à 10 minutes) ; une fenêtre passée ne prend plus personne
+// de nouveau mais garde les invités déjà connectés.
 //
 // Ce qu'un intermédiaire voit : les adresses IP, l'identifiant du point d'accès, les horaires et les
 // volumes. Le contenu est chiffré deux fois (TLS de QUIC, puis le canal de collab-net).
-// Limites : le code n'a que 10^6 valeurs ; quelqu'un qui calcule les 10^6 clés (coûteux : scrypt) peut
-// savoir qu'une session est ouverte et trouver l'adresse IP de l'hôte. Il ne peut pas entrer sans
-// l'accord de l'hôte, et 5 codes faux ferment le code (comme en réseau local).
+// Limites : le code n'a que 10^6 valeurs ; quelqu'un qui calcule les 10^6 clés d'une fenêtre (coûteux :
+// scrypt) peut savoir, pendant cette fenêtre, qu'une session est ouverte et trouver l'adresse IP de
+// l'hôte. Il ne peut pas entrer sans l'accord de l'hôte, et 5 codes faux ferment le code.
+// Protocole v2 (ALPN « mg-collab/2 », « mg-share/2 ») : les versions v1 (Marginalia 3.35, 3.36) ne se
+// connectent plus par Internet aux nouvelles ; le réseau local n'est pas concerné.
 //
 // Module natif : electron/native/<mac|win|linux>-<arch>/iroh.node dans l'app empaquetée (récupéré par
 // scripts/fetch-iroh.mjs), sinon le paquet @number0/iroh (développement). Absent (Mac Intel, par
@@ -29,11 +38,18 @@ const { Duplex } = require('node:stream');
 
 // Deux usages, séparés : « collab » (travailler à plusieurs) et « share » (envoyer une copie). Clé et
 // protocole (ALPN) différents : un code d'envoi ne mène jamais à une session, ni l'inverse.
-const alpnOf = (kind) => Array.from(Buffer.from(`mg-${kind}/1`, 'utf8'));
-const saltOf = (kind) => Buffer.from(`marginalia ${kind} internet v1`, 'utf8');
+const alpnOf = (kind) => Array.from(Buffer.from(`mg-${kind}/2`, 'utf8'));
+const saltOf = (kind, epoch) => Buffer.from(`marginalia ${kind} internet v2 ${epoch}`, 'utf8');
 const ALPN = alpnOf('collab');
 const SCRYPT = { N: 2 ** 17, r: 8, p: 1, maxmem: 256 * 1024 * 1024 };
 const CHUNK = 64 * 1024;
+/** Durée d'une fenêtre de rendez-vous. */
+const EPOCH_MS = 10 * 60 * 1000;
+const epochOf = (t, ms = EPOCH_MS) => Math.floor(t / ms);
+/** Flux ouverts en même temps par un même pair (un invité en utilise 1 à 3). */
+const MAX_STREAMS_PER_PEER = 16;
+/** Pairs connectés en même temps à un point d'accès. */
+const MAX_PEERS = 32;
 
 let lib;
 let loadError = null;
@@ -55,10 +71,10 @@ function load() {
   return lib;
 }
 
-/** Clé secrète du point d'accès (32 octets) tirée du code. */
-function secretFor(code, cost = SCRYPT, kind = 'collab') {
+/** Clé secrète du point d'accès (32 octets) tirée du code, pour une fenêtre donnée. */
+function secretFor(code, cost = SCRYPT, kind = 'collab', epoch = epochOf(Date.now())) {
   return new Promise((resolve, reject) => {
-    crypto.scrypt(Buffer.from(String(code), 'utf8'), saltOf(kind), 32, cost, (err, k) => (err ? reject(err) : resolve(k)));
+    crypto.scrypt(Buffer.from(String(code), 'utf8'), saltOf(kind, epoch), 32, cost || SCRYPT, (err, k) => (err ? reject(err) : resolve(k)));
   });
 }
 
@@ -154,9 +170,13 @@ const withTimeout = (p, ms, what) =>
  * @param {Map<string, any>} [o.registry]  tests : annuaire en mémoire (identifiant → EndpointAddr) à la place de celui de n0
  * @param {string} [o.registryFile]  tests de bout en bout : annuaire dans un fichier JSON partagé par les processus
  * @param {number} [o.dialMs]
+ * @param {() => number} [o.now]  tests : horloge
+ * @param {number} [o.epochMs]  tests : durée d'une fenêtre de rendez-vous
  */
 function createInternet(o = {}) {
   const diag = o.diag || (() => {});
+  const now = o.now || Date.now;
+  const epochMs = o.epochMs || EPOCH_MS;
   let enabled = true;
 
   async function bind(secret, kind = 'collab') {
@@ -173,59 +193,152 @@ function createInternet(o = {}) {
   const closeEp = (ep) => withTimeout(ep.close(), 3000, 'fermeture').catch(() => {});
 
   /**
-   * Hôte : ouvre le point d'accès du code ; chaque flux entrant est remis à `onSocket`.
+   * Hôte : ouvre les points d'accès du code (fenêtre en cours et ses deux voisines, renouvelés au fil du
+   * temps) ; chaque flux entrant est remis à `onSocket`.
    * `refuseNew()` : plus de nouvelles connexions (code expiré), celles en cours continuent.
    * @returns {Promise<{ id: string, addr: () => any, refuseNew: () => void, close: () => Promise<void> }>}
    */
   async function host(code, onSocket, kind = 'collab') {
-    const secret = await secretFor(code, o.scrypt, kind);
-    const ep = await bind(secret, kind);
-    secret.fill(0);
-    if (o.registry) o.registry.set(ep.id().toString(), ep.addr());
-    if (o.registryFile) fileRegistry(ep.id().toString(), ep.addr().directAddresses());
+    const who = kind === 'share' ? 'partage' : 'collab';
     let closed = false;
     let refusing = false;
-    const conns = new Set();
-    (async () => {
-      while (!closed) {
-        let inc;
-        try {
-          inc = await ep.acceptNext();
-        } catch {
-          break;
-        }
-        if (!inc) break;
-        if (refusing) {
-          inc.refuse().catch(() => {});
-          continue;
-        }
-        (async () => {
+    /** fenêtre → { ep, conns, open } */
+    const eps = new Map();
+    const unpublish = (ep) => {
+      if (o.registry) o.registry.delete(ep.id().toString());
+      if (o.registryFile) fileRegistry(ep.id().toString(), null);
+    };
+
+    function acceptLoop(slot) {
+      (async () => {
+        for (;;) {
+          let inc;
           try {
-            const conn = await (await inc.accept()).connect();
-            conns.add(conn);
-            const remote = conn.remoteId().toString();
-            diag(kind === 'share' ? 'partage' : 'collab', 'internet : pair connecté', remote.slice(0, 10));
-            for (;;) {
-              const bi = await conn.acceptBi();
-              onSocket(new IrohSocket(bi, remote));
-            }
+            inc = await slot.ep.acceptNext();
           } catch {
-            /* connexion terminée */
+            break;
           }
-        })();
+          if (!inc) break;
+          // Fenêtre passée, code expiré ou trop de monde : refusé avant toute poignée de main.
+          if (refusing || !slot.open || slot.conns.size >= MAX_PEERS) {
+            inc.refuse().catch(() => {});
+            continue;
+          }
+          (async () => {
+            let conn;
+            try {
+              conn = await (await inc.accept()).connect();
+            } catch {
+              return;
+            }
+            slot.conns.add(conn);
+            const remote = conn.remoteId().toString();
+            diag(who, 'internet : pair connecté', remote.slice(0, 10));
+            const live = new Set();
+            conn
+              .closed()
+              .catch(() => {})
+              .finally(() => {
+                slot.conns.delete(conn);
+                void sweep();
+              });
+            try {
+              for (;;) {
+                const bi = await conn.acceptBi();
+                if (live.size >= MAX_STREAMS_PER_PEER) {
+                  bi.send.reset(0n).catch(() => {});
+                  bi.recv.stop(0n).catch(() => {});
+                  continue;
+                }
+                const sock = new IrohSocket(bi, remote);
+                live.add(sock);
+                sock.once('close', () => live.delete(sock));
+                onSocket(sock);
+              }
+            } catch {
+              /* connexion terminée */
+            }
+          })();
+        }
+      })();
+    }
+
+    async function open(epoch) {
+      if (closed || eps.has(epoch)) return;
+      const slot = { ep: null, conns: new Set(), open: true };
+      eps.set(epoch, slot);
+      try {
+        const secret = await secretFor(code, o.scrypt, kind, epoch);
+        slot.ep = await bind(secret, kind);
+        secret.fill(0);
+      } catch (e) {
+        eps.delete(epoch);
+        throw e;
       }
-    })();
+      if (closed || refusing) {
+        await closeEp(slot.ep);
+        eps.delete(epoch);
+        return;
+      }
+      if (o.registry) o.registry.set(slot.ep.id().toString(), slot.ep.addr());
+      if (o.registryFile) fileRegistry(slot.ep.id().toString(), slot.ep.addr().directAddresses());
+      acceptLoop(slot);
+    }
+
+    /** Fenêtres trop anciennes : plus publiées ni ouvertes ; fermées quand plus personne n'y est. */
+    async function sweep() {
+      const e = epochOf(now(), epochMs);
+      for (const [k, slot] of eps) {
+        if (k >= e - 1 || !slot.ep) continue;
+        if (slot.open) {
+          slot.open = false;
+          unpublish(slot.ep);
+        }
+        if (!slot.conns.size) {
+          eps.delete(k);
+          await closeEp(slot.ep);
+        }
+      }
+    }
+
+    async function roll() {
+      if (closed) return;
+      const e = epochOf(now(), epochMs);
+      if (!refusing) for (const k of [e, e + 1, e - 1]) await open(k).catch((err) => diag(who, 'internet : fenêtre', err && err.message));
+      await sweep();
+    }
+
+    // La fenêtre en cours d'abord (le code s'affiche dès qu'elle est ouverte), les voisines ensuite.
+    await open(epochOf(now(), epochMs));
+    void roll();
+    const timer = setInterval(() => void roll(), Math.min(60_000, Math.max(50, Math.floor(epochMs / 4))));
+    timer.unref?.();
+    const current = () => eps.get(epochOf(now(), epochMs))?.ep || [...eps.values()].find((x) => x.ep)?.ep;
+
     return {
-      id: ep.id().toString(),
-      addr: () => ep.addr(),
+      get id() {
+        return current()?.id().toString() ?? '';
+      },
+      addr: () => current()?.addr(),
+      /** Fenêtres ouvertes (tests). */
+      epochs: () => [...eps.entries()].filter(([, x]) => x.ep && x.open).map(([k]) => k),
       refuseNew: () => {
         refusing = true;
-        if (o.registry) o.registry.delete(ep.id().toString());
+        for (const slot of eps.values()) {
+          slot.open = false;
+          if (slot.ep) unpublish(slot.ep);
+        }
       },
       close: async () => {
         closed = true;
-        if (o.registry) o.registry.delete(ep.id().toString());
-        await closeEp(ep);
+        clearInterval(timer);
+        const all = [...eps.values()];
+        eps.clear();
+        for (const slot of all)
+          if (slot.ep) {
+            unpublish(slot.ep);
+            await closeEp(slot.ep);
+          }
       },
     };
   }
@@ -240,17 +353,18 @@ function createInternet(o = {}) {
       /* vide */
     }
     if (id) {
-      all[id] = addrs;
+      if (addrs) all[id] = addrs;
+      else delete all[id];
       fs.writeFileSync(o.registryFile, JSON.stringify(all));
     }
     return all;
   }
 
   let guestEp = null;
-  /** Invité : se connecte au point d'accès du code. Résout avec de quoi ouvrir des flux, ou null (personne). */
+  /** Invité : se connecte au point d'accès du code (fenêtre en cours). Résout avec de quoi ouvrir des flux, ou null (personne). */
   async function dial(code, kind = 'collab') {
     const L = load();
-    const secret = await secretFor(code, o.scrypt, kind);
+    const secret = await secretFor(code, o.scrypt, kind, epochOf(now(), epochMs));
     const id = L.SecretKey.fromBytes(Array.from(secret)).public();
     secret.fill(0);
     if (!guestEp || guestEp.isClosed()) guestEp = await bind(null);
@@ -302,4 +416,4 @@ function createInternet(o = {}) {
   };
 }
 
-module.exports = { createInternet, secretFor, IrohSocket, ALPN };
+module.exports = { createInternet, secretFor, IrohSocket, ALPN, EPOCH_MS, epochOf };

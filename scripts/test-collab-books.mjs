@@ -147,12 +147,13 @@ try {
   const after = await C.page.evaluate(() => {
     const a = window.__collab.state.getState().afterSession;
     const s = window.__store.getState();
-    return a ? a.targets.filter((t) => t.kind === 'book').map((t) => s.books.find((b) => b.id === t.id)?.title ?? t.id) : null;
+    // Le livre d'Inès porte maintenant le titre de la fiche partagée (synchronisée) : on le suit par son id.
+    return a ? a.targets.filter((t) => t.kind === 'book').map((t) => (t.id === 'ines-attente' ? 'ines-attente' : (s.books.find((b) => b.id === t.id)?.title ?? t.id))) : null;
   });
-  ok(after && after.includes('Discours de la méthode') && after.includes('Traité sans fichier') && !after.includes('Livre attendu par Inès'), 'Inès quitte : les livres reçus en session sont proposés au retrait, pas le sien', after);
+  ok(after && after.includes('Discours de la méthode') && after.includes('Traité sans fichier') && !after.includes('ines-attente'), 'Inès quitte : les livres reçus en session sont proposés au retrait, pas le sien', after);
   await C.page.evaluate(() => window.__collab.session().then((m) => m.dropSharedWorkspace()));
-  const left = await C.page.evaluate(() => window.__store.getState().books.map((b) => b.title));
-  ok(!left.includes('Traité sans fichier') && !left.includes('Discours de la méthode') && left.includes('Livre attendu par Inès'), '« Ne pas garder » : les livres reçus partent à la corbeille, le sien reste', left);
+  const left = await C.page.evaluate(() => window.__store.getState().books.map((b) => (b.id === 'ines-attente' ? 'ines-attente' : b.title)));
+  ok(!left.includes('Traité sans fichier') && !left.includes('Discours de la méthode') && left.includes('ines-attente'), '« Ne pas garder » : les livres reçus partent à la corbeille, le sien reste', left);
   await A.page.evaluate(() => window.__collab.session().then((m) => m.stopSession()));
   await A.page.waitForTimeout(1500);
   await B.page.evaluate(() => window.__collab.state.setState({ afterSession: null }));

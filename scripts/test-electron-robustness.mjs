@@ -12,7 +12,16 @@ import fs from 'node:fs';
 import os from 'node:os';
 
 const ROOT = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..');
-const APP_DIR = path.join(ROOT, 'release/Marginalia-darwin-arm64/Marginalia.app/Contents/Resources/app');
+const PACKAGED = path.join(ROOT, 'release/Marginalia-darwin-arm64/Marginalia.app/Contents/Resources/app');
+// L'app empaquetée seulement si elle est à jour (même code Electron que le dépôt), sinon le dépôt (dist/).
+const same = (f) => {
+  try {
+    return fs.readFileSync(path.join(PACKAGED, f), 'utf8') === fs.readFileSync(path.join(ROOT, f), 'utf8');
+  } catch {
+    return false;
+  }
+};
+const APP_DIR = same('electron/main.cjs') && same('electron/preload.cjs') ? PACKAGED : ROOT;
 const EXE = path.join(ROOT, 'node_modules/electron/dist/electron');
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'mg-robust-'));
 const SYS_TMP = path.join(TMP, 'tmp');

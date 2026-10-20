@@ -398,17 +398,17 @@ const HERO_SEQ: [Pose, number][] = [['wave', 2600], ['read', 6500], ['spyglass',
 const STEPS = [
   {
     title: 'Lire',
-    text: 'Ouvrez vos livres et vos cours, EPUB, PDF, Word ou Markdown, et lisez deux textes côte à côte. Surlignez en six catégories : problème, thèse, argument, thèse adverse, concept, exemple.',
+    text: 'EPUB, PDF, Word ou Markdown, deux textes côte à côte. Surlignez en six couleurs : problème, thèse, argument, thèse adverse, concept, exemple.',
     shot: 'lire',
   },
   {
     title: 'Comprendre',
-    text: 'Vos surlignages dessinent le raisonnement de l’auteur : thèse, arguments et objections se relient sur la carte du livre, d’un glisser depuis le texte. Ils deviennent aussi une fiche du texte et des fiches de concepts, prêtes à réviser.',
+    text: 'Vos surlignages dessinent le raisonnement de l’auteur sur une carte, et deviennent des fiches prêtes à réviser.',
     shot: 'comprendre',
   },
   {
     title: 'Écrire',
-    text: 'Du plan de dissertation au texte rédigé, dans un traitement de texte au format Word, avec notes de bas de page. Export Word, PDF, page web ou Markdown, mise en page comprise.',
+    text: 'Du plan au texte rédigé, au format Word, avec notes de bas de page. Export Word, PDF, page web ou Markdown.',
     shot: 'ecrire',
   },
 ];
@@ -501,17 +501,12 @@ const MORE: { icon: string; title: string; pose: Pose; line: string; items: stri
     line: 'Ouvrez vos livres, et même une photo de page : je lis tout.',
     items: [
       'EPUB, PDF, Word, Markdown, texte, HTML',
-      'Photos et scans : texte reconnu à la demande, sans connexion',
-      'Synchronisation avec l’app Livres d’Apple (Mac)',
-      'Depuis le téléphone, par le Wi-Fi (QR code) : photo, livre ou passage copié',
-      'Et dans l’autre sens : un écrit envoyé sur le téléphone, en PDF ou Word',
-      'Notes de l’app Livres ou de Play Livres collées : un extrait par passage',
-      'Un dossier entier importé d’un coup, ou glissé dans la fenêtre',
-      'Le texte d’une photo : en extrait, ou en nouvel écrit',
-      'Défilement continu ou page par page, comme un livre',
-      'Deux textes côte à côte',
-      'Recherche, signets, aller à la page imprimée',
-      'Reprise là où vous en étiez',
+      'Photos et scans : texte reconnu sans connexion',
+      'Synchronisation avec l’app Livres (Mac)',
+      'Depuis le téléphone par QR code, et retour en PDF ou Word',
+      'Notes de Livres ou de Play Livres collées : un extrait par passage',
+      'Continu ou page par page, deux textes côte à côte',
+      'Recherche, signets, reprise là où vous en étiez',
     ],
   },
   {
@@ -533,15 +528,12 @@ const MORE: { icon: string; title: string; pose: Pose; line: string; items: stri
     pose: 'geometry' as Pose,
     line: 'Mettez la question au centre et rangez vos idées autour.',
     items: [
-      'Cartes libres pour vos idées, avec ou sans livre',
-      'Carte d’argument de chaque livre, ou de plusieurs à la fois',
-      'Problématique ou sujet au centre, branches repliables',
-      'Rangement en arbre, débat, chronologie ou étoile',
-      'Zones, liens nommés, points à revoir signalés',
-      'Le livre à côté : glissez un passage sur la carte',
-      'Comparer deux auteurs, une carte par mouvement',
+      'Cartes libres, avec ou sans livre',
+      'Carte d’argument de chaque livre',
+      'Arbre, débat, chronologie ou étoile',
+      'Un passage du livre glissé sur la carte',
       'Présentation en plein écran, export image ou PDF',
-      'Un plan ou une explication tirés de la carte',
+      'Un plan tiré de la carte',
     ],
   },
   {
@@ -562,15 +554,12 @@ const MORE: { icon: string; title: string; pose: Pose; line: string; items: stri
     pose: 'write' as Pose,
     line: 'Le livre ouvert à côté, la plume à la main.',
     items: [
-      'Plans de dissertation nourris de vos extraits et arguments',
-      'Traitement de texte au format Word (.docx)',
-      'Notes de bas de page, notes privées, commentaires en marge',
-      'Le livre, les extraits ou le plan ouverts à côté de l’écrit',
-      'Citer en écrivant : chaque citation reste reliée à son passage',
-      'Correcteur orthographique, pinceau, plan déplaçable',
-      'Mode concentration et machine à écrire',
-      'Versions comparées mot à mot',
-      'Export Word, PDF, page web, Markdown, mise en page comprise',
+      'Plans nourris de vos extraits et arguments',
+      'Traitement de texte au format Word',
+      'Notes de bas de page et commentaires en marge',
+      'Citations reliées à leur passage',
+      'Correcteur, mode concentration, versions comparées',
+      'Export Word, PDF, page web, Markdown',
     ],
   },
   {
@@ -579,11 +568,10 @@ const MORE: { icon: string; title: string; pose: Pose; line: string; items: stri
     pose: 'herborize' as Pose,
     line: 'Rien ne se perd ici. J’aurais aimé ça pour mes manuscrits.',
     items: [
-      'Recherche partout (⌘K) : livres, extraits, concepts, plans, écrits, signets',
-      'Historique : revenir à l’état d’avant chaque action',
-      'Corbeille de 30 jours',
-      'Sauvegardes automatiques, et sauvegarde complète en .zip',
-      'Bibliothèque triée, filtrée, export de toutes vos notes',
+      'Recherche partout (⌘K)',
+      'Historique, et corbeille de 30 jours',
+      'Sauvegardes automatiques, et complètes en .zip',
+      'Mises à jour installées quand vous le décidez',
       'Thèmes clair, sépia et sombre',
       'Un compagnon : Rousseau, Socrate, Platon, Aristote ou le cerveau',
     ],
@@ -605,6 +593,7 @@ function Pict({ name }: { name: string }) {
     noacc: <><circle cx="12" cy="8" r="3.2" {...p} /><path d="M6 20c.4-3.8 2.6-6 6-6s5.6 2.2 6 6" {...p} /><path d="M4 4l16 16" {...p} /></>,
     scan: <><path d="M4 8V5.5A1.5 1.5 0 0 1 5.5 4H8M16 4h2.5A1.5 1.5 0 0 1 20 5.5V8M20 16v2.5a1.5 1.5 0 0 1-1.5 1.5H16M8 20H5.5A1.5 1.5 0 0 1 4 18.5V16" {...p} /><path d="M8 9.5h8M8 12.5h8M8 15.5h5" {...p} /></>,
     shield: <><path d="M12 3l7 2.8v5.4c0 4.4-2.9 8-7 9.8-4.1-1.8-7-5.4-7-9.8V5.8z" {...p} /><path d="M9 12l2.2 2.2L15.5 10" {...p} /></>,
+    link: <><circle cx="6" cy="12" r="2.8" {...p} /><circle cx="18" cy="12" r="2.8" {...p} /><path d="M8.8 12h6.4" {...p} /><path d="M10.5 8.2l1.5-1.6 1.5 1.6M10.5 15.8l1.5 1.6 1.5-1.6" {...p} /></>,
     folder: <><path d="M3.5 7.5A1.5 1.5 0 0 1 5 6h4.2l2 2H19a1.5 1.5 0 0 1 1.5 1.5v8A1.5 1.5 0 0 1 19 19H5a1.5 1.5 0 0 1-1.5-1.5z" {...p} /><path d="M12 11v5M9.8 13.8L12 16l2.2-2.2" {...p} /></>,
     search: <><circle cx="10.5" cy="10.5" r="6" {...p} /><path d="M15 15l5 5" {...p} /></>,
     figure: <><circle cx="12" cy="7" r="3.2" {...p} /><path d="M6.5 21c.5-4.5 2.5-7 5.5-7s5 2.5 5.5 7" {...p} /><path d="M8.6 6.2c-1.4-.2-1.8 1.4-.6 2M15.4 6.2c1.4-.2 1.8 1.4.6 2" {...p} /></>,
@@ -739,19 +728,16 @@ function Together() {
       <div className="together-text">
         <h2 id="together-title">À plusieurs, sur le même travail</h2>
         <p>
-          Un exposé à préparer, un mémoire à deux, une dissertation en groupe&nbsp;: cliquez sur «&nbsp;Partager&nbsp;», puis «&nbsp;Travailler ensemble&nbsp;».
-          Les autres tapent le code à six chiffres, et l’espace de travail arrive chez eux, avec ses livres, ses écrits et ses cartes.
+          Un exposé, un mémoire à deux&nbsp;: «&nbsp;Partager › Travailler ensemble&nbsp;». Les autres tapent le code à six chiffres,
+          et l’espace arrive chez eux, livres, écrits et cartes compris.
         </p>
-        <p>
-          Chacun a sa couleur. Vous voyez où les autres écrivent, leur pointeur glisser sur la carte, le passage qu’ils sélectionnent dans le livre.
-          Une phrase tapée chez l’un apparaît aussitôt chez tous.
-        </p>
+        <p>Chacun a sa couleur. Une phrase tapée chez l’un apparaît aussitôt chez tous.</p>
       </div>
       <div className="together-stage">
         <div className="shot-wrap" data-perch="ensemble">
           <TogetherVideo />
         </div>
-        <img className="together-card" src="/captures/ensemble-code.png" alt="La fenêtre « Travailler à plusieurs » : le code 324-508, les trois étapes sur l’autre ordinateur, et les six places" width={640} height={476} loading="lazy" />
+        <img className="together-card" src="/captures/ensemble-code.png" alt="La fenêtre « Travailler à plusieurs » : le code 254-506 et « Copier le code », quatre places, et les cases de ce que les invités peuvent modifier" width={640} height={688} loading="lazy" />
         <ul className="crew" aria-label="Trois philosophes travaillent ensemble : l’un discute, l’autre écrit, le troisième lit">
           {CREW.map((c) => (
             <li key={c.who} className="crew-one" style={{ ['--who' as string]: c.color }}>
@@ -767,32 +753,31 @@ function Together() {
       <ul className="together-points">
         <li>
           <h3>Jusqu’à six, en direct</h3>
-          <p>Écrits, cartes et extraits se mettent à jour chez tous. Celui qui ouvre la session accueille les autres, et peut retirer quelqu’un.</p>
+          <p>L’hôte accepte chaque arrivée et coche ce que les autres peuvent modifier. Le reste, ils le lisent.</p>
         </li>
         <li>
-          <h3>Ici ou à distance</h3>
-          <p>Mac et Windows ensemble, sans compte ni serveur&nbsp;: sur le même Wi-Fi ou par Internet, en pair à pair. Le code suffit, et tout est chiffré de bout en bout.</p>
+          <h3>Sans serveur, même à distance</h3>
+          <p>Sur le même Wi-Fi ou par Internet, vos ordinateurs se parlent directement, chiffrés de bout en bout. Le point de rencontre change toutes les 10 minutes&nbsp;: personne ne peut guetter vos sessions.</p>
         </li>
         <li>
           <h3>Chacun garde son exemplaire</h3>
-          <p>Après la session, chacun continue de son côté. À la séance suivante, les deux versions d’une même phrase se comparent, et vous choisissez.</p>
+          <p>Après la session, chacun continue de son côté. À la suivante, vous choisissez entre les deux versions d’une phrase.</p>
         </li>
       </ul>
       <p className="together-copy">
-        Juste donner une copie&nbsp;? «&nbsp;Envoyer une copie&nbsp;» la transmet par le Wi-Fi avec un code, ou dans un fichier <span className="nowrap">.marginalia</span> à
-        mettre sur une clé USB.
+        Juste donner une copie&nbsp;? «&nbsp;Envoyer une copie&nbsp;» la transmet avec un code valable une minute, ou dans un fichier <span className="nowrap">.marginalia</span>.
       </p>
     </section>
   );
 }
 
 const PRIVACY = [
-  { icon: 'offline', title: 'Hors ligne, par construction', text: 'L’app bloque toute connexion vers Internet, sauf pour vérifier au lancement s’il existe une nouvelle version, retrouver l’édition d’un livre papier (seul le titre ou l’ISBN tapé part) et travailler à plusieurs à distance (en pair à pair, chiffré de bout en bout). Les trois sont désactivables. Elle fonctionne aussi bien en mode avion qu’au bureau.' },
-  { icon: 'noacc', title: 'Ni compte, ni pistage', text: 'Pas d’inscription, pas de publicité, pas de statistiques d’utilisation. Personne ne sait ce que vous lisez ni ce que vous écrivez.' },
-  { icon: 'scan', title: 'La reconnaissance de texte reste chez vous', text: 'Le moteur et ses modèles sont livrés avec l’app : vos photos et vos scans ne sont envoyés nulle part.' },
-  { icon: 'lock', title: 'Chiffrement AES-256', text: 'En option, toutes vos données sont chiffrées sur le disque. La clé est gardée par le Trousseau du Mac ou par Windows.' },
-  { icon: 'shield', title: 'Verrouillage', text: 'Par mot de passe, ou Touch ID sur Mac. Verrouillage automatique après quelques minutes ou à la mise en veille, et une clé de secours en cas d’oubli.' },
-  { icon: 'folder', title: 'Vos fichiers, vos sauvegardes', text: 'Tout est rangé dans un dossier de votre ordinateur. Une sauvegarde complète tient dans une archive .zip, que vous gardez où vous voulez.' },
+  { icon: 'offline', title: 'Hors ligne, par construction', text: 'Trois connexions seulement, que vous pouvez couper : chercher une mise à jour (téléchargée si vous le voulez), retrouver l’édition d’un livre papier, travailler à plusieurs.' },
+  { icon: 'link', title: 'À plusieurs, sans serveur', text: 'Vos ordinateurs se parlent directement, chiffrés de bout en bout. Le point de rencontre change toutes les 10 minutes, et l’hôte accepte chaque arrivée.' },
+  { icon: 'noacc', title: 'Ni compte, ni pistage', text: 'Pas d’inscription, pas de publicité, pas de statistiques. Personne ne sait ce que vous lisez.' },
+  { icon: 'scan', title: 'Le texte des photos, lu chez vous', text: 'La reconnaissance de texte tourne sur votre ordinateur : vos photos et vos scans ne partent nulle part.' },
+  { icon: 'lock', title: 'Chiffré et verrouillé', text: 'En option : données chiffrées (AES-256), mot de passe ou Touch ID, verrouillage à la mise en veille.' },
+  { icon: 'folder', title: 'Vos fichiers, vos sauvegardes', text: 'Tout reste dans un dossier de votre ordinateur. Une sauvegarde complète tient dans un .zip.' },
 ];
 
 /** Confidentialité : ce que l'app garantit (vérifié dans electron/main.cjs, vault.cjs, ocr.ts). */
@@ -802,10 +787,7 @@ function Privacy() {
       <div className="private-head">
         <p className="eyebrow"><Pict name="lock" /> Confidentialité</p>
         <h2 id="private-title">Rien ne quitte votre ordinateur</h2>
-        <p className="private-lede">
-          Vos lectures, vos notes et vos brouillons n’appartiennent qu’à vous. Marginalia tourne entièrement sur votre ordinateur&nbsp;:
-          il n’y a pas de serveur, donc rien à envoyer, rien à fuiter.
-        </p>
+        <p className="private-lede">Marginalia tourne entièrement sur votre ordinateur. Pas de serveur&nbsp;: rien à envoyer, rien à fuiter.</p>
       </div>
       <ul className="private-grid">
         {PRIVACY.map((x) => (
@@ -817,8 +799,7 @@ function Privacy() {
         ))}
       </ul>
       <p className="private-note">
-        Les photos prises avec votre téléphone passent par votre propre iCloud Drive ou OneDrive, jamais par nous. Et le code de l’app
-        est public&nbsp;: chacun peut <a href="https://github.com/FavveyAxel/marginalia">vérifier ce qu’elle fait</a>.
+        Le code de l’app est public&nbsp;: chacun peut <a href="https://github.com/FavveyAxel/marginalia">vérifier ce qu’elle fait</a>.
       </p>
     </section>
   );
@@ -889,11 +870,7 @@ function App() {
         <section className="cote reveal" aria-labelledby="cote-title">
           <div className="cote-text">
             <h2 id="cote-title">Écrire, le livre ouvert à côté</h2>
-            <p>
-              Pendant que vous écrivez, ouvrez à côté le vrai livre, vos extraits, vos concepts ou votre plan. Sélectionnez un passage et
-              citez-le : la citation reste reliée à sa page, et un ⌘-clic dessus vous y ramène.
-            </p>
-            <p>Le partage de l’écran se règle à la souris, ou d’un clic en deux moitiés égales.</p>
+            <p>Le livre, vos extraits ou votre plan, ouverts à côté de l’écrit. Une citation reste reliée à sa page&nbsp;: un ⌘-clic vous y ramène.</p>
           </div>
           <div className="shot-wrap" data-perch="cote">
             <img className="cote-shot" src="/captures/cote.png" alt="Une dissertation dans l’éditeur, le Discours de la méthode ouvert à côté" width={1440} height={900} loading="lazy" />
@@ -903,14 +880,8 @@ function App() {
         <section className="photo reveal" aria-labelledby="photo-title">
           <div className="photo-text">
             <h2 id="photo-title">Une photo, et le texte est là</h2>
-            <p>
-              Importez une photo ou un scan, en JPG, PNG ou HEIC. Quand vous le décidez, Marginalia en reconnaît le texte, sur votre ordinateur, sans connexion.
-              Vous le sélectionnez et le surlignez comme dans un livre, et vous corrigez d’un clic une ligne mal lue.
-            </p>
-            <p>
-              Depuis le téléphone, il suffit de scanner un QR code et de prendre la photo. Lisez son texte, et Marginalia retrouve le passage dans vos livres et
-              l’ajoute comme extrait, ou en fait un nouvel écrit.
-            </p>
+            <p>Photo ou scan&nbsp;: Marginalia en reconnaît le texte, sur votre ordinateur, sans connexion. Vous le surlignez comme dans un livre.</p>
+            <p>Depuis le téléphone, un QR code suffit. Le passage est retrouvé dans vos livres et ajouté en extrait.</p>
           </div>
           <div className="photo-stack">
             <div className="shot-wrap" data-perch="photo">
@@ -923,15 +894,7 @@ function App() {
         <section className="carte reveal" id="carte" aria-labelledby="carte-title">
           <div className="carte-text">
             <h2 id="carte-title">Mettre ses idées à plat</h2>
-            <p>
-              Une carte mentale libre, sans livre&nbsp;: posez votre sujet ou votre problématique au centre et lancez vos idées autour,
-              comme sur un tableau blanc. Reliez-les, colorez-les, regroupez-les en zones («&nbsp;À faire&nbsp;», «&nbsp;À creuser&nbsp;»),
-              repliez une branche pour y voir clair. Un clic la range en arbre ou en étoile.
-            </p>
-            <p>
-              Pour un mémoire, un exposé ou un projet&nbsp;: la carte vit dans son espace de travail, à côté de vos écrits et de vos sources.
-              Quand un livre s’en mêle, glissez-y un extrait&nbsp;; et quand tout est en place, tirez-en un plan ou un premier jet.
-            </p>
+            <p>Votre problématique au centre, vos idées autour, comme sur un tableau blanc. Reliez, regroupez, repliez. Quand tout est en place, tirez-en un plan.</p>
           </div>
           <div className="shot-wrap" data-perch="carte">
             <img className="carte-shot" src="/captures/carte.png" alt="Une carte mentale libre « Idées pour le mémoire » : la problématique sur le télétravail au centre, quatre branches en couleur et une zone « À faire en mars »" width={1440} height={900} loading="lazy" />
@@ -944,22 +907,14 @@ function App() {
           </div>
           <div className="spaces-text">
             <h2 id="spaces-title">Un espace par cours, par dissertation</h2>
-            <p>
-              Réunissez dans un espace de travail tout ce qui sert à un même travail : livres, écrits, plans, arguments, cartes et
-              fiches. Rangez-les en groupes et sous-groupes, par glisser-déposer.
-            </p>
-            <p>Un même livre peut servir à plusieurs espaces sans être copié, et chaque espace affiche où vous en êtes : livres, extraits, cartes à réviser.</p>
+            <p>Livres, écrits, plans et cartes d’un même travail, réunis et rangés en groupes. Un livre sert à plusieurs espaces sans être copié.</p>
           </div>
         </section>
 
         <section className="books reveal" aria-labelledby="books-title">
           <div className="books-text">
             <h2 id="books-title">Synchronisé avec l’app Livres</h2>
-            <p>
-              Sur Mac, vos EPUB et PDF de l’app Livres d’Apple arrivent dans Marginalia avec vos surlignages, vos notes, vos signets et
-              l’endroit où vous en êtes. Chaque couleur de Livres devient une catégorie : le jaune une thèse, le vert un argument…
-            </p>
-            <p>Un livre ajouté sur votre iPhone ou votre iPad arrive tout seul. Rien n’est jamais modifié dans Livres.</p>
+            <p>Sur Mac, vos EPUB et PDF de Livres arrivent avec vos surlignages, vos notes et vos signets. Chaque couleur devient une catégorie. Rien n’est modifié dans Livres.</p>
             <p className="books-note">Livres achetés avec protection (DRM) exclus.</p>
           </div>
           <div className="shot-wrap books-wrap" data-perch="livres">
@@ -976,19 +931,9 @@ function App() {
           </div>
           <div className="qr-text">
             <h2 id="qr-title">Du téléphone à l’ordinateur, par un QR code</h2>
-            <p>
-              Dans Marginalia, « Importer » affiche un QR code. Scannez-le avec l’appareil photo de votre iPhone ou de votre téléphone Android : une page
-              s’ouvre, sans rien installer. Prenez en photo une page de livre, envoyez un PDF, un EPUB, un document Word, ou collez toutes vos notes d’un livre.
-            </p>
-            <p>
-              Chaque envoi arrive aussitôt, et vous savez où il est allé, sur l’ordinateur comme sur le téléphone : dans la bibliothèque, en extrait au bon
-              endroit du livre, ou dans la Boîte de réception pour que vous décidiez.
-            </p>
-            <p>
-              Et dans l’autre sens : dans Écrire, « Exporter › Sur le téléphone » affiche un QR code, et votre écrit se télécharge sur le téléphone, en
-              PDF pour le relire ou en Word pour le continuer ailleurs.
-            </p>
-            <p className="qr-note">Par le Wi-Fi de la maison, sans compte : rien ne passe par Internet, et la réception se ferme avec sa fenêtre.</p>
+            <p>«&nbsp;Importer&nbsp;» affiche un QR code. Scannez-le avec votre téléphone, sans rien installer, et envoyez une photo de page, un PDF, un EPUB ou vos notes.</p>
+            <p>Et dans l’autre sens, un écrit se télécharge sur le téléphone, en PDF ou en Word.</p>
+            <p className="qr-note">Par le Wi-Fi de la maison, sans compte&nbsp;: rien ne passe par Internet.</p>
           </div>
         </section>
 

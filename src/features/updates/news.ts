@@ -21,6 +21,16 @@ export interface NewsEntry {
 
 export const NEWS: NewsEntry[] = [
   {
+    version: '3.39',
+    items: [
+      {
+        icon: 'update',
+        title: 'Windows : ouverture au premier clic',
+        text: 'La fenêtre s’affiche à chaque lancement, et l’app se rouvre d’elle-même après une mise à jour.',
+      },
+    ],
+  },
+  {
     version: '3.38',
     items: [
       {

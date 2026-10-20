@@ -411,6 +411,16 @@ export function separateUndoStep() {
   if (last) last.at = 0;
 }
 
+/**
+ * Garde d'écriture : appelée avant chaque écriture locale ; `true` = refusée (rien ne change). Le travail
+ * à plusieurs l'installe chez un invité à qui l'hôte n'a pas tout permis (src/features/collab/session.ts).
+ */
+type WriteGuard = (prev: State, next: State) => boolean;
+let writeGuard: WriteGuard | null = null;
+export function setWriteGuard(g: WriteGuard | null) {
+  writeGuard = g;
+}
+
 /** Middleware : enveloppe setState (actions ET useStore.setState externes). */
 /** Les « Annuler » des toasts précédents ne correspondent plus à l'état : on les retire. */
 function dropActionToasts() {
@@ -425,6 +435,15 @@ const tracked =
     rawSet = (partial) => orig(partial);
     const wrapped: typeof api.setState = (partial, replace) => {
       const prev = api.getState();
+      // Écriture locale refusée avant de s'appliquer (travail à plusieurs : invité sans la permission).
+      // Les changements reçus (applyExternal, `quiet`) ne passent pas par ici.
+      if (writeGuard && !quiet && prev.ready) {
+        const p = typeof partial === 'function' ? (partial as (s: State) => Partial<State>)(prev) : partial;
+        if (writeGuard(prev, (replace ? p : { ...prev, ...p }) as State)) return;
+        (orig as any)(p, replace);
+        recordChange(prev, api.getState());
+        return;
+      }
       (orig as any)(partial, replace);
       recordChange(prev, api.getState());
     };

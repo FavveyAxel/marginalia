@@ -115,6 +115,10 @@ export class RecordSync {
   private stopped = false;
 
   constructor(readonly o: RecordSyncOptions) {}
+  /** En train d'appliquer des changements reçus (ce ne sont pas des écritures de l'utilisateur). */
+  get applyingRemote(): boolean {
+    return this.applying > 0;
+  }
 
   // ── Identifiants communs ──
   private gidLocal(c: Col, localId: string, item?: Any): string {
@@ -377,6 +381,21 @@ export class RecordSync {
     }
     this.base = next;
     if (recs.length) this.o.send(sortRecs(recs));
+  }
+  /**
+   * Écriture locale proposée (avant → après) : première catégorie touchée que `can` refuse, ou null.
+   * Même périmètre et mêmes enregistrements que ce qui partirait (diffNow) : ce que l'hôte filtrerait.
+   */
+  forbidden(prev: State, next: State, can: (c: Col) => boolean): Col | null {
+    const a = this.snapshot(prev);
+    const b = this.snapshot(next);
+    for (const [k, v] of b) {
+      if (can(v.c)) continue;
+      const p = a.get(k);
+      if (!p || p.json !== v.json) return v.c;
+    }
+    for (const [k, v] of a) if (!b.has(k) && !can(v.c) && this.gone(v, next)) return v.c;
+    return null;
   }
   private gone(v: Snap, s: State): boolean {
     switch (v.c) {

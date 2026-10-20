@@ -1,7 +1,8 @@
 // Vue d'un espace (ou d'un de ses groupes) : sous-groupes en tuiles, éléments en cartes.
 import { useEffect, useMemo, useRef, useState, type DragEvent } from 'react';
 import { ShareButton } from '../collab/ShareButton';
-import { Check, CheckSquare, ChevronRight, FilePen, Folder, FolderPlus, GitCompareArrows, MoreHorizontal, Network, PackagePlus, Pencil, Upload } from 'lucide-react';
+import { useCollab } from '../collab/collabState';
+import { Check, CheckSquare, ChevronRight, FilePen, Folder, FolderPlus, GitCompareArrows, Lock, MoreHorizontal, Network, PackagePlus, Pencil, Upload } from 'lucide-react';
 import { LassoBox, useLasso, useMultiSelect, useSelectionKeys, type MultiSelect } from '../../lib/useMultiSelect';
 import { useStore } from '../../lib/store';
 import type { WorkspaceGroup } from '../../lib/types';
@@ -162,6 +163,14 @@ export function WorkspaceView({ workspaceId, groupId }: { workspaceId: string; g
     });
 
   const page = dArgs('page', workspaceId, effGroupId);
+  // Travail à plusieurs, invité sans « Ajouter et ranger » : commandes de rangement verrouillées, avec la
+  // raison (curseur « interdit », infobulle, message au clic). Le reste se garde aussi (src/features/collab/session.ts).
+  const locked = useCollab((c) => c.role === 'guest' && c.workspaceId === workspaceId && !c.perm.organize);
+  const LOCK_MSG = 'L’hôte ne vous a pas permis d’ajouter ou de ranger des éléments dans cet espace.';
+  const act = (run: () => void, title?: string) =>
+    locked
+      ? { 'aria-disabled': true, 'data-locked': '', title: LOCK_MSG, onClick: () => useStore.getState().toast(LOCK_MSG, 'info') }
+      : { onClick: run, ...(title ? { title } : {}) };
   const menuEntries = (): MenuEntry[] => (group ? groupMenu(ctx, group) : workspaceMenu(ctx, workspaceId, ws.tint));
   const openMenuAt = (el: HTMLElement, entries: MenuEntry[], label: string) => {
     const r = el.getBoundingClientRect();
@@ -192,6 +201,11 @@ export function WorkspaceView({ workspaceId, groupId }: { workspaceId: string; g
           ))}
         </nav>
         <span className="spacer" />
+        {locked && (
+          <span className="ws-locked-badge" title={LOCK_MSG} data-testid="ws-locked">
+            <Lock size={12} /> Rangement : choix de l’hôte
+          </span>
+        )}
         <ShareButton workspaceId={workspaceId} />
         <button className="icon-btn" aria-label="Actions" title="Actions" onClick={(e) => openMenuAt(e.currentTarget, menuEntries(), 'Menu')}>
           <MoreHorizontal size={16} />
@@ -226,9 +240,9 @@ export function WorkspaceView({ workspaceId, groupId }: { workspaceId: string; g
                 }}
               />
             ) : (
-              <h1 className="page-title ws-title" onClick={() => setEditTitle(true)} title="Cliquer pour renommer">
+              <h1 className={`page-title ws-title ${locked ? 'is-locked' : ''}`} onClick={() => (locked ? useStore.getState().toast(LOCK_MSG, 'info') : setEditTitle(true))} title={locked ? LOCK_MSG : 'Cliquer pour renommer'}>
                 {title}
-                <Pencil size={15} className="ws-title-pen" />
+                {!locked && <Pencil size={15} className="ws-title-pen" />}
               </h1>
             )}
             {!fullyEmpty && (
@@ -244,22 +258,22 @@ export function WorkspaceView({ workspaceId, groupId }: { workspaceId: string; g
 
           {!fullyEmpty && (
             <div className="ws-actions">
-              <button className="btn btn-primary" onClick={() => ctx.openAdd(workspaceId, effGroupId)}>
+              <button className="btn btn-primary" {...act(() => ctx.openAdd(workspaceId, effGroupId))}>
                 <PackagePlus size={14} /> Ajouter…
               </button>
-              <button className="btn" onClick={() => setNewGroup(true)}>
+              <button className="btn" {...act(() => setNewGroup(true))}>
                 <FolderPlus size={14} /> Nouveau groupe
               </button>
-              <button className="btn" onClick={() => void importHere(workspaceId, effGroupId)}>
+              <button className="btn" {...act(() => void importHere(workspaceId, effGroupId))}>
                 <Upload size={14} /> Importer ici
               </button>
-              <button className="btn" onClick={() => void newDraftHere(workspaceId, effGroupId)}>
+              <button className="btn" {...act(() => void newDraftHere(workspaceId, effGroupId))}>
                 <FilePen size={14} /> Nouvel écrit ici
               </button>
-              <button className="btn" onClick={() => newBoardHere(workspaceId, effGroupId)} title="Carte libre : idées, extraits de plusieurs livres, cartes venues d’autres cartes">
+              <button className="btn" {...act(() => newBoardHere(workspaceId, effGroupId), 'Carte libre : idées, extraits de plusieurs livres, cartes venues d’autres cartes')}>
                 <Network size={14} /> Nouvelle carte ici
               </button>
-              <button className="btn" onClick={() => setComparing({ first: null })} data-testid="ws-compare" title="Carte libre avec les thèses et arguments de deux livres, une colonne par auteur">
+              <button className="btn" {...act(() => setComparing({ first: null }), 'Carte libre avec les thèses et arguments de deux livres, une colonne par auteur')} data-testid="ws-compare">
                 <GitCompareArrows size={14} /> Comparer deux livres…
               </button>
               {here.length > 0 && (
@@ -283,13 +297,13 @@ export function WorkspaceView({ workspaceId, groupId }: { workspaceId: string; g
               <h3>Un espace pour un même travail</h3>
               <p>Un espace réunit les textes, notes et écrits d’un même travail : un cours, un mémoire, une notion. Rangez-les dans des groupes et des sous-groupes.</p>
               <div className="ws-empty-actions">
-                <button className="btn btn-primary" onClick={() => ctx.openAdd(workspaceId, null)}>
+                <button className="btn btn-primary" {...act(() => ctx.openAdd(workspaceId, null))}>
                   <PackagePlus size={14} /> Ajouter des éléments
                 </button>
-                <button className="btn" onClick={() => void importHere(workspaceId, null)}>
+                <button className="btn" {...act(() => void importHere(workspaceId, null))}>
                   <Upload size={14} /> Importer un texte
                 </button>
-                <button className="btn" onClick={() => setNewGroup(true)}>
+                <button className="btn" {...act(() => setNewGroup(true))}>
                   <FolderPlus size={14} /> Nouveau groupe
                 </button>
               </div>

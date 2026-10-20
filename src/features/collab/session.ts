@@ -13,7 +13,7 @@
 //  tous         : 'recs' { recs } (éléments de l'espace, records.ts), 'fetch' / 'files' (livre ou écrit inconnu)
 // ─────────────────────────────────────────────────────────────
 import { host, type CollabEvent, type CollabMember } from '../../lib/platform';
-import { flushPendingSave, useStore } from '../../lib/store';
+import { flushPendingSave, setWriteGuard, useStore, type State } from '../../lib/store';
 import type { Book, Draft, WorkspaceItem, WorkspaceItemKind } from '../../lib/types';
 import { bookExtraFiles, bookFingerprint, bookSourceFiles, buildSharePackage, findLocalBook, shareableDocx } from '../share/sharePackage';
 import { importSharePackage } from '../share/shareMerge';
@@ -108,6 +108,38 @@ const nameOf = (id: string) => useCollab.getState().members.find((m) => m.id ===
 // de chez lui (l'hôte le refuse aussi de son côté, electron/collab-net.cjs).
 const COL_PERM: Partial<Record<string, keyof CollabPerm>> = { highlight: 'notes', concept: 'notes', draft: 'drafts', map: 'maps', node: 'maps', edge: 'maps', ws: 'organize', group: 'organize', item: 'organize', book: 'organize', plan: 'organize', argument: 'organize', study: 'organize' };
 const ALWAYS_OUT = new Set(['cur', 'hi', 'want', 'resync', 'flushed', 'fetch', 'files', 'room-join', 'room-leave']);
+/** Ce que l'invité tentait sans la permission de l'hôte : message affiché, l'écriture n'a pas lieu. */
+const BLOCKED: Record<keyof CollabPerm, string> = {
+  notes: 'L’hôte ne vous a pas permis d’ajouter des extraits ou des notes dans cet espace.',
+  drafts: 'L’hôte ne vous a pas permis de modifier les écrits de cet espace.',
+  maps: 'L’hôte ne vous a pas permis de modifier les cartes de cet espace.',
+  organize: 'L’hôte ne vous a pas permis d’ajouter ou de ranger des éléments dans cet espace.',
+};
+const SCOPE_COLS = ['workspaces', 'groups', 'wsItems', 'books', 'drafts', 'highlights', 'concepts', 'studies', 'arguments', 'plans', 'maps'] as const;
+let lastBlocked = { msg: '', at: 0 };
+/**
+ * Invité à qui l'hôte n'a pas tout permis : une modification de l'espace partagé qui ne serait pas
+ * transmise (l'hôte la refuse, electron/collab-net.cjs) est refusée ici aussi, avec un message, au lieu
+ * de rester chez lui seul sans qu'il le sache.
+ */
+function guestWriteGuard(prev: State, next: State): boolean {
+  const s = S;
+  if (!s || s.role !== 'guest' || !s.ready || !s.records || s.records.applyingRemote) return false;
+  const perm = useCollab.getState().perm;
+  if (samePerm(perm, ALL_PERMS)) return false;
+  if (SCOPE_COLS.every((c) => prev[c] === next[c])) return false;
+  const bad = s.records.forbidden(prev, next, (c) => {
+    const k = COL_PERM[c];
+    return !k || perm[k];
+  });
+  if (!bad) return false;
+  const msg = BLOCKED[COL_PERM[bad]!];
+  const now = Date.now();
+  if (msg !== lastBlocked.msg || now - lastBlocked.at > 2500) queueMicrotask(() => toast(msg, 'info'));
+  lastBlocked = { msg, at: now };
+  return true;
+}
+
 function allowedOut(head: Head, body?: Uint8Array): Head | null {
   const s = S;
   const perm = useCollab.getState().perm;
@@ -318,6 +350,7 @@ export async function guestJoin(ticket: string, profile: CollabProfile, hostName
   install();
   if (S) await stopSession();
   useCollab.setState({ phase: 'joining', role: 'guest', error: null, progress: 'En attente de l’accord de l’hôte…' });
+  setWriteGuard(guestWriteGuard);
   const s: Session = { role: 'guest', me: '?', profile, workspaceId: null, shareId: '', title: '', records: null, rooms: makeRooms('guest'), queue: [], ready: false, hostName, flushed: new Set(), fetchTimers: new Map(), waitingFetch: new Map(), asked: new Set() };
   S = s;
   try {
@@ -785,6 +818,7 @@ function endLocal(_reason: string) {
   const s = S;
   if (!s) return;
   S = null;
+  setWriteGuard(null);
   setCursorBridge(null);
   try {
     s.records?.diffNow();

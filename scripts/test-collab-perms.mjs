@@ -120,6 +120,25 @@ try {
   await wait(3000);
   let r = await atLea('lire');
   ok(!r.hl && !r.group, 'lecture seule : l’extrait et le groupe de Marc n’arrivent pas chez Léa', r);
+  const atMarc = (tag) =>
+    B.page.evaluate((tag) => {
+      const s = window.__store.getState();
+      return { hl: s.highlights.some((h) => h.text === `Extrait ${tag}`), group: s.groups.some((g) => g.name === `Groupe ${tag}`) };
+    }, tag);
+  let m = await atMarc('lire');
+  ok(!m.hl && !m.group, 'lecture seule : chez Marc non plus rien ne change (refusé avant de s’appliquer, pas de version à lui seul)', m);
+  ok((await B.page.textContent('body')).includes('L’hôte ne vous a pas permis'), 'Marc : un message lui dit que l’hôte ne l’a pas permis');
+  const routeB = await B.page.evaluate(() => window.__store.getState().route);
+  await B.page.evaluate(() => window.__store.getState().navigate({ name: 'workspace', workspaceId: window.__collab.state.getState().workspaceId, groupId: null }));
+  ok(await until(B.page, () => !!document.querySelector('[data-testid="ws-locked"]') && !!document.querySelector('.ws-actions .btn[data-locked]')), 'Marc : espace marqué « Rangement : choix de l’hôte », commandes verrouillées');
+  const cur = await B.page.evaluate(() => [getComputedStyle(document.querySelector('.ws-actions .btn[data-locked]')).cursor, document.querySelector('.ws-actions .btn[data-locked]').getAttribute('title')]);
+  ok(cur[0] === 'not-allowed' && /pas permis/.test(cur[1] || ''), 'Marc : curseur « interdit » et infobulle sur « Ajouter… »', cur);
+  // Les documents restent lisibles : rien d'autre que les commandes de rangement n'est verrouillé.
+  await B.page.waitForTimeout(900);
+  const cards = await B.page.evaluate(() => [...document.querySelectorAll('.ws-scroll [data-sel-id]')].map((e) => [getComputedStyle(e).opacity, getComputedStyle(e).cursor]));
+  ok(cards.length >= 3 && cards.every(([o, c]) => Number(o) === 1 && c !== 'not-allowed'), 'Marc : livres, écrits et cartes de l’espace restent ouvrables (ni grisés ni bloqués)', cards);
+  await B.page.screenshot({ path: path.join(SHOTS, '04b-espace-verrouille.png') });
+  await B.page.evaluate((r) => window.__store.getState().navigate(r), routeB);
 
   // ── 2. « Ajouter des extraits et des notes » ──
   await A.page.locator('[data-testid="collab-perms"] [data-perm="notes"]').check();
@@ -130,6 +149,8 @@ try {
   await wait(1500);
   r = await atLea('annoter');
   ok(r.hl && !r.group, '« extraits et notes » : l’extrait arrive, le groupe non', r);
+  m = await atMarc('annoter');
+  ok(m.hl && !m.group, '« extraits et notes » : chez Marc aussi, l’extrait est là, le groupe refusé', m);
   ok(await until(B.page, () => !!document.querySelector('[data-testid="map-readonly"]')), '« extraits et notes » : la carte reste en lecture seule');
 
   // ── 3. « Modifier les cartes » ──

@@ -1035,3 +1035,9 @@ body:has(.ws-selbar) .toasts {
   cursor: default;
 }
 
+
+/* Travail à plusieurs : invité sans la permission de ranger l'espace (choix de l'hôte). */
+.ws-view .is-locked,
+.ws-view [data-locked] { cursor: not-allowed; }
+.ws-view .btn[data-locked] { opacity: 0.5; }
+.ws-locked-badge { display: inline-flex; align-items: center; gap: 6px; margin-right: 8px; padding: 4px 10px; border-radius: 999px; background: var(--bg-sunken, var(--bg-panel)); color: var(--ink-2); font-size: var(--fs-sm); cursor: help; white-space: nowrap; }

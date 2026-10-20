@@ -1,6 +1,6 @@
 // Fenêtre « Partager » : ce qui part (résumé), les livres joints ou non, puis deux façons de le donner à
 // une autre Marginalia : un fichier « .marginalia » à enregistrer, ou un envoi direct par le Wi-Fi (code à
-// 6 chiffres valable une minute, sur le même Wi-Fi ou par Internet en pair à pair, chiffré de bout en bout). Partager = donner une copie : aucun lien ensuite.
+// 6 chiffres valable deux minutes, sur le même Wi-Fi ou par Internet en pair à pair, chiffré de bout en bout). Partager = donner une copie : aucun lien ensuite.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { BookOpen, Check, Clock, Hash, Laptop, Lock, ShieldAlert, Upload, WifiOff, X } from 'lucide-react';
@@ -31,7 +31,7 @@ interface Base {
 const toBuffer = (b: Uint8Array): ArrayBuffer => b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength) as ArrayBuffer;
 
 const STOP_TEXT: Record<string, string> = {
-  expired: 'Le code a expiré : il n’est valable qu’une minute.',
+  expired: 'Le code a expiré : il n’est valable que deux minutes.',
   tries: 'Trop d’essais avec un mauvais code : l’envoi a été fermé par sécurité. Rouvrez-le pour obtenir un nouveau code.',
   locked: 'Marginalia s’est verrouillée : l’envoi a été fermé.',
   quit: 'L’envoi a été fermé.',

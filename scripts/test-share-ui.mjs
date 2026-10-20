@@ -46,6 +46,23 @@ async function launch(name) {
 const theme = (p, t) => p.evaluate((t) => window.__store.getState().updateSettings({ theme: t }), t).then(() => p.waitForTimeout(250));
 /** Capture de la fenêtre ouverte, en clair puis en sombre. */
 async function shotBoth(p, sel, name) {
+  // La fenêtre tient dans son cadre : ni défilement, ni élément qui dépasse (avant : « Envoyé » défilait,
+  // l'illustration réduite à 24 px débordait en bas à droite).
+  await p.waitForTimeout(450);
+  const fit = await p.evaluate((sel) => {
+    const d = document.querySelector(sel);
+    if (!d) return { absent: true };
+    const r = d.getBoundingClientRect();
+    const out = [...d.querySelectorAll('*')].filter((e) => {
+      const b = e.getBoundingClientRect();
+      // ce qui est replié (« L’autre ordinateur ne trouve pas ? ») ne compte pas : invisible tant qu’on n’ouvre pas
+      if (e.checkVisibility && !e.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true })) return false;
+      if (e.closest('details:not([open]) > :not(summary)')) return false;
+      return b.width > 0 && b.height > 0 && (b.right > r.right + 1 || b.bottom > r.bottom + 1 || b.left < r.left - 1);
+    });
+    return { scroll: d.scrollWidth > d.clientWidth + 1 || d.scrollHeight > d.clientHeight + 1, outside: out.map((e) => String(e.className && e.className.baseVal !== undefined ? e.className.baseVal : e.className)).slice(0, 4) };
+  }, sel);
+  ok(!fit.absent && !fit.scroll && !fit.outside.length, `${name} : la fenêtre tient dans son cadre`, fit);
   for (const [t, label] of [['light', 'clair'], ['dark', 'sombre']]) {
     await theme(p, t);
     await p.locator(sel).first().screenshot({ path: path.join(SHOTS, `${name}-${label}.png`) });

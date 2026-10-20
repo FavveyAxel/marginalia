@@ -26,7 +26,7 @@ function Computer({ label, face, done }: { label: string; face?: Face | null; do
           </span>
         )}
         {done && (
-          <span className="br-done" aria-hidden="true">
+          <span className="br-ok" aria-hidden="true">
             <Check size={13} strokeWidth={3} />
           </span>
         )}
@@ -218,7 +218,7 @@ export function FileArt({ done }: { done?: boolean }) {
       <span className="sh-file-m">M</span>
       <span className="sh-file-ext">.marginalia</span>
       {done && (
-        <span className="br-done">
+        <span className="br-ok">
           <Check size={13} strokeWidth={3} />
         </span>
       )}

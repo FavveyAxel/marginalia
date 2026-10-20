@@ -28,6 +28,11 @@ export const NEWS: NewsEntry[] = [
         title: 'Windows : ouverture au premier clic',
         text: 'La fenêtre s’affiche à chaque lancement, et l’app se rouvre d’elle-même après une mise à jour.',
       },
+      {
+        icon: 'sparkles',
+        title: 'Code d’envoi : deux minutes',
+        text: 'Le code pour envoyer une copie vaut maintenant deux minutes, le temps qu’une connexion lente aboutisse.',
+      },
     ],
   },
   {

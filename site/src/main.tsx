@@ -765,7 +765,7 @@ function Together() {
         </li>
       </ul>
       <p className="together-copy">
-        Juste donner une copie&nbsp;? «&nbsp;Envoyer une copie&nbsp;» la transmet avec un code valable une minute, ou dans un fichier <span className="nowrap">.marginalia</span>.
+        Juste donner une copie&nbsp;? «&nbsp;Envoyer une copie&nbsp;» la transmet avec un code valable deux minutes, ou dans un fichier <span className="nowrap">.marginalia</span>.
       </p>
     </section>
   );

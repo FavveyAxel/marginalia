@@ -11,7 +11,7 @@
 // Réseau local d'abord : seules les adresses du réseau local (privées, lien local, boucle locale ;
 // isLocalAddress de wifi.cjs) sont contactées ou acceptées en TCP. Par Internet (réglage, activé par
 // défaut) : le même protocole passe par des flux iroh pair à pair (collab-iroh.cjs, usage « share ») ;
-// l'envoi est retrouvé grâce au code, sans serveur à nous. Le code ne vaut qu'une minute.
+// l'envoi est retrouvé grâce au code, sans serveur à nous. Le code ne vaut que deux minutes.
 // Ces connexions partent du processus principal (Node), pas du rendu : le blocage des requêtes
 // sortantes du rendu (session.webRequest, main.cjs) reste entier.
 //
@@ -79,7 +79,7 @@ const { isLocalAddress, lanAddresses } = require('./wifi.cjs');
 
 const HTTP_PORT = 47802;
 const UDP_PORT = 47803;
-const CODE_TTL_MS = 60 * 1000; // une minute : une demande déjà faite va au bout (accord, transfert)
+const CODE_TTL_MS = 2 * 60 * 1000; // deux minutes (marge pour un réseau lent) : une demande déjà faite va au bout (accord, transfert)
 const REQUEST_TTL_MS = 2 * 60 * 1000; // l'émetteur a 2 minutes pour accepter une demande
 const TOMB_MS = 2 * 60 * 1000; // après expiration ou trop d'essais : on répond encore « expiré » 2 minutes
 const MAX_TRIES = 5;
@@ -95,7 +95,7 @@ const X25519_SPKI = Buffer.from('302a300506032b656e032100', 'hex');
 const MSG = {
   format: 'Le code doit compter 6 chiffres.',
   notFound: 'Aucun envoi trouvé avec ce code sur ce réseau. Vérifiez le code et que les deux ordinateurs sont sur le même Wi-Fi ; sinon, saisissez l’adresse affichée par l’expéditeur.',
-  notFoundAnywhere: 'Aucun envoi trouvé avec ce code, ni sur ce réseau ni par Internet. Vérifiez le code (il n’est valable qu’une minute).',
+  notFoundAnywhere: 'Aucun envoi trouvé avec ce code, ni sur ce réseau ni par Internet. Vérifiez le code (il n’est valable que deux minutes).',
   badCode: (n) => `Code incorrect${n > 0 ? ` (encore ${n} essai${n > 1 ? 's' : ''})` : ''}.`,
   expired: 'Code expiré : demandez un nouveau code à l’expéditeur.',
   tries: 'Trop d’essais : cet envoi a été fermé par sécurité. Demandez un nouveau code à l’expéditeur.',

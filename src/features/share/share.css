@@ -74,8 +74,8 @@
 .br-pc { display: flex; flex-direction: column; align-items: center; gap: 6px; width: 104px; }
 .br-screen { position: relative; display: grid; place-items: center; width: 72px; height: 60px; border-radius: 16px; background: var(--bg-inset); color: var(--ink-2); box-shadow: 0 0 0 1px var(--border); }
 .br-label { font-size: var(--fs-sm); color: var(--muted); text-align: center; line-height: 1.25; overflow-wrap: anywhere; }
-.br-face, .br-done { position: absolute; right: -7px; bottom: -7px; width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center; color: #fff; font-size: 12px; font-weight: 700; box-shadow: 0 0 0 3px var(--bg-panel); }
-.br-done { background: #3b9a5f; animation: br-pop 360ms var(--ease-out, ease) both; }
+.br-face, .br-ok { position: absolute; right: -7px; bottom: -7px; width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center; color: #fff; font-size: 12px; font-weight: 700; box-shadow: 0 0 0 3px var(--bg-panel); }
+.br-ok { background: #3b9a5f; animation: br-pop 360ms var(--ease-out, ease) both; }
 .br-link { position: relative; height: 24px; margin-bottom: 22px; }
 .br-track { position: absolute; left: 0; right: 0; top: 50%; border-top: 2px dashed color-mix(in srgb, var(--muted) 45%, transparent); }
 .br-fill { position: absolute; left: 0; top: calc(50% - 1px); height: 2px; background: var(--primary); border-radius: 2px; transition: width 200ms var(--ease-out, ease); }
@@ -119,7 +119,7 @@
 .br-trouble ul { margin: 8px 0 0; padding-left: 18px; display: flex; flex-direction: column; gap: 4px; line-height: 1.45; }
 
 @media (max-width: 560px) { .br-pc { width: 80px; } .br-step-wrap { width: 86px; } }
-@media (prefers-reduced-motion: reduce) { .br-dot { animation: none !important; display: none; } .br-done { animation: none; } }
+@media (prefers-reduced-motion: reduce) { .br-dot { animation: none !important; display: none; } .br-ok { animation: none; } }
 
 /* ── Refonte visuelle : Partager ─────────────────────────────── */
 .sh-sum { gap: 12px; padding: 18px; }
@@ -143,7 +143,7 @@
 .sh-file::before { content: ''; position: absolute; right: 0; top: 0; width: 14px; height: 14px; border-radius: 0 14px 0 4px; background: var(--bg-inset); box-shadow: -1.5px 1.5px 0 0 var(--ink-2); }
 .sh-file .sh-file-m { font-family: var(--font-display); font-style: italic; font-size: 34px; line-height: 1; color: var(--ink); }
 .sh-file .sh-file-ext { max-width: 58px; font-size: 7.5px; letter-spacing: 0; white-space: nowrap; color: var(--muted); }
-.sh-file .br-done { right: -9px; bottom: -9px; }
+.sh-file .br-ok { right: -9px; bottom: -9px; }
 .sh-saved .sh-file { margin-bottom: 6px; }
 /* Code et demande */
 .sh-left { display: flex; align-items: center; justify-content: center; gap: 5px; }

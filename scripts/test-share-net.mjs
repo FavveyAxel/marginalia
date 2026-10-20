@@ -78,7 +78,7 @@ const codes = [];
 {
   const st = await sender.start({ bytes: payload, meta: META });
   codes.push(st.code);
-  ok(/^\d{6}$/.test(st.code) && st.expiresAt - Date.now() > 55000 && st.expiresAt - Date.now() <= 60000, 'envoi ouvert : code à 6 chiffres, valable 1 minute', { code: st.code, port: st.port });
+  ok(/^\d{6}$/.test(st.code) && st.expiresAt - Date.now() > 115000 && st.expiresAt - Date.now() <= 120000, 'envoi ouvert : code à 6 chiffres, valable 2 minutes', { code: st.code, port: st.port });
   ok(st.port === share.HTTP_PORT && st.discovery === true, 'ports : HTTP 47802, découverte UDP 47803 active', st);
   ok(st.addresses.includes(`127.0.0.1:${st.port}`), 'adresse à saisir en secours affichée', st.addresses);
 

@@ -1,7 +1,7 @@
 // « Envoyer une copie » par Internet : le protocole de share-net.cjs sur des flux iroh (pair à pair),
 // sans réseau local commun (la découverte locale ne trouve rien). iroh en 127.0.0.1 avec un annuaire en
 // mémoire (le conteneur de test n'a pas accès à Internet).
-// Vérifie : envoi trouvé par le seul code ; accord ; 3 Mo reçus intacts ; code valable 1 minute (ici
+// Vérifie : envoi trouvé par le seul code ; accord ; 3 Mo reçus intacts ; code valable 2 minutes (ici
 // raccourci) : une demande faite avant l'expiration va au bout, personne d'autre ne peut venir ensuite ;
 // code sans demande : expiré ; un code d'envoi ne mène pas à une session « travailler à plusieurs » ;
 // rien de lisible sur les flux iroh.
@@ -53,7 +53,7 @@ const ev = [];
 const BYTES = Buffer.concat([Buffer.from('contenu-secret-du-paquet'), crypto.randomBytes(3 * 1024 * 1024)]);
 const sender = share.createShareSender({ emit: (e) => ev.push(e), port: 0, udpPort: 47950 + Math.floor(Math.random() * 40), scrypt: COST, internet: mkNet() });
 const st = await sender.start({ bytes: BYTES, meta: { title: 'Parjure-titre-secret' } });
-ok(st.open && st.internet === true && st.expiresAt - Date.now() > 55000 && st.expiresAt - Date.now() <= 60000, 'envoi ouvert : joignable par Internet, code valable 1 minute', { internet: st.internet });
+ok(st.open && st.internet === true && st.expiresAt - Date.now() > 115000 && st.expiresAt - Date.now() <= 120000, 'envoi ouvert : joignable par Internet, code valable 2 minutes', { internet: st.internet });
 const marc = mkReceiver('Ordinateur-de-Marc');
 const found = await marc.findShare(st.code);
 ok(found.from.internet === true && found.meta.title === 'Parjure-titre-secret' && found.size === BYTES.length, 'destinataire : envoi trouvé par Internet grâce au code', found.from);

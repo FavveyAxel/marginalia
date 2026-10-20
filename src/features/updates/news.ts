@@ -21,6 +21,16 @@ export interface NewsEntry {
 
 export const NEWS: NewsEntry[] = [
   {
+    version: '3.38',
+    items: [
+      {
+        icon: 'lock',
+        title: 'Permissions respectées chez l’invité',
+        text: 'Ce que l’hôte n’a pas permis est refusé tout de suite, avec la raison. Les documents de l’espace restent lisibles.',
+      },
+    ],
+  },
+  {
     version: '3.37',
     items: [
       {

@@ -21,6 +21,21 @@ export interface NewsEntry {
 
 export const NEWS: NewsEntry[] = [
   {
+    version: '3.36',
+    items: [
+      {
+        icon: 'sparkles',
+        title: 'Combien de personnes ?',
+        text: 'En ouvrant une session à plusieurs, choisissez de 2 à 6 personnes (vous compris). Le nombre se change pendant la session, sans jamais exclure quelqu’un de présent.',
+      },
+      {
+        icon: 'notes',
+        title: '« Copier le code »',
+        text: 'Sous le code de la session, un bouton le copie pour l’envoyer par message à quelqu’un qui est loin. Les autres boutons « Copier » de l’app fonctionnent de nouveau.',
+      },
+    ],
+  },
+  {
     version: '3.35',
     items: [
       {

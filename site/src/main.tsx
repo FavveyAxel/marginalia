@@ -757,7 +757,7 @@ function Together() {
         </li>
         <li>
           <h3>Sans serveur, même à distance</h3>
-          <p>Sur le même Wi-Fi ou par Internet, vos ordinateurs se parlent directement, chiffrés de bout en bout. Le point de rencontre change toutes les 10 minutes&nbsp;: personne ne peut guetter vos sessions.</p>
+          <p>Sur le même Wi-Fi ou par Internet, vos ordinateurs se parlent directement, chiffrés de bout en bout. Le point de rencontre change toutes les 10 minutes&nbsp;: vos sessions restent privées.</p>
         </li>
         <li>
           <h3>Chacun garde son exemplaire</h3>
@@ -857,7 +857,8 @@ function App() {
             </div>
             )}
             <p className="hero-trust">
-              <Pict name="offline" /> Hors ligne <span aria-hidden="true">·</span> sans compte <span aria-hidden="true">·</span> chiffrement en option
+              <Pict name="lock" />
+              <span><a href="#confidentialite">La confidentialité d’abord</a>&nbsp;: hors ligne, sans compte, sans serveur.</span>
             </p>
           </div>
           <AnnotatedPage travel={travel} />

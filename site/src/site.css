@@ -208,8 +208,8 @@ a.btn-primary:hover { background: #3a342b; }
 .private-note { margin: 1.25rem 0 0; font-family: var(--font-ui); font-size: 0.875rem; color: var(--muted); }
 .private-note a { text-underline-offset: 0.1875rem; }
 .private-note a:hover { color: var(--ink); }
-.hero-trust { display: flex; align-items: center; gap: 0.4rem; margin: 1.5rem 0 0; font-family: var(--font-ui); font-size: 0.8125rem; color: var(--muted); }
-.hero-trust .pict { width: 1rem; height: 1rem; color: var(--muted); }
+.hero-trust { display: flex; align-items: flex-start; gap: 0.4rem; margin: 1.5rem 0 0; font-family: var(--font-ui); font-size: 0.8125rem; color: var(--muted); }
+.hero-trust .pict { flex: none; margin-top: 0.15rem; width: 1rem; height: 1rem; color: var(--muted); }
 
 /* ── Téléchargement ── */
 .download {
@@ -550,3 +550,5 @@ a.btn-primary:hover { background: #3a342b; }
 @media (min-width: 901px) {
   .hero .page { margin-top: 10rem; }
 }
+.hero-trust a { color: inherit; text-decoration: underline; text-decoration-color: color-mix(in srgb, currentColor 40%, transparent); text-underline-offset: 3px; }
+.hero-trust a:hover { color: var(--ink); }

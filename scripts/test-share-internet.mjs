@@ -46,7 +46,10 @@ const mkNet = () => {
   nets.push(n);
   return n;
 };
-const mkReceiver = (name) => share.createShareReceiver({ deviceName: () => name, targets: () => [], discoverMs: 300, scrypt: COST, internet: mkNet() });
+const mkReceiver = (name) => {
+  const net = mkNet();
+  return Object.assign(share.createShareReceiver({ deviceName: () => name, targets: () => [], discoverMs: 300, scrypt: COST, internet: net }), { net });
+};
 
 // ── 1. Envoi trouvé par le code, accepté, reçu intact ──
 const ev = [];
@@ -63,6 +66,11 @@ const got = marc.receiveShare(found.id);
 sender.accept();
 const bytes = await got;
 ok(Buffer.from(bytes).equals(BYTES), '3 Mo reçus intacts');
+{
+  const t0 = Date.now();
+  while (marc.net.guestOpen() && Date.now() - t0 < 4000) await new Promise((r) => setTimeout(r, 50));
+  ok(!marc.net.guestOpen(), 'copie reçue : le point d’accès Internet du destinataire est fermé aussitôt');
+}
 await until(() => ev.some((e) => e.type === 'done'));
 ok(ev.some((e) => e.type === 'done'), 'émetteur : « envoyé »');
 

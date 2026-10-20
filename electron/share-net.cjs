@@ -1085,7 +1085,12 @@ function createShareReceiver(o = {}) {
           } catch (e) {
             diag('partage', 'accusé', e && e.message);
           }
-          if (t.via) setTimeout(() => t.via.close(), 1500).unref?.();
+          // Copie reçue : plus rien d'iroh ne reste ouvert.
+          if (t.via)
+            setTimeout(() => {
+              t.via.close();
+              void o.internet?.releaseGuest?.();
+            }, 1500).unref?.();
           resolve(out);
         });
       });

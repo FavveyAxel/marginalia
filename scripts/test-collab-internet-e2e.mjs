@@ -136,7 +136,7 @@ try {
   await A.page.waitForSelector('[data-testid="share-code"]');
   const sc = await A.page.getAttribute('[data-testid="share-code"]', 'data-code');
   const left = await A.page.textContent('[data-testid="share-left"]');
-  ok(/Valable encore (1 min 00 s|\d+ s)/.test(left), 'code d’envoi valable 1 minute', left.trim());
+  ok(/Valable encore (2 min 00 s|1 min \d+ s)/.test(left), 'code d’envoi valable 2 minutes', left.trim());
   await A.page.click('[data-testid="share-code-copy"]');
   await A.page.waitForTimeout(300);
   const clip = await A.app.evaluate(({ clipboard }) => clipboard.readText());

@@ -97,6 +97,23 @@ ok(b.r === 'écho:deux', 'après rotation : échange', b.r);
 const c = await roundTrip(via1, 'toujours');
 ok(c.r === 'écho:toujours', 'invité connecté par l’ancienne fenêtre : la connexion continue', c.r);
 
+// ── Point d'accès invité : fermé quand il ne sert plus ──
+{
+  const gi = iroh.createInternet({ local: true, registry, scrypt: COST, dialMs: 2500, now: () => guestT, epochMs: EP, guestIdleMs: 700 });
+  ok((await gi.dial('000002')) === null && gi.guestOpen(), 'invité : point d’accès ouvert pour chercher');
+  await wait(1500);
+  ok(!gi.guestOpen(), 'invité : code introuvable, point d’accès refermé tout seul (rien ne reste ouvert)');
+  const via = await gi.dial(code);
+  const { s: sock, r } = await roundTrip(via, 'garde');
+  await wait(1500);
+  ok(r === 'écho:garde' && gi.guestOpen(), 'invité : flux ouvert, le point d’accès reste');
+  sock.destroy();
+  via.close();
+  await wait(1700);
+  ok(!gi.guestOpen(), 'invité : session quittée, point d’accès refermé');
+  await gi.shutdown();
+}
+
 // ── Ancien protocole (v1) ──
 {
   const L = require('@number0/iroh');

@@ -172,6 +172,7 @@ const withTimeout = (p, ms, what) =>
  * @param {number} [o.dialMs]
  * @param {() => number} [o.now]  tests : horloge
  * @param {number} [o.epochMs]  tests : durée d'une fenêtre de rendez-vous
+ * @param {number} [o.guestIdleMs]  tests : fermeture du point d'accès invité inactif
  */
 function createInternet(o = {}) {
   const diag = o.diag || (() => {});
@@ -366,8 +367,48 @@ function createInternet(o = {}) {
   }
 
   let guestEp = null;
+  // Le point d'accès de l'invité ne reste pas ouvert pour rien : fermé dès que la session est quittée ou la
+  // copie reçue (releaseGuest) ; à défaut (recherche abandonnée), sans flux ouvert depuis GUEST_IDLE_MS.
+  // Une nouvelle connexion en rouvre un.
+  // Ouvert, il garde un lien avec un relais de n0 et sonde le réseau de temps en temps.
+  const GUEST_IDLE_MS = o.guestIdleMs ?? 30_000;
+  let liveSocks = 0;
+  let lastUse = 0;
+  let idleTimer = null;
+  const armIdle = () => {
+    clearTimeout(idleTimer);
+    idleTimer = setTimeout(() => {
+      if (!guestEp) return;
+      if (liveSocks > 0 || Date.now() - lastUse < GUEST_IDLE_MS) return armIdle();
+      const ep = guestEp;
+      guestEp = null;
+      diag('collab', 'internet : point d’accès invité fermé (inactif)');
+      void closeEp(ep);
+    }, GUEST_IDLE_MS);
+    idleTimer.unref?.();
+  };
+  const touch = () => {
+    lastUse = Date.now();
+    armIdle();
+  };
+  /**
+   * Invité : session quittée ou copie reçue. Le point d'accès est fermé tout de suite (connexions comprises),
+   * sauf s'il sert encore à autre chose (session en cours pendant la réception d'une copie).
+   */
+  function releaseGuest() {
+    if (liveSocks > 0) return Promise.resolve();
+    clearTimeout(idleTimer);
+    const ep = guestEp;
+    guestEp = null;
+    if (ep) {
+      diag('collab', 'internet : point d’accès invité fermé');
+      return closeEp(ep);
+    }
+    return Promise.resolve();
+  }
   /** Invité : se connecte au point d'accès du code (fenêtre en cours). Résout avec de quoi ouvrir des flux, ou null (personne). */
   async function dial(code, kind = 'collab') {
+    touch();
     const L = load();
     const secret = await secretFor(code, o.scrypt, kind, epochOf(now(), epochMs));
     const id = L.SecretKey.fromBytes(Array.from(secret)).public();
@@ -390,7 +431,16 @@ function createInternet(o = {}) {
     const remote = conn.remoteId().toString();
     return {
       remote,
-      stream: async () => new IrohSocket(await withTimeout(conn.openBi(), 10000, 'flux'), remote),
+      stream: async () => {
+        touch();
+        const sock = new IrohSocket(await withTimeout(conn.openBi(), 10000, 'flux'), remote);
+        liveSocks++;
+        sock.once('close', () => {
+          liveSocks--;
+          touch();
+        });
+        return sock;
+      },
       close: () => {
         try {
           conn.close(0n, []);
@@ -411,11 +461,15 @@ function createInternet(o = {}) {
     },
     host,
     dial,
+    releaseGuest,
+    /** Tests : le point d'accès invité est-il ouvert ? */
+    guestOpen: () => !!guestEp && !guestEp.isClosed(),
     /**
      * En quittant l'app : tout point d'accès encore ouvert est fermé avant la sortie du processus (sinon le
      * module natif s'arrête brutalement à la sortie, et le processus peut rester en vie un moment).
      */
     async shutdown() {
+      clearTimeout(idleTimer);
       const all = [...hosts];
       hosts.clear();
       await Promise.all(all.map((h) => h.close().catch(() => {})));

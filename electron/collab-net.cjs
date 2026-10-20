@@ -1306,7 +1306,12 @@ function createCollabGuest(o) {
     clearTimeout(c.retryTimer);
     cur = null;
     if (c.link) c.link.close('closed');
-    if (c.via) setTimeout(() => c.via.close(), 1500).unref?.();
+    // Internet : la session est finie ici, plus rien d'iroh ne reste ouvert (après le dernier message envoyé).
+    if (c.via)
+      setTimeout(() => {
+        c.via.close();
+        void o.internet?.releaseGuest?.();
+      }, 1500).unref?.();
     o.emit({ type: 'link', state: 'closed', reason });
   }
 

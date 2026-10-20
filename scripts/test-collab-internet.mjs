@@ -134,9 +134,13 @@ const e3 = await errOf(late.g.find(st3.code, { profile: { name: 'Tard' } }));
 ok(e3 && e3.code === 'not-found', 'réglage coupé : introuvable par Internet', e3 && e3.message);
 
 // ── Fin ──
+// Quitter ferme tout ce qui est iroh, tout de suite : rien ne reste ouvert ensuite.
+ok(marc.net.guestOpen(), 'Marc en session : son point d’accès Internet est ouvert');
 ines.g.leave();
 marc.g.leave();
+ok(await until(() => !marc.net.guestOpen() && !ines.net.guestOpen(), 4000), 'invités partis : leur point d’accès Internet est fermé aussitôt');
 host.stop('closed');
+ok(await until(() => registry.size === 0, 4000), 'hôte arrêté : plus aucun point d’accès publié', registry.size);
 await wait(300);
 for (const x of [marc, ines, intrus, late]) await x.net.shutdown();
 await hostNet.shutdown();

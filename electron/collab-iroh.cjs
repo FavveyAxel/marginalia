@@ -315,7 +315,7 @@ function createInternet(o = {}) {
     timer.unref?.();
     const current = () => eps.get(epochOf(now(), epochMs))?.ep || [...eps.values()].find((x) => x.ep)?.ep;
 
-    return {
+    const handle = {
       get id() {
         return current()?.id().toString() ?? '';
       },
@@ -331,6 +331,7 @@ function createInternet(o = {}) {
       },
       close: async () => {
         closed = true;
+        hosts.delete(handle);
         clearInterval(timer);
         const all = [...eps.values()];
         eps.clear();
@@ -341,7 +342,11 @@ function createInternet(o = {}) {
           }
       },
     };
+    hosts.add(handle);
+    return handle;
   }
+  /** Points d'accès ouverts (hôte), fermés tous ensemble en quittant (shutdown). */
+  const hosts = new Set();
 
   /** Annuaire de test partagé entre processus : lecture, ou ajout d'une entrée. */
   function fileRegistry(id, addrs) {
@@ -406,7 +411,14 @@ function createInternet(o = {}) {
     },
     host,
     dial,
+    /**
+     * En quittant l'app : tout point d'accès encore ouvert est fermé avant la sortie du processus (sinon le
+     * module natif s'arrête brutalement à la sortie, et le processus peut rester en vie un moment).
+     */
     async shutdown() {
+      const all = [...hosts];
+      hosts.clear();
+      await Promise.all(all.map((h) => h.close().catch(() => {})));
       if (guestEp) await closeEp(guestEp);
       guestEp = null;
     },

@@ -61,7 +61,19 @@ protocol.registerSchemesAsPrivileged([
 if (process.env.MARGINALIA_E2E === '1' && process.env.MARGINALIA_E2E_USER_DATA) app.setPath('userData', process.env.MARGINALIA_E2E_USER_DATA);
 
 // ── Instance unique ──────────────────────────────────────────
-if (!app.requestSingleInstanceLock()) {
+// Relancée par la mise à jour (« --updated ») : l'ancienne version peut être encore en train de se fermer
+// et garder le verrou un instant ; on l'attend (au plus 10 s) au lieu de se fermer aussitôt, sinon
+// l'app ne se rouvre pas après la mise à jour.
+const RELAUNCHED = process.argv.includes('--updated');
+let gotLock = app.requestSingleInstanceLock();
+if (!gotLock && RELAUNCHED) {
+  const pause = new Int32Array(new SharedArrayBuffer(4));
+  for (const until = Date.now() + 10_000; !gotLock && Date.now() < until; ) {
+    Atomics.wait(pause, 0, 0, 250);
+    gotLock = app.requestSingleInstanceLock();
+  }
+}
+if (!gotLock) {
   app.quit();
 }
 
@@ -3102,7 +3114,26 @@ function createWindow() {
   mainWindow = win;
   const wcId = win.webContents.id;
   watchWindow(win);
-  win.once('ready-to-show', () => win.show());
+  // Affichage : à « ready-to-show », que Windows n'envoie pas toujours (barre de titre superposée, lancement
+  // à froid) ; sinon à la fin du chargement, au plus tard après 4 s. Sans cela, la fenêtre restait cachée
+  // jusqu'à un second clic sur l'icône.
+  let revealed = false;
+  const reveal = (why) => {
+    if (revealed || win.isDestroyed()) return;
+    revealed = true;
+    if (why !== 'ready-to-show') diag('fenetre', 'affichee', why);
+    win.show();
+    // Relancée par la mise à jour : Windows la laisse souvent derrière les autres fenêtres.
+    if (RELAUNCHED && !IS_MAC) {
+      win.setAlwaysOnTop(true);
+      win.focus();
+      setTimeout(() => !win.isDestroyed() && win.setAlwaysOnTop(false), 600);
+    }
+  };
+  // Tests : MARGINALIA_E2E_NO_READY_TO_SHOW=1 simule un Windows qui n'envoie pas « ready-to-show ».
+  if (!(E2E && process.env.MARGINALIA_E2E_NO_READY_TO_SHOW === '1')) win.once('ready-to-show', () => reveal('ready-to-show'));
+  win.webContents.once('did-finish-load', () => setTimeout(() => reveal('chargee'), 500));
+  setTimeout(() => reveal('delai'), 4000).unref?.();
   win.on('closed', () => {
     if (mainWindow === win) mainWindow = null;
     rendererReady = false;
@@ -3852,6 +3883,9 @@ app.on('before-quit', (event) => {
   appQuitting = true;
   flushAll()
     .catch((e) => diag('base', 'fermeture', e && e.message))
+    // Internet (iroh) : points d'accès fermés proprement avant la sortie (au plus 2 s).
+    .then(() => Promise.race([collabInternet.shutdown(), new Promise((r) => setTimeout(r, 2000))]))
+    .catch((e) => diag('collab', 'fermeture internet', e && e.message))
     // Mise à jour demandée (« Redémarrer ») ou programmée à la fermeture : après l'écriture des données.
     .then(() => runPendingInstall())
     .catch((e) => diag('maj', 'fermeture', e && e.message))

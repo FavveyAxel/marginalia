@@ -4,6 +4,7 @@
   "description": "Lire et étudier des textes philosophiques",
   "main": "electron/main.cjs",
   "scripts": {
+    "postinstall": "node scripts/patch-superdoc.mjs",
     "dev": "vite",
     "build": "vite build",
     "typecheck": "tsc --noEmit",

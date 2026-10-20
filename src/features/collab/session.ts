@@ -44,6 +44,8 @@ interface Session {
   hostName: string;
   flushed: Set<string>;
   fetchTimers: Map<string, ReturnType<typeof setTimeout>>;
+  /** Demandes de livre ou d'écrit reçues avant de l'avoir soi-même (« c:g » → demandeurs) : servies à son arrivée. */
+  waitingFetch: Map<string, Set<string>>;
   /** Invité : ce qui était déjà dans la bibliothèque à l'arrivée (« kind:id »), gardé quoi qu'il arrive. */
   before?: Set<string>;
 }
@@ -111,8 +113,8 @@ export function workspaceForShare(shareId: string): string | null {
 
 /** Réglage « Collaborer par Internet » appliqué au processus principal (avant d'ouvrir ou de chercher). */
 export async function applyInternet() {
-  await net()
-    .internet?.(useStore.getState().settings.collabInternet !== false)
+  await host.collabNet
+    ?.internet?.(useStore.getState().settings.collabInternet !== false)
     .catch(() => undefined);
 }
 
@@ -182,7 +184,7 @@ export async function startHost(workspaceId: string, profile: CollabProfile, max
   if (!ws) throw new Error('Cet espace n’existe plus.');
   useCollab.setState({ phase: 'starting', role: 'host', workspaceId, error: null });
   const shareId = shareIdOf(workspaceId);
-  const s: Session = { role: 'host', me: 'h', profile, workspaceId, shareId, title: ws.name, records: null, rooms: makeRooms('host'), queue: [], ready: true, hostName: profile.name, flushed: new Set(), fetchTimers: new Map() };
+  const s: Session = { role: 'host', me: 'h', profile, workspaceId, shareId, title: ws.name, records: null, rooms: makeRooms('host'), queue: [], ready: true, hostName: profile.name, flushed: new Set(), fetchTimers: new Map(), waitingFetch: new Map() };
   S = s;
   try {
     await s.rooms.ready(); // moteur Yjs prêt avant la première demande
@@ -248,10 +250,12 @@ async function hostSendBooks(to: string) {
 async function hostSendState(to: string, want: string[]) {
   const s = S!;
   s.records!.diffNow();
-  const { bytes } = await buildSharePackage({ kind: 'workspace', workspaceId: s.workspaceId! }, { includeBooks: false, includeBookIds: want });
+  // Espace encore vide : rien à empaqueter, l'invité crée un espace vide (avant : il restait « en arrivée »).
+  const empty = !useStore.getState().wsItems.some((i) => i.workspaceId === s.workspaceId) && !useStore.getState().groups.some((g) => g.workspaceId === s.workspaceId);
+  const { bytes } = empty ? { bytes: new Uint8Array(0) } : await buildSharePackage({ kind: 'workspace', workspaceId: s.workspaceId! }, { includeBooks: false, includeBookIds: want });
   const snap = s.records!.snapshot();
   const recs: Rec[] = [...snap.entries()].map(([k, v]) => ({ c: v.c, g: v.g, d: v.d, tag: s.records!.tags.get(k) ?? ([0, 'h'] as Tag) }));
-  send(to, { t: 'state', title: s.title, tags: [...s.records!.tags], keys: [...snap.keys()], recs, rooms: s.rooms.view, mtimes: Object.fromEntries(s.records!.mtimes) }, bytes);
+  send(to, { t: 'state', title: s.title, ...(empty ? { empty: true } : {}), tags: [...s.records!.tags], keys: [...snap.keys()], recs, rooms: s.rooms.view, mtimes: Object.fromEntries(s.records!.mtimes) }, bytes);
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -278,7 +282,7 @@ export async function guestJoin(ticket: string, profile: CollabProfile, hostName
   install();
   if (S) await stopSession();
   useCollab.setState({ phase: 'joining', role: 'guest', error: null, progress: 'En attente de l’accord de l’hôte…' });
-  const s: Session = { role: 'guest', me: '?', profile, workspaceId: null, shareId: '', title: '', records: null, rooms: makeRooms('guest'), queue: [], ready: false, hostName, flushed: new Set(), fetchTimers: new Map() };
+  const s: Session = { role: 'guest', me: '?', profile, workspaceId: null, shareId: '', title: '', records: null, rooms: makeRooms('guest'), queue: [], ready: false, hostName, flushed: new Set(), fetchTimers: new Map(), waitingFetch: new Map() };
   S = s;
   try {
     await s.rooms.ready();
@@ -327,7 +331,12 @@ async function guestOnState(head: Head, body: Uint8Array) {
   const alias: [string, string][] = (s as Any).bookAlias ?? [];
   useCollab.setState({ progress: 'Ajout à votre bibliothèque…' });
   const had = !!wsId;
-  if (!wsId) {
+  if (!wsId && head.empty) {
+    // Espace partagé encore vide : on le crée ici, relié à la session.
+    const ws = useStore.getState().createWorkspace(String(head.title ?? s.title ?? 'Espace partagé').slice(0, 120));
+    useStore.getState().patch('workspaces', ws.id, { shareOrigin: { shareId: s.shareId, srcId: s.shareId.replace(/^ws-/, '') } });
+    wsId = ws.id;
+  } else if (!wsId) {
     const res = await importSharePackage(body);
     wsId = res.workspace?.id ?? null;
   }
@@ -345,7 +354,7 @@ async function guestOnState(head: Head, body: Uint8Array) {
   for (const [k, t] of Object.entries(await knownMtimes(s.shareId))) rec.mtimes.set(k, t);
   s.records = rec;
   rec.start();
-  if (had && st0.workspaces.some((w) => w.id === wsId)) {
+  if (had && !head.empty && st0.workspaces.some((w) => w.id === wsId)) {
     // L'espace était déjà là : réunion de ce que chacun a fait entre-temps (reunion.ts).
     useCollab.setState({ progress: 'Réunion de ce que chacun a fait…' });
     const r = await reunite({ records: rec, shareId: s.shareId, hostRecs: (Array.isArray(head.recs) ? head.recs : []) as Rec[], hostMtimes: (head.mtimes as Record<string, number>) ?? {}, pkg: body, hostName: s.hostName });
@@ -374,13 +383,41 @@ function askFetch(c: 'book' | 'draft', g: string, from: string) {
   send(to, { t: 'fetch', c, g });
   const k = keyOf(c, g);
   clearTimeout(s.fetchTimers.get(k));
-  // Sans réponse (il est parti ?) : on demande à l'hôte.
+  // Sans réponse (il est parti ?) : on demande à l'hôte, qui répond dès qu'il l'a lui-même ; puis, toujours
+  // rien, on oublie la demande et on la refait (l'élément attend encore : nouvelle demande, à tous).
   s.fetchTimers.set(
     k,
     setTimeout(() => {
-      if (S === s && to !== 'h' && s.role === 'guest') send('h', { t: 'fetch', c, g });
+      if (S !== s) return;
+      if (to !== 'h' && s.role === 'guest') send('h', { t: 'fetch', c, g });
+      s.fetchTimers.set(
+        k,
+        setTimeout(() => {
+          if (S !== s || !s.records || s.records.local(c, g)) return;
+          send('all', { t: 'fetch', c, g });
+          s.records.fetchDone(c, g);
+          s.fetchTimers.set(
+            k,
+            setTimeout(() => {
+              if (S !== s || !s.records || s.records.local(c, g)) return;
+              s.records.fetchDone(c, g);
+              s.records.resume(); // refait les demandes de ce qui attend encore
+            }, 20000),
+          );
+        }, 12000),
+      );
     }, 8000),
   );
+}
+
+/** Une demande arrivée avant l'élément : servie quand il arrive (onFiles). */
+function waitFor(c: 'book' | 'draft', g: string, from: string) {
+  const s = S;
+  if (!s) return;
+  const k = keyOf(c, g);
+  const set = s.waitingFetch.get(k) ?? new Set<string>();
+  set.add(from);
+  s.waitingFetch.set(k, set);
 }
 
 async function onFetch(from: string, head: Head) {
@@ -392,21 +429,32 @@ async function onFetch(from: string, head: Head) {
   const st = useStore.getState();
   if (c === 'book') {
     const b = st.books.find((x) => x.id === id);
-    if (!b || b.missing) return;
-    const names = [...bookSourceFiles(b), ...bookExtraFiles(b)];
+    if (!b) {
+      if (s.role === 'host' && from !== 'h') waitFor(c, g, from); // pas encore arrivé chez l'hôte : servi à son arrivée
+      return;
+    }
+    const paper = b.format === 'paper';
+    const names = paper || b.missing ? [] : [...bookSourceFiles(b), ...bookExtraFiles(b)];
     const files: { name: string; data: ArrayBuffer }[] = [];
     for (const n of names) {
       const data = await host.readFile(b.id, n).catch(() => null);
       if (data) files.push({ name: n, data });
     }
-    const fp = await bookFingerprint(b);
-    const { list, body } = joinFiles(files);
+    // Sans son fichier (livre « sans fichier », ou fichier illisible) : on envoie quand même ses métadonnées ;
+    // chez l'autre, il arrive « sans fichier », avec ses extraits, et se complète en important le même livre.
+    const missing = !paper && (!!b.missing || !files.some((f) => f.name === b.fileName));
+    const fp = missing ? null : await bookFingerprint(b);
+    const sha256 = fp?.sha256 ?? b.sourceSha256 ?? null;
+    const { list, body } = joinFiles(missing ? [] : files);
     // Livre papier : aucun fichier, seulement ses métadonnées et sa couverture.
-    const meta = { title: b.title, author: b.author, format: b.format, fileName: b.fileName, originalName: b.originalName, size: b.size, edition: b.edition, cover: b.cover, pages: b.pages, sha256: fp?.sha256 ?? null, ...(b.format === 'paper' ? { paper: true, isbn: b.isbn ?? '' } : {}) };
+    const meta = { title: b.title, author: b.author, format: b.format, fileName: b.fileName, originalName: b.originalName, size: b.size, edition: b.edition, cover: b.cover, pages: missing ? undefined : b.pages, sha256, ...(missing ? { missing: true } : {}), ...(paper ? { paper: true, isbn: b.isbn ?? '' } : {}) };
     send(from, { t: 'files', c, g, rec: meta, list }, body);
   } else {
     const d = st.drafts.find((x) => x.id === id);
-    if (!d) return;
+    if (!d) {
+      if (s.role === 'host' && from !== 'h') waitFor(c, g, from);
+      return;
+    }
     const raw = await host.readFile(d.id, d.fileName).catch(() => null);
     if (!raw) return;
     const shared = (await shareableDocx(raw)).data; // jamais les notes privées
@@ -427,6 +475,7 @@ async function onFiles(head: Head, body: Uint8Array) {
   if (s.records.local(c, g)) {
     s.records.fetchDone(c, g);
     s.records.resume();
+    serveWaiting(c, g);
     return;
   }
   const st = useStore.getState();
@@ -434,12 +483,28 @@ async function onFiles(head: Head, body: Uint8Array) {
   const id = free(g) && SAFE.test(g) ? g : `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
   const origin = id === g ? {} : { shareOrigin: { shareId: s.shareId, srcId: g } };
   if (c === 'book') {
-    // Déjà là (même empreinte) : alias, aucun doublon.
-    const local = typeof meta.sha256 === 'string' ? await findLocalBook({ sha256: meta.sha256, size: Number(meta.size) || 0 }, st.books) : null;
-    if (local && !local.missing) s.records.addAlias('book', g, local.id);
+    const paper = meta.format === 'paper';
+    const missing = !paper && (meta.missing === true || !files.length);
+    // Déjà là (même empreinte) : alias, aucun doublon. Livre local « sans fichier » et fichier reçu : on le
+    // complète (au lieu d'en créer un second).
+    const sha = typeof meta.sha256 === 'string' ? meta.sha256 : null;
+    let local = sha ? await findLocalBook({ sha256: sha, size: Number(meta.size) || 0 }, st.books) : null;
+    if (!local && sha) local = st.books.find((b) => b.missing && b.sourceSha256 === sha) ?? null;
+    if (local && local.missing && !missing) {
+      for (const f of files) await host.storeFile(local.id, f.name, f.data);
+      const fileName = SAFE.test(String(meta.fileName)) ? String(meta.fileName) : files[0]?.name ?? local.fileName;
+      const target = local.id;
+      useStore.getState().applyExternal((cur) => ({
+        books: cur.books.map((b) => {
+          if (b.id !== target) return b;
+          const { missing: _m, ...rest } = b;
+          return { ...rest, fileName, ...(Array.isArray(meta.pages) && meta.pages.every((p: unknown) => typeof p === 'string' && SAFE.test(p)) ? { pages: meta.pages } : {}), ...(!b.cover && typeof meta.cover === 'string' && /^data:image\/(png|jpe?g|webp|gif|avif);base64,/.test(meta.cover) ? { cover: meta.cover } : {}) };
+        }),
+      }));
+      s.records.addAlias('book', g, target);
+    } else if (local) s.records.addAlias('book', g, local.id);
     else {
-      const paper = meta.format === 'paper';
-      if (!paper) for (const f of files) await host.storeFile(id, f.name, f.data);
+      if (!paper && !missing) for (const f of files) await host.storeFile(id, f.name, f.data);
       const now = Date.now();
       const fileName = paper ? '' : SAFE.test(String(meta.fileName)) ? String(meta.fileName) : files[0]?.name ?? 'source.bin';
       const book: Book = {
@@ -459,6 +524,7 @@ async function onFiles(head: Head, body: Uint8Array) {
         edition: { publisher: '', year: '', translator: '', place: '', pageOffset: 0, ...(meta.edition && typeof meta.edition === 'object' ? meta.edition : {}) },
         ...(Array.isArray(meta.pages) && meta.pages.every((p: unknown) => typeof p === 'string' && SAFE.test(p)) ? { pages: meta.pages } : {}),
         ...(typeof meta.sha256 === 'string' ? { sourceSha256: meta.sha256 } : {}),
+        ...(missing ? { missing: true } : {}),
         ...origin,
       };
       useStore.getState().applyExternal((cur) => ({ books: [book, ...cur.books] }));
@@ -474,6 +540,18 @@ async function onFiles(head: Head, body: Uint8Array) {
   }
   s.records.fetchDone(c, g);
   s.records.resume();
+  serveWaiting(c, g);
+}
+
+/** Hôte : ceux qui avaient demandé cet élément avant qu'il arrive ici. */
+function serveWaiting(c: 'book' | 'draft', g: string) {
+  const s = S;
+  if (!s) return;
+  const k = keyOf(c, g);
+  const waiting = s.waitingFetch.get(k);
+  if (!waiting) return;
+  s.waitingFetch.delete(k);
+  for (const who of waiting) void onFetch(who, { t: 'fetch', c, g } as Head);
 }
 
 /** Écrit réuni par un participant qui revient : version d'avant, puis le fichier réuni. */

@@ -1044,7 +1044,7 @@ export async function htmlToDocx(html: string, title: string, layout: DocLayout 
   zip.file(
     'word/settings.xml',
     `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<w:settings ${NS_DECL}><w:defaultTabStop w:val="708"/><w:hyphenationZone w:val="425"/><w:characterSpacingControl w:val="doNotCompress"/><w:footnotePr><w:footnote w:id="-1"/><w:footnote w:id="0"/></w:footnotePr><w:compat><w:compatSetting w:name="compatibilityMode" w:uri="http://schemas.microsoft.com/office/word" w:val="15"/></w:compat><w:themeFontLang w:val="fr-FR"/></w:settings>`,
+<w:settings ${NS_DECL}><w:defaultTabStop w:val="708"/><w:hyphenationZone w:val="425"/><w:characterSpacingControl w:val="doNotCompress"/><w:footnotePr><w:footnote w:id="-1"/><w:footnote w:id="0"/></w:footnotePr><w:compat><w:doNotExpandShiftReturn/><w:compatSetting w:name="compatibilityMode" w:uri="http://schemas.microsoft.com/office/word" w:val="15"/></w:compat><w:themeFontLang w:val="fr-FR"/></w:settings>`,
   );
   zip.file('word/numbering.xml', numberingXml(ctx.nums.length ? ctx.nums : [{ ordered: false }, { ordered: true }]));
   zip.file('word/footnotes.xml', footnotesXml(ctx.notes));

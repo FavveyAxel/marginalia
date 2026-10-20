@@ -21,6 +21,16 @@ export interface NewsEntry {
 
 export const NEWS: NewsEntry[] = [
   {
+    version: '3.40',
+    items: [
+      {
+        icon: 'lock',
+        title: 'Rien ne reste ouvert après une session',
+        text: 'Quitter une session à plusieurs, ou recevoir une copie, ferme aussitôt la connexion par Internet.',
+      },
+    ],
+  },
+  {
     version: '3.39',
     items: [
       {

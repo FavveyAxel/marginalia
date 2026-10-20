@@ -135,7 +135,7 @@ function Who({ profile, setProfile, taken = [] }: { profile: CollabProfile; setP
 function Places({ value, min = 2, onChange }: { value: number; min?: number; onChange: (n: number) => void }) {
   return (
     <div className="cl-places">
-      <span id="cl-places-label">Places, vous compris</span>
+      <span id="cl-places-label">Combien de personnes ?</span>
       <div className="segmented cl-places-seg" role="radiogroup" aria-labelledby="cl-places-label" data-testid="collab-places">
         {[2, 3, 4, 5, 6].map((n) => (
           <button

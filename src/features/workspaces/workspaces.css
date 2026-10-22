@@ -1041,3 +1041,7 @@ body:has(.ws-selbar) .toasts {
 .ws-view [data-locked] { cursor: not-allowed; }
 .ws-view .btn[data-locked] { opacity: 0.5; }
 .ws-locked-badge { display: inline-flex; align-items: center; gap: 6px; margin-right: 8px; padding: 4px 10px; border-radius: 999px; background: var(--bg-sunken, var(--bg-panel)); color: var(--ink-2); font-size: var(--fs-sm); cursor: help; white-space: nowrap; }
+
+/* Survol : l'aperçu (couverture, page, carte) se soulève, comme la page des écrits. */
+.ws-card-preview > * { transition: transform var(--dur) var(--ease); }
+.ws-card:hover .ws-card-preview > * { transform: translateY(-3px); }

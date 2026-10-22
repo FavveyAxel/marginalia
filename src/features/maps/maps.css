@@ -182,3 +182,7 @@
 .mv-none {
   padding: 24px 0;
 }
+
+/* Survol : l'aperçu de la carte se soulève, comme la page des écrits. */
+.mv-thumb > * { transition: transform var(--dur) var(--ease); }
+.mv-card:hover .mv-thumb > * { transform: translateY(-3px); }

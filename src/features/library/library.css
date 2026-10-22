@@ -272,7 +272,7 @@
   background: var(--bg-active);
 }
 .lib-card:hover .lib-cover {
-  transform: translateY(-2px);
+  transform: translateY(-3px); /* comme l'aperçu des écrits */
 }
 .lib-cover {
   transition: transform var(--dur) var(--ease);

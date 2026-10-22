@@ -21,6 +21,16 @@ export interface NewsEntry {
 
 export const NEWS: NewsEntry[] = [
   {
+    version: '3.42',
+    items: [
+      {
+        icon: 'sparkles',
+        title: 'Aperçus au survol',
+        text: 'Comme pour les écrits, l’aperçu se soulève au survol dans la Bibliothèque, les Cartes et les Espaces.',
+      },
+    ],
+  },
+  {
     version: '3.41',
     items: [
       {

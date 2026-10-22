@@ -21,6 +21,16 @@ export interface NewsEntry {
 
 export const NEWS: NewsEntry[] = [
   {
+    version: '3.43',
+    items: [
+      {
+        icon: 'sparkles',
+        title: 'Ranger en glissant',
+        text: 'Glissez un écrit, un livre, une carte libre ou un plan sur un espace ou un dossier de la barre latérale pour l’y ranger. Une sélection part en entier.',
+      },
+    ],
+  },
+  {
     version: '3.42',
     items: [
       {

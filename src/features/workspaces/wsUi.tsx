@@ -12,6 +12,7 @@ import {
   sortedGroups,
   subtreeIds,
   type DragPayload,
+  type DragRef,
   type DropTarget,
 } from './wsModel';
 import { importFromDrop } from './wsActions';
@@ -56,7 +57,7 @@ export function dragSource(payload: DragPayload | (() => DragPayload), onEnd?: (
       e.dataTransfer.effectAllowed = 'move';
       e.dataTransfer.setData('application/x-marginalia-ws', p.id);
       e.dataTransfer.setData('text/plain', p.id);
-      const n = p.ids?.length ?? 0;
+      const n = p.ids?.length ?? p.refs?.length ?? 0;
       if (n > 1) setBadgeImage(e, e.currentTarget as HTMLElement, n);
     },
     onDragEnd: () => {
@@ -64,6 +65,18 @@ export function dragSource(payload: DragPayload | (() => DragPayload), onEnd?: (
       onEnd?.();
     },
   };
+}
+
+/**
+ * Source déplaçable vers un espace, depuis un autre onglet (Écrire, Bibliothèque, Cartes, Plans) : on dépose
+ * la carte sur un espace ou un groupe de la barre latérale pour l'y ranger. `refs` est évalué au début du
+ * glisser (sélection multiple : la sélection du moment).
+ */
+export function refDragSource(refs: () => DragRef[]) {
+  return dragSource(() => {
+    const list = refs();
+    return { type: 'ref', id: list[0]?.refId ?? '', workspaceId: '', refs: list };
+  });
 }
 
 /** Aperçu de glissement d'une sélection : l'élément saisi, une pile derrière et un badge « N ». */

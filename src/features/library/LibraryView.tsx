@@ -42,7 +42,7 @@ import { bookToMarkdown } from '../../lib/exportMarkdown';
 import { BookCover } from './BookCover';
 import { useMultiSelect, useLasso, useSelectionKeys, LassoBox } from '../../lib/useMultiSelect';
 import { SelectionActionBar, SelectCheck, AddToWorkspaceDialog, selectedLabel } from '../../components/MultiSelect';
-import { ContextMenu, type MenuEntry } from '../workspaces/wsUi';
+import { ContextMenu, refDragSource, type MenuEntry } from '../workspaces/wsUi';
 import './library.css';
 import { AssemblePhotos } from './AssemblePhotos';
 import { sourcesOfBook } from './photoDoc';
@@ -252,6 +252,8 @@ export function LibraryView() {
       else open(b);
     }
   };
+  // Glisser vers un espace de la barre latérale : la sélection si le livre en fait partie, sinon lui seul.
+  const bookDrag = (b: Book) => refDragSource(() => (sel.has(b.id) && sel.size > 1 ? sel.ids : [b.id]).map((refId) => ({ kind: 'book' as const, refId })));
   const onItemContext = (e: React.MouseEvent, b: Book) => {
     e.preventDefault();
     if (sel.has(b.id) && sel.size > 1) {
@@ -485,6 +487,7 @@ export function LibraryView() {
                       onClick={(e) => onItemClick(e, b)}
                       onKeyDown={(e) => onItemKey(e, b)}
                       onContextMenu={(e) => onItemContext(e, b)}
+                      {...bookDrag(b)}
                     >
                       <div className="lib-card-cover">
                         {showChecks && (
@@ -566,6 +569,7 @@ export function LibraryView() {
                       onClick={(e) => onItemClick(e, b)}
                       onKeyDown={(e) => onItemKey(e, b)}
                       onContextMenu={(e) => onItemContext(e, b)}
+                      {...bookDrag(b)}
                     >
                       {showChecks ? (
                         <SelectCheck checked={sel.has(b.id)} onToggle={() => sel.toggle(b.id)} label={`Sélectionner « ${b.title} »`} />

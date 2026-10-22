@@ -9,6 +9,7 @@ import type { ArgumentMap } from '../../lib/types';
 import { BoardThumb } from '../map/ui/BoardThumb';
 import { createBoard } from '../map/model/actions';
 import { goToMovementMap, movementShort } from '../map/ui/movement/movement';
+import { refDragSource } from '../workspaces/wsUi';
 import './maps.css';
 
 type Kind = 'board' | 'book' | 'movement';
@@ -104,7 +105,14 @@ function MapCard({ r, i }: { r: Row; i: number }) {
   const n = r.map.nodes.length;
   const links = r.map.edges.length;
   return (
-    <div className="mv-card lift" style={{ '--i': i } as CSSProperties} data-map-key={r.key} data-kind={r.kind}>
+    <div
+      className="mv-card lift"
+      style={{ '--i': i } as CSSProperties}
+      data-map-key={r.key}
+      data-kind={r.kind}
+      // Carte libre : se range dans un espace en la glissant sur la barre latérale.
+      {...(r.kind === 'board' ? refDragSource(() => [{ kind: 'map', refId: r.key }]) : {})}
+    >
       <button className="mv-open" onClick={() => openRow(r)} aria-label={`Ouvrir ${r.title}`}>
         <div className={`mv-thumb mv-thumb-${r.kind}`}>
           <BoardThumb map={r.map} />

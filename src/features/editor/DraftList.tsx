@@ -11,7 +11,7 @@ import { Popover, usePop } from './Popover';
 import { setExternalDirty, words } from './save';
 import { useMultiSelect, useLasso, useSelectionKeys, LassoBox, type ClickMods } from '../../lib/useMultiSelect';
 import { SelectionActionBar, SelectCheck, AddToWorkspaceDialog } from '../../components/MultiSelect';
-import { ContextMenu } from '../workspaces/wsUi';
+import { ContextMenu, refDragSource } from '../workspaces/wsUi';
 import { fmtKeys } from '../../lib/keys';
 import { NEW_DRAFT_FONTS, readNewDraftFont, writeNewDraftFont, type NewDraftFont } from './view';
 
@@ -107,6 +107,8 @@ interface CardSel {
   click(e: ClickMods): boolean;
   toggle(): void;
   onContextMenu(e: ReactMouseEvent): void;
+  /** Écrits emportés par un glisser vers un espace : la sélection si la carte en fait partie, sinon elle seule. */
+  dragIds(): string[];
 }
 
 function DraftCard({ draft, index, sel }: { draft: Draft; index: number; sel: CardSel }) {
@@ -142,6 +144,8 @@ function DraftCard({ draft, index, sel }: { draft: Draft; index: number; sel: Ca
       aria-selected={sel.selected}
       style={{ '--i': index } as CSSProperties}
       onContextMenu={sel.onContextMenu}
+      {...refDragSource(() => sel.dragIds().map((refId) => ({ kind: 'draft' as const, refId })))}
+      draggable={!renaming}
     >
       {sel.showCheck && (
         <span className="ed-card-check">
@@ -283,6 +287,7 @@ export function DraftList() {
     showCheck: showChecks,
     click: (e) => sel.click(d.id, e, { toggle: selectMode }),
     toggle: () => sel.toggle(d.id),
+    dragIds: () => (sel.has(d.id) && sel.size > 1 ? sel.ids : [d.id]),
     onContextMenu: (e) => {
       if (sel.has(d.id) && sel.size > 1) {
         e.preventDefault();

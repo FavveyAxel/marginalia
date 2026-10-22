@@ -234,8 +234,14 @@ export function placeGroup(groupId: string, parentId: string | null, beforeId: s
   return true;
 }
 
-/** `ids` : glisser d'une sélection multiple d'éléments (`id` = l'élément saisi, inclus dans `ids`). */
-export type DragPayload = { type: 'item' | 'group'; id: string; workspaceId: string; ids?: string[] };
+/** Document venu d'un autre onglet (Écrire, Bibliothèque, Cartes, Plans) : pas encore dans l'espace visé. */
+export type DragRef = { kind: WorkspaceItemKind; refId: string };
+
+/**
+ * `ids` : glisser d'une sélection multiple d'éléments (`id` = l'élément saisi, inclus dans `ids`).
+ * `type: 'ref'` : documents glissés depuis un autre onglet (`refs`), à ranger dans un espace ; `workspaceId` vide.
+ */
+export type DragPayload = { type: 'item' | 'group' | 'ref'; id: string; workspaceId: string; ids?: string[]; refs?: DragRef[] };
 
 /** Éléments déplacés par un glisser (un seul, ou toute la sélection). */
 export const dragIds = (d: DragPayload): string[] => (d.type === 'item' && d.ids && d.ids.length ? d.ids : [d.id]);
@@ -274,9 +280,48 @@ function resolveTarget(drag: DragPayload, t: DropTarget): { parentId: string | n
   return { parentId: g.parentId, beforeId: sibs[at + 1]?.id ?? null };
 }
 
-export const canDrop = (drag: DragPayload, t: DropTarget) => !!resolveTarget(drag, t);
+/** Où ranger des documents venus d'un autre onglet : l'espace, le groupe et l'élément avant lequel les poser. */
+function resolveRefTarget(t: DropTarget): { workspaceId: string; groupId: string | null; beforeId: string | null } | null {
+  const s = useStore.getState();
+  if (t.kind === 'workspace') return s.workspaces.some((w) => w.id === t.workspaceId) ? { workspaceId: t.workspaceId, groupId: null, beforeId: null } : null;
+  if (t.kind === 'group') {
+    const g = s.groups.find((x) => x.id === t.groupId);
+    return g ? { workspaceId: g.workspaceId, groupId: g.id, beforeId: null } : null;
+  }
+  const target = s.wsItems.find((i) => i.id === t.itemId);
+  if (!target) return null;
+  if (t.pos === 'before') return { workspaceId: target.workspaceId, groupId: target.groupId, beforeId: target.id };
+  const sibs = s.wsItems.filter((i) => i.workspaceId === target.workspaceId && i.groupId === target.groupId).sort(byOrder);
+  const at = sibs.findIndex((i) => i.id === target.id);
+  return { workspaceId: target.workspaceId, groupId: target.groupId, beforeId: sibs[at + 1]?.id ?? null };
+}
+
+export const canDrop = (drag: DragPayload, t: DropTarget) => (drag.type === 'ref' ? !!drag.refs?.length && !!resolveRefTarget(t) : !!resolveTarget(drag, t));
+
+/**
+ * Range des documents venus d'un autre onglet. Déjà dans cet espace : ils y sont déplacés (pas de doublon).
+ * Renvoie le nombre de documents rangés.
+ */
+function dropRefs(refs: DragRef[], t: DropTarget): number {
+  const r = resolveRefTarget(t);
+  if (!r) return 0;
+  const s = useStore.getState();
+  let n = 0;
+  for (const ref of refs) {
+    const it = s.addToWorkspace(r.workspaceId, r.groupId, ref.kind, ref.refId);
+    if (r.beforeId !== it.id) placeItem(it.id, r.groupId, r.beforeId);
+    n++;
+  }
+  // Le groupe visé s'ouvre dans la barre latérale : on voit où les documents sont arrivés.
+  if (r.groupId) useStore.setState((st) => ({ groups: st.groups.map((g) => (g.id === r.groupId && g.collapsed ? { ...g, collapsed: false } : g)) }));
+  normalizeOrders(r.workspaceId);
+  const place = r.groupId ? s.groups.find((g) => g.id === r.groupId)?.name : s.workspaces.find((w) => w.id === r.workspaceId)?.name;
+  if (n && place) useStore.getState().toast(n > 1 ? `${n} documents rangés dans « ${place} »` : `Rangé dans « ${place} »`, 'success');
+  return n;
+}
 
 export function dropOnto(drag: DragPayload, t: DropTarget): boolean {
+  if (drag.type === 'ref') return dropRefs(drag.refs ?? [], t) > 0;
   const r = resolveTarget(drag, t);
   if (!r) return false;
   if (drag.type === 'item') {

@@ -7,6 +7,7 @@ import type { EssayPlan } from '../../lib/types';
 import { relativeTime } from '../../components/ui';
 import { PlanEditor } from './PlanEditor';
 import { countItems } from './planTree';
+import { refDragSource } from '../workspaces/wsUi';
 import './plans.css';
 
 const norm = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
@@ -99,6 +100,7 @@ function PlanList({ missing }: { missing: boolean }) {
                   className="plan-card lift"
                   style={{ ['--i' as string]: i }}
                   data-pid={p.id}
+                  {...refDragSource(() => [{ kind: 'plan', refId: p.id }])}
                   onClick={() => navigate({ name: 'plans', planId: p.id })}
                 >
                   <span className="plan-card-title">{p.sujet.trim() || p.title || 'Sans titre'}</span>

@@ -206,6 +206,12 @@ export interface DocEngine {
   unsetLink(): void;
   /** Table des matières avant le paragraphe du curseur (numéros de page calculés ensuite). */
   insertToc(): Promise<boolean>;
+  /**
+   * Bibliographie à la fin du document : un titre « Bibliographie » (Titre 1) suivi d'une référence par
+   * paragraphe (`*Titre*` en italique). Si une bibliographie existe déjà (titre « Bibliographie » et les
+   * paragraphes qui le suivent jusqu'au titre suivant), elle est remplacée. Renvoie ce qui a été fait.
+   */
+  insertBibliography(entries: string[]): 'inserted' | 'updated' | false;
   /** Met à jour les tables des matières (entrées puis numéros de page) ; renvoie leur nombre. */
   updateToc(): Promise<number>;
   tocCount(): number;
@@ -2162,6 +2168,58 @@ export async function openDocEngine(host: HTMLElement, data: ArrayBuffer, opts: 
       changed();
       ed.view.focus();
       return ok;
+    },
+    insertBibliography(entries) {
+      touched = true;
+      const ed = body();
+      if (!ed || !entries.length) return false;
+      const S = ed.state.schema;
+      const doc = ed.state.doc;
+      const isHeading = (n: Any) => {
+        const id = n.attrs?.paragraphProperties?.styleId;
+        return typeof id === 'string' && (/^(Heading|Titre)\d$/.test(id) || id === 'Title' || id === resolveStyleId('h1'));
+      };
+      // Bibliographie existante : le dernier titre « Bibliographie », jusqu'au titre suivant (ou la fin).
+      let from = -1;
+      let to = -1;
+      doc.forEach((n: Any, pos: number) => {
+        if (n.type.name !== 'paragraph') {
+          if (from >= 0 && to < 0) to = pos;
+          return;
+        }
+        if (isHeading(n) && n.textContent.trim().toLocaleLowerCase('fr') === 'bibliographie') {
+          from = pos;
+          to = -1;
+        } else if (from >= 0 && to < 0 && isHeading(n)) to = pos;
+      });
+      if (from >= 0 && to < 0) to = doc.content.size;
+      const italic = S.marks.italic;
+      const runsOf = (md: string) =>
+        md
+          .split(/(\*[^*\n]+\*)/g)
+          .filter(Boolean)
+          .map((part) => {
+            const it = /^\*[^*]+\*$/.test(part);
+            const text = it ? part.slice(1, -1) : part;
+            return S.nodes.run.create({}, S.text(text, it && italic ? [italic.create()] : []));
+          });
+      const headingId = resolveStyleId('h1');
+      const nodes = [
+        S.nodes.paragraph.create({ paragraphProperties: headingId ? { styleId: headingId } : {} }, S.nodes.run.create({}, S.text('Bibliographie'))),
+        ...entries.map((md) => S.nodes.paragraph.create({ paragraphProperties: {} }, runsOf(md))),
+      ];
+      let tr = ed.state.tr;
+      if (from >= 0) tr = tr.replaceWith(from, to, nodes);
+      else {
+        // À la fin ; le dernier paragraphe vide (s'il y en a un) est remplacé.
+        const last = doc.lastChild;
+        const end = doc.content.size;
+        if (last && last.type.name === 'paragraph' && last.content.size === 0 && doc.childCount > 1) tr = tr.replaceWith(end - last.nodeSize, end, nodes);
+        else tr = tr.insert(end, nodes);
+      }
+      ed.view.dispatch(tr.scrollIntoView());
+      changed();
+      return from >= 0 ? 'updated' : 'inserted';
     },
     async updateToc() {
       touched = true;

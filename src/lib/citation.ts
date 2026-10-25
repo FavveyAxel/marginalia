@@ -44,3 +44,22 @@ export function formatFootnote(h: Highlight, book: Book, mode: 'md' | 'plain' = 
   const c = citationParts(h, book);
   return `${mode === 'md' ? c.referenceMd : c.reference}${c.locator ? `, ${c.locator}` : ''}.`;
 }
+
+/** Nom de famille pour le tri : « Nom, Prénom » → Nom ; « Prénom Nom » → dernier mot. */
+function sortKey(book: Book): string {
+  const a = book.author.trim();
+  const last = a.includes(',') ? a.split(',')[0] : a.split(/\s+/).pop() ?? '';
+  return `${last} ${a} ${book.title}`.toLocaleLowerCase('fr');
+}
+
+/**
+ * Bibliographie des livres cités : une référence par livre (sans page), triée par nom d'auteur,
+ * titre en `*italique*` (Markdown) et point final.
+ */
+export function bibliographyEntries(books: Book[]): string[] {
+  const seen = new Set<string>();
+  return books
+    .filter((b) => (seen.has(b.id) ? false : (seen.add(b.id), true)))
+    .sort((x, y) => sortKey(x).localeCompare(sortKey(y), 'fr'))
+    .map((b) => `${referenceParts(b).md}.`);
+}

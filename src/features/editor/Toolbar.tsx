@@ -36,6 +36,7 @@ import {
   Underline,
   Undo2,
   ALargeSmall,
+  Library,
 } from 'lucide-react';
 import type { Align, DocEngine, EngineState, ParaStyle, TableOp } from './engine';
 import type { StylePatch } from './ooxml';
@@ -45,6 +46,9 @@ import { ColorButton, KEYS, MenuRow, NumField, SizeControl, TbButton, keepFocus,
 import { STYLE_LABEL, STYLE_ORDER, StyleEditor } from './StyleEditor';
 import { PrivateNoteTools } from './privateNotesUi';
 import { useTypography } from './FindReplace';
+import { citationRanges } from './citeLink';
+import { useStore } from '../../lib/store';
+import { bibliographyEntries } from '../../lib/citation';
 import type { PainterMode } from './painter';
 
 export type StructuralOp = (label: string, run: () => Promise<ArrayBuffer>) => Promise<void>;
@@ -466,6 +470,32 @@ export function Toolbar(p: ToolbarProps) {
                   });
                 }}
                 data-insert="toc"
+              />
+              <MenuRow
+                icon={<Library size={14} />}
+                label="Bibliographie des livres cités"
+                onClick={() => {
+                  close();
+                  const e = p.engine();
+                  if (!e) return;
+                  // Livres des citations liées (insérées depuis le panneau Extraits), dans l'écrit.
+                  const st = useStore.getState();
+                  const hls = new Map(st.highlights.map((h) => [h.id, h]));
+                  const byId = new Map(st.books.map((b) => [b.id, b]));
+                  const books = citationRanges(e)
+                    .map((c) => byId.get(hls.get(c.highlightId)?.bookId ?? ''))
+                    .filter((b): b is NonNullable<typeof b> => !!b);
+                  if (!books.length) {
+                    p.notify('Aucune citation liée à un livre dans cet écrit. Insérez vos citations depuis le panneau Extraits.', 'info');
+                    return;
+                  }
+                  const entries = bibliographyEntries(books);
+                  const r = e.insertBibliography(entries);
+                  p.refresh();
+                  if (!r) p.notify('La bibliographie n’a pas pu être insérée.', 'error');
+                  else p.notify(`${r === 'updated' ? 'Bibliographie mise à jour' : 'Bibliographie ajoutée à la fin'} : ${entries.length} livre${entries.length > 1 ? 's' : ''}`, 'success');
+                }}
+                data-insert="biblio"
               />
               <div className="divider" />
               <div className="ed-pop-title">

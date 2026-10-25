@@ -21,6 +21,16 @@ export interface NewsEntry {
 
 export const NEWS: NewsEntry[] = [
   {
+    version: '3.44',
+    items: [
+      {
+        icon: 'notes',
+        title: 'Bibliographie des livres cités',
+        text: 'Dans un écrit, Insérer › « Bibliographie des livres cités » ajoute à la fin la liste des livres que vous citez, triée par auteur. Relancez-la pour la mettre à jour.',
+      },
+    ],
+  },
+  {
     version: '3.43',
     items: [
       {

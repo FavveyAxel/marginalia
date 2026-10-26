@@ -7,6 +7,7 @@ import { CategoryDot, KindDot } from '../../components/ui';
 import type { Book, Concept, ConceptSense, Highlight, ReviewCard } from '../../lib/types';
 import { newFsrs } from './fsrs';
 import { BLANK } from './RichText';
+import { CardImport } from './CardImport';
 
 type Kind = ReviewCard['kind'];
 
@@ -271,6 +272,7 @@ export function Creator() {
               Créer la carte
             </button>
           </div>
+          <CardImport />
         </div>
       ) : sources.length === 0 ? (
         <div className="rev-none">

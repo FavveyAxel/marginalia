@@ -525,7 +525,7 @@ export interface HostApi {
 
 export type ExportFormat = 'docx' | 'pdf' | 'md' | 'html' | 'txt';
 /** Formats d'« Enregistrer sous » binaire (exports de l'éditeur + images de la carte). */
-export type SaveFormat = ExportFormat | 'png' | 'svg' | 'marginalia';
+export type SaveFormat = ExportFormat | 'png' | 'svg' | 'marginalia' | 'xlsx';
 
 export const EXPORT_MIME: Record<SaveFormat, string> = {
   docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
@@ -536,6 +536,7 @@ export const EXPORT_MIME: Record<SaveFormat, string> = {
   png: 'image/png',
   svg: 'image/svg+xml',
   marginalia: 'application/zip',
+  xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
 };
 
 /** Images importées comme documents (photo ou scan d'une page : texte reconnu par OCR). */

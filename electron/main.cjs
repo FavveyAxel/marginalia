@@ -1577,6 +1577,7 @@ const SAVE_FILTERS = {
   png: { name: 'Image PNG', extensions: ['png'] },
   svg: { name: 'Image SVG', extensions: ['svg'] },
   marginalia: { name: 'Partage Marginalia', extensions: ['marginalia'] },
+  xlsx: { name: 'Classeur Excel', extensions: ['xlsx'] },
 };
 
 // Polices installées : liste native de macOS (NSFontManager via JavaScript for Automation),

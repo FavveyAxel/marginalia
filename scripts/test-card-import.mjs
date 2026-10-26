@@ -31,7 +31,7 @@ page.on('pageerror', (e) => errors.push('pageerror: ' + e.message));
 const parse = (file) =>
   page.evaluate(
     async ({ name, b64 }) => {
-      const m = await import('/src/features/revision/cardImport.ts');
+      const m = await import('/src/features/revision/cardSheet.ts');
       const data = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0)).buffer;
       try {
         return await m.parseCardFile(name, data);
@@ -49,7 +49,7 @@ try {
 
   // ── Modèle : aller-retour ──
   const tpl = await page.evaluate(async () => {
-    const m = await import('/src/features/revision/cardImport.ts');
+    const m = await import('/src/features/revision/cardSheet.ts');
     const buf = await m.templateXlsx();
     return { b64: btoa(String.fromCharCode(...new Uint8Array(buf))), parsed: await m.parseCardFile('modele.xlsx', buf) };
   });
@@ -81,9 +81,9 @@ try {
   check('CSV sans titres : colonnes A et B, 2 cartes', nt.header === false && nt.cards?.length === 2 && nt.cards[1].back === 'Act only on that maxim, universally.', nt);
 
   // ── Formats refusés ──
-  const ods = await page.evaluate(async () => (await import('/src/features/revision/cardImport.ts')).parseCardFile('cartes.ods', new ArrayBuffer(4)).then(() => '', (e) => e.message));
+  const ods = await page.evaluate(async () => (await import('/src/features/revision/cardSheet.ts')).parseCardFile('cartes.ods', new ArrayBuffer(4)).then(() => '', (e) => e.message));
   check('.ods : message clair', /Excel \(\.xlsx\) ou \.csv/.test(ods), ods);
-  const pdf = await page.evaluate(async () => (await import('/src/features/revision/cardImport.ts')).parseCardFile('livre.pdf', new ArrayBuffer(4)).then(() => '', (e) => e.message));
+  const pdf = await page.evaluate(async () => (await import('/src/features/revision/cardSheet.ts')).parseCardFile('livre.pdf', new ArrayBuffer(4)).then(() => '', (e) => e.message));
   check('.pdf : refusé', /Format non pris en charge/.test(pdf), pdf);
 
   // ── Interface ──

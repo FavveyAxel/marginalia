@@ -1,4 +1,4 @@
-// Import de plusieurs cartes depuis Excel (.xlsx) ou .csv, avec un modèle à remplir (cardImport.ts).
+// Import de plusieurs cartes depuis Excel (.xlsx) ou .csv, avec un modèle à remplir (cardSheet.ts).
 // Aperçu avant création : nombre de cartes, lignes incomplètes, doublons, livres non trouvés.
 import { useRef, useState } from 'react';
 import { Download, FileSpreadsheet } from 'lucide-react';
@@ -7,7 +7,7 @@ import { host } from '../../lib/platform';
 import type { Book, ReviewCard } from '../../lib/types';
 import { Modal } from '../workspaces/wsUi';
 import { newFsrs } from './fsrs';
-import { parseCardFile, templateXlsx, type ImportedCard, type ParsedCards } from './cardImport';
+import { parseCardFile, templateXlsx, type ImportedCard, type ParsedCards } from './cardSheet';
 
 const norm = (s: string) =>
   s

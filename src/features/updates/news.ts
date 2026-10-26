@@ -21,6 +21,16 @@ export interface NewsEntry {
 
 export const NEWS: NewsEntry[] = [
   {
+    version: '3.45',
+    items: [
+      {
+        icon: 'sparkles',
+        title: 'Importer des cartes depuis Excel',
+        text: 'Révision › Créer des cartes › Libre : téléchargez le modèle, une question et sa réponse par ligne, puis importez le fichier Excel ou .csv. Un aperçu s’affiche avant de créer les cartes.',
+      },
+    ],
+  },
+  {
     version: '3.44',
     items: [
       {

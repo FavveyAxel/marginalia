@@ -21,6 +21,16 @@ export interface NewsEntry {
 
 export const NEWS: NewsEntry[] = [
   {
+    version: '3.47',
+    items: [
+      {
+        icon: 'sparkles',
+        title: 'Skeuomorphisme, en mieux',
+        text: 'Sur l’étagère, un livre rangé rentre droit à sa place sans passer sur ses voisins. Dans les cartes mentales, le liège suit la carte quand on la déplace ou qu’on zoome, et le message d’une carte vide est posé sur une fiche, bien lisible.',
+      },
+    ],
+  },
+  {
     version: '3.46',
     items: [
       {

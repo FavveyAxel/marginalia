@@ -146,7 +146,7 @@ export function Session({ ids, onExit }: { ids: string[]; onExit: () => void }) 
           <Finish counts={counts} startedAt={startedAt.current} finishedAt={finishedAt ?? Date.now()} onExit={onExit} />
         ) : card ? (
           <div className="rev-deck">
-            <article key={`${pos}-${card.id}`} className="rev-card anim-scale" aria-live="polite">
+            <article key={`${pos}-${card.id}`} className={`rev-card anim-scale ${revealed ? 'is-revealed' : ''}`} aria-live="polite">
               <div className="rev-card-meta">
                 <span className="rev-kind">{KIND_LABEL[card.kind]}</span>
                 <span className="rev-count" aria-label={`Carte ${pos + 1} sur ${total}`}>

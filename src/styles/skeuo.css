@@ -198,10 +198,97 @@
   box-shadow: var(--sk-card-shadow), 0 18px 30px -16px rgba(40, 30, 15, 0.35);
 }
 
+/* ── Écrire : barre d'outils en verre, feuille posée sur le plan de travail ── */
+:root[data-style='skeuo'] .ed-toolbar {
+  background: var(--sk-glass-strong);
+  backdrop-filter: blur(24px) saturate(1.5);
+  border-radius: 12px;
+  box-shadow: inset 0 0 0 0.5px var(--sk-highlight), 0 0 0 0.5px var(--sk-hairline), 0 10px 26px -16px rgba(40, 30, 15, 0.45);
+}
+:root[data-style='skeuo'] .ed-engine .superdoc-page,
+:root[data-style='skeuo'] .ed-engine .super-editor-page,
+:root[data-style='skeuo'] .ed-engine [data-page-index] {
+  box-shadow: 0 0 0 0.5px var(--sk-hairline), 1.5px 1.5px 0 -0.5px var(--sk-page-edge-2), 3px 3px 0 -1px var(--sk-page-edge), 4.5px 4.5px 0 -1.5px var(--sk-page-edge-2), var(--sk-float) !important;
+}
+
+/* ── Cartes mentales : une grande feuille, des bulles en papier ── */
+:root[data-style='skeuo'] .board-canvas {
+  background: var(--sk-paper), var(--bg-page);
+  border-radius: 14px;
+  box-shadow: 0 0 0 0.5px var(--sk-hairline), inset 0 1px 0 var(--sk-highlight), var(--sk-float);
+}
+:root[data-style='skeuo'] .map-node {
+  background: var(--sk-paper), var(--sk-card);
+  border-color: transparent;
+  box-shadow: var(--sk-card-shadow);
+}
+:root[data-style='skeuo'] .map-node:hover {
+  box-shadow: var(--sk-card-shadow), 0 16px 28px -16px rgba(40, 30, 15, 0.4);
+}
+
+/* ── Révision : une fiche bristol (filet rouge, lignes bleues), qui se retourne pour la réponse ── */
+:root[data-style='skeuo'] .rev-card {
+  background:
+    linear-gradient(180deg, transparent 58px, color-mix(in srgb, #c8463c 55%, transparent) 58px 59.5px, transparent 59.5px),
+    repeating-linear-gradient(180deg, transparent 0 31px, color-mix(in srgb, #4a6fa8 18%, transparent) 31px 32px) 0 60px / 100% 100% no-repeat,
+    var(--sk-paper),
+    var(--sk-card);
+  border-radius: 6px;
+  box-shadow: 0 0 0 0.5px var(--sk-hairline), 0 1px 0 var(--sk-highlight) inset, 4px 5px 0 -2px var(--sk-page-edge-2), 8px 10px 0 -4px var(--sk-page-edge), var(--sk-float);
+}
+:root[data-style='skeuo'][data-theme='dark'] .rev-card {
+  background:
+    linear-gradient(180deg, transparent 58px, rgba(200, 70, 60, 0.45) 58px 59.5px, transparent 59.5px),
+    repeating-linear-gradient(180deg, transparent 0 31px, rgba(120, 150, 210, 0.1) 31px 32px) 0 60px / 100% 100% no-repeat,
+    var(--sk-paper),
+    var(--sk-card);
+}
+/* le texte tombe sur les lignes de la fiche */
+:root[data-style='skeuo'] .rev-front,
+:root[data-style='skeuo'] .rev-back {
+  line-height: 32px;
+}
+:root[data-style='skeuo'] .rev-card.is-revealed {
+  animation: sk-flip 0.55s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  transform-origin: 50% 50%;
+}
+@keyframes sk-flip {
+  from {
+    transform: perspective(1400px) rotateY(-90deg);
+  }
+  to {
+    transform: perspective(1400px) rotateY(0);
+  }
+}
+
+/* ── Fenêtres : verre dépoli ── */
+:root[data-style='skeuo'] .ws-modal,
+:root[data-style='skeuo'] .up-dialog,
+:root[data-style='skeuo'] .wr-dialog,
+:root[data-style='skeuo'] .asm,
+:root[data-style='skeuo'] .lib-dialog,
+:root[data-style='skeuo'] .cmd-modal,
+:root[data-style='skeuo'] .ed-bookpick {
+  background: var(--sk-glass-strong);
+  backdrop-filter: blur(30px) saturate(1.6);
+  box-shadow: inset 0 0 0 0.5px var(--sk-highlight), 0 0 0 0.5px var(--sk-hairline), var(--sk-float);
+}
+@media (prefers-reduced-motion: reduce) {
+  :root[data-style='skeuo'] .rev-card.is-revealed {
+    animation: none;
+  }
+}
+
 @media (prefers-reduced-transparency: reduce) {
   :root[data-style='skeuo'] .sidebar,
   :root[data-style='skeuo'] .reader-side,
-  :root[data-style='skeuo'] .floating {
+  :root[data-style='skeuo'] .floating,
+  :root[data-style='skeuo'] .ed-toolbar,
+  :root[data-style='skeuo'] .ws-modal,
+  :root[data-style='skeuo'] .up-dialog,
+  :root[data-style='skeuo'] .wr-dialog,
+  :root[data-style='skeuo'] .lib-dialog,
+  :root[data-style='skeuo'] .cmd-modal {
     backdrop-filter: none;
     background: var(--sk-glass-strong);
   }

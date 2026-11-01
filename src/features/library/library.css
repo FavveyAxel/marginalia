@@ -95,7 +95,7 @@
   flex-direction: column;
   flex: none;
   overflow: hidden;
-  box-shadow: 0 1px 2px rgba(30, 24, 14, 0.18), 0 6px 14px -6px rgba(30, 24, 14, 0.3), 0 0 0 0.5px rgba(30, 24, 14, 0.18);
+  box-shadow: 0 1px 2px rgba(30, 24, 14, 0.19), 0 9px 18px -7px rgba(30, 24, 14, 0.35), 0 0 0 0.5px rgba(30, 24, 14, 0.19);
   vertical-align: middle;
   box-sizing: border-box;
 }
@@ -114,7 +114,10 @@
   position: absolute;
   inset: 0;
   border-radius: inherit;
-  background: linear-gradient(90deg, rgba(255, 255, 255, 0.14) 0, rgba(255, 255, 255, 0) 7%, rgba(0, 0, 0, 0.06) 100%);
+  /* Volume d'un livre : pli du dos (ombre puis trait de lumière), et la couverture qui s'assombrit vers la tranche. */
+  background:
+    linear-gradient(90deg, rgba(0, 0, 0, 0.12) 0, rgba(0, 0, 0, 0.04) 2%, rgba(255, 255, 255, 0.23) 3.2%, rgba(255, 255, 255, 0) 6.7%, rgba(0, 0, 0, 0.047) 7.6%, rgba(0, 0, 0, 0) 10%),
+    linear-gradient(90deg, transparent 63%, rgba(0, 0, 0, 0.067) 100%);
   pointer-events: none;
 }
 .lib-cover-rule {

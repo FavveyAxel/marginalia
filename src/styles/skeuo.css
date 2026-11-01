@@ -486,7 +486,21 @@
    Extraits et idées épinglés de travers, liens tendus comme des fils de laine
    (chaque relation garde sa couleur ; le simple « lien » devient le fil rouge).
    On ôte la punaise d'une carte qu'on déplace : on la décroche. */
-:root[data-style='skeuo'] .board-canvas { padding: 0; }
+:root[data-style='skeuo'] .board-canvas {
+  padding: 0;
+  /* le grain du liège est porté par la carte elle-même (il suit déplacement et zoom) : ici, la couleur et le cadre */
+  background:
+    linear-gradient(var(--cork), var(--cork)) padding-box,
+    repeating-linear-gradient(92deg, transparent 0 5px, rgba(0, 0, 0, 0.06) 5px 6px, transparent 6px 13px) border-box,
+    linear-gradient(135deg, var(--frame-c), var(--frame-a) 40%, var(--frame-b)) border-box;
+}
+/* Le liège bouge avec les cartes : sa trame suit la vue (CorkSync.tsx). */
+:root[data-style='skeuo'] .board-canvas .map-flow,
+:root[data-style='skeuo'] .map-tab-body .map-flow {
+  background:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='c'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3' seed='7'/%3E%3CfeColorMatrix values='0 0 0 0 .22 0 0 0 0 .12 0 0 0 0 .04 0 0 0 2.4 -1.25'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23c)'/%3E%3C/svg%3E") var(--vx, 0px) var(--vy, 0px) / calc(180px * var(--vz, 1)) calc(180px * var(--vz, 1)),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='240' height='240'%3E%3Cfilter id='l'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.5' numOctaves='2' seed='3'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 .9 0 0 0 0 .75 0 0 0 2 -1.35'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23l)'/%3E%3C/svg%3E") var(--vx, 0px) var(--vy, 0px) / calc(240px * var(--vz, 1)) calc(240px * var(--vz, 1));
+}
 :root[data-style='skeuo'] .map-tab-body {
   background:
     radial-gradient(circle at 30% 20%, var(--cork-lit), transparent 60%),
@@ -495,14 +509,6 @@
 }
 :root[data-style='skeuo'] .board-canvas .map-root,
 :root[data-style='skeuo'] .map-tab-body .map-root { background: transparent; --map-dot: transparent; }
-:root[data-style='skeuo'] .map-tab-body::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  background:
-    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='c'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3' seed='7'/%3E%3CfeColorMatrix values='0 0 0 0 .22 0 0 0 0 .12 0 0 0 0 .04 0 0 0 2.4 -1.25'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23c)'/%3E%3C/svg%3E") 0 0 / 180px 180px;
-}
 
 /* Extraits : papier clair et encre sombre, quel que soit le thème. */
 :root[data-style='skeuo'] .map-flow .map-extract {
@@ -559,3 +565,33 @@
   color: var(--map-postit-ink);
 }
 :root[data-style='skeuo'][data-theme='dark'] .map-flow .map-idea .map-node-cat { color: color-mix(in srgb, var(--c) 45%, #3b2f1e); }
+
+/* Carte vide : le message est une fiche épinglée, lisible sur le liège quel que soit le thème. */
+:root[data-style='skeuo'] .map-empty .empty {
+  --ink: var(--pinned-ink);
+  --ink-2: var(--pinned-ink);
+  --muted: var(--pinned-muted);
+  --faint: color-mix(in srgb, var(--pinned-muted) 85%, transparent);
+  --border-strong: rgba(60, 45, 25, 0.28);
+  position: relative;
+  padding: 30px 32px 24px;
+  border-radius: 2px;
+  rotate: -0.6deg;
+  color: var(--pinned-ink);
+  background:
+    linear-gradient(transparent 70px, rgba(200, 60, 60, 0.35) 70px 71px, transparent 71px),
+    var(--pinned-paper);
+  box-shadow: 0 1px 1px rgba(0, 0, 0, 0.18), 0 16px 30px -10px rgba(0, 0, 0, 0.55);
+}
+:root[data-style='skeuo'] .map-empty .empty::before {
+  content: '';
+  position: absolute;
+  top: -6px;
+  left: 50%;
+  width: 15px;
+  height: 15px;
+  translate: -50% 0;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 32%, rgba(255, 255, 255, 0.7) 0 1.6px, transparent 2.6px), var(--pin);
+  box-shadow: inset 0 -1.5px 2px rgba(0, 0, 0, 0.3), 2px 4px 3px -1px rgba(0, 0, 0, 0.4);
+}

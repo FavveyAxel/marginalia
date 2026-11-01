@@ -187,6 +187,10 @@ interface ShelfProps {
 }
 
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
+/** Perspective du calque du livre sorti. */
+const PERSP = 1400;
+/** Livre à sa place (même liste de fonctions que les autres poses : l'interpolation reste propre). */
+const REST = 'translate3d(0px, 0px, 0px) scale(1) rotateX(0deg) rotateY(0deg)';
 
 export function LibraryShelf({ books, selected, showChecks, onSelectClick, onOpen, onContext, dragProps }: ShelfProps) {
   const wallRef = useRef<HTMLDivElement>(null);
@@ -221,29 +225,45 @@ export function LibraryShelf({ books, selected, showChecks, onSelectClick, onOpe
   }, [books, width]);
 
   // ── Livre sorti ──
+  // Le livre glisse hors du rang et y rentre vu DE FACE (point de vue posé sur lui) : sa tranche
+  // n'apparaît jamais et il ne passe pas par-dessus ses voisins. Le point de vue ne rejoint le
+  // centre de l'écran que pendant le vol, quand le livre est déjà sorti.
   const [pulled, setPulled] = useState<{ book: Book; rect: DOMRect } | null>(null);
   const [phase, setPhase] = useState<'out' | 'shown' | 'open' | 'back'>('out');
   const busy = useRef(false);
   const flyRef = useRef<HTMLSpanElement>(null) as React.RefObject<HTMLSpanElement>;
+  const stageRef = useRef<HTMLDivElement>(null) as React.RefObject<HTMLDivElement>;
+
+  const outOf = (b: Book) => `translate3d(0px, -4px, ${dimsOf(b).d * 0.55}px) scale(1) rotateX(0deg) rotateY(0deg)`;
 
   const pull = async (b: Book, el: HTMLElement) => {
     if (pulled || busy.current) return;
     busy.current = true;
-    setPulled({ book: b, rect: el.getBoundingClientRect() });
+    const { h, w } = dimsOf(b);
+    // Place du livre sur l'étagère, sans le soulèvement du survol.
+    const t = getComputedStyle(el).transform;
+    const lift = t && t !== 'none' ? new DOMMatrix(t).f : 0;
+    const r0 = el.getBoundingClientRect();
+    const rect = new DOMRect(r0.left, r0.top - lift, w, h);
+    setPulled({ book: b, rect });
     setPhase('out');
     await wait(40);
     const fly = flyRef.current;
-    if (!fly) return void (busy.current = false);
-    const { h, w, d } = dimsOf(b);
-    const r = el.getBoundingClientRect();
-    fly.style.transition = 'transform .45s cubic-bezier(.3,.7,.3,1)';
-    fly.style.transform = `translateZ(${d * 0.9}px) translateY(-6px)`;
-    await wait(430);
-    const scale = Math.min(1.9, 330 / h);
-    const cx = innerWidth / 2 - (r.left + w / 2);
-    const cy = innerHeight / 2 - 60 - (r.top + h / 2);
+    const stage = stageRef.current;
+    if (!fly || !stage) return void (busy.current = false);
+    // 1. Il glisse hors du rang, droit vers soi.
+    fly.style.transition = 'transform .42s cubic-bezier(.3,.7,.3,1)';
+    fly.style.transform = outOf(b);
+    await wait(400);
+    // 2. Vol jusqu'au centre, couverture face à soi ; le point de vue suit.
+    const X = innerWidth / 2;
+    const Y = innerHeight / 2 - 60;
+    const Z = 120;
+    const scale = Math.min(1.9, 330 / h) * ((PERSP - Z) / PERSP);
+    stage.style.transition = 'perspective-origin .75s cubic-bezier(.2,.8,.2,1)';
+    stage.style.perspectiveOrigin = `${X}px ${Y}px`;
     fly.style.transition = 'transform .75s cubic-bezier(.2,.8,.2,1)';
-    fly.style.transform = `translate3d(${cx}px, ${cy}px, 120px) scale(${scale}) rotateX(16deg) rotateY(-72deg)`;
+    fly.style.transform = `translate3d(${X - (rect.left + w / 2)}px, ${Y - (rect.top + h / 2)}px, ${Z}px) scale(${scale}) rotateX(16deg) rotateY(-72deg)`;
     await wait(560);
     setPhase('shown');
     busy.current = false;
@@ -253,19 +273,24 @@ export function LibraryShelf({ books, selected, showChecks, onSelectClick, onOpe
     if (!pulled || busy.current) return;
     busy.current = true;
     const fly = flyRef.current;
+    const stage = stageRef.current;
     if (phase === 'open') {
       setPhase('shown');
       await wait(700);
     }
     setPhase('back');
-    if (fly) {
-      const { d } = dimsOf(pulled.book);
+    if (fly && stage) {
+      const { rect, book } = pulled;
+      // 1. Retour devant sa place, le dos face à soi ; le point de vue revient sur lui.
+      stage.style.transition = 'perspective-origin .6s cubic-bezier(.4,0,.2,1)';
+      stage.style.perspectiveOrigin = `${rect.left + rect.width / 2}px ${rect.top + rect.height / 2}px`;
       fly.style.transition = 'transform .6s cubic-bezier(.4,0,.2,1)';
-      fly.style.transform = `translateZ(${d * 0.9}px)`;
-      await wait(580);
-      fly.style.transition = 'transform .35s ease-in';
-      fly.style.transform = 'none';
-      await wait(360);
+      fly.style.transform = outOf(book);
+      await wait(600);
+      // 2. Il rentre dans le rang, droit.
+      fly.style.transition = 'transform .34s cubic-bezier(.5,0,.75,0)';
+      fly.style.transform = REST;
+      await wait(350);
     }
     setPulled(null);
     setPhase('out');
@@ -323,6 +348,7 @@ export function LibraryShelf({ books, selected, showChecks, onSelectClick, onOpe
           <PulledLayer
             book={pulled.book}
             rect={pulled.rect}
+            stageRef={stageRef}
             phase={phase}
             flyRef={flyRef}
             onBack={() => void putBack()}
@@ -381,6 +407,7 @@ function Spine({
 function PulledLayer({
   book,
   rect,
+  stageRef,
   phase,
   flyRef,
   onBack,
@@ -388,6 +415,7 @@ function PulledLayer({
 }: {
   book: Book;
   rect: DOMRect;
+  stageRef: React.RefObject<HTMLDivElement>;
   phase: 'out' | 'shown' | 'open' | 'back';
   flyRef: React.RefObject<HTMLSpanElement>;
   onBack(): void;
@@ -405,8 +433,12 @@ function PulledLayer({
         className={`sh-ground ${shown ? 'on' : ''}`}
         style={{ left: innerWidth / 2 - shadowW / 2 - 14, top: innerHeight / 2 - 60 + (h * scale * 1.06) / 2 - 11, width: shadowW }}
       />
-      <div className="sh-stage">
-        <span ref={flyRef} className="sh-fly" style={{ left: rect.left, top: rect.top, transformOrigin: `50% 50% ${-d / 2}px` }}>
+      <div
+        ref={stageRef}
+        className="sh-stage"
+        style={{ perspective: `${PERSP}px`, perspectiveOrigin: `${rect.left + rect.width / 2}px ${rect.top + rect.height / 2}px` }}
+      >
+        <span ref={flyRef} className="sh-fly" style={{ left: rect.left, top: rect.top, transform: REST, transformOrigin: `50% 50% ${-d / 2}px` }}>
           <BookBox book={book} ink={ink} open={phase === 'open'} />
         </span>
       </div>

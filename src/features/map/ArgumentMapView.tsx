@@ -24,6 +24,7 @@ import {
 import '@xyflow/react/dist/style.css';
 import '@fontsource/caveat/400.css';
 import '@fontsource/caveat/600.css';
+import { CorkSync } from './ui/CorkSync';
 import { useShallow } from 'zustand/react/shallow';
 import { CircleHelp, Crosshair, Orbit } from 'lucide-react';
 import { BookOpen, ChevronsDownUp, ChevronsUpDown, Copy, CornerDownRight, Lightbulb, Map as MapIcon, Maximize2, Palette, PanelLeft, Pencil, ScanSearch, Star, Trash2, Wand2, Waypoints, X, AlignStartVertical, MousePointer2, Group, History, Link2 } from 'lucide-react';
@@ -1400,6 +1401,7 @@ function Inner({ source, tools }: { source: MapSource; tools?: MapToolbarItem[] 
           onMoveEnd={onMoveEnd}
         >
           <Background variant={BackgroundVariant.Dots} gap={24} size={1.15} color="var(--map-dot)" />
+          <CorkSync />
           <ZoneLayer
             zones={map.zones ?? []}
             map={map}

@@ -70,7 +70,7 @@ async function run(dark) {
         const lien = document.querySelector('.map-edge.neutral .map-edge-path');
         return {
           border: cv.borderTopWidth,
-          bgImg: cv.backgroundImage,
+          bgImg: getComputedStyle(document.querySelector('.board-canvas .map-flow')).backgroundImage,
           pin: pin.content,
           pinBg: pin.backgroundColor,
           rotate: getComputedStyle(node).rotate,
@@ -101,6 +101,33 @@ async function run(dark) {
       const moved = await S(() => window.__store.getState().maps.mB.nodes.find((x) => x.id === 'I'));
       ok(`[${tag}] la carte est bien déplacée`, moved.x !== 280 || moved.y !== 520);
 
+      // Le liège suit la vue : on fait glisser le fond, sa trame se déplace d'autant ; on zoome, elle grandit.
+      const bg = () => S(() => {
+        const f = document.querySelector('.board-canvas .map-flow');
+        const cs = getComputedStyle(f);
+        const t = new DOMMatrix(getComputedStyle(document.querySelector('.react-flow__viewport')).transform);
+        const vp = { e: t.e, f: t.f, a: t.a };
+        return { pos: cs.backgroundPosition.split(',')[0].trim(), size: cs.backgroundSize.split(',')[0].trim(), vp };
+      });
+      const before = await bg();
+      const pane = await page.locator('.board-canvas .react-flow__pane').boundingBox();
+      await page.mouse.move(pane.x + pane.width - 120, pane.y + 140);
+      await page.mouse.down();
+      await page.mouse.move(pane.x + pane.width - 300, pane.y + 220, { steps: 6 });
+      await page.mouse.up();
+      await page.waitForTimeout(150);
+      const after = await bg();
+      const [bx, by] = after.pos.split(' ').map(parseFloat);
+      const m = after.vp;
+      ok(`[${tag}] le liège glisse avec la carte`, after.pos !== before.pos && Math.abs(bx - m.e) < 1 && Math.abs(by - m.f) < 1, `${before.pos} → ${after.pos} / vue ${m.e},${m.f}`);
+      await page.mouse.move(pane.x + pane.width / 2, pane.y + pane.height / 2);
+      await page.mouse.wheel(0, -400);
+      await page.waitForTimeout(400);
+      const zoomed = await bg();
+      const z = zoomed.vp.a;
+      ok(`[${tag}] le liège grandit avec le zoom`, Math.abs(parseFloat(zoomed.size) - 180 * z) < 1 && zoomed.size !== before.size, `${zoomed.size} / zoom ${z}`);
+
+
       // Style normal : rien de tout cela.
       await S(() => window.__store.getState().updateSettings({ appStyle: 'normal' }));
       await page.waitForTimeout(150);
@@ -109,6 +136,23 @@ async function run(dark) {
         pin: getComputedStyle(document.querySelector('.map-extract'), '::after').content,
       }));
       ok(`[${tag}] style normal : ni liège ni punaise`, off.border === '0px' && (off.pin === 'none' || off.pin === 'normal'), JSON.stringify(off));
+
+      // Carte vide : le message est posé sur une fiche, lisible sur le liège.
+      await S(() => window.__store.getState().updateSettings({ appStyle: 'skeuo' }));
+      await S(() => {
+        const st = window.__store.getState();
+        window.__store.setState({ maps: { ...st.maps, mE: { id: 'mE', kind: 'board', title: 'Nouvelle carte', bookId: '', bookIds: [], nodes: [], edges: [], viewport: null, createdAt: 1, updatedAt: 1 } } });
+        st.navigate({ name: 'board', boardId: 'mE' });
+      });
+      await page.waitForSelector('[data-testid="map-empty"] h3');
+      await page.waitForTimeout(500);
+      const lum = (c) => { const [r, g, b] = c.match(/\d+(\.\d+)?/g).map(Number); return 0.2126 * r + 0.7152 * g + 0.0722 * b; };
+      const emp = await S(() => {
+        const e = document.querySelector('.map-empty .empty');
+        return { bg: getComputedStyle(e).backgroundColor, h3: getComputedStyle(e.querySelector('h3')).color, p: getComputedStyle(e.querySelector('p')).color, hint: getComputedStyle(e.querySelector('.map-empty-hint')).color };
+      });
+      ok(`[${tag}] carte vide : fiche claire, texte sombre`, lum(emp.bg) > 200 && lum(emp.h3) < 90 && lum(emp.p) < 120 && lum(emp.hint) < 150, JSON.stringify(emp));
+      await shot(page, `shots/maps-cork/03-vide-${tag}.png`);
 
       const rem = errors.filter((e) => !/favicon|ResizeObserver/.test(e));
       ok(`[${tag}] aucune erreur navigateur`, rem.length === 0, rem.join('\n'));

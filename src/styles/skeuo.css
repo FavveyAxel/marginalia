@@ -211,21 +211,6 @@
   box-shadow: 0 0 0 0.5px var(--sk-hairline), 1.5px 1.5px 0 -0.5px var(--sk-page-edge-2), 3px 3px 0 -1px var(--sk-page-edge), 4.5px 4.5px 0 -1.5px var(--sk-page-edge-2), var(--sk-float) !important;
 }
 
-/* ── Cartes mentales : une grande feuille, des bulles en papier ── */
-:root[data-style='skeuo'] .board-canvas {
-  background: var(--sk-paper), var(--bg-page);
-  border-radius: 14px;
-  box-shadow: 0 0 0 0.5px var(--sk-hairline), inset 0 1px 0 var(--sk-highlight), var(--sk-float);
-}
-:root[data-style='skeuo'] .map-node {
-  background: var(--sk-paper), var(--sk-card);
-  border-color: transparent;
-  box-shadow: var(--sk-card-shadow);
-}
-:root[data-style='skeuo'] .map-node:hover {
-  box-shadow: var(--sk-card-shadow), 0 16px 28px -16px rgba(40, 30, 15, 0.4);
-}
-
 /* ── Révision : une fiche bristol (filet rouge, lignes bleues), qui se retourne pour la réponse ── */
 :root[data-style='skeuo'] .rev-card {
   background:
@@ -329,7 +314,8 @@
   --tape: rgba(200, 190, 160, 0.6);
 }
 
-:root[data-style='skeuo'] .plan-editor-view .plan-scroll {
+:root[data-style='skeuo'] .plan-editor-view .plan-scroll,
+:root[data-style='skeuo'] .board-canvas {
   border: 14px solid transparent;
   border-radius: 10px;
   background:
@@ -494,3 +480,82 @@
 :root[data-style='skeuo'] .plan-node .plan-item:nth-child(even)::before { rotate: 4deg; left: 40%; }
 :root[data-style='skeuo'] .plan-node .plan-item:hover { box-shadow: 0 1px 1px rgba(0, 0, 0, 0.14), 0 6px 10px -3px rgba(0, 0, 0, 0.3); }
 
+
+
+/* ── Cartes mentales : le même tableau de liège ────────────────────────────
+   Extraits et idées épinglés de travers, liens tendus comme des fils de laine
+   (chaque relation garde sa couleur ; le simple « lien » devient le fil rouge).
+   On ôte la punaise d'une carte qu'on déplace : on la décroche. */
+:root[data-style='skeuo'] .board-canvas { padding: 0; }
+:root[data-style='skeuo'] .map-tab-body {
+  background:
+    radial-gradient(circle at 30% 20%, var(--cork-lit), transparent 60%),
+    linear-gradient(var(--cork), var(--cork));
+  box-shadow: inset 0 3px 12px rgba(0, 0, 0, 0.3);
+}
+:root[data-style='skeuo'] .board-canvas .map-root,
+:root[data-style='skeuo'] .map-tab-body .map-root { background: transparent; --map-dot: transparent; }
+:root[data-style='skeuo'] .map-tab-body::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='c'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3' seed='7'/%3E%3CfeColorMatrix values='0 0 0 0 .22 0 0 0 0 .12 0 0 0 0 .04 0 0 0 2.4 -1.25'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23c)'/%3E%3C/svg%3E") 0 0 / 180px 180px;
+}
+
+/* Extraits : papier clair et encre sombre, quel que soit le thème. */
+:root[data-style='skeuo'] .map-flow .map-extract {
+  --ink: var(--pinned-ink);
+  --ink-2: var(--pinned-ink);
+  --muted: var(--pinned-muted);
+  --faint: color-mix(in srgb, var(--pinned-muted) 60%, transparent);
+  --bg-panel: var(--pinned-paper);
+  --bg-inset: color-mix(in srgb, var(--pinned-paper) 92%, #c9b99a);
+  background: var(--pinned-paper);
+  color: var(--pinned-ink);
+  border-color: transparent;
+  border-radius: 2px;
+  box-shadow: 0 1px 1px rgba(0, 0, 0, 0.18), 0 12px 22px -8px rgba(0, 0, 0, 0.5);
+}
+:root[data-style='skeuo'] .map-flow .map-extract::before { border-radius: 2px 2px 0 0; }
+:root[data-style='skeuo'] .map-flow .map-extract.central { background: color-mix(in srgb, var(--c) 7%, var(--pinned-paper)); }
+:root[data-style='skeuo'] .map-flow .map-idea { border-radius: 1px 1px 2px 16px / 1px 1px 2px 7px; }
+:root[data-style='skeuo'] .map-flow .map-idea::before { display: none; }
+
+/* Chaque carte penche un peu, à sa façon. */
+:root[data-style='skeuo'] .map-flow .react-flow__node:nth-child(4n + 1) .map-node { rotate: -1deg; }
+:root[data-style='skeuo'] .map-flow .react-flow__node:nth-child(4n + 2) .map-node { rotate: 0.7deg; }
+:root[data-style='skeuo'] .map-flow .react-flow__node:nth-child(4n + 3) .map-node { rotate: -0.4deg; }
+:root[data-style='skeuo'] .map-flow .react-flow__node:nth-child(4n) .map-node { rotate: 1.1deg; }
+
+/* La punaise. */
+:root[data-style='skeuo'] .map-flow .map-node::after {
+  content: '';
+  position: absolute;
+  top: -6px;
+  left: 50%;
+  width: 14px;
+  height: 14px;
+  translate: -50% 0;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 32%, rgba(255, 255, 255, 0.7) 0 1.6px, transparent 2.6px), var(--pin);
+  box-shadow: inset 0 -1.5px 2px rgba(0, 0, 0, 0.3), 2px 4px 3px -1px rgba(0, 0, 0, 0.4);
+  pointer-events: none;
+  transition: opacity 160ms var(--ease-out), translate 160ms var(--ease-out);
+}
+:root[data-style='skeuo'] .map-flow .react-flow__node.dragging .map-node { rotate: 0deg; }
+:root[data-style='skeuo'] .map-flow .react-flow__node.dragging .map-node::after { opacity: 0; translate: -50% -8px; }
+
+/* Les liens : des fils posés sur le liège, avec leur ombre. */
+:root[data-style='skeuo'] .map-flow .map-edge-path,
+:root[data-style='skeuo'] .map-flow .map-trunk { filter: drop-shadow(1.5px 3px 1.5px rgba(0, 0, 0, 0.35)); }
+:root[data-style='skeuo'] .map-flow .map-edge.neutral .map-edge-path { stroke: var(--string) !important; }
+/* En thème sombre aussi, les idées restent des notes jaunes posées sur le liège. */
+:root[data-style='skeuo'][data-theme='dark'] .map-flow .map-idea {
+  --map-paper: #e3d7b8;
+  --map-postit-mix: 30%;
+  --map-postit-ink: #3b2f1e;
+  color: var(--map-postit-ink);
+}
+:root[data-style='skeuo'][data-theme='dark'] .map-flow .map-idea .map-node-cat { color: color-mix(in srgb, var(--c) 45%, #3b2f1e); }

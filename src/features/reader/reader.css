@@ -45,6 +45,13 @@
 }
 .reader-title-main {
   font-weight: 600;
+  /* Le titre passe avant l'auteur : c'est l'auteur qui se raccourcit d'abord. */
+  flex: 0 1 auto;
+  min-width: min(8em, 50%);
+}
+.reader-title > .muted {
+  flex: 0 100 auto;
+  min-width: 3em;
 }
 .reader-body {
   flex: 1;

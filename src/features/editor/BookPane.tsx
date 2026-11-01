@@ -17,6 +17,7 @@ import { BookmarkPopover, BookmarksPanel, bookmarkCommands, bookmarkKey, type Bm
 import { StudyPanel } from '../study/StudyPanel';
 import { HighlightPopover } from '../annotations/HighlightPopover';
 import { BookCover } from '../library/BookCover';
+import { shownProgress } from '../library/appleBooksAnnotations';
 import { isTextEditingTarget } from '../history/keys';
 import '../reader/reader.css';
 import { fmtKeys } from '../../lib/keys';
@@ -37,6 +38,7 @@ interface PaneState {
 /** Choix d'un livre : recherche rapide, livres récemment ouverts en premier. */
 export function BookPicker({ currentId, onPick, onCancel }: { currentId: string | null; onPick(id: string): void; onCancel?: () => void }) {
   const books = useStore(useShallow((s) => s.books));
+  const settings = useStore((s) => s.settings);
   const [q, setQ] = useState('');
   const [cursor, setCursor] = useState(0);
   const list = useMemo(() => {
@@ -104,7 +106,7 @@ export function BookPicker({ currentId, onPick, onCancel }: { currentId: string 
                   <span className="truncate ed-bookpick-title">{b.title}</span>
                   <span className="truncate ed-bookpick-author">
                     {b.author || '—'}
-                    {b.progress > 0.005 ? ` · ${Math.round(b.progress * 100)} %` : ''}
+                    {(shownProgress(b, settings) ?? 0) > 0.005 ? ` · ${Math.round(shownProgress(b, settings)! * 100)} %` : ''}
                   </span>
                 </span>
               </button>

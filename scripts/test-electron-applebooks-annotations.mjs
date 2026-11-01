@@ -9,7 +9,7 @@ import os from 'node:os';
 import { execFileSync } from 'node:child_process';
 
 const ROOT = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..');
-const APP_DIR = path.join(ROOT, 'release/Marginalia-darwin-arm64/Marginalia.app/Contents/Resources/app');
+const APP_DIR = process.env.APP_DIR ? path.resolve(ROOT, process.env.APP_DIR) : path.join(ROOT, 'release/Marginalia-darwin-arm64/Marginalia.app/Contents/Resources/app');
 const OUT = path.join(ROOT, 'shots/applebooks-annotations');
 fs.mkdirSync(OUT, { recursive: true });
 const HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'mg-livres-ann-'));
@@ -157,7 +157,7 @@ try {
       const prot = s.books.find((b) => b.originalName === 'Protégé.epub');
       return {
         bookId: book?.id,
-        book: book && { position: book.position, progress: book.progress, lastOpenedAt: book.lastOpenedAt },
+        book: book && { position: book.position, progress: book.progress, lastOpenedAt: book.lastOpenedAt, readingSync: book.readingSync },
         hl: s.highlights.filter((h) => h.bookId === book?.id).map((h) => ({ id: h.id, uuid: h.source?.uuid ?? null, category: h.category, note: h.note, text: h.text, chapter: h.anchor.chapter, start: h.anchor.start, end: h.anchor.end })),
         protHl: s.highlights.filter((h) => h.bookId === prot?.id).length,
         bm: s.bookmarks.filter((b) => b.bookId === book?.id).map((b) => ({ id: b.id, uuid: b.source?.uuid ?? null, label: b.label, excerpt: b.excerpt, chapter: b.position.chapter })),
@@ -187,6 +187,7 @@ try {
   await sleep(600);
   const resume = await page.locator('.home-resume-card').first().innerText().catch(() => '');
   ok(/Discours/.test(resume) && /(8\d|9\d) % lu/.test(resume), 'Accueil : « Reprendre » avec la progression de Livres', resume.replace(/\s+/g, ' '));
+  ok(s1.book?.readingSync === 'livres', 'livre marqué « progression suivie par Livres » (pourcentage affiché)', s1.book?.readingSync);
   await shot(page, '3-accueil-reprendre.png');
 
   // ⌘Z ne défait pas la synchro.

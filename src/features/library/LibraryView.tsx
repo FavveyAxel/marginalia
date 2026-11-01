@@ -33,7 +33,7 @@ import { useStore } from '../../lib/store';
 import { openShareDialog } from '../share/shareUi';
 import { host, ACCEPTED_EXTENSIONS, type AppleBook } from '../../lib/platform';
 import { appleBooksAvailable, importAppleBooks } from './appleBooks';
-import { APPLE_COLORS, annotationToggles, appleBooksAnnotationsAvailable, colorMapOf, reportText, syncAppleBooksAnnotations } from './appleBooksAnnotations';
+import { APPLE_COLORS, annotationToggles, appleBooksAnnotationsAvailable, colorMapOf, reportText, shownProgress, syncAppleBooksAnnotations } from './appleBooksAnnotations';
 import { CATEGORIES } from '../../lib/categories';
 import type { AppleBooksColorTarget } from '../../lib/types';
 import type { Book, BookFormat, Database } from '../../lib/types';
@@ -66,10 +66,6 @@ const FORMAT_LABEL: Record<BookFormat, string> = { epub: 'EPUB', pdf: 'PDF', doc
 const formatLabel = (b: Book) => (b.format === 'image' && b.pages && b.pages.length > 1 ? `${b.pages.length} photos` : FORMAT_LABEL[b.format]);
 
 const fold = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
-
-/** Progression en fraction 0-1 (tolère une valeur déjà exprimée en pourcentage). */
-const fraction = (p: number) => Math.max(0, Math.min(1, !p ? 0 : p > 1 ? p / 100 : p));
-const pct = (p: number) => Math.round(fraction(p) * 100);
 
 const inFilter = (b: Book, f: FilterKey) =>
   f === 'all' ? true : f === 'epub' ? b.format === 'epub' : f === 'pdf' ? b.format === 'pdf' : f === 'paper' ? b.format === 'paper' : ['docx', 'md', 'txt', 'html', 'image'].includes(b.format);
@@ -128,6 +124,12 @@ export function LibraryView() {
   const highlights = useStore((s) => s.highlights);
   const importing = useStore((s) => s.importing);
   const inboxOn = useStore((s) => !!s.settings.inbox);
+  const appSettings = useStore((s) => s.settings);
+  // Pourcentage de lecture : seulement pour les livres dont la progression suit Livres (sinon null).
+  const readPct = (b: Book) => {
+    const p = shownProgress(b, appSettings);
+    return p == null ? null : Math.round(p * 100);
+  };
   const inboxN = useInboxCount();
   const [query, setQuery] = useState('');
   const [sort, setSort] = useState<SortKey>(() => readPref<SortKey>('lib.sort', ['recent', 'title', 'author', 'added'], 'recent'));
@@ -417,9 +419,11 @@ export function LibraryView() {
                     <div className="muted truncate">
                       {resume.author || 'Auteur inconnu'} · {relativeTime(resume.lastOpenedAt)}
                     </div>
-                    <div className="lib-progress lib-progress-wide" aria-label={`Progression ${pct(resume.progress)} %`}>
-                      <span style={{ width: `${pct(resume.progress)}%` }} />
-                    </div>
+                    {readPct(resume) != null && (
+                      <div className="lib-progress lib-progress-wide" aria-label={`Progression dans Livres : ${readPct(resume)} %`} title="Progression synchronisée avec Livres">
+                        <span style={{ width: `${readPct(resume)}%` }} />
+                      </div>
+                    )}
                   </div>
                   <button className="btn btn-primary" onClick={() => open(resume)}>
                     <BookOpen size={14} /> Reprendre
@@ -522,15 +526,15 @@ export function LibraryView() {
                           <span className="lib-paper-tag" title={['Livre papier', b.edition.publisher, b.edition.year].filter(Boolean).join(' · ')} data-testid="lib-paper-tag">
                             Papier
                           </span>
-                        ) : (
+                        ) : readPct(b) != null ? (
                           <>
-                            <span className="lib-progress" aria-label={`Progression ${pct(b.progress)} %`}>
-                              <span style={{ width: `${pct(b.progress)}%` }} />
+                            <span className="lib-progress" aria-label={`Progression dans Livres : ${readPct(b)} %`} title="Progression synchronisée avec Livres">
+                              <span style={{ width: `${readPct(b)}%` }} />
                             </span>
-                            <span>{pct(b.progress)} %</span>
+                            <span title="Progression synchronisée avec Livres" data-testid="lib-pct">{readPct(b)} %</span>
                           </>
-                        )}
-                        <span className="lib-dot">·</span>
+                        ) : null}
+                        {(b.format === 'paper' || readPct(b) != null) && <span className="lib-dot">·</span>}
                         <span>
                           {counts[b.id] ?? 0} extrait{(counts[b.id] ?? 0) > 1 ? 's' : ''}
                         </span>
@@ -586,14 +590,14 @@ export function LibraryView() {
                       <span className="num muted">{counts[b.id] ?? 0}</span>
                       <span className="muted truncate">{b.lastOpenedAt ? relativeTime(b.lastOpenedAt) : '—'}</span>
                       <span className="lib-row-progress">
-                        {b.format === 'paper' ? (
+                        {readPct(b) == null ? (
                           <span className="muted">—</span>
                         ) : (
                           <>
-                            <span className="lib-progress">
-                              <span style={{ width: `${pct(b.progress)}%` }} />
+                            <span className="lib-progress" title="Progression synchronisée avec Livres">
+                              <span style={{ width: `${readPct(b)}%` }} />
                             </span>
-                            <span className="muted">{pct(b.progress)} %</span>
+                            <span className="muted" data-testid="lib-pct">{readPct(b)} %</span>
                           </>
                         )}
                       </span>

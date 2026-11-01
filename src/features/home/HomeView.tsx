@@ -7,6 +7,7 @@ import type { EssayPlan } from '../../lib/types';
 import { kindColor, kindLabel, kindOf } from '../../lib/categories';
 import { Kbd, relativeTime } from '../../components/ui';
 import { BookCover } from '../library/BookCover';
+import { shownProgress } from '../library/appleBooksAnnotations';
 import { createDraft } from '../editor/api';
 import { useDueCount } from '../revision/useDueCount';
 import { InlineName } from '../workspaces/wsUi';
@@ -14,7 +15,11 @@ import { goToWorkspace, useResolvedItems, useWorkspaces } from '../workspaces/ws
 import './home.css';
 
 const plural = (n: number, one: string, many: string) => `${n} ${n > 1 ? many : one}`;
-const fraction = (p: number) => Math.max(0, Math.min(1, !p ? 0 : p > 1 ? p / 100 : p));
+/** « il y a 2 h », « à l’instant », ou « le 3 oct. 2026 » (après « Ouvert », « ajouté »). */
+const since = (ts: number) => {
+  const r = relativeTime(ts);
+  return /^\d/.test(r) ? `le ${r}` : r.charAt(0).toLowerCase() + r.slice(1);
+};
 
 function greeting(now = new Date()) {
   const h = now.getHours();
@@ -138,6 +143,10 @@ function Dashboard() {
     const opened = texts.filter((b) => b.lastOpenedAt).sort((a, b) => (b.lastOpenedAt ?? 0) - (a.lastOpenedAt ?? 0));
     return opened[0] ?? [...texts].sort((a, b) => b.addedAt - a.addedAt)[0] ?? null;
   }, [books]);
+  const settings = useStore((s) => s.settings);
+  // Pourcentage de lecture : seulement si la progression du livre suit Livres (sinon il ne dirait rien).
+  const lastP = lastBook ? shownProgress(lastBook, settings) : null;
+  const lastPct = lastP == null ? null : Math.round(lastP * 100);
   const lastDraft = useMemo(() => [...drafts].sort((a, b) => b.updatedAt - a.updatedAt)[0] ?? null, [drafts]);
 
   return (
@@ -154,13 +163,17 @@ function Dashboard() {
                 </span>
                 <span className="home-resume-title">{lastBook.title}</span>
                 <span className="muted truncate">{lastBook.author || 'Auteur inconnu'}</span>
-                <span className="home-progress" role="img" aria-label={`Progression ${Math.round(fraction(lastBook.progress) * 100)} %`}>
-                  <span style={{ width: `${fraction(lastBook.progress) * 100}%` }} />
-                </span>
+                {lastPct != null && (
+                  <span className="home-progress" role="img" aria-label={`Progression dans Livres : ${lastPct} %`} title="Progression synchronisée avec Livres">
+                    <span style={{ width: `${lastPct}%` }} />
+                  </span>
+                )}
                 <span className="home-resume-foot muted">
                   {lastBook.lastOpenedAt
-                    ? `${Math.round(fraction(lastBook.progress) * 100)} % lu · ${relativeTime(lastBook.lastOpenedAt)}`
-                    : `Pas encore ouvert · ajouté ${relativeTime(lastBook.addedAt).toLowerCase()}`}
+                    ? lastPct != null
+                      ? `${lastPct} % lu · ${relativeTime(lastBook.lastOpenedAt)}`
+                      : `Ouvert ${since(lastBook.lastOpenedAt)}`
+                    : `Pas encore ouvert · ajouté ${since(lastBook.addedAt)}`}
                 </span>
               </span>
             </button>

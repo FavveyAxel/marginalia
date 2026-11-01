@@ -555,7 +555,7 @@ async function run(dark) {
     // ── Accueil rempli ──
     await st(page, () => window.__store.getState().navigate({ name: 'home' }));
     await tick(page, 900);
-    ok(`[${tag}] accueil rempli : reprise du livre`, /Discours de la méthode/.test(await page.locator('.home-resume').innerText()) && /42 %/.test(await page.locator('.home-resume').innerText()), await page.locator('.home-resume').innerText());
+    ok(`[${tag}] accueil rempli : reprise du livre, sans pourcentage (pas de synchro Livres)`, /Discours de la méthode/.test(await page.locator('.home-resume').innerText()) && /Ouvert /.test(await page.locator('.home-resume').innerText()) && !/42 %/.test(await page.locator('.home-resume').innerText()), await page.locator('.home-resume').innerText());
     ok(`[${tag}] accueil rempli : dernier écrit`, /Dissertation sur le doute/.test(await page.locator('.home-resume').innerText()));
     ok(`[${tag}] accueil rempli : espaces`, (await page.locator('.home-space').count()) === 2);
     ok(`[${tag}] accueil rempli : 5 derniers extraits`, (await page.locator('.home-recent-row').count()) === 5);

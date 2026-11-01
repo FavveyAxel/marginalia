@@ -574,7 +574,7 @@ export async function buildSharePackage(sel: ShareSelection, opts: { includeBook
 
   // ── data.json ──
   const inSet = <T extends { id: string }>(arr: T[], set: Set<string>) => arr.filter((x) => set.has(x.id));
-  const books = inSet(s.books, p.books).map((b) => ({ ...b, position: null, progress: 0, lastOpenedAt: null }));
+  const books = inSet(s.books, p.books).map((b) => ({ ...b, position: null, progress: 0, readingSync: undefined, lastOpenedAt: null }));
   // Photo d'une page de livre papier : fichier local, jamais partagée (le texte de l'extrait suffit).
   const highlights = inSet(s.highlights, p.highlights).map(({ source: _source, photo: _photo, ...h }) => h as Highlight);
   const concepts = inSet(s.concepts, p.concepts).map((c) => ({

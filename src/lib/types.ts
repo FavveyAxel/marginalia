@@ -64,6 +64,12 @@ export interface Book {
   addedAt: number;
   lastOpenedAt: number | null;
   progress: number;
+  /**
+   * La progression suit une app de lecture synchronisée (Livres d'Apple, sur iPhone, iPad ou Mac) : c'est
+   * là qu'on lit le livre en entier. Seuls ces livres affichent leur pourcentage de lecture ; sur
+   * l'ordinateur, on fait surtout de l'étude de texte, et le pourcentage n'y dirait rien.
+   */
+  readingSync?: 'livres';
   position: ReaderPosition | null;
   cover: string | null;
   edition: Edition;

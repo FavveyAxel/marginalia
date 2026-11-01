@@ -204,7 +204,8 @@ type Op =
   | { kind: 'addB'; b: Bookmark }
   | { kind: 'patchB'; id: string; patch: Partial<Bookmark> }
   | { kind: 'delB'; id: string }
-  | { kind: 'book'; id: string; patch: Partial<Book> };
+  | { kind: 'book'; id: string; patch: Partial<Book> }
+  | { kind: 'readingSync'; id: string };
 
 async function run(opts: { manual?: boolean }): Promise<AppleBooksSyncReport | null> {
   if (!host.appleBooksAnnotations) return null;
@@ -253,6 +254,8 @@ async function run(opts: { manual?: boolean }): Promise<AppleBooksSyncReport | n
     const livresDate = Math.max(posAnn?.modified ?? 0, asset.lastOpened ?? 0);
     const wantPos = tog.position && (posAnn || asset.progress != null) && livresDate > 0;
     if (wantPos) positions++;
+    // Livres connaît la position de ce livre : sa progression vient de là (pourcentage affiché).
+    if (wantPos && book.readingSync !== 'livres') ops.push({ kind: 'readingSync', id: book.id });
     const posNewer = wantPos && livresDate > (book.lastOpenedAt ?? 0);
     const posKey = `${book.id}|${livresDate}`;
 
@@ -486,6 +489,9 @@ async function run(opts: { manual?: boolean }): Promise<AppleBooksSyncReport | n
           case 'delB':
             bookmarks = bookmarks.filter((b) => b.id !== op.id);
             break;
+          case 'readingSync':
+            books = books.map((b) => (b.id === op.id && b.readingSync !== 'livres' ? { ...b, readingSync: 'livres' } : b));
+            break;
           case 'book':
             // Le livre a pu être ouvert entre-temps : la règle « le plus récent gagne » est revérifiée.
             books = books.map((b) => (b.id === op.id && !isOpen(s, b.id) && (op.patch.lastOpenedAt ?? 0) > (b.lastOpenedAt ?? 0) ? { ...b, ...op.patch } : b));
@@ -542,4 +548,14 @@ export function reportText(r: AppleBooksSyncReport | undefined): string {
   let t = `${p(r.highlights, 'surlignage', 'surlignages')}, ${p(r.bookmarks, 'signet', 'signets')}, ${p(r.positions, 'position', 'positions')}`;
   if (r.notFound) t += ` — ${p(r.notFound, 'passage introuvable', 'passages introuvables')}`;
   return t;
+}
+
+/**
+ * Pourcentage de lecture à afficher pour ce livre, ou null : seulement si sa progression suit Livres
+ * (synchro de la position active). Sinon, lu surtout par extraits sur l'ordinateur, il ne dirait rien.
+ */
+export function shownProgress(book: Pick<Book, 'progress' | 'readingSync'>, settings: Settings): number | null {
+  if (book.readingSync !== 'livres' || !annotationToggles(settings).position) return null;
+  const p = Number.isFinite(book.progress) ? book.progress : 0;
+  return Math.max(0, Math.min(1, p > 1 ? p / 100 : p)); // tolère une valeur déjà en pourcentage
 }

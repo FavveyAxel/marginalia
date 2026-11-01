@@ -1,0 +1,208 @@
+/* ─────────────────────────────────────────────────────────────
+   Style « Skeuomorphisme » (réglage « Style de l'app ») : matières suggérées plutôt qu'imitées.
+   Verre dépoli pour les barres et panneaux latéraux, relief doux pour les boutons, rail creusé pour
+   les interrupteurs, papier légèrement grainé pour les pages et les cartes. La mise en page ne
+   change pas : seulement fonds, ombres et reliefs. Actif quand <html data-style="skeuo">.
+   ───────────────────────────────────────────────────────────── */
+
+:root[data-style='skeuo'] {
+  --sk-noise: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='220' height='220'%3E%3Cfilter id='f'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.75' numOctaves='2' seed='9'/%3E%3CfeColorMatrix values='0 0 0 0 0.3 0 0 0 0 0.25 0 0 0 0 0.2 0 0 0 0.05 0'/%3E%3C/filter%3E%3Crect width='220' height='220' filter='url(%23f)'/%3E%3C/svg%3E");
+  --sk-paper: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='220' height='220'%3E%3Cfilter id='f'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' seed='5'/%3E%3CfeColorMatrix values='0 0 0 0 0.4 0 0 0 0 0.35 0 0 0 0 0.25 0 0 0 0.055 0'/%3E%3C/filter%3E%3Crect width='220' height='220' filter='url(%23f)'/%3E%3C/svg%3E");
+  --sk-bg: radial-gradient(130% 90% at 50% -10%, #f8f4ed 0%, #ebe4d8 55%, #dfd7c8 100%);
+  --sk-glass: rgba(252, 249, 243, 0.62);
+  --sk-glass-strong: rgba(252, 249, 243, 0.86);
+  --sk-hairline: rgba(40, 30, 15, 0.12);
+  --sk-highlight: rgba(255, 255, 255, 0.9);
+  --sk-raised-bg: linear-gradient(180deg, #fffefb, #f3eee5);
+  --sk-raised: 0 0 0 0.5px rgba(40, 30, 15, 0.16), 0 1px 1px rgba(40, 30, 15, 0.1), 0 2px 6px -1px rgba(40, 30, 15, 0.14), inset 0 1px 0 rgba(255, 255, 255, 0.9);
+  --sk-pressed-bg: linear-gradient(180deg, #e7e0d3, #efe9df);
+  --sk-pressed: inset 0 1px 3px rgba(40, 30, 15, 0.25), 0 0 0 0.5px rgba(40, 30, 15, 0.14);
+  --sk-track: linear-gradient(180deg, #e3dccf, #ebe5da);
+  --sk-track-shadow: inset 0 1px 2px rgba(40, 30, 15, 0.22), 0 1px 0 rgba(255, 255, 255, 0.8);
+  --sk-well: rgba(255, 255, 255, 0.55);
+  --sk-well-shadow: inset 0 1px 2px rgba(40, 30, 15, 0.18), 0 0 0 0.5px rgba(40, 30, 15, 0.12), 0 1px 0 rgba(255, 255, 255, 0.7);
+  --sk-card: linear-gradient(180deg, #fffefa, #fbf7ef);
+  --sk-card-shadow: 0 0 0 0.5px rgba(40, 30, 15, 0.1), 0 1px 2px rgba(40, 30, 15, 0.08), 0 10px 22px -12px rgba(40, 30, 15, 0.38), inset 0 1px 0 #fff;
+  --sk-page-edge: #ece4d6;
+  --sk-page-edge-2: #f4eee3;
+  --sk-float: 0 30px 60px -28px rgba(40, 30, 15, 0.55), 0 8px 18px -10px rgba(40, 30, 15, 0.25);
+  --sk-primary-bg: linear-gradient(180deg, #3a332a, #1d1a15);
+}
+:root[data-style='skeuo'][data-theme='sepia'] {
+  --sk-bg: radial-gradient(130% 90% at 50% -10%, #f6eedd 0%, #e8dcc3 55%, #dccfb3 100%);
+  --sk-glass: rgba(248, 241, 226, 0.64);
+  --sk-glass-strong: rgba(248, 241, 226, 0.88);
+  --sk-raised-bg: linear-gradient(180deg, #fbf5e8, #efe5d1);
+  --sk-pressed-bg: linear-gradient(180deg, #e3d7bf, #ebe1cd);
+  --sk-track: linear-gradient(180deg, #e0d3ba, #e9dfca);
+  --sk-card: linear-gradient(180deg, #fbf6ea, #f5eedd);
+  --sk-page-edge: #e6dbc4;
+  --sk-page-edge-2: #efe6d2;
+}
+:root[data-style='skeuo'][data-theme='dark'] {
+  --sk-noise: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='220' height='220'%3E%3Cfilter id='f'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.75' numOctaves='2' seed='9'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 0.95 0 0 0 0 0.85 0 0 0 0.035 0'/%3E%3C/filter%3E%3Crect width='220' height='220' filter='url(%23f)'/%3E%3C/svg%3E");
+  --sk-paper: var(--sk-noise);
+  --sk-bg: radial-gradient(130% 90% at 50% -10%, #2c2924 0%, #1b1a17 60%, #141311 100%);
+  --sk-glass: rgba(44, 41, 36, 0.62);
+  --sk-glass-strong: rgba(44, 41, 36, 0.9);
+  --sk-hairline: rgba(0, 0, 0, 0.5);
+  --sk-highlight: rgba(255, 245, 225, 0.1);
+  --sk-raised-bg: linear-gradient(180deg, #3b3731, #2e2b26);
+  --sk-raised: 0 0 0 0.5px rgba(0, 0, 0, 0.6), 0 1px 2px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 245, 225, 0.1);
+  --sk-pressed-bg: linear-gradient(180deg, #23211d, #2a2723);
+  --sk-pressed: inset 0 1px 3px rgba(0, 0, 0, 0.6), 0 0 0 0.5px rgba(0, 0, 0, 0.5);
+  --sk-track: linear-gradient(180deg, #1b1a17, #24221e);
+  --sk-track-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.6), 0 1px 0 rgba(255, 245, 225, 0.06);
+  --sk-well: rgba(0, 0, 0, 0.22);
+  --sk-well-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.55), 0 0 0 0.5px rgba(0, 0, 0, 0.5), 0 1px 0 rgba(255, 245, 225, 0.05);
+  --sk-card: linear-gradient(180deg, #2b2824, #25231f);
+  --sk-card-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.55), 0 10px 22px -12px rgba(0, 0, 0, 0.8), inset 0 1px 0 rgba(255, 245, 225, 0.07);
+  --sk-page-edge: #2a2723;
+  --sk-page-edge-2: #322e29;
+  --sk-float: 0 30px 60px -24px rgba(0, 0, 0, 0.85), 0 8px 18px -10px rgba(0, 0, 0, 0.6);
+  --sk-primary-bg: linear-gradient(180deg, #f3ede1, #ddd5c6);
+}
+
+/* ── Fond : un plan clair, éclairé d'en haut ── */
+:root[data-style='skeuo'] body,
+:root[data-style='skeuo'] .app {
+  background: var(--sk-noise), var(--sk-bg);
+  background-attachment: fixed;
+}
+
+/* ── Barre latérale et barres du haut : verre dépoli ── */
+:root[data-style='skeuo'] .sidebar {
+  background: var(--sk-glass);
+  backdrop-filter: blur(28px) saturate(1.5);
+  border-right: 0;
+  box-shadow: inset -0.5px 0 0 var(--sk-hairline), inset -1px 0 0 var(--sk-highlight), 6px 0 24px -18px rgba(40, 30, 15, 0.45);
+}
+:root[data-style='skeuo'] .nav-item.active,
+:root[data-style='skeuo'] .nav-item[aria-current='page'] {
+  background: var(--sk-raised-bg);
+  box-shadow: var(--sk-raised);
+}
+
+/* ── Panneaux : papier posé, ombre douce, bord lumineux ── */
+:root[data-style='skeuo'] .panel {
+  background: var(--sk-paper), var(--bg-panel);
+  box-shadow: 0 0 0 0.5px var(--sk-hairline), inset 0 1px 0 var(--sk-highlight), 0 14px 32px -20px rgba(40, 30, 15, 0.45);
+}
+/* panneaux latéraux du lecteur : verre */
+:root[data-style='skeuo'] .reader-side {
+  background: var(--sk-glass);
+  backdrop-filter: blur(30px) saturate(1.5);
+  border-radius: 18px;
+  box-shadow: inset 0 0 0 0.5px var(--sk-highlight), 0 0 0 0.5px var(--sk-hairline), 0 18px 40px -22px rgba(40, 30, 15, 0.45);
+}
+/* la page du lecteur : papier, ombre de reliure à gauche, épaisseur des pages à droite */
+:root[data-style='skeuo'] .reader-page {
+  background:
+    linear-gradient(90deg, rgba(60, 40, 15, 0.1) 0, rgba(60, 40, 15, 0.03) 2.5%, transparent 6%, transparent 97%, rgba(60, 40, 15, 0.05)),
+    var(--sk-paper),
+    var(--bg-page);
+  border-radius: 6px 10px 10px 6px;
+  box-shadow: 0 0 0 0.5px var(--sk-hairline), 1.5px 1.5px 0 -0.5px var(--sk-page-edge-2), 3px 3px 0 -1px var(--sk-page-edge), 4.5px 4.5px 0 -1.5px var(--sk-page-edge-2), var(--sk-float);
+}
+:root[data-style='skeuo'] .reader-page .reader-pane-body,
+:root[data-style='skeuo'] .reader-page .html-scroll,
+:root[data-style='skeuo'] .reader-page .html-reader {
+  background: transparent;
+}
+
+/* ── Boutons : relief doux, enfoncés quand actifs ── */
+:root[data-style='skeuo'] .btn:not(.btn-ghost) {
+  background: var(--sk-raised-bg);
+  border-color: transparent;
+  box-shadow: var(--sk-raised);
+}
+:root[data-style='skeuo'] .btn:not(.btn-ghost):hover {
+  filter: brightness(1.02);
+}
+:root[data-style='skeuo'] .btn:not(.btn-ghost):active {
+  background: var(--sk-pressed-bg);
+  box-shadow: var(--sk-pressed);
+}
+:root[data-style='skeuo'] .btn-primary:not(.btn-ghost) {
+  background: var(--sk-primary-bg);
+  color: var(--primary-ink);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 0 0 0.5px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.16);
+}
+:root[data-style='skeuo'] .btn-ghost:hover,
+:root[data-style='skeuo'] .icon-btn:hover {
+  background: var(--sk-raised-bg);
+  box-shadow: var(--sk-raised);
+}
+:root[data-style='skeuo'] .icon-btn.active {
+  background: var(--sk-pressed-bg);
+  box-shadow: var(--sk-pressed);
+}
+
+/* ── Interrupteurs : rail creusé, curseur en relief ── */
+:root[data-style='skeuo'] .segmented {
+  background: var(--sk-track);
+  border-color: transparent;
+  box-shadow: var(--sk-track-shadow);
+  border-radius: 10px;
+}
+:root[data-style='skeuo'] .segmented button.active {
+  background: var(--sk-raised-bg);
+  box-shadow: var(--sk-raised);
+  border-radius: 8px;
+}
+
+/* ── Champs : creusés ── */
+:root[data-style='skeuo'] .input,
+:root[data-style='skeuo'] .textarea {
+  background: var(--sk-well);
+  border-color: transparent;
+  box-shadow: var(--sk-well-shadow);
+}
+
+/* ── Pastilles : petites touches en relief ── */
+:root[data-style='skeuo'] .chip {
+  background: var(--sk-raised-bg);
+  border-color: transparent;
+  box-shadow: var(--sk-raised);
+}
+:root[data-style='skeuo'] .chip.active {
+  background: var(--sk-primary-bg);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.16);
+}
+
+/* ── Menus, fenêtres, messages : verre ── */
+:root[data-style='skeuo'] .floating {
+  background: var(--sk-glass-strong);
+  backdrop-filter: blur(24px) saturate(1.6);
+  box-shadow: inset 0 0 0 0.5px var(--sk-highlight), 0 0 0 0.5px var(--sk-hairline), var(--sk-float);
+}
+:root[data-style='skeuo'] .toast {
+  backdrop-filter: blur(20px) saturate(1.4);
+  box-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.14), 0 14px 30px -12px rgba(0, 0, 0, 0.5);
+}
+
+/* ── Cartes (accueil, écrits, espaces, plans, cartes, extraits) : papier posé ── */
+:root[data-style='skeuo'] .home-card,
+:root[data-style='skeuo'] .ed-card,
+:root[data-style='skeuo'] .ws-card,
+:root[data-style='skeuo'] .ws-tile,
+:root[data-style='skeuo'] .plan-card,
+:root[data-style='skeuo'] .mv-card,
+:root[data-style='skeuo'] .ann-card,
+:root[data-style='skeuo'] .lib-resume {
+  background: var(--sk-paper), var(--sk-card);
+  border-color: transparent;
+  box-shadow: var(--sk-card-shadow);
+}
+:root[data-style='skeuo'] .lift:hover {
+  box-shadow: var(--sk-card-shadow), 0 18px 30px -16px rgba(40, 30, 15, 0.35);
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  :root[data-style='skeuo'] .sidebar,
+  :root[data-style='skeuo'] .reader-side,
+  :root[data-style='skeuo'] .floating {
+    backdrop-filter: none;
+    background: var(--sk-glass-strong);
+  }
+}

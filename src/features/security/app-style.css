@@ -1,0 +1,158 @@
+/* Réglage « Style de l'app » : deux cartes à aperçu. */
+.as-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 14px;
+}
+.as-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 12px 14px;
+  border: 0;
+  border-radius: var(--radius-lg);
+  background: var(--bg-panel);
+  box-shadow: 0 0 0 1px var(--border), var(--shadow-sm);
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  transition: box-shadow var(--dur) var(--ease), transform var(--dur) var(--ease);
+}
+.as-card:hover {
+  transform: translateY(-2px);
+}
+.as-card.active {
+  box-shadow: 0 0 0 2px var(--ink), var(--shadow-sm);
+}
+.as-card-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 2px;
+}
+.as-radio {
+  width: 16px;
+  height: 16px;
+  flex: none;
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 1.5px var(--ink-2);
+}
+.as-card.active .as-radio {
+  box-shadow: inset 0 0 0 5px var(--ink);
+}
+.as-card-title {
+  font-weight: 600;
+  font-size: var(--fs-md);
+}
+.as-card-text {
+  font-size: var(--fs-sm);
+  color: var(--ink-2);
+  line-height: 1.45;
+}
+
+/* Aperçu : petite fenêtre (barre, panneau latéral, contenu) */
+.as-prev {
+  position: relative;
+  display: grid;
+  grid-template-columns: 28% 1fr;
+  grid-template-rows: 16px 1fr;
+  gap: 6px;
+  height: 118px;
+  padding: 6px;
+  border-radius: 10px;
+  overflow: hidden;
+}
+.as-prev-bar {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 6px;
+  border-radius: 5px;
+}
+.as-prev-bar i {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0.35;
+}
+.as-prev-side {
+  border-radius: 6px;
+}
+.as-prev-main {
+  position: relative;
+  border-radius: 6px;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding: 6px 8px 8px;
+}
+.as-prev-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 22px);
+  gap: 6px;
+  align-self: center;
+}
+.as-prev-grid i {
+  display: block;
+  width: 22px;
+  height: 30px;
+  border-radius: 2px;
+  box-shadow: 0 2px 4px -2px rgba(0, 0, 0, 0.4);
+}
+.as-prev-shelf {
+  display: flex;
+  align-items: flex-end;
+  gap: 1px;
+  height: 70%;
+  width: 100%;
+  justify-content: center;
+  box-shadow: 0 3px 0 #dcc199, 0 9px 8px -6px rgba(40, 25, 10, 0.4);
+}
+.as-prev-shelf i {
+  display: block;
+  border-radius: 2px 2px 0 0;
+  background-image: linear-gradient(90deg, rgba(0, 0, 0, 0.3), rgba(255, 255, 255, 0.2) 30%, rgba(0, 0, 0, 0.05) 60%, rgba(0, 0, 0, 0.3)) !important;
+  background-blend-mode: normal;
+}
+/* aperçu plat */
+.as-prev-normal {
+  background: var(--bg-app);
+  color: var(--ink);
+  box-shadow: inset 0 0 0 1px var(--border);
+}
+.as-prev-normal .as-prev-side {
+  background: var(--bg-sidebar);
+}
+.as-prev-normal .as-prev-main {
+  background: var(--bg-panel);
+  box-shadow: inset 0 0 0 1px var(--border);
+}
+/* aperçu skeuomorphisme : verre, relief, étagère */
+.as-prev-skeuo {
+  background: radial-gradient(120% 90% at 50% 0%, #f8f5ef, #e6dfd2);
+  color: #3a332a;
+  box-shadow: inset 0 0 0 1px rgba(40, 30, 15, 0.12);
+}
+.as-prev-skeuo .as-prev-bar {
+  background: rgba(255, 253, 248, 0.7);
+  box-shadow: 0 0 0 0.5px rgba(40, 30, 15, 0.14), 0 2px 5px -2px rgba(40, 30, 15, 0.3), inset 0 1px 0 #fff;
+}
+.as-prev-skeuo .as-prev-side {
+  background: rgba(255, 253, 248, 0.6);
+  box-shadow: inset 0 0 0 0.5px #fff, 0 0 0 0.5px rgba(40, 30, 15, 0.1), 0 6px 12px -8px rgba(40, 30, 15, 0.5);
+}
+.as-prev-skeuo .as-prev-main {
+  background: transparent;
+}
+:root[data-theme='dark'] .as-prev-skeuo {
+  background: radial-gradient(120% 90% at 50% 0%, #3a352e, #24211c);
+  color: #e9dfcc;
+}
+:root[data-theme='dark'] .as-prev-skeuo .as-prev-bar,
+:root[data-theme='dark'] .as-prev-skeuo .as-prev-side {
+  background: rgba(70, 64, 55, 0.6);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08), 0 0 0 0.5px rgba(0, 0, 0, 0.4);
+}

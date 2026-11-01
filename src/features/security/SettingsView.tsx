@@ -42,6 +42,7 @@ import { chooseInboxDir, openWifiReceive, prettyDir, resetInboxDir, revealInbox,
 import { checkForUpdate, newsAvailable, restartToUpdate, showNews, useUpdates } from '../updates/Updates';
 import type { UpdateInfo } from '../../lib/platform';
 import './security.css';
+import { AppStyleSettings } from './AppStyleSettings';
 
 const DELAYS: { v: number; label: string }[] = [
   { v: 5, label: '5 min' },
@@ -88,6 +89,8 @@ export function SettingsView() {
             <h1 className="page-title">Réglages</h1>
             <p className="set-lede">Ces réglages concernent Marginalia sur ce {where}. Vos données ne quittent jamais l’ordinateur.</p>
           </div>
+
+          <AppStyleSettings />
 
           <section className="set-section" aria-labelledby="set-privacy">
             <h2 className="set-section-title" id="set-privacy">

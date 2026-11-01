@@ -49,6 +49,13 @@ function lastTheme(): ThemeId {
   }
 }
 
+/** Style de l'interface (réglage « Style de l'app ») : attribut data-style sur <html>, lu par styles/skeuo.css. */
+function useAppStyle(style: 'normal' | 'skeuo') {
+  useEffect(() => {
+    document.documentElement.dataset.style = style;
+  }, [style]);
+}
+
 function useTheme(theme: ThemeId, remember: boolean) {
   useEffect(() => {
     if (remember) {
@@ -520,6 +527,7 @@ export function App() {
   const [lockStatus, setLockStatus] = useState<SecurityStatus | null>(null);
   const security = useSecurity();
   useTheme(ready ? theme : lastTheme(), ready);
+  useAppStyle(useStore((s) => s.settings.appStyle ?? 'normal'));
   useActivityPing(ready && !!security?.lock);
   useWindowDrag();
   useNativeMenu();

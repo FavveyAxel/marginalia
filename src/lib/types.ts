@@ -658,6 +658,11 @@ export interface Settings {
   /** Mac : version pour laquelle l'autorisation « Accès complet au disque » a déjà été proposée. */
   diskAccessAskedVersion?: string;
   mascotCharacter?: 'brain' | 'socrate' | 'platon' | 'aristote' | 'rousseau';
+  /**
+   * Style de l'interface : « normal » (plat) ou « skeuo » (skeuomorphisme moderne : verre dépoli, relief doux,
+   * papier ; la Bibliothèque devient une étagère). Absent : normal.
+   */
+  appStyle?: 'normal' | 'skeuo';
 }
 
 export interface Database {

@@ -43,6 +43,7 @@ import { BookCover } from './BookCover';
 import { useMultiSelect, useLasso, useSelectionKeys, LassoBox } from '../../lib/useMultiSelect';
 import { SelectionActionBar, SelectCheck, AddToWorkspaceDialog, selectedLabel } from '../../components/MultiSelect';
 import { ContextMenu, refDragSource, type MenuEntry } from '../workspaces/wsUi';
+import { LibraryShelf } from './LibraryShelf';
 import './library.css';
 import { AssemblePhotos } from './AssemblePhotos';
 import { sourcesOfBook } from './photoDoc';
@@ -125,6 +126,8 @@ export function LibraryView() {
   const importing = useStore((s) => s.importing);
   const inboxOn = useStore((s) => !!s.settings.inbox);
   const appSettings = useStore((s) => s.settings);
+  // Style « Skeuomorphisme » : la grille devient une étagère.
+  const shelfMode = appSettings.appStyle === 'skeuo';
   // Pourcentage de lecture : seulement pour les livres dont la progression suit Livres (sinon null).
   const readPct = (b: Book) => {
     const p = shownProgress(b, appSettings);
@@ -322,10 +325,10 @@ export function LibraryView() {
                   setView('grid');
                   writePref('lib.view', 'grid');
                 }}
-                aria-label="Grille"
-                title="Grille"
+                aria-label={shelfMode ? 'Étagère' : 'Grille'}
+                title={shelfMode ? 'Étagère' : 'Grille'}
               >
-                <LayoutGrid size={13} style={{ verticalAlign: -2 }} />
+                {shelfMode ? <LibraryIcon size={13} style={{ verticalAlign: -2 }} /> : <LayoutGrid size={13} style={{ verticalAlign: -2 }} />}
               </button>
               <button
                 className={view === 'list' ? 'active' : ''}
@@ -468,6 +471,17 @@ export function LibraryView() {
                     Réinitialiser
                   </button>
                 </div>
+              ) : view === 'grid' && shelfMode ? (
+                <LibraryShelf
+                  books={visible}
+                  selected={(id) => sel.has(id)}
+                  showChecks={showChecks}
+                  onSelectClick={(e, b) => sel.click(b.id, e, { toggle: selectMode })}
+                  onOpen={open}
+                  onContext={onItemContext}
+                  dragProps={bookDrag}
+                  counts={counts}
+                />
               ) : view === 'grid' ? (
                 <div className={`lib-grid anim-stagger ${showChecks ? 'lib-selecting' : ''}`} role="listbox" aria-multiselectable="true" aria-label="Documents">
                   {Array.from({ length: importing }).map((_, i) => (

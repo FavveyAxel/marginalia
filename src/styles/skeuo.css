@@ -293,3 +293,204 @@
     background: var(--sk-glass-strong);
   }
 }
+
+/* ── Plans : tableau de liège ──────────────────────────────────────────────
+   Le plan devient un tableau d'enquête : liège encadré de bois, sujet et champs
+   épinglés, parties en fiches bristol, sous-parties en notes jaunes, extraits en
+   coupures scotchées. Le fil rouge (RedString.tsx) relie le tout dans l'ordre. */
+:root[data-style='skeuo'] {
+  --cork: #c39363;
+  --cork-lit: rgba(255, 228, 190, 0.22);
+  --frame-a: #b07b48;
+  --frame-b: #8d5b2f;
+  --frame-c: #c99464;
+  --pin: #c8261d;
+  --string: #b3201a;
+  --pinned-paper: #fdfbf5;
+  --pinned-ink: #2a241c;
+  --pinned-muted: #7a6f60;
+  --pinned-rule: rgba(64, 108, 170, 0.18);
+  --postit: #f8e58c;
+  --tape: rgba(236, 226, 196, 0.78);
+}
+:root[data-style='skeuo'][data-theme='dark'] {
+  --cork: #6e4f33;
+  --cork-lit: rgba(255, 220, 170, 0.07);
+  --frame-a: #5b3c22;
+  --frame-b: #3f2814;
+  --frame-c: #6d4a2c;
+  --pin: #b3241c;
+  --string: #a1221b;
+  --pinned-paper: #ddd4c2;
+  --pinned-ink: #241e16;
+  --pinned-muted: #665b4c;
+  --pinned-rule: rgba(50, 80, 130, 0.2);
+  --postit: #d9c46e;
+  --tape: rgba(200, 190, 160, 0.6);
+}
+
+:root[data-style='skeuo'] .plan-editor-view .plan-scroll {
+  border: 14px solid transparent;
+  border-radius: 10px;
+  background:
+    radial-gradient(circle at 30% 20%, var(--cork-lit), transparent 60%) padding-box,
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='c'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3' seed='7'/%3E%3CfeColorMatrix values='0 0 0 0 .22 0 0 0 0 .12 0 0 0 0 .04 0 0 0 2.4 -1.25'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23c)'/%3E%3C/svg%3E") 0 0 / 180px 180px padding-box,
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='240' height='240'%3E%3Cfilter id='l'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.5' numOctaves='2' seed='3'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 .9 0 0 0 0 .75 0 0 0 2 -1.35'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23l)'/%3E%3C/svg%3E") 0 0 / 240px 240px padding-box,
+    linear-gradient(var(--cork), var(--cork)) padding-box,
+    repeating-linear-gradient(92deg, transparent 0 5px, rgba(0, 0, 0, 0.06) 5px 6px, transparent 6px 13px) border-box,
+    linear-gradient(135deg, var(--frame-c), var(--frame-a) 40%, var(--frame-b)) border-box;
+  box-shadow:
+    inset 0 3px 12px rgba(0, 0, 0, 0.35),
+    inset 0 0 0 1px rgba(0, 0, 0, 0.25),
+    0 1px 0 rgba(255, 255, 255, 0.35),
+    0 6px 18px rgba(0, 0, 0, 0.18);
+  padding: 34px 40px 72px;
+}
+:root[data-style='skeuo'] .plan-editor-view .plan-doc { position: relative; gap: 34px; }
+
+/* Le fil et ses punaises, au-dessus du papier, sans capter les clics. */
+:root[data-style='skeuo'] .plan-string {
+  position: absolute;
+  inset: 0;
+  overflow: visible;
+  pointer-events: none;
+  z-index: 3;
+}
+.plan-string-line { fill: none; stroke: var(--string); stroke-width: 2; stroke-linecap: round; }
+.plan-string-shadow { fill: none; stroke: rgba(0, 0, 0, 0.28); stroke-width: 2.6; transform: translate(2px, 4px); filter: blur(1.2px); }
+.plan-pin-head { fill: var(--pin); stroke: rgba(0, 0, 0, 0.25); stroke-width: 0.8; }
+.plan-pin-glint { fill: rgba(255, 255, 255, 0.65); }
+.plan-pin-shadow { fill: rgba(0, 0, 0, 0.3); filter: blur(1.5px); }
+
+/* Papier épinglé : encre sombre quel que soit le thème, comme une vraie feuille. */
+:root[data-style='skeuo'] .plan-sujet,
+:root[data-style='skeuo'] .plan-field,
+:root[data-style='skeuo'] .plan-nodes > .plan-node,
+:root[data-style='skeuo'] .plan-parts > .plan-h,
+:root[data-style='skeuo'] .plan-parts-empty {
+  --ink: var(--pinned-ink);
+  --ink-2: var(--pinned-ink);
+  --muted: var(--pinned-muted);
+  --faint: color-mix(in srgb, var(--pinned-muted) 60%, transparent);
+  --border: rgba(60, 45, 25, 0.16);
+  --border-strong: rgba(60, 45, 25, 0.3);
+  --bg-panel: var(--pinned-paper);
+  --bg-inset: color-mix(in srgb, var(--pinned-paper) 92%, #c9b99a);
+  color: var(--pinned-ink);
+}
+
+:root[data-style='skeuo'] .plan-sujet {
+  background: var(--pinned-paper);
+  padding: 22px 26px 18px;
+  border-radius: 2px;
+  border-bottom: 0;
+  rotate: -0.7deg;
+  box-shadow: 0 1px 1px rgba(0, 0, 0, 0.18), 0 10px 22px -6px rgba(0, 0, 0, 0.45);
+}
+:root[data-style='skeuo'] .plan-sujet:focus { box-shadow: 0 1px 1px rgba(0, 0, 0, 0.18), 0 10px 22px -6px rgba(0, 0, 0, 0.45), 0 0 0 2px var(--focus); }
+
+/* Définitions, problématique, conclusion : feuilles de bloc lignées. */
+:root[data-style='skeuo'] .plan-field {
+  position: relative;
+  padding: 22px 22px 14px;
+  border-radius: 2px;
+  background:
+    linear-gradient(90deg, transparent 38px, rgba(200, 60, 60, 0.32) 38px 39px, transparent 39px),
+    repeating-linear-gradient(transparent 0 23px, var(--pinned-rule) 23px 24px) 0 46px,
+    var(--pinned-paper);
+  box-shadow: 0 1px 1px rgba(0, 0, 0, 0.16), 0 8px 18px -6px rgba(0, 0, 0, 0.42);
+  padding-left: 52px;
+}
+:root[data-style='skeuo'] .plan-field[data-field='def'] { rotate: 0.5deg; translate: 10px 0; }
+:root[data-style='skeuo'] .plan-field[data-field='prob'] { rotate: -0.4deg; translate: -8px 0; }
+:root[data-style='skeuo'] .plan-field[data-field='concl'] { rotate: 0.35deg; translate: 6px 0; }
+:root[data-style='skeuo'] .plan-field .plan-ta {
+  background: transparent;
+  box-shadow: none;
+  border: 0;
+  padding: 0;
+  line-height: 24px;
+  color: var(--pinned-ink);
+}
+:root[data-style='skeuo'] .plan-field .plan-ta:focus { outline: 2px solid color-mix(in srgb, var(--focus) 50%, transparent); outline-offset: 4px; }
+
+/* « Parties » : une étiquette posée sur le liège. */
+:root[data-style='skeuo'] .plan-parts > .plan-h {
+  align-self: flex-start;
+  padding: 5px 14px;
+  background: var(--pinned-paper);
+  border-radius: 1px;
+  rotate: -1.5deg;
+  box-shadow: 0 4px 8px -3px rgba(0, 0, 0, 0.4);
+}
+:root[data-style='skeuo'] .plan-parts-empty {
+  background: var(--pinned-paper);
+  border: 0;
+  box-shadow: 0 8px 18px -6px rgba(0, 0, 0, 0.42);
+  border-radius: 2px;
+}
+
+/* Parties : fiches bristol, filet rouge en tête comme une fiche de bibliothèque. */
+:root[data-style='skeuo'] .plan-nodes { gap: 30px; }
+:root[data-style='skeuo'] .plan-nodes > .plan-node {
+  border-radius: 2px;
+  padding-top: 20px;
+  background: var(--pinned-paper);
+  box-shadow: 0 1px 1px rgba(0, 0, 0, 0.16), 0 12px 24px -8px rgba(0, 0, 0, 0.5);
+}
+:root[data-style='skeuo'] .plan-nodes > .plan-node > .plan-node-head {
+  padding-bottom: 8px;
+  margin-bottom: 2px;
+  border-bottom: 1px solid rgba(200, 60, 60, 0.42);
+}
+:root[data-style='skeuo'] .plan-nodes > .plan-node:nth-child(odd) { rotate: -0.35deg; translate: -6px 0; }
+:root[data-style='skeuo'] .plan-nodes > .plan-node:nth-child(even) { rotate: 0.4deg; translate: 8px 0; }
+:root[data-style='skeuo'] .plan-nodes > .plan-node.target {
+  box-shadow: 0 1px 1px rgba(0, 0, 0, 0.16), 0 12px 24px -8px rgba(0, 0, 0, 0.5), 0 0 0 2px color-mix(in srgb, var(--focus) 55%, transparent);
+}
+:root[data-style='skeuo'] .plan-nodes > .plan-node.over {
+  box-shadow: 0 1px 1px rgba(0, 0, 0, 0.16), 0 16px 28px -8px rgba(0, 0, 0, 0.5), 0 0 0 2.5px var(--focus);
+}
+
+/* Sous-parties : notes jaunes, coin bas qui se décolle. */
+:root[data-style='skeuo'] .plan-node .plan-node.depth-1,
+:root[data-style='skeuo'] .plan-node .plan-node.depth-2 {
+  background: linear-gradient(170deg, color-mix(in srgb, var(--postit) 85%, white), var(--postit) 30%, color-mix(in srgb, var(--postit) 92%, #a08020));
+  --bg-inset: color-mix(in srgb, var(--postit) 70%, white);
+  border-radius: 1px 1px 2px 14px / 1px 1px 2px 6px;
+  box-shadow: 0 1px 1px rgba(0, 0, 0, 0.12), 0 6px 10px -5px rgba(0, 0, 0, 0.4);
+}
+:root[data-style='skeuo'] .plan-node .plan-node.depth-1:nth-child(odd) { rotate: 0.6deg; }
+:root[data-style='skeuo'] .plan-node .plan-node.depth-1:nth-child(even) { rotate: -0.5deg; }
+:root[data-style='skeuo'] .plan-node .plan-node.depth-1.over,
+:root[data-style='skeuo'] .plan-node .plan-node.depth-2.over { box-shadow: 0 0 0 2px var(--focus), 0 6px 10px -5px rgba(0, 0, 0, 0.4); }
+:root[data-style='skeuo'] .plan-node .plan-node.depth-1.target,
+:root[data-style='skeuo'] .plan-node .plan-node.depth-2.target { box-shadow: 0 0 0 1.5px color-mix(in srgb, var(--focus) 55%, transparent), 0 6px 10px -5px rgba(0, 0, 0, 0.4); }
+
+/* Extraits : coupures de papier tenues par un morceau de scotch. */
+:root[data-style='skeuo'] .plan-node .plan-item,
+:root[data-style='skeuo'] .plan-node.depth-0 > .plan-items .plan-item {
+  position: relative;
+  background: #fffefa;
+  color: var(--pinned-ink);
+  border-radius: 1px;
+  box-shadow: 0 1px 1px rgba(0, 0, 0, 0.14), 0 3px 6px -2px rgba(0, 0, 0, 0.25);
+  margin-top: 6px;
+}
+:root[data-style='skeuo'][data-theme='dark'] .plan-node .plan-item { background: #e8e0cf; }
+:root[data-style='skeuo'] .plan-node .plan-item::before {
+  content: '';
+  position: absolute;
+  top: -7px;
+  left: 50%;
+  width: 46px;
+  height: 14px;
+  translate: -50% 0;
+  rotate: -3deg;
+  background: var(--tape);
+  box-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.06);
+  pointer-events: none;
+}
+:root[data-style='skeuo'] .plan-node .plan-item:nth-child(even)::before { rotate: 4deg; left: 40%; }
+:root[data-style='skeuo'] .plan-node .plan-item:hover { box-shadow: 0 1px 1px rgba(0, 0, 0, 0.14), 0 6px 10px -3px rgba(0, 0, 0, 0.3); }
+

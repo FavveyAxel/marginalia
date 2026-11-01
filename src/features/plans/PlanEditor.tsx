@@ -1,5 +1,5 @@
 // Éditeur d'un plan de dissertation : sujet, définitions, problématique, parties, conclusion.
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import {
   ArrowDown,
@@ -18,6 +18,7 @@ import { KindDot } from '../../components/ui';
 import { createDraft } from '../editor/api';
 import { AutoTextarea } from '../study/AutoTextarea';
 import { ResourcePanel } from './ResourcePanel';
+import { RedString } from './RedString';
 import { ITEM_MIME, RES_MIME, hasType, type ResRef } from './dnd';
 import { planDraftTitle, planHtml } from './planHtml';
 import {
@@ -47,6 +48,8 @@ export function PlanEditor({ plan }: { plan: EssayPlan }) {
   const draftExists = useStore((s) => !!plan.draftId && s.drafts.some((d) => d.id === plan.draftId));
 
   const [panel, setPanel] = useState(true);
+  const docRef = useRef<HTMLDivElement>(null);
+  const skeuo = useStore((s) => s.settings.appStyle === 'skeuo');
   const [target, setTarget] = useState<string | null>(null);
   const [confirmDel, setConfirmDel] = useState(false);
   const [sending, setSending] = useState(false);
@@ -149,7 +152,8 @@ export function PlanEditor({ plan }: { plan: EssayPlan }) {
 
       <div className="plan-body">
         <div className="plan-scroll">
-          <div className="plan-doc">
+          <div className="plan-doc" ref={docRef}>
+            {skeuo && <RedString docRef={docRef} />}
             <AutoTextarea
               className="plan-sujet"
               value={plan.sujet}

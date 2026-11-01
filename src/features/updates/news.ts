@@ -21,6 +21,22 @@ export interface NewsEntry {
 
 export const NEWS: NewsEntry[] = [
   {
+    version: '3.46',
+    items: [
+      {
+        icon: 'sparkles',
+        title: 'Un nouveau style : Skeuomorphisme',
+        text: 'Réglages › Style : l’app prend de la matière. Bibliothèque en étagère, livres en volume, page posée dans l’éditeur, fiches bristol qui se retournent en révision, Plans et cartes mentales sur un tableau de liège avec punaises et fil rouge. Le style Normal reste par défaut, et on y revient d’un clic.',
+        action: { label: 'Choisir le style', run: 'settings' },
+      },
+      {
+        icon: 'notes',
+        title: 'Pourcentage de lecture plus juste',
+        text: 'Le pourcentage ne s’affiche plus que pour les livres suivis avec Livres ou une liseuse. Les noms d’auteur trop longs restent dans leur case, et les couvertures ont un relief plus marqué.',
+      },
+    ],
+  },
+  {
     version: '3.45',
     items: [
       {

@@ -21,6 +21,22 @@ export interface NewsEntry {
 
 export const NEWS: NewsEntry[] = [
   {
+    version: '3.48',
+    items: [
+      {
+        icon: 'sparkles',
+        title: 'Les vidéos entrent dans la bibliothèque',
+        text: 'Bibliothèque › « Vidéo » : collez le lien d’un documentaire ou d’un cours (YouTube, Vimeo, Dailymotion, ou tout autre lien). Regardez-le dans l’app, surlignez sa transcription comme un livre, notez un moment : chaque extrait garde son minutage, et un clic ramène la vidéo au bon moment.',
+      },
+      {
+        icon: 'lock',
+        title: 'Réglage « Vidéos en ligne »',
+        text: 'Le lecteur et les sous-titres passent par la plateforme de la vidéo. Désactivé dans les Réglages, rien ne part : la vidéo s’ouvre dans votre navigateur.',
+        action: { label: 'Ouvrir les Réglages', run: 'settings' },
+      },
+    ],
+  },
+  {
     version: '3.47',
     items: [
       {

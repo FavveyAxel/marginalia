@@ -19,7 +19,7 @@ import { fmtKeys, isMod } from '../../lib/keys';
 import './paper.css';
 
 /** Choix de la catégorie : aucune (surlignage simple) ou l'une des six. */
-function CategoryPicker({ value, onChange, name }: { value: CategoryId | null; onChange(c: CategoryId | null): void; name: string }) {
+export function CategoryPicker({ value, onChange, name }: { value: CategoryId | null; onChange(c: CategoryId | null): void; name: string }) {
   return (
     <div className="pb-cats" role="radiogroup" aria-label="Catégorie de l’extrait">
       <button type="button" role="radio" aria-checked={value === null} className={`pb-cat ${value === null ? 'is-on' : ''}`} onClick={() => onChange(null)} name={name}>

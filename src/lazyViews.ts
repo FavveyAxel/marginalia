@@ -31,6 +31,7 @@ const load = {
   maps: () => import('./features/maps/MapsView'),
   settings: () => import('./features/security/SettingsView'),
   paper: () => import('./features/paper/PaperBookView'),
+  video: () => import('./features/video/VideoBookView'),
 };
 
 export const lazyViews = {
@@ -51,10 +52,11 @@ export const lazyViews = {
   MapsView: lazyNamed(load.maps, 'MapsView'),
   SettingsView: lazyNamed(load.settings, 'SettingsView'),
   PaperBookView: lazyNamed(load.paper, 'PaperBookView'),
+  VideoBookView: lazyNamed(load.video, 'VideoBookView'),
 };
 
 /** Ordre de préchargement : du plus probable au moins probable. */
-const PRELOAD: Loader[] = [load.reader, load.write, load.workspace, load.extracts, load.concepts, load.board, load.plans, load.arguments, load.revision, load.trash, load.import, load.history, load.help, load.maps, load.settings, load.paper];
+const PRELOAD: Loader[] = [load.reader, load.write, load.workspace, load.extracts, load.concepts, load.board, load.plans, load.arguments, load.revision, load.trash, load.import, load.history, load.help, load.maps, load.settings, load.paper, load.video];
 
 /**
  * Charge toutes les vues. Sert en développement (serveur Vite, tests de bout en bout), où chaque

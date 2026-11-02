@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<title>Faux lecteur vidéo (tests)</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #15120f; color: #efe8dc; font: 14px system-ui, sans-serif; }
+  body { display: grid; place-items: center; }
+  #t { font-size: 40px; font-variant-numeric: tabular-nums; }
+  #s { opacity: .7; margin-top: 6px; text-align: center; }
+</style>
+</head>
+<body>
+<div>
+  <div id="t">0:00</div>
+  <div id="s">en pause</div>
+</div>
+<script>
+// Faux lecteur pour les tests (jamais le vrai réseau) : il parle le protocole « widget » du lecteur
+// YouTube intégré (listening → infoDelivery ; command seekTo / playVideo / pauseVideo).
+// Le temps avance 20 fois plus vite qu'en vrai quand il « joue », pour que les tests restent courts.
+const q = new URLSearchParams(location.search);
+const DURATION = Number(q.get('duration') || 600);
+let time = Number(q.get('start') || 0);
+let playing = false;
+let listening = false;
+const show = () => {
+  const m = Math.floor(time / 60), s = Math.floor(time % 60);
+  document.getElementById('t').textContent = m + ':' + String(s).padStart(2, '0');
+  document.getElementById('s').textContent = playing ? 'lecture' : 'en pause';
+};
+const send = (o) => parent.postMessage(JSON.stringify(o), '*');
+const info = () => send({ event: 'infoDelivery', id: 1, channel: 'widget', info: { currentTime: time, duration: DURATION, playerState: playing ? 1 : 2 } });
+window.addEventListener('message', (e) => {
+  let d;
+  try { d = JSON.parse(e.data); } catch { return; }
+  window.__received = (window.__received || []).concat([d]);
+  if (d.event === 'listening') {
+    if (!listening) send({ event: 'onReady', id: 1, channel: 'widget' });
+    listening = true;
+    info();
+  }
+  if (d.event === 'command') {
+    if (d.func === 'seekTo') time = Math.max(0, Math.min(DURATION, Number(d.args[0]) || 0));
+    if (d.func === 'playVideo') playing = true;
+    if (d.func === 'pauseVideo') playing = false;
+    show();
+    if (listening) info();
+  }
+});
+setInterval(() => {
+  if (playing) time = Math.min(DURATION, time + 5);
+  if (time >= DURATION) playing = false;
+  show();
+  if (listening) info();
+}, 250);
+show();
+</script>
+</body>
+</html>

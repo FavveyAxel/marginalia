@@ -3,7 +3,30 @@
 // ─────────────────────────────────────────────────────────────
 
 /** 'paper' : livre papier (pas de fichier ; métadonnées, couverture et extraits seulement). */
-export type BookFormat = 'epub' | 'pdf' | 'docx' | 'md' | 'txt' | 'html' | 'image' | 'paper';
+export type BookFormat = 'epub' | 'pdf' | 'docx' | 'md' | 'txt' | 'html' | 'image' | 'paper' | 'video';
+
+/** Plateforme d'une vidéo : lecteur intégré (YouTube, Vimeo, Dailymotion) ou simple lien ouvert dans le navigateur. */
+export type VideoProvider = 'youtube' | 'vimeo' | 'dailymotion' | 'link';
+
+/**
+ * Vidéo (format « video ») : aucun fichier (`fileName` vide, `size` 0) ; `author` est la chaîne.
+ * Sa transcription, quand il y en a une, est rangée dans le dossier du document (transcript.json).
+ * Ses extraits sont ancrés dans le temps : ancre « html », chapitre 0, `start`/`end` en millisecondes ;
+ * `locationLabel` donne le minutage (« 12:34 »), qui sert de repère dans les citations.
+ */
+export interface VideoInfo {
+  provider: VideoProvider;
+  /** Identifiant de la vidéo chez la plateforme (vide pour un lien). */
+  id: string;
+  /** Adresse d'origine (ouverte dans le navigateur au besoin). */
+  url: string;
+  /** Durée en secondes, quand elle est connue. */
+  duration?: number;
+  /** Dernière position regardée, en secondes. */
+  position?: number;
+  /** Transcription rangée avec la vidéo (langue, sous-titres automatiques ou non, date). */
+  transcript?: { lang: string; auto: boolean; at: number };
+}
 
 /** Catégories de surlignage (ce que le passage FAIT dans le texte). */
 export type CategoryId = 'probleme' | 'these' | 'argument' | 'objection' | 'concept' | 'exemple';
@@ -81,6 +104,8 @@ export interface Book {
   paper?: true;
   /** ISBN-13 de l'édition (livre papier), s'il est connu. */
   isbn?: string;
+  /** Vidéo (format « video ») : plateforme, identifiant, durée, position. */
+  video?: VideoInfo;
   /**
    * Document de photos (format « image ») à plusieurs pages : fichiers des pages, dans l'ordre
    * (« page-1.jpg », « page-2.heic »…). `fileName` vaut alors la 1re page. Absent : une seule image.
@@ -645,6 +670,8 @@ export interface Settings {
   updateCheck?: boolean;
   /** Livres papier : chercher les éditions sur Internet (Google Books, Open Library). Défaut : oui. */
   paperOnline?: boolean;
+  /** Vidéos : lecteur intégré, titre et sous-titres récupérés sur Internet (YouTube, Vimeo, Dailymotion). Défaut : oui. */
+  videoOnline?: boolean;
   /** Version dont l'annonce « nouvelle version disponible » a été écartée (« Plus tard »). */
   updateDismissed?: string;
   /** Mise à jour téléchargée : installée d'elle-même à la fermeture ('auto', défaut) ou seulement sur demande ('ask'). */

@@ -730,3 +730,28 @@
 .lib-row.lib-row-head {
   cursor: default;
 }
+
+/* Vidéo dans une vignette de livre (accueil, espaces, recherche) */
+.lib-cover-video {
+  position: relative;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  background: linear-gradient(170deg, #3a3531, #1a1715);
+}
+.lib-cover-video img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.lib-cover-video-play {
+  width: 0;
+  height: 0;
+  border-style: solid;
+  border-width: 7px 0 7px 11px;
+  border-color: transparent transparent transparent #efe8dc;
+  margin-left: 2px;
+}
+.lib-cover-video.lib-cover-xs .lib-cover-video-play {
+  border-width: 4px 0 4px 6px;
+}

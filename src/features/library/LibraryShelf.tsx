@@ -9,6 +9,7 @@ import { createPortal } from 'react-dom';
 import { BookOpen, Undo2 } from 'lucide-react';
 import type { Book } from '../../lib/types';
 import { hashString, paletteFor } from './BookCover';
+import { CassettePile, PILE_MAX, PILE_W } from '../video/CassettePile';
 import './shelf.css';
 
 type Ink = { c: string; t: string };
@@ -184,6 +185,8 @@ interface ShelfProps {
   onContext(e: ReactMouseEvent, b: Book): void;
   dragProps(b: Book): object;
   counts: Record<string, number>;
+  /** Vidéos : couchées en pile de cassettes au bout de l'étagère. */
+  videos?: Book[];
 }
 
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -192,7 +195,7 @@ const PERSP = 1400;
 /** Livre à sa place (même liste de fonctions que les autres poses : l'interpolation reste propre). */
 const REST = 'translate3d(0px, 0px, 0px) scale(1) rotateX(0deg) rotateY(0deg)';
 
-export function LibraryShelf({ books, selected, showChecks, onSelectClick, onOpen, onContext, dragProps }: ShelfProps) {
+export function LibraryShelf({ books, selected, showChecks, onSelectClick, onOpen, onContext, dragProps, videos = [] }: ShelfProps) {
   const wallRef = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(900);
   useLayoutEffect(() => {
@@ -204,25 +207,31 @@ export function LibraryShelf({ books, selected, showChecks, onSelectClick, onOpe
     return () => ro.disconnect();
   }, []);
 
-  // Rangées : autant de livres que la largeur en tient.
+  // Rangées : autant de livres que la largeur en tient ; puis les piles de cassettes, au bout.
   const rows = useMemo(() => {
     const inner = Math.max(200, width - SIDE * 2 - 36);
-    const out: Book[][] = [];
-    let row: Book[] = [];
+    const out: { books: Book[]; piles: Book[][] }[] = [];
+    let row: { books: Book[]; piles: Book[][] } = { books: [], piles: [] };
     let used = 0;
-    for (const b of books) {
-      const w = dimsOf(b).w + GAP;
-      if (row.length && used + w > inner) {
+    const room = (w: number) => {
+      if ((row.books.length || row.piles.length) && used + w > inner) {
         out.push(row);
-        row = [];
+        row = { books: [], piles: [] };
         used = 0;
       }
-      row.push(b);
       used += w;
+    };
+    for (const b of books) {
+      room(dimsOf(b).w + GAP);
+      row.books.push(b);
     }
-    if (row.length) out.push(row);
+    for (let i = 0; i < videos.length; i += PILE_MAX) {
+      room(PILE_W);
+      row.piles.push(videos.slice(i, i + PILE_MAX));
+    }
+    if (row.books.length || row.piles.length) out.push(row);
     return out;
-  }, [books, width]);
+  }, [books, videos, width]);
 
   // ── Livre sorti ──
   // Le livre glisse hors du rang et y rentre vu DE FACE (point de vue posé sur lui) : sa tranche
@@ -325,7 +334,7 @@ export function LibraryShelf({ books, selected, showChecks, onSelectClick, onOpe
     <div className="sh-wall" ref={wallRef} role="listbox" aria-multiselectable="true" aria-label="Documents" data-testid="lib-shelf">
       {rows.map((row, ri) => (
         <div className="sh-row" key={ri} style={{ '--i': ri } as CSSProperties}>
-          {row.map((b) => (
+          {row.books.map((b) => (
             <Spine
               key={b.id}
               book={b}
@@ -338,6 +347,18 @@ export function LibraryShelf({ books, selected, showChecks, onSelectClick, onOpe
               }}
               onContext={(e) => onContext(e, b)}
               drag={dragProps(b)}
+            />
+          ))}
+          {row.piles.map((pile, pi) => (
+            <CassettePile
+              key={'pile' + pi}
+              videos={pile}
+              selected={selected}
+              showChecks={showChecks}
+              onSelectClick={onSelectClick}
+              onOpen={onOpen}
+              onContext={onContext}
+              dragProps={dragProps}
             />
           ))}
           <span className="sh-plank" aria-hidden="true" />

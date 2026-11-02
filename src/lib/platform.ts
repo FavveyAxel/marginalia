@@ -125,6 +125,44 @@ export interface PaperApi {
   cover(url: string): Promise<string | null>;
 }
 
+/** Vidéos : réponses du processus principal (voir electron/video-net.cjs). */
+export interface VideoMetaResult {
+  ok: boolean;
+  off?: boolean;
+  error?: string;
+  title?: string;
+  author?: string;
+  /** Durée en secondes (0 : inconnue). */
+  duration?: number;
+  /** Adresse de la miniature donnée par la plateforme. */
+  thumb?: string;
+}
+export interface VideoCue {
+  /** Début, en ms. */
+  s: number;
+  /** Durée, en ms. */
+  d: number;
+  t: string;
+}
+export interface VideoTranscriptResult {
+  ok: boolean;
+  off?: boolean;
+  /** La vidéo n'a aucun sous-titre. */
+  none?: boolean;
+  error?: string;
+  lang?: string;
+  auto?: boolean;
+  cues?: VideoCue[];
+  duration?: number;
+}
+export interface VideoApi {
+  setOnline(on: boolean): Promise<boolean>;
+  meta(provider: string, id: string): Promise<VideoMetaResult>;
+  transcript(provider: string, id: string, lang?: string): Promise<VideoTranscriptResult>;
+  /** Miniature en data: URL ; null si absente ou refusée. */
+  thumb(url: string): Promise<string | null>;
+}
+
 /** Dernière version publiée (Release GitHub), comparée à celle de l'app. */
 export interface UpdateInfo {
   current: string;
@@ -477,6 +515,8 @@ export interface HostApi {
   updates?: UpdatesApi;
   /** Livres papier : recherche d'éditions (app de bureau ; absent : saisie à la main seulement). */
   paper?: PaperApi;
+  /** Vidéos : titre, miniature et sous-titres (app de bureau ; absent : saisie à la main). */
+  video?: VideoApi;
   sendToPhone?: SendToPhoneApi;
   /** Partage direct avec une autre Marginalia du réseau local (code à 6 chiffres). */
   shareNet?: ShareNetApi;

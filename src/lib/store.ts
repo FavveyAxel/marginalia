@@ -563,6 +563,8 @@ function recascade(d: UndoData): void {
 /** Fichiers à effacer au vidage. */
 function filesOf(kind: TrashKind, root: any, s?: { highlights: Highlight[] }): TrashEntry['files'] {
   // Livre papier : aucun fichier source, seulement les photos de pages de ses extraits.
+  // Vidéo : aucun fichier source, seulement sa transcription.
+  if (kind === 'book' && root.format === 'video') return [{ ownerId: root.id, fileName: 'transcript.json' }];
   if (kind === 'book' && root.format === 'paper')
     return (s?.highlights ?? []).filter((h) => h.bookId === root.id && h.photo).map((h) => ({ ownerId: root.id, fileName: h.photo! }));
   // Extrait d'un livre papier tiré d'une photo : la photo part au vidage.

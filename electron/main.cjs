@@ -28,6 +28,7 @@ const vault = require('./vault.cjs');
 const wifiKit = require('./wifi.cjs');
 const shareNet = require('./share-net.cjs');
 const booksNetKit = require('./books-net.cjs');
+const videoNetKit = require('./video-net.cjs');
 const fontNames = require('./fontnames.cjs');
 
 const DEV_URL = process.env.VITE_DEV_SERVER_URL || '';
@@ -2702,6 +2703,56 @@ handle('marginalia:paperSearch', (_e, q) => booksNet.search(paperText(q, 300)));
 handle('marginalia:paperIsbn', (_e, isbn) => booksNet.byIsbn(paperText(isbn, 40)));
 handle('marginalia:paperCover', (_e, url) => booksNet.cover(paperText(url, 2000)));
 
+// ── Vidéos : titre, miniature et sous-titres (voir electron/video-net.cjs) ──
+// Réglage « Vidéos en ligne » (activé par défaut) : l'interface le transmet au lancement et à chaque
+// changement ; désactivé, aucune requête ne part et le lecteur intégré n'est pas chargé. Tests :
+// jamais le vrai réseau, seulement le faux serveur local de MARGINALIA_E2E_VIDEO_BASE.
+let videoOnline = true;
+const videoTestBase = E2E ? process.env.MARGINALIA_E2E_VIDEO_BASE || '' : '';
+const videoNet = videoNetKit.createVideoNet({
+  enabled: () => videoOnline && (!E2E || !!videoTestBase),
+  testBase: videoTestBase || undefined,
+  diag: (...a) => diag(...a),
+});
+const videoProvider = (v) => (['youtube', 'vimeo', 'dailymotion'].includes(v) ? v : '');
+handle('marginalia:videoOnline', (_e, on) => {
+  videoOnline = on !== false;
+  return videoOnline;
+});
+handle('marginalia:videoMeta', (_e, provider, id) => videoNet.meta(videoProvider(provider), String(id || '').slice(0, 40)));
+handle('marginalia:videoTranscript', (_e, provider, id, lang) => videoNet.transcript(videoProvider(provider), String(id || '').slice(0, 40), String(lang || 'fr').slice(0, 5)));
+handle('marginalia:videoThumb', (_e, url) => videoNet.thumb(String(url || '').slice(0, 2000)));
+
+/**
+ * Lecteurs intégrés autorisés (réglage « Vidéos en ligne ») : la fenêtre de l'app reste coupée
+ * d'Internet ; seules passent les requêtes du cadre (iframe) d'un lecteur, et de ce qu'il charge.
+ */
+const VIDEO_EMBED_HOSTS = new Set(['www.youtube-nocookie.com', 'player.vimeo.com', 'www.dailymotion.com', 'geo.dailymotion.com']);
+const hostOf = (u) => {
+  try {
+    const x = new URL(u);
+    return x.protocol === 'https:' || x.protocol === 'wss:' ? x.hostname.toLowerCase() : '';
+  } catch {
+    return '';
+  }
+};
+function videoRequestAllowed(details) {
+  if (!videoOnline || (E2E && !videoTestBase)) return false;
+  if (!/^(https|wss):/i.test(details.url)) return false;
+  if (details.resourceType === 'subFrame' && VIDEO_EMBED_HOSTS.has(hostOf(details.url))) return true;
+  // Requête faite par le lecteur (ou un cadre qu'il contient) : jamais par la page de l'app.
+  let f = details.frame || null;
+  try {
+    while (f && f.parent) {
+      if (VIDEO_EMBED_HOSTS.has(hostOf(f.url))) return true;
+      f = f.parent;
+    }
+  } catch {
+    return false;
+  }
+  return false;
+}
+
 // ── Envoi vers le téléphone (export d'un écrit, chemin inverse du QR code) ──
 const wifiSender = wifiKit.createSender({
   isLocked: () => isLocked(),
@@ -3818,6 +3869,7 @@ app.whenReady().then(async () => {
   session.defaultSession.webRequest.onBeforeRequest((details, cb) => {
     const u = details.url;
     const local = /^(app|file|data|blob|devtools|chrome-extension):/i.test(u) || (devUrl && (u.startsWith(devUrl.replace(/\/$/, '')) || /^wss?:\/\/localhost/.test(u)));
+    if (!local && videoRequestAllowed(details)) return cb({ cancel: false });
     if (!local && blockedLogged++ < 50) {
       let host = '';
       try {
@@ -3836,7 +3888,16 @@ app.whenReady().then(async () => {
     session.defaultSession.setSpellCheckerDictionaryDownloadURL('file:///nonexistent/');
   }
   // Polices locales, et écriture dans le presse-papiers (« Copier » : code de session, citation…) ; jamais sa lecture.
-  session.defaultSession.setPermissionRequestHandler((_wc, perm, cb) => cb(perm === 'local-fonts' || perm === 'localFonts' || perm === 'clipboard-sanitized-write'));
+  session.defaultSession.setPermissionRequestHandler((_wc, perm, cb, details) =>
+    cb(perm === 'local-fonts' || perm === 'localFonts' || perm === 'clipboard-sanitized-write' || (perm === 'fullscreen' && VIDEO_EMBED_HOSTS.has(hostOf((details && details.requestingUrl) || '')))),
+  );
+  // Lecteur YouTube : il refuse de se charger sans page d'origine identifiée (« erreur 153 ») ; une app
+  // n'en a pas (app://). On présente le site de Marginalia, qui décrit l'app.
+  session.defaultSession.webRequest.onBeforeSendHeaders({ urls: ['https://www.youtube-nocookie.com/*'] }, (details, cb) => {
+    const h = { ...details.requestHeaders };
+    if (!h.Referer && !h.referer) h.Referer = 'https://marginalia-bice.vercel.app/';
+    cb({ requestHeaders: h });
+  });
   buildMenu();
   cleanStaleTemp().catch((e) => diag('nettoyage', e && e.message));
   cleanUpdates().catch((e) => diag('maj', 'nettoyage', e && e.message));

@@ -27,6 +27,7 @@ import {
   Download,
   Sparkles,
   BookPlus,
+  MonitorPlay,
   Users,
 } from 'lucide-react';
 import { host, type SecurityStatus } from '../../lib/platform';
@@ -1036,6 +1037,7 @@ function InboxSettings() {
 function UpdateSettings() {
   const check = useStore((s) => s.settings.updateCheck !== false);
   const paperOnline = useStore((s) => s.settings.paperOnline !== false);
+  const videoOnline = useStore((s) => s.settings.videoOnline !== false);
   const collabInternet = useStore((s) => s.settings.collabInternet !== false);
   const [collabSupported, setCollabSupported] = useState<boolean | null>(null);
   useEffect(() => {
@@ -1148,6 +1150,13 @@ function UpdateSettings() {
           desc="Pour ajouter un livre que vous avez en papier : seul ce que vous tapez (titre, auteur ou ISBN) est envoyé à Google Books et Open Library, qui renvoient l’édition et sa couverture. Aucune photo ni aucun texte de photo ne part. Désactivé : vous remplissez l’édition à la main."
         >
           <Switch on={paperOnline} onChange={(v) => useStore.getState().updateSettings({ paperOnline: v })} label="Rechercher les livres papier sur Internet" />
+        </Row>
+        <Row
+          icon={<MonitorPlay size={17} />}
+          title="Vidéos en ligne"
+          desc="Pour les vidéos YouTube, Vimeo et Dailymotion : le lecteur de la plateforme s’affiche dans l’app, et le titre, la miniature et les sous-titres sont récupérés une fois, à l’ajout. Seul le lien de la vidéo est envoyé. Désactivé : rien ne part, la vidéo s’ouvre dans votre navigateur."
+        >
+          <Switch on={videoOnline} onChange={(v) => useStore.getState().updateSettings({ videoOnline: v })} label="Vidéos en ligne" />
         </Row>
         <Row
           icon={<Users size={17} />}

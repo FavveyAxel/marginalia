@@ -212,9 +212,12 @@ export async function sha256Hex(data: ArrayBuffer | Uint8Array | string): Promis
   return toHex(await crypto.subtle.digest('SHA-256', bytes));
 }
 
-/** Fichiers source d'un livre : les pages d'un document de photos, sinon son fichier (livre papier : aucun). */
+/** Document sans fichier : livre papier, vidéo (ils voyagent avec leurs seules métadonnées). */
+export const withoutFile = (format: unknown) => format === 'paper' || format === 'video';
+
+/** Fichiers source d'un livre : les pages d'un document de photos, sinon son fichier (livre papier, vidéo : aucun). */
 export function bookSourceFiles(b: Book): string[] {
-  if (b.format === 'paper') return [];
+  if (withoutFile(b.format)) return [];
   const pages = (b as BookWithPages).pages;
   return Array.isArray(pages) && pages.length > 1 ? pages : [b.fileName];
 }
@@ -241,7 +244,7 @@ const fpKey = (b: Book) => `${b.id}|${bookSourceFiles(b).join('/')}|${b.size}`;
 /** Empreinte d'un livre de la bibliothèque (lue à la demande, gardée en mémoire) ; null si le fichier est illisible. */
 export function bookFingerprint(b: Book): Promise<{ sha256: string; size: number } | null> {
   if (b.missing) return Promise.resolve(b.sourceSha256 ? { sha256: b.sourceSha256, size: b.size } : null);
-  if (b.format === 'paper') return Promise.resolve(null);
+  if (withoutFile(b.format)) return Promise.resolve(null);
   const key = fpKey(b);
   let p = fpCache.get(key);
   if (!p) {
@@ -277,6 +280,42 @@ export function findLocalPaperBook(src: { title?: unknown; author?: unknown; isb
   );
 }
 
+/** Vidéo de cette bibliothèque identique à une vidéo du paquet : même plateforme et même identifiant (ou même lien). */
+export function findLocalVideoBook(src: { video?: unknown }, books: Book[]): Book | null {
+  const v = (src.video && typeof src.video === 'object' ? src.video : {}) as { provider?: unknown; id?: unknown; url?: unknown };
+  if (typeof v.provider !== 'string') return null;
+  return (
+    books.find(
+      (b) =>
+        b.format === 'video' &&
+        !!b.video &&
+        b.video.provider === v.provider &&
+        (v.provider === 'link' ? typeof v.url === 'string' && b.video.url === v.url : typeof v.id === 'string' && !!v.id && b.video.id === v.id),
+    ) ?? null
+  );
+}
+
+/** Fiche d'une vidéo reçue (partage, travail à plusieurs) : seulement des valeurs sûres ; null si illisible. */
+export function safeVideoInfo(raw: unknown): Book['video'] | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const v = raw as Record<string, unknown>;
+  const provider = v.provider;
+  if (provider !== 'youtube' && provider !== 'vimeo' && provider !== 'dailymotion' && provider !== 'link') return null;
+  const id = typeof v.id === 'string' ? v.id : '';
+  const ok = provider === 'youtube' ? /^[A-Za-z0-9_-]{11}$/.test(id) : provider === 'vimeo' ? /^\d{1,12}$/.test(id) : provider === 'dailymotion' ? /^[A-Za-z0-9]{5,12}$/.test(id) : true;
+  if (!ok) return null;
+  let url = typeof v.url === 'string' ? v.url.slice(0, 2000) : '';
+  try {
+    const u = new URL(url);
+    if (u.protocol !== 'https:' && u.protocol !== 'http:') url = '';
+  } catch {
+    url = '';
+  }
+  if (!url) return null;
+  const duration = typeof v.duration === 'number' && Number.isFinite(v.duration) && v.duration > 0 ? Math.round(v.duration) : undefined;
+  return { provider, id: provider === 'link' ? '' : id, url, ...(duration ? { duration } : {}) };
+}
+
 /**
  * Livre de cette bibliothèque identique à un livre du paquet : même empreinte notée (livre déjà reçu),
  * sinon même taille puis même SHA-256 du fichier (calculé seulement pour les livres de même taille).
@@ -284,7 +323,7 @@ export function findLocalPaperBook(src: { title?: unknown; author?: unknown; isb
  */
 export async function findLocalBook(entry: { sha256: string | null; size: number }, books: Book[]): Promise<Book | null> {
   if (!entry.sha256) return null;
-  books = books.filter((b) => b.format !== 'paper');
+  books = books.filter((b) => !withoutFile(b.format));
   const noted = books.filter((b) => b.sourceSha256 === entry.sha256);
   const withFile = noted.find((b) => !b.missing);
   if (withFile) return withFile;
@@ -621,8 +660,9 @@ export async function buildSharePackage(sel: ShareSelection, opts: { includeBook
   for (const b of books) {
     const entry: ShareBookEntry = { id: b.id, sha256: null, size: b.size, title: b.title, author: b.author, format: b.format, included: false };
     entries.push(entry);
-    // Livre papier : voyage sans fichier (métadonnées et couverture, dans data.json).
-    if (b.format === 'paper') continue;
+    // Livre papier, vidéo : voyagent sans fichier (métadonnées et couverture, dans data.json ; pas la
+    // transcription d'une vidéo, que chacun récupère de son côté).
+    if (withoutFile(b.format)) continue;
     if (b.missing) {
       // Livre lui-même reçu sans fichier : on transmet l'empreinte notée.
       entry.sha256 = b.sourceSha256 ?? null;
@@ -694,7 +734,7 @@ const isStr = (x: unknown): x is string => typeof x === 'string';
 const isNum = (x: unknown): x is number => typeof x === 'number' && Number.isFinite(x);
 const isId = (x: unknown): x is string => isStr(x) && x.length > 0 && x.length <= 200 && !isReservedKey(x);
 const isOptId = (x: unknown) => x == null || isId(x);
-const FORMATS: BookFormat[] = ['epub', 'pdf', 'docx', 'md', 'txt', 'html', 'image', 'paper'];
+const FORMATS: BookFormat[] = ['epub', 'pdf', 'docx', 'md', 'txt', 'html', 'image', 'paper', 'video'];
 
 /** Nom d'entrée de l'archive acceptable : manifest.json, data.json ou files/<id>/<fichier>. */
 function safeEntryName(name: string, dir: boolean): boolean {
@@ -723,7 +763,7 @@ function validateData(raw: unknown): ShareData | null {
   for (const [k, m] of Object.entries(maps)) if (!isId(k) || !isObj(m) || !Array.isArray(m.nodes) || !Array.isArray(m.edges) || !m.nodes.every((n) => isObj(n) && isId(n.id))) return null;
   const ok =
     (out.books as Record<string, unknown>[]).every(
-      (b) => isStr(b.title) && isStr(b.author) && FORMATS.includes(b.format as BookFormat) && (b.format === 'paper' ? b.fileName === '' : isSafeSegment(b.fileName)) && isNum(b.size) && (b.pages === undefined || (Array.isArray(b.pages) && b.pages.every(isSafeSegment))),
+      (b) => isStr(b.title) && isStr(b.author) && FORMATS.includes(b.format as BookFormat) && (withoutFile(b.format) ? b.fileName === '' : isSafeSegment(b.fileName)) && (b.format !== 'video' || !!safeVideoInfo(b.video)) && isNum(b.size) && (b.pages === undefined || (Array.isArray(b.pages) && b.pages.every(isSafeSegment))),
     ) &&
     (out.highlights as Record<string, unknown>[]).every((h) => isId(h.bookId) && isStr(h.text) && isObj(h.anchor) && (h.anchor.kind === 'html' || h.anchor.kind === 'pdf') && Array.isArray(h.conceptIds)) &&
     (out.concepts as Record<string, unknown>[]).every((c) => isStr(c.name) && Array.isArray(c.senses) && Array.isArray(c.links)) &&
@@ -864,8 +904,9 @@ export async function readSharePackage(bytes: Uint8Array | ArrayBuffer): Promise
   const s = useStore.getState();
   const books: SharePreview['books'] = [];
   for (const e of manifest.books) {
-    const paper = e.format === 'paper';
-    const local = paper ? findLocalPaperBook(data.books.find((b) => b.id === e.id) ?? e, s.books) : await findLocalBook(e, s.books);
+    const paper = withoutFile(e.format);
+    const src = data.books.find((b) => b.id === e.id);
+    const local = e.format === 'video' ? findLocalVideoBook(src ?? {}, s.books) : paper ? findLocalPaperBook(src ?? e, s.books) : await findLocalBook(e, s.books);
     books.push({ id: e.id, title: e.title, author: e.author ?? '', size: e.size, included: e.included, local: local ? { id: local.id, title: local.title, missing: !!local.missing } : null, ...(paper ? { paper: true } : {}) });
   }
   const counts = countsOf(data, manifest.books.filter((b) => b.included).length);

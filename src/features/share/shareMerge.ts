@@ -45,7 +45,7 @@ import type {
 } from '../../lib/types';
 import { CITE_BOOKMARK_PREFIX } from '../editor/privateNotes';
 import { newFsrs } from '../revision/fsrs';
-import { alreadyReceived, bookExtraFiles, bookSourceFiles, describeCounts, findLocalBook, findLocalPaperBook, openSharePackage, rewriteDocxXml, ShareError, type ShareCounts } from './sharePackage';
+import { alreadyReceived, bookExtraFiles, bookSourceFiles, describeCounts, findLocalBook, findLocalPaperBook, findLocalVideoBook, safeVideoInfo, openSharePackage, rewriteDocxXml, ShareError, type ShareCounts } from './sharePackage';
 import { isReservedKey } from '../../lib/safeKey';
 
 export interface ShareImportOptions {
@@ -135,7 +135,8 @@ export async function importSharePackage(bytes: Uint8Array | ArrayBuffer, opts: 
     const e = entryOf.get(src.id)!;
     // Livre papier : reconnu par son ISBN (ou titre, auteur, éditeur, année), jamais « sans fichier ».
     const paper = src.format === 'paper';
-    const local = paper ? findLocalPaperBook(src, [...s0.books, ...newBooks]) : await findLocalBook(e, s0.books);
+    const video = src.format === 'video';
+    const local = video ? findLocalVideoBook(src, [...s0.books, ...newBooks]) : paper ? findLocalPaperBook(src, [...s0.books, ...newBooks]) : await findLocalBook(e, s0.books);
     const fileNames = [...bookSourceFiles(src), ...bookExtraFiles(src)];
     if (local) {
       bookId.set(src.id, local.id);
@@ -172,7 +173,17 @@ export async function importSharePackage(bytes: Uint8Array | ArrayBuffer, opts: 
       ...(e.sha256 ? { sourceSha256: e.sha256 } : {}),
       shareOrigin: origin(src, src.id),
     };
-    if (paper) {
+    if (video) {
+      // Vidéo : sans fichier ; sa fiche, revérifiée ; sa position et sa transcription restent chez l'expéditeur.
+      const info = safeVideoInfo(src.video);
+      book.fileName = '';
+      book.originalName = '';
+      book.size = 0;
+      delete book.paper;
+      delete book.pages;
+      if (info) book.video = info;
+      else delete book.video;
+    } else if (paper) {
       book.paper = true;
       book.fileName = '';
       book.originalName = '';

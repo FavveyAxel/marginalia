@@ -15,7 +15,7 @@
 import { host, type CollabEvent, type CollabMember } from '../../lib/platform';
 import { flushPendingSave, setWriteGuard, useStore, type State } from '../../lib/store';
 import type { Book, Draft, WorkspaceItem, WorkspaceItemKind } from '../../lib/types';
-import { bookExtraFiles, bookFingerprint, bookSourceFiles, buildSharePackage, findLocalBook, shareableDocx } from '../share/sharePackage';
+import { bookExtraFiles, bookFingerprint, bookSourceFiles, buildSharePackage, findLocalBook, findLocalVideoBook, safeVideoInfo, shareableDocx } from '../share/sharePackage';
 import { importSharePackage } from '../share/shareMerge';
 import { errorMessage } from '../share/shareUi';
 import { ALL_PERMS, permText, samePerm, useCollab, type CollabPerm, type CollabProfile } from './collabState';
@@ -503,7 +503,7 @@ async function onFetch(from: string, head: Head) {
       if (s.role === 'host' && from !== 'h') waitFor(c, g, from); // pas encore arrivé chez l'hôte : servi à son arrivée
       return;
     }
-    const paper = b.format === 'paper';
+    const paper = b.format === 'paper' || b.format === 'video'; // sans fichier
     const names = paper || b.missing ? [] : [...bookSourceFiles(b), ...bookExtraFiles(b)];
     const files: { name: string; data: ArrayBuffer }[] = [];
     for (const n of names) {
@@ -520,7 +520,7 @@ async function onFetch(from: string, head: Head) {
     const sha256 = fp?.sha256 ?? b.sourceSha256 ?? null;
     const { list, body } = joinFiles(missing ? [] : files);
     // Livre papier : aucun fichier, seulement ses métadonnées et sa couverture.
-    const meta = { title: b.title, author: b.author, format: b.format, fileName: b.fileName, originalName: b.originalName, size: b.size, edition: b.edition, cover: b.cover, pages: missing ? undefined : b.pages, sha256, ...(missing ? { missing: true } : {}), ...(paper ? { paper: true, isbn: b.isbn ?? '' } : {}) };
+    const meta = { title: b.title, author: b.author, format: b.format, fileName: b.fileName, originalName: b.originalName, size: b.size, edition: b.edition, cover: b.cover, pages: missing ? undefined : b.pages, sha256, ...(missing ? { missing: true } : {}), ...(b.format === 'paper' ? { paper: true, isbn: b.isbn ?? '' } : {}), ...(b.format === 'video' && b.video ? { video: { provider: b.video.provider, id: b.video.id, url: b.video.url, duration: b.video.duration } } : {}) };
     send(from, { t: 'files', c, g, rec: meta, list }, body);
   } else {
     const d = st.drafts.find((x) => x.id === id);
@@ -567,12 +567,14 @@ async function onFiles(head: Head, body: Uint8Array) {
   const id = free(g) && SAFE.test(g) ? g : `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
   const origin = id === g ? {} : { shareOrigin: { shareId: s.shareId, srcId: g } };
   if (c === 'book') {
-    const paper = meta.format === 'paper';
+    const video = meta.format === 'video';
+    const videoInfo = video ? safeVideoInfo(meta.video) : null;
+    const paper = meta.format === 'paper' || video; // sans fichier
     const missing = !paper && (meta.missing === true || !files.length);
     // Déjà là (même empreinte) : alias, aucun doublon. Livre local « sans fichier » et fichier reçu : on le
     // complète (au lieu d'en créer un second).
     const sha = typeof meta.sha256 === 'string' ? meta.sha256 : null;
-    let local = sha ? await findLocalBook({ sha256: sha, size: Number(meta.size) || 0 }, st.books) : null;
+    let local = video ? findLocalVideoBook({ video: meta.video }, st.books) : sha ? await findLocalBook({ sha256: sha, size: Number(meta.size) || 0 }, st.books) : null;
     if (!local && sha) local = st.books.find((b) => b.missing && b.sourceSha256 === sha) ?? null;
     if (local && local.missing && !missing) {
       for (const f of files) await host.storeFile(local.id, f.name, f.data);
@@ -598,8 +600,9 @@ async function onFiles(head: Head, body: Uint8Array) {
         id,
         title: String(meta.title ?? 'Sans titre').slice(0, 500),
         author: String(meta.author ?? '').slice(0, 500),
-        format: ['epub', 'pdf', 'docx', 'md', 'txt', 'html', 'image', 'paper'].includes(meta.format) ? meta.format : 'txt',
-        ...(paper ? { paper: true as const, ...(typeof meta.isbn === 'string' && /^97[89]\d{10}$/.test(meta.isbn) ? { isbn: meta.isbn } : {}) } : {}),
+        format: video && !videoInfo ? 'txt' : ['epub', 'pdf', 'docx', 'md', 'txt', 'html', 'image', 'paper', 'video'].includes(meta.format) ? meta.format : 'txt',
+        ...(meta.format === 'paper' ? { paper: true as const, ...(typeof meta.isbn === 'string' && /^97[89]\d{10}$/.test(meta.isbn) ? { isbn: meta.isbn } : {}) } : {}),
+        ...(videoInfo ? { video: videoInfo } : {}),
         fileName,
         originalName: String(meta.originalName ?? fileName),
         size: Number(meta.size) || files.reduce((n, f) => n + f.data.byteLength, 0),

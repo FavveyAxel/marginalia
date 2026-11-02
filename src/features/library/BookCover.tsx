@@ -45,6 +45,15 @@ export function BookCover({ book, size = 'md' }: { book: Book; size?: Size }) {
   const d = DIMS[size];
   const box: CSSProperties = { width: d.w, height: d.h, borderRadius: d.radius };
 
+  // Vidéo, dans les petites vignettes (accueil, espaces, recherche) : sa miniature recadrée, ou un symbole « lecture ».
+  if (book.format === 'video') {
+    return (
+      <span className={`lib-cover lib-cover-video lib-cover-${size}`} style={box} aria-hidden="true" data-format="video">
+        {book.cover ? <img src={book.cover} alt="" draggable={false} /> : <span className="lib-cover-video-play" />}
+      </span>
+    );
+  }
+
   if (book.cover) {
     return (
       <span className={`lib-cover lib-cover-img lib-cover-${size}`} style={box} aria-hidden="true">

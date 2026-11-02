@@ -249,6 +249,13 @@ api.paper = {
   isbn: (isbn) => ipcRenderer.invoke('marginalia:paperIsbn', String(isbn || '')),
   cover: (url) => ipcRenderer.invoke('marginalia:paperCover', String(url || '')),
 };
+// Vidéos : titre, miniature et sous-titres par le processus principal (YouTube, Vimeo, Dailymotion).
+api.video = {
+  setOnline: (on) => ipcRenderer.invoke('marginalia:videoOnline', on !== false),
+  meta: (provider, id) => ipcRenderer.invoke('marginalia:videoMeta', String(provider || ''), String(id || '')),
+  transcript: (provider, id, lang) => ipcRenderer.invoke('marginalia:videoTranscript', String(provider || ''), String(id || ''), String(lang || 'fr')),
+  thumb: (url) => ipcRenderer.invoke('marginalia:videoThumb', String(url || '')),
+};
 api.updates = {
   version: () => ipcRenderer.invoke('marginalia:appVersion'),
   check: () => ipcRenderer.invoke('marginalia:checkUpdate'),

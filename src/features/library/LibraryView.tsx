@@ -49,11 +49,13 @@ import { AssemblePhotos } from './AssemblePhotos';
 import { sourcesOfBook } from './photoDoc';
 import { OS_TEXT, fmtKeys } from '../../lib/keys';
 import { PaperAddButton } from '../paper/PaperAdd';
+import { VideoAddButton } from '../video/VideoAdd';
+import { VideoCover, VideoProgress, watchedLabel } from '../video/VideoCover';
 import { prettyIsbn } from '../paper/paper';
 
 type SortKey = 'recent' | 'title' | 'author' | 'added';
 type ViewMode = 'grid' | 'list';
-type FilterKey = 'all' | 'epub' | 'pdf' | 'docs' | 'paper';
+type FilterKey = 'all' | 'epub' | 'pdf' | 'docs' | 'paper' | 'video';
 
 const SORTS: { id: SortKey; label: string }[] = [
   { id: 'recent', label: 'Récents' },
@@ -62,14 +64,14 @@ const SORTS: { id: SortKey; label: string }[] = [
   { id: 'added', label: 'Ajout' },
 ];
 
-const FORMAT_LABEL: Record<BookFormat, string> = { epub: 'EPUB', pdf: 'PDF', docx: 'DOCX', md: 'MD', txt: 'TXT', html: 'HTML', image: 'Image', paper: 'Papier' };
+const FORMAT_LABEL: Record<BookFormat, string> = { epub: 'EPUB', pdf: 'PDF', docx: 'DOCX', md: 'MD', txt: 'TXT', html: 'HTML', image: 'Image', paper: 'Papier', video: 'Vidéo' };
 /** Format affiché : « 5 photos » pour un document de photos. */
 const formatLabel = (b: Book) => (b.format === 'image' && b.pages && b.pages.length > 1 ? `${b.pages.length} photos` : FORMAT_LABEL[b.format]);
 
 const fold = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
 
 const inFilter = (b: Book, f: FilterKey) =>
-  f === 'all' ? true : f === 'epub' ? b.format === 'epub' : f === 'pdf' ? b.format === 'pdf' : f === 'paper' ? b.format === 'paper' : ['docx', 'md', 'txt', 'html', 'image'].includes(b.format);
+  f === 'all' ? true : f === 'epub' ? b.format === 'epub' : f === 'pdf' ? b.format === 'pdf' : f === 'paper' ? b.format === 'paper' : f === 'video' ? b.format === 'video' : ['docx', 'md', 'txt', 'html', 'image'].includes(b.format);
 
 function readPref<T extends string>(key: string, allowed: T[], fallback: T): T {
   try {
@@ -168,6 +170,7 @@ export function LibraryView() {
       pdf: books.filter((b) => inFilter(b, 'pdf')).length,
       docs: books.filter((b) => inFilter(b, 'docs')).length,
       paper: books.filter((b) => inFilter(b, 'paper')).length,
+      video: books.filter((b) => inFilter(b, 'video')).length,
     }),
     [books],
   );
@@ -204,12 +207,64 @@ export function LibraryView() {
   const canAssemble = (ids: string[]) => ids.length >= 2 && photoIds(ids).length === ids.length;
 
   const resume = useMemo(
-    () => books.filter((b) => b.lastOpenedAt && b.format !== 'image' && b.format !== 'paper').sort((a, b) => (b.lastOpenedAt ?? 0) - (a.lastOpenedAt ?? 0))[0] ?? null,
+    () => books.filter((b) => b.lastOpenedAt && b.format !== 'image' && b.format !== 'paper' && b.format !== 'video').sort((a, b) => (b.lastOpenedAt ?? 0) - (a.lastOpenedAt ?? 0))[0] ?? null,
     [books],
   );
 
   const open = (b: Book) => useStore.getState().openBook(b.id);
   const openMenu = (bookId: string, x: number, y: number) => setMenu({ bookId, x, y });
+
+  // Vidéo dans la grille : sa miniature (style Normal) ou sa cassette (Skeuomorphisme), l'avancement en dessous.
+  const videoCard = (b: Book, i: number) => (
+    <div
+      key={b.id}
+      className={`lib-card lib-card-video ${sel.has(b.id) ? 'selected' : ''}`}
+      style={{ ['--i' as string]: i }}
+      tabIndex={0}
+      role="option"
+      aria-selected={sel.has(b.id)}
+      aria-label={`${b.title}${b.author ? ', ' + b.author : ''}, vidéo`}
+      data-sel-id={b.id}
+      data-testid="lib-video"
+      onMouseDown={(e) => e.shiftKey && e.preventDefault()}
+      onClick={(e) => onItemClick(e, b)}
+      onKeyDown={(e) => onItemKey(e, b)}
+      onContextMenu={(e) => onItemContext(e, b)}
+      {...bookDrag(b)}
+    >
+      <div className="lib-card-cover">
+        {showChecks && (
+          <span className="lib-check">
+            <SelectCheck checked={sel.has(b.id)} onToggle={() => sel.toggle(b.id)} label={`Sélectionner « ${b.title} »`} />
+          </span>
+        )}
+        <VideoCover book={b} />
+        <button
+          className="icon-btn sm lib-more"
+          aria-label="Plus d’actions"
+          onClick={(e) => {
+            e.stopPropagation();
+            const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+            openMenu(b.id, r.left, r.bottom + 4);
+          }}
+        >
+          <MoreHorizontal size={14} />
+        </button>
+        <VideoProgress book={b} />
+      </div>
+      <div className="lib-card-title" title={b.title}>
+        <span className="truncate">{b.title}</span>
+        <span className="lib-video-at" data-testid="lib-video-at">{watchedLabel(b)}</span>
+      </div>
+      <div className="lib-card-meta">
+        <span className="truncate">{b.author || 'Auteur inconnu'}</span>
+        <span className="lib-dot">·</span>
+        <span>
+          {counts[b.id] ?? 0} extrait{(counts[b.id] ?? 0) > 1 ? 's' : ''}
+        </span>
+      </div>
+    </div>
+  );
 
   const exportNotes = async (b: Book) => {
     try {
@@ -364,6 +419,7 @@ export function LibraryView() {
           </button>
         )}
         <PaperAddButton />
+        <VideoAddButton />
         <button className="btn btn-primary" onClick={() => useStore.getState().navigate({ name: 'import' })} data-testid="lib-import">
           <Plus size={14} /> Importer
         </button>
@@ -442,6 +498,7 @@ export function LibraryView() {
                     ['pdf', 'PDF'],
                     ['docs', 'Documents'],
                     ['paper', 'Papier'],
+                    ['video', 'Vidéos'],
                   ] as [FilterKey, string][]
                 ).map(([k, label]) => (
                   <button key={k} className={`chip ${filter === k ? 'active' : ''}`} onClick={() => setFilter(k)}>
@@ -472,8 +529,10 @@ export function LibraryView() {
                   </button>
                 </div>
               ) : view === 'grid' && shelfMode ? (
+                <>
                 <LibraryShelf
-                  books={visible}
+                  books={visible.filter((b) => b.format !== 'video')}
+                  videos={visible.filter((b) => b.format === 'video')}
                   selected={(id) => sel.has(id)}
                   showChecks={showChecks}
                   onSelectClick={(e, b) => sel.click(b.id, e, { toggle: selectMode })}
@@ -482,6 +541,7 @@ export function LibraryView() {
                   dragProps={bookDrag}
                   counts={counts}
                 />
+                </>
               ) : view === 'grid' ? (
                 <div className={`lib-grid anim-stagger ${showChecks ? 'lib-selecting' : ''}`} role="listbox" aria-multiselectable="true" aria-label="Documents">
                   {Array.from({ length: importing }).map((_, i) => (
@@ -491,7 +551,7 @@ export function LibraryView() {
                       <span className="lib-skel-line short" />
                     </div>
                   ))}
-                  {visible.map((b, i) => (
+                  {visible.map((b, i) => b.format === 'video' ? videoCard(b, i) : (
                     <div
                       key={b.id}
                       className={`lib-card ${sel.has(b.id) ? 'selected' : ''}`}
@@ -762,7 +822,7 @@ function BookMenu({
     fn();
   };
   // Côte à côte : deux textes à lire ; un livre papier n'a pas de texte à afficher.
-  const others = book.format === 'paper' ? [] : books.filter((b) => b.id !== book.id && b.format !== 'paper');
+  const others = book.format === 'paper' || book.format === 'video' ? [] : books.filter((b) => b.id !== book.id && b.format !== 'paper' && b.format !== 'video');
 
   return (
     <div ref={ref} className="floating lib-menu" style={{ left: pos.left, top: pos.top, visibility: pos.ready ? 'visible' : 'hidden' }} role="menu">
@@ -916,7 +976,11 @@ function InfoDialog({ book, onClose }: { book: Book; onClose(): void }) {
       footer={
         <>
           <span className="lib-foot-note muted truncate">
-            {isPaperBook ? `Livre papier${book.isbn ? ` · ISBN ${prettyIsbn(book.isbn)}` : ''}` : `${formatLabel(book)} · ${(book.size / 1024 / 1024).toFixed(book.size > 1048576 ? 1 : 2)} Mo · ${book.originalName}`}
+            {isPaperBook
+              ? `Livre papier${book.isbn ? ` · ISBN ${prettyIsbn(book.isbn)}` : ''}`
+              : book.video
+                ? `Vidéo · ${book.video.url}`
+                : `${formatLabel(book)} · ${(book.size / 1024 / 1024).toFixed(book.size > 1048576 ? 1 : 2)} Mo · ${book.originalName}`}
           </span>
           <button className="btn" onClick={onClose}>
             Annuler
@@ -1013,7 +1077,7 @@ function DeleteDialog({ book, nExtracts, onClose }: { book: Book; nExtracts: num
           </p>
           <p className="muted" style={{ margin: '6px 0 0' }}>
             {nExtracts > 0
-              ? `${book.format === 'paper' ? 'Le livre papier' : 'Le fichier'}, ses ${nExtracts} extrait${nExtracts > 1 ? 's' : ''}, sa carte, ses fiches-texte et ses cartes de révision iront avec lui dans la corbeille, où vous pourrez tout restaurer pendant 30 jours.`
+              ? `${book.format === 'paper' ? 'Le livre papier' : book.format === 'video' ? 'La vidéo' : 'Le fichier'}, ses ${nExtracts} extrait${nExtracts > 1 ? 's' : ''}, sa carte, ses fiches-texte et ses cartes de révision iront avec lui dans la corbeille, où vous pourrez tout restaurer pendant 30 jours.`
               : 'Le document et ses données associées iront dans la corbeille, où vous pourrez tout restaurer pendant 30 jours.'}
           </p>
         </div>

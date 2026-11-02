@@ -22,6 +22,7 @@ import { isTextEditingTarget } from '../history/keys';
 import '../reader/reader.css';
 import { fmtKeys } from '../../lib/keys';
 import { PaperExtracts } from '../paper/PaperBookView';
+import { VideoExtracts } from '../video/VideoBookView';
 
 const norm = (x: string) => x.normalize('NFD').replace(/\p{Diacritic}/gu, '').toLowerCase();
 
@@ -160,12 +161,12 @@ const BookHead = memo(function BookHead({
         </span>
         <ArrowLeftRight size={13} className="ed-book-swap" />
       </button>
-      {book.format !== 'image' && book.format !== 'paper' && (
+      {book.format !== 'image' && book.format !== 'paper' && book.format !== 'video' && (
         <button className={`icon-btn sm ${tocOpen ? 'active' : ''}`} onClick={onToc} title="Sommaire" aria-label="Sommaire" aria-pressed={tocOpen}>
           <ListTree size={15} />
         </button>
       )}
-      {book.format !== 'image' && book.format !== 'paper' && (
+      {book.format !== 'image' && book.format !== 'paper' && book.format !== 'video' && (
         <button
           className={`icon-btn sm bm-toggle ${bmOpen ? 'active' : ''} ${bmHere ? 'is-on' : ''}`}
           onClick={onBookmarks}
@@ -177,7 +178,7 @@ const BookHead = memo(function BookHead({
           <BookmarkIcon key={bmHere ? 'on' : 'off'} size={15} fill={bmHere ? 'currentColor' : 'none'} />
         </button>
       )}
-      {book.format !== 'paper' && (
+      {book.format !== 'paper' && book.format !== 'video' && (
         <button className={`icon-btn sm ${studyOpen ? 'active' : ''}`} onClick={onStudy} title="Fiche-texte" aria-label="Fiche-texte" aria-pressed={studyOpen}>
           <NotebookPen size={15} />
         </button>
@@ -205,7 +206,9 @@ export default function BookPane({
 }) {
   const exists = useStore((s) => !!bookId && s.books.some((b) => b.id === bookId));
   // Livre papier : pas de texte à lire, ses extraits (par page) à citer.
-  const paper = useStore((s) => !!bookId && s.books.some((b) => b.id === bookId && b.format === 'paper'));
+  const paper = useStore((s) => !!bookId && s.books.some((b) => b.id === bookId && (b.format === 'paper' || b.format === 'video')));
+  // Vidéo : pas de texte à lire non plus ; ses extraits (par minutage) à citer.
+  const video = useStore((s) => !!bookId && s.books.some((b) => b.id === bookId && b.format === 'video'));
   const [picking, setPicking] = useState(false);
   const [tocOpen, setTocOpen] = useState(false);
   const [studyOpen, setStudyOpen] = useState(false);
@@ -329,7 +332,7 @@ export default function BookPane({
       <div className="ed-book" data-book={bookId} ref={rootRef}>
         <BookHead
           bookId={bookId}
-          label="Livre papier"
+          label={video ? 'Vidéo' : 'Livre papier'}
           progress={0}
           tocOpen={false}
           studyOpen={false}
@@ -341,6 +344,19 @@ export default function BookPane({
           onChange={() => setPicking(true)}
         />
         <div className="ed-book-body">
+          {video ? (
+            <VideoExtracts
+              bookId={bookId}
+              onCite={
+                onCite
+                  ? (h, b) => {
+                      const ok = onCite(h, b);
+                      useStore.getState().toast(ok ? 'Citation insérée, avec sa référence' : 'Placez le curseur dans l’écrit pour y citer cet extrait.', ok ? 'success' : 'info');
+                    }
+                  : undefined
+              }
+            />
+          ) : (
           <PaperExtracts
             bookId={bookId}
             compact
@@ -353,6 +369,7 @@ export default function BookPane({
                 : undefined
             }
           />
+          )}
           {picking && (
             <div className="ed-book-overlay anim-fade">
               <BookPicker

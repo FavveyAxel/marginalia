@@ -20,6 +20,7 @@ import { isTextEditingTarget } from './features/history/keys';
 import { useAppleBooksSync } from './features/library/appleBooks';
 import { useInboxSync, useInboxCount } from './features/inbox/inbox';
 import { usePaperOnlineSync } from './features/paper/paper';
+import { useVideoOnlineSync } from './features/video/video';
 import { useResizeDiagnostics } from './lib/diagnostics';
 import { useDocxMigration } from './features/library/docxMigration';
 import { fmtKeys, isMac, isMod, isWindows, matchKeys } from './lib/keys';
@@ -35,7 +36,7 @@ import type { SecurityStatus } from './lib/platform';
 
 // Vues chargées à la demande (découpage du code) : l'accueil et la bibliothèque sont dans le paquet
 // principal, le reste (lecteur, éditeur, carte, révision…) est préchargé en arrière-plan après l'affichage.
-const { ReaderView, ConceptsView, AllExtractsView, ArgumentsView, RevisionView, PlansView, WriteView, WorkspaceView, TrashView, InboxView, ImportView, HistoryView, HelpView, BoardView, MapsView, SettingsView, PaperBookView } = lazyViews;
+const { ReaderView, ConceptsView, AllExtractsView, ArgumentsView, RevisionView, PlansView, WriteView, WorkspaceView, TrashView, InboxView, ImportView, HistoryView, HelpView, BoardView, MapsView, SettingsView, PaperBookView, VideoBookView } = lazyViews;
 
 // Thème choisi, gardé aussi hors de la base (préférence d'affichage, sans donnée personnelle) :
 // l'écran de verrouillage s'affiche avant que la base soit lisible.
@@ -521,6 +522,8 @@ export function App() {
   const route = useStore((s) => s.route);
   // Livre papier : pas de lecteur (aucun texte à afficher) ; sa page s'ouvre dans l'app, avec la barre latérale.
   const paperOpen = useStore((s) => s.route.name === 'reader' && s.books.some((b) => b.id === (s.route as { bookId: string }).bookId && b.format === 'paper'));
+  // Vidéo : sa page (lecteur intégré, transcription, extraits minutés), elle aussi avec la barre latérale.
+  const videoOpen = useStore((s) => s.route.name === 'reader' && s.books.some((b) => b.id === (s.route as { bookId: string }).bookId && b.format === 'video'));
   const theme = useStore((s) => s.settings.theme);
   // App de bureau : la base n'est chargée qu'une fois Marginalia déverrouillé (option « Verrouiller »).
   const [gate, setGate] = useState<'checking' | 'locked' | 'open'>(host.security ? 'checking' : 'open');
@@ -534,6 +537,7 @@ export function App() {
   useAppleBooksSync();
   useInboxSync();
   usePaperOnlineSync();
+  useVideoOnlineSync();
   useDocxMigration();
   useFormatRepair();
   useResizeDiagnostics();
@@ -633,7 +637,7 @@ export function App() {
 
   return (
     <>
-      {route.name === 'reader' && !paperOpen ? (
+      {route.name === 'reader' && !paperOpen && !videoOpen ? (
         <ErrorBoundary key={route.bookId} view="lecteur" onHome={goHome}>
           <Suspense fallback={<ReaderFallback />}>
             <ReaderView key={route.bookId} bookId={route.bookId} tab={route.tab} splitBookId={route.splitBookId} />
@@ -642,7 +646,7 @@ export function App() {
       ) : (
         <div className="app">
           <Sidebar />
-          <main className="main" key={route.name === 'workspace' ? route.workspaceId : route.name === 'board' ? 'board:' + route.boardId : route.name === 'reader' ? 'paper:' + route.bookId : route.name}>
+          <main className="main" key={route.name === 'workspace' ? route.workspaceId : route.name === 'board' ? 'board:' + route.boardId : route.name === 'reader' ? (videoOpen ? 'video:' : 'paper:') + route.bookId : route.name}>
             <ErrorBoundary view={VIEW_NAMES[route.name] ?? route.name} onHome={route.name === 'home' ? undefined : goHome}>
             <Suspense fallback={<PageSkeleton />}>
             {route.name === 'home' && <HomeView />}
@@ -663,6 +667,7 @@ export function App() {
             {route.name === 'maps' && <MapsView />}
             {route.name === 'settings' && <SettingsView />}
             {route.name === 'reader' && paperOpen && <PaperBookView key={route.bookId} bookId={route.bookId} />}
+            {route.name === 'reader' && videoOpen && <VideoBookView key={route.bookId} bookId={route.bookId} />}
             </Suspense>
             </ErrorBoundary>
           </main>

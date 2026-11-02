@@ -97,7 +97,7 @@ function Palette() {
   );
   // Livre ouvert : « Aller à la page… » et « page 45 » / « p. xii » / « 45 ».
   // Livre ouvert dans le lecteur (un livre papier n'a pas de pages à atteindre).
-  const readerBookId = useStore((s) => (s.route.name === 'reader' && s.books.find((b) => b.id === (s.route as { bookId: string }).bookId)?.format !== 'paper' ? s.route.bookId : null));
+  const readerBookId = useStore((s) => (s.route.name === 'reader' && s.books.find((b) => b.id === (s.route as { bookId: string }).bookId)?.format !== 'paper' && s.books.find((b) => b.id === (s.route as { bookId: string }).bookId)?.format !== 'video' ? s.route.bookId : null));
   const [q, setQ] = useState('');
   const [focus, setFocus] = useState(0);
   const listRef = useRef<HTMLDivElement>(null);
@@ -214,9 +214,9 @@ function Palette() {
           id: 'b-' + b.id,
           group: 'Livres',
           label: b.title,
-          meta: b.format === 'paper' ? [b.author, 'papier'].filter(Boolean).join(' · ') : b.author,
+          meta: b.format === 'paper' ? [b.author, 'papier'].filter(Boolean).join(' · ') : b.format === 'video' ? [b.author, 'vidéo'].filter(Boolean).join(' · ') : b.author,
           icon: <BookOpen size={15} />,
-          text: b.title + ' ' + b.author + (b.format === 'paper' ? ` papier ${b.edition.publisher} ${b.isbn ?? ''}` : ''),
+          text: b.title + ' ' + b.author + (b.format === 'paper' ? ` papier ${b.edition.publisher} ${b.isbn ?? ''}` : b.format === 'video' ? ` vidéo ${b.edition.publisher}` : ''),
           run: () => st().openBook(b.id),
         }),
       );

@@ -3,7 +3,7 @@
 // extraits minutés (un clic sur le minutage ramène la vidéo à ce moment).
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
-import { Check, ChevronLeft, Copy, ExternalLink, FileText, Highlighter, RefreshCw, Search, Trash2 } from 'lucide-react';
+import { Check, ChevronLeft, Copy, ExternalLink, FileText, Highlighter, Maximize2, RefreshCw, Search, Trash2 } from 'lucide-react';
 import { useStore } from '../../lib/store';
 import type { Book, CategoryId, Highlight } from '../../lib/types';
 import { CATEGORIES, CATEGORY_BY_ID } from '../../lib/categories';
@@ -459,6 +459,14 @@ export function VideoBookView({ bookId }: { bookId: string }) {
     [bookId],
   );
 
+  // Plein écran : le lecteur seul ; Échap (ou le bouton du lecteur) revient à la page.
+  const playerBox = useRef<HTMLDivElement>(null);
+  const fullscreen = () => {
+    const el = playerBox.current;
+    if (!el) return;
+    void el.requestFullscreen?.().catch(() => useStore.getState().toast('Plein écran indisponible', 'error'));
+  };
+
   const getTranscript = async () => {
     setTrState('loading');
     const r = await fetchTranscript(bookId);
@@ -512,7 +520,7 @@ export function VideoBookView({ bookId }: { bookId: string }) {
 
       <div className="vv-body">
         <section className="vv-main" aria-label="Vidéo">
-          <div className="vv-player">
+          <div className="vv-player" ref={playerBox}>
             {src ? (
               <iframe
                 key={`${provider}:${v.id}:${reload}`}
@@ -538,10 +546,17 @@ export function VideoBookView({ bookId }: { bookId: string }) {
               </div>
             )}
           </div>
-          {controlled && (
-            <div className="vv-clock" aria-live="off">
-              <span data-testid="video-now">{fmtTime(player.time)}</span>
-              {player.duration > 0 && <span className="vv-clock-dur"> / {fmtTime(player.duration)}</span>}
+          {src && (
+            <div className="vv-under">
+              <button className="btn btn-sm btn-ghost" onClick={fullscreen} title="Regarder en plein écran (Échap pour revenir)" data-testid="video-fullscreen">
+                <Maximize2 size={13} /> Plein écran
+              </button>
+              {controlled && (
+                <span className="vv-clock" aria-live="off">
+                  <span data-testid="video-now">{fmtTime(player.time)}</span>
+                  {player.duration > 0 && <span className="vv-clock-dur"> / {fmtTime(player.duration)}</span>}
+                </span>
+              )}
             </div>
           )}
           <MomentComposer bookId={book.id} now={now} live={controlled && player.ready} />

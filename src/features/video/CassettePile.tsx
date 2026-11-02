@@ -35,52 +35,102 @@ function VhsCase({ book }: { book: Book }) {
   );
 }
 
+/** Décalage final (px) : le boîtier glisse d'autant à gauche, la cassette d'autant à droite. */
+const SHIFT = 78;
+const EASE_OUT = 'cubic-bezier(.22,1,.36,1)';
+const EASE_INOUT = 'cubic-bezier(.65,0,.35,1)';
+const POSE = (x: number, y: number, r: number, sx: number, sy = sx) => `translate(${x}px, ${y}px) rotate(${r}deg) scale(${sx}, ${sy})`;
+
 function OutLayer({ book, from, onBack, onOpen }: { book: Book; from: DOMRect; onBack(): void; onOpen(): void }) {
-  const [phase, setPhase] = useState<'in' | 'flown' | 'out' | 'back'>('in');
+  const [phase, setPhase] = useState<'in' | 'out' | 'closing' | 'back'>('in');
   const boxRef = useRef<HTMLSpanElement>(null);
+  const casRef = useRef<HTMLSpanElement>(null);
   const busy = useRef(true);
-  // Boîtier : couché dans la pile (tranche vers soi), il se redresse en venant au centre ; puis la cassette sort.
-  const flatPose = (el: HTMLElement) => {
-    const r = el.getBoundingClientRect();
-    const cx = from.left + from.width / 2 - (r.left + r.width / 2);
-    const cy = from.top + from.height / 2 - (r.top + r.height / 2);
-    // Couché, le grand côté du boîtier (sa hauteur debout) est la longueur de la tranche.
-    return `translate(${cx}px, ${cy}px) rotate(-90deg) scale(${from.width / r.height})`;
+  // Couché dans la pile (tranche vers soi) : sa hauteur est la longueur de la tranche. Deux poses :
+  // « mince », exactement la forme de la tranche ; « épais », le boîtier soulevé de la pile, à sa vraie
+  // épaisseur (même échelle dans les deux sens : la rotation qui suit ne déforme rien).
+  const flatPoses = (el: HTMLElement) => {
+    const r = el.getBoundingClientRect(); // sans transformation (mesuré avant toute animation)
+    const x = from.left + from.width / 2 - (r.left + r.width / 2);
+    const y = from.top + from.height / 2 - (r.top + r.height / 2);
+    const s = from.width / r.height;
+    return { thin: POSE(x, y, -90, from.height / r.width, s), thick: POSE(x + 8, y - (r.width * s - from.height) / 2 - 6, -90, s, s) };
   };
+  const pose = useRef({ thin: '', thick: '' });
+
+  // Un seul mouvement continu : le boîtier se redresse en venant au centre ; avant qu'il ne soit posé,
+  // la cassette commence à glisser hors du boîtier (sans pivoter : on voit déjà tout sur la jaquette).
   useEffect(() => {
-    const el = boxRef.current;
-    if (!el) return;
-    el.style.transform = flatPose(el);
-    void el.offsetWidth;
-    const fast = reduced();
-    el.style.transition = fast ? 'none' : 'transform .6s cubic-bezier(.2,.8,.2,1)';
-    el.style.transform = 'none';
-    void (async () => {
-      await wait(fast ? 0 : 580);
-      setPhase('flown');
-      await wait(fast ? 0 : 60);
-      setPhase('out');
-      busy.current = false;
-    })();
+    const box = boxRef.current;
+    const cas = casRef.current;
+    if (!box || !cas) return;
+    // Mesure sans animation en cours (un effet relancé ne doit pas mesurer un boîtier déjà en vol).
+    box.getAnimations().forEach((a) => a.cancel());
+    cas.getAnimations().forEach((a) => a.cancel());
+    pose.current = flatPoses(box);
+    const k = reduced() ? 0 : 1;
+    const total = 1150 * k;
+    const landed = 0.52;
+    box.animate(
+      [
+        { transform: pose.current.thin, easing: 'cubic-bezier(.3,.6,.4,1)' },
+        { transform: pose.current.thick, offset: 0.1, easing: EASE_OUT },
+        { transform: POSE(0, 0, 0, 1), offset: landed, easing: EASE_OUT },
+        { transform: POSE(-SHIFT, 0, 0, 1) },
+      ],
+      { duration: total, fill: 'forwards' },
+    );
+    cas.animate(
+      [
+        { transform: 'translateX(0px)', opacity: 0 },
+        { transform: 'translateX(0px)', opacity: 0, offset: landed - 0.01 },
+        { transform: 'translateX(0px)', opacity: 1, offset: landed, easing: EASE_OUT },
+        { transform: `translateX(${SHIFT}px)`, opacity: 1 },
+      ],
+      { duration: total, fill: 'forwards' },
+    );
+    const t1 = window.setTimeout(() => setPhase('out'), 640 * k);
+    const t2 = window.setTimeout(() => (busy.current = false), total);
+    return () => {
+      window.clearTimeout(t1);
+      window.clearTimeout(t2);
+      box.getAnimations().forEach((a) => a.cancel());
+      cas.getAnimations().forEach((a) => a.cancel());
+    };
   }, [from]);
 
+  // Rangement, même mouvement à l'envers : la cassette rentre, et le boîtier repart vers la pile sans attendre.
   const back = async () => {
     if (busy.current) return;
     busy.current = true;
-    const fast = reduced();
-    setPhase('flown'); // la cassette rentre dans son boîtier
-    await wait(fast ? 0 : 480);
-    setPhase('back');
-    const el = boxRef.current;
-    if (el) {
-      el.style.transition = 'none';
-      el.style.transform = 'none';
-      const pose = flatPose(el);
-      void el.offsetWidth;
-      el.style.transition = fast ? 'none' : 'transform .5s cubic-bezier(.4,0,.2,1)';
-      el.style.transform = pose;
-      await wait(fast ? 0 : 480);
+    const box = boxRef.current;
+    const cas = casRef.current;
+    const k = reduced() ? 0 : 1;
+    const total = 940 * k;
+    setPhase('closing');
+    if (box && cas) {
+      box.animate(
+        [
+          { transform: POSE(-SHIFT, 0, 0, 1), easing: EASE_INOUT },
+          { transform: POSE(0, 0, 0, 1), offset: 0.38, easing: 'cubic-bezier(.5,0,.3,1)' },
+          { transform: pose.current.thick, offset: 0.86, easing: 'cubic-bezier(.4,0,.6,1)' },
+          { transform: pose.current.thin },
+        ],
+        { duration: total, fill: 'forwards' },
+      );
+      cas.animate(
+        [
+          { transform: `translateX(${SHIFT}px)`, opacity: 1, easing: EASE_INOUT },
+          { transform: 'translateX(0px)', opacity: 1, offset: 0.38 },
+          { transform: 'translateX(0px)', opacity: 0, offset: 0.39 },
+          { transform: 'translateX(0px)', opacity: 0 },
+        ],
+        { duration: total, fill: 'forwards' },
+      );
     }
+    await wait(360 * k);
+    setPhase('back');
+    await wait(580 * k);
     onBack();
   };
   const open = () => {
@@ -104,8 +154,10 @@ function OutLayer({ book, from, onBack, onOpen }: { book: Book; from: DOMRect; o
       <div className="vs-veil" onClick={() => void back()} />
       <div className="vs-stage">
         <div className="vs-box">
-          <span className="vs-cassette">
-            <Cassette book={book} />
+          <span ref={casRef} className="vs-cassette">
+            <span className="vs-cassette-in">
+              <Cassette book={book} />
+            </span>
           </span>
           <span ref={boxRef} className="vs-case-wrap">
             <VhsCase book={book} />

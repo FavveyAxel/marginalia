@@ -470,9 +470,18 @@
   line-height: 1.5;
   font-size: var(--fs-md);
 }
-.vv-clock {
-  align-self: flex-end;
+.vv-under {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   margin-top: -8px;
+}
+.vv-player:fullscreen {
+  max-height: none;
+  border-radius: 0;
+  aspect-ratio: auto;
+}
+.vv-clock {
   font-size: var(--fs-sm);
   font-variant-numeric: tabular-nums;
   color: var(--ink-2);
@@ -953,41 +962,43 @@
 }
 .vs-box {
   position: relative;
-  width: 650px;
-  height: 392px;
-}
-/* Boîtier VHS debout (jaquette de face) ; la cassette sort par son côté et pivote à sa droite. */
-.vs-case-wrap {
-  position: absolute;
-  left: 0;
-  top: 0;
   width: 222px;
   height: 392px;
+}
+/* Boîtier VHS debout (jaquette de face). La cassette y est rangée debout ; elle sort par le côté,
+   sans pivoter. Les mouvements sont conduits en JavaScript (CassettePile.tsx), d'un seul tenant. */
+.vs-case-wrap {
+  position: absolute;
+  inset: 0;
   z-index: 1;
-  transition: translate 0.5s cubic-bezier(0.3, 0.7, 0.2, 1);
+  will-change: transform;
 }
 .vs-cassette {
   position: absolute;
-  left: 0;
+  left: 50%;
   top: 50%;
-  width: 380px;
-  aspect-ratio: 300 / 188;
-  translate: calc(111px - 50%) -50%;
-  rotate: 90deg;
-  scale: 0.86;
+  width: 0;
+  height: 0;
   z-index: 0;
-  transition: translate 0.55s cubic-bezier(0.3, 0.7, 0.2, 1), rotate 0.55s cubic-bezier(0.3, 0.7, 0.2, 1) 0.12s, scale 0.55s cubic-bezier(0.3, 0.7, 0.2, 1);
+  opacity: 0;
+  will-change: transform, opacity;
 }
-.vs-cassette .vc-cassette {
+.vs-cassette-in {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 352px;
+  aspect-ratio: 300 / 188;
+  translate: -50% -50%;
+  rotate: 90deg;
+}
+.vs-cassette-in .vc-cassette {
   height: 100%;
-}
-.vs-layer.is-out .vs-cassette {
-  translate: 262px -50%;
-  rotate: 0deg;
-  scale: 1;
-}
-.vs-layer.is-out .vs-case-wrap {
-  translate: -6px 0;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.14),
+    inset 0 -2px 0 rgba(0, 0, 0, 0.45),
+    0 1px 0 #0d0b0a,
+    0 18px 26px -16px rgba(25, 15, 5, 0.7);
 }
 .vs-case {
   position: absolute;
@@ -1074,6 +1085,7 @@
 .vs-layer.is-out .vs-panel {
   opacity: 1;
   translate: 0 0;
+  transition-duration: 0.45s;
 }
 .vs-panel h2 {
   margin: 0;
@@ -1093,15 +1105,8 @@
 }
 @media (prefers-reduced-motion: reduce) {
   .vp-tape,
-  .vs-case-wrap,
-  .vs-cassette,
   .vs-panel,
   .vs-veil {
     transition: none;
   }
-}
-/* La cassette n'apparaît qu'une fois le boîtier posé au centre (et disparaît avant qu'il ne reparte). */
-.vs-layer.is-in .vs-cassette,
-.vs-layer.is-back .vs-cassette {
-  opacity: 0;
 }

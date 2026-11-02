@@ -3889,7 +3889,7 @@ app.whenReady().then(async () => {
   }
   // Polices locales, et écriture dans le presse-papiers (« Copier » : code de session, citation…) ; jamais sa lecture.
   session.defaultSession.setPermissionRequestHandler((_wc, perm, cb, details) =>
-    cb(perm === 'local-fonts' || perm === 'localFonts' || perm === 'clipboard-sanitized-write' || (perm === 'fullscreen' && VIDEO_EMBED_HOSTS.has(hostOf((details && details.requestingUrl) || '')))),
+    cb(perm === 'local-fonts' || perm === 'localFonts' || perm === 'clipboard-sanitized-write' || perm === 'fullscreen'),
   );
   // Lecteur YouTube : il refuse de se charger sans page d'origine identifiée (« erreur 153 ») ; une app
   // n'en a pas (app://). On présente le site de Marginalia, qui décrit l'app.

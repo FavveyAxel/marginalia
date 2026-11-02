@@ -140,6 +140,7 @@ await withApp(PORT, async (page, errors) => {
   await page.waitForSelector('[data-testid="video-frame"]');
   await page.waitForFunction(() => document.querySelector('[data-testid="video-now"]')?.textContent === '1:30');
   ok('lecteur intégré : reprise à la position retenue (1:30), il répond', true);
+  ok('bouton « Plein écran » sous le lecteur', (await page.getByTestId('video-fullscreen').count()) === 1);
   ok('transcription affichée', (await page.locator('.vv-line').count()) === stored.lines.length);
   ok('ligne en cours mise en avant', (await page.locator('.vv-line.is-now').count()) === 1);
   await page.fill('[data-testid="video-transcript-search"]', 'habitude');

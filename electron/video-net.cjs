@@ -1,6 +1,6 @@
 // ─────────────────────────────────────────────────────────────
-// Vidéos : titre et chaîne d'une vidéo (oEmbed officiel des plateformes), durée, et sous-titres
-// YouTube (transcription).
+// Vidéos : titre et chaîne d'une vidéo (oEmbed officiel des plateformes), durée, sous-titres
+// YouTube (transcription) et chapitres (lus dans la description de la vidéo).
 //
 // Connexions (processus principal seulement, jamais le rendu ; réglage « Vidéos en ligne », activé
 // par défaut ; désactivé : AUCUNE requête) :
@@ -198,6 +198,39 @@ function parseCaptions(body) {
   return out;
 }
 
+/**
+ * Chapitres d'une vidéo YouTube, lus dans sa description (c'est ainsi que YouTube les définit) : une
+ * ligne par chapitre, minutage puis titre (« 0:00 Introduction », « 12:34 - Le doute »), ou titre puis
+ * minutage. Admis seulement s'ils commencent à 0:00, sont au moins deux et vont croissant.
+ */
+function parseChapters(description) {
+  const out = [];
+  const T = '((?:\\d{1,2}:)?\\d{1,2}:\\d{2})';
+  const before = new RegExp('^\\s*[\\-•▶►·*\\[(]*\\s*' + T + '\\s*[\\])]?\\s*[-–—:|.)]?\\s*(.+?)\\s*$');
+  const after = new RegExp('^\\s*(.+?)\\s*[-–—:|(\\[]\\s*' + T + '\\s*[)\\]]?\\s*$');
+  const sec = (t) => t.split(':').reduce((n, x) => n * 60 + Number(x), 0);
+  for (const raw of String(description || '').split(/\r?\n/).slice(0, 400)) {
+    const line = raw.trim();
+    if (!line || line.length > 160) continue;
+    let m = before.exec(line);
+    let t;
+    let title;
+    if (m) {
+      t = sec(m[1]);
+      title = m[2];
+    } else if ((m = after.exec(line))) {
+      t = sec(m[2]);
+      title = m[1];
+    } else continue;
+    title = clean(title).replace(/^[-–—:|.\s]+|[-–—:|\s]+$/g, '').slice(0, 140);
+    if (!title || !Number.isFinite(t)) continue;
+    if (out.length && t <= out[out.length - 1].s) continue;
+    out.push({ s: t, t: title });
+    if (out.length >= 200) break;
+  }
+  return out.length >= 2 && out[0].s === 0 ? out : [];
+}
+
 /** Piste préférée : français écrit à la main, puis français automatique, puis toute piste écrite, puis automatique. */
 function pickTrack(tracks, lang = 'fr') {
   const list = (Array.isArray(tracks) ? tracks : []).filter((t) => t && typeof t.baseUrl === 'string' && typeof t.languageCode === 'string');
@@ -332,8 +365,9 @@ function createVideoNet(o) {
     lang = /^[a-z]{2}$/.test(String(lang)) ? lang : 'fr';
     try {
       const { tracks, details } = await ytTracks(id, lang);
+      const chapters = parseChapters(details.shortDescription);
       const track = pickTrack(tracks, lang);
-      if (!track) return { ok: false, none: true, error: 'Cette vidéo n’a pas de sous-titres.' };
+      if (!track) return { ok: false, none: true, chapters, duration: num(details.lengthSeconds), error: 'Cette vidéo n’a pas de sous-titres.' };
       const base = new URL(track.baseUrl, ep.ytWatch);
       base.searchParams.delete('fmt');
       base.searchParams.set('fmt', 'json3');
@@ -343,8 +377,8 @@ function createVideoNet(o) {
         base.searchParams.delete('fmt');
         cues = parseCaptions(await ask(base.toString(), { headers: { Accept: 'text/xml' } }));
       }
-      if (!cues.length) return { ok: false, error: 'YouTube n’a pas donné le texte des sous-titres. Réessayez plus tard.' };
-      return { ok: true, lang: track.languageCode.slice(0, 2), auto: track.kind === 'asr', cues, duration: num(details.lengthSeconds) };
+      if (!cues.length) return { ok: false, chapters, error: 'YouTube n’a pas donné le texte des sous-titres. Réessayez plus tard.' };
+      return { ok: true, lang: track.languageCode.slice(0, 2), auto: track.kind === 'asr', cues, chapters, duration: num(details.lengthSeconds) };
     } catch (e) {
       diag('video', 'transcription', e && e.code);
       return { ok: false, error: 'Impossible de récupérer les sous-titres pour l’instant.' };
@@ -368,4 +402,4 @@ function createVideoNet(o) {
   return { meta, transcript, thumb };
 }
 
-module.exports = { createVideoNet, parseCaptions, pickTrack, playerResponseFromPage, thumbAllowed, ID, NetError };
+module.exports = { createVideoNet, parseCaptions, parseChapters, pickTrack, playerResponseFromPage, thumbAllowed, ID, NetError };

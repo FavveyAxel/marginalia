@@ -520,7 +520,7 @@ async function onFetch(from: string, head: Head) {
     const sha256 = fp?.sha256 ?? b.sourceSha256 ?? null;
     const { list, body } = joinFiles(missing ? [] : files);
     // Livre papier : aucun fichier, seulement ses métadonnées et sa couverture.
-    const meta = { title: b.title, author: b.author, format: b.format, fileName: b.fileName, originalName: b.originalName, size: b.size, edition: b.edition, cover: b.cover, pages: missing ? undefined : b.pages, sha256, ...(missing ? { missing: true } : {}), ...(b.format === 'paper' ? { paper: true, isbn: b.isbn ?? '' } : {}), ...(b.format === 'video' && b.video ? { video: { provider: b.video.provider, id: b.video.id, url: b.video.url, duration: b.video.duration } } : {}) };
+    const meta = { title: b.title, author: b.author, format: b.format, fileName: b.fileName, originalName: b.originalName, size: b.size, edition: b.edition, cover: b.cover, pages: missing ? undefined : b.pages, sha256, ...(missing ? { missing: true } : {}), ...(b.format === 'paper' ? { paper: true, isbn: b.isbn ?? '' } : {}), ...(b.format === 'video' && b.video ? { video: { provider: b.video.provider, id: b.video.id, url: b.video.url, duration: b.video.duration, chapters: b.video.chapters } } : {}) };
     send(from, { t: 'files', c, g, rec: meta, list }, body);
   } else {
     const d = st.drafts.find((x) => x.id === id);

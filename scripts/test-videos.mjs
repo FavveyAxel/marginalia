@@ -73,7 +73,7 @@ const SETUP = (cues) => {
       },
       transcript: async (provider, id, lang) => {
         window.__videoCalls.push(['transcript', provider, id, lang]);
-        return { ok: true, lang: 'fr', auto: true, cues, duration: 600 };
+        return { ok: true, lang: 'fr', auto: true, cues, duration: 600, chapters: [{ s: 0, t: 'Le nombre des choix' }, { s: 20, t: 'Qui choisit nos désirs ?' }, { s: 36, t: 'L’exemple de l’habitude' }] };
       },
     };
   });
@@ -212,6 +212,94 @@ await withApp(PORT, async (page, errors) => {
   });
   ok('arrivée par un extrait : le lecteur va à son minutage', true);
   ok('l’extrait est mis en avant', (await page.locator('.vv-extract.is-active').count()) === 1);
+
+  // ── 4b. Chapitres, signets, vitesse, « Rejouer », recherche dans les transcriptions ──
+  const vb2 = await S((id) => window.__store.getState().books.find((b) => b.id === id).video, vb.id);
+  ok('chapitres récupérés avec la transcription', vb2.chapters?.length === 3 && vb2.chapters[1].t === 'Qui choisit nos désirs ?', vb2.chapters);
+  ok('extraits rangés sous leur chapitre', (await page.locator('[data-testid="video-extract-chapter"]').count()) >= 1);
+  await page.getByTestId('video-tab-chapters').click();
+  ok('onglet « Sommaire » : les chapitres', (await page.locator('[data-testid="video-chapter"]').count()) === 3);
+  await page.locator('[data-testid="video-chapter"]').nth(2).click();
+  await page.waitForFunction(() => {
+    const w = document.querySelector('[data-testid="video-frame"]').contentWindow;
+    return [...(w.__received || [])].some((d) => d.func === 'seekTo' && d.args[0] === 36);
+  });
+  ok('clic sur un chapitre : le lecteur y va', true);
+  await page.waitForFunction(() => /habitude/.test(document.querySelector('[data-testid="video-now-chapter"]')?.textContent || ''));
+  ok('chapitre en cours affiché sous le lecteur', true);
+  await shot(page, 'shots/videos/09-sommaire.png');
+
+  // Signets : bouton, puis ⌘D ; la liste ; renommer ; y revenir.
+  await page.getByTestId('video-bookmark-add').click();
+  await page.waitForSelector('[data-testid="video-bookmark"]');
+  let bms = await S((id) => window.__store.getState().bookmarks.filter((b) => b.bookId === id), vb.id);
+  ok('« Signet » : signet au moment en cours, nommé d’après le chapitre', bms.length === 1 && bms[0].label === 'L’exemple de l’habitude' && /^\d+:\d\d$/.test(bms[0].locationLabel) && bms[0].anchor.kind === 'html', bms[0]);
+  await page.locator('body').click({ position: { x: 5, y: 5 } }).catch(() => {});
+  await page.keyboard.press('ControlOrMeta+d');
+  await page.waitForFunction((id) => window.__store.getState().bookmarks.filter((b) => b.bookId === id).length === 2, vb.id);
+  ok('⌘D : un second signet', true);
+  ok('onglet « Signets » : la liste par minutage', (await page.locator('[data-testid="video-bookmark"]').count()) === 2);
+  const label = page.locator('.vv-mark-label').first();
+  await label.fill('Le passage à revoir');
+  await label.press('Enter');
+  bms = await S((id) => window.__store.getState().bookmarks.filter((b) => b.bookId === id), vb.id);
+  ok('signet renommé', bms.some((b) => b.label === 'Le passage à revoir'));
+  await shot(page, 'shots/videos/10-signets.png');
+  await S(() => window.__store.getState().navigate({ name: 'library' }));
+  await S((id) => {
+    const s = window.__store.getState();
+    s.jumpToBookmark(s.bookmarks.find((b) => b.bookId === id).id);
+  }, vb.id);
+  await page.waitForSelector('[data-testid="video-frame"]');
+  const bmSec = await S((id) => {
+    const b = window.__store.getState().bookmarks.find((x) => x.bookId === id);
+    return b.anchor.start / 1000;
+  }, vb.id);
+  await page.waitForFunction((t) => {
+    const w = document.querySelector('[data-testid="video-frame"]')?.contentWindow;
+    return w && [...(w.__received || [])].some((d) => d.func === 'seekTo' && d.args[0] === t);
+  }, bmSec);
+  ok('arrivée par un signet (⌘K, Signets) : le lecteur y va', true);
+
+  // Vitesse de lecture.
+  await page.selectOption('[data-testid="video-rate"]', '1.5');
+  await page.waitForFunction(() => {
+    const w = document.querySelector('[data-testid="video-frame"]').contentWindow;
+    return [...(w.__received || [])].some((d) => d.func === 'setPlaybackRate' && d.args[0] === 1.5);
+  });
+  ok('vitesse de lecture 1,5× transmise au lecteur', true);
+
+  // « Rejouer l'extrait » : du début à la fin, puis pause.
+  await page.locator('[data-testid="video-extract"]').first().hover();
+  await page.locator('[data-testid="video-extract-replay"]').first().click();
+  await page.waitForFunction(() => {
+    const w = document.querySelector('[data-testid="video-frame"]').contentWindow;
+    const r = w.__received || [];
+    const i = r.map((d) => d.func).lastIndexOf('playVideo');
+    return i >= 0 && r.slice(i).some((d) => d.func === 'pauseVideo');
+  }, null, { timeout: 15000 });
+  ok('« Rejouer l’extrait » : lecture du passage, puis pause à sa fin', true);
+
+  // Recherche (⌘K) dans les transcriptions.
+  await S(() => window.__store.getState().navigate({ name: 'library' }));
+  await S(() => window.__store.getState().setCommandOpen(true));
+  await page.keyboard.type('remet à demain');
+  await page.waitForSelector('text=Transcriptions');
+  const tItem = page.locator('[data-idx]', { hasText: 'remet à demain' }).filter({ hasText: /La liberté, une histoire · \d+:\d\d/ }).first();
+  ok('⌘K : une phrase trouvée dans la transcription, avec la vidéo et le minutage', (await tItem.count()) === 1, await page.locator('[data-idx]').allTextContents());
+  await tItem.click();
+  await page.waitForSelector('[data-testid="video-frame"]');
+  const lineSec = stored.lines.find((l) => /remet à demain/.test(l.t)).s / 1000;
+  await page.waitForFunction((t) => {
+    const w = document.querySelector('[data-testid="video-frame"]')?.contentWindow;
+    return w && [...(w.__received || [])].some((d) => d.func === 'seekTo' && d.args[0] === t);
+  }, lineSec);
+  ok('⌘K : la vidéo s’ouvre au moment de la phrase', true);
+
+  // Accueil : la vidéo est le « Dernier document ».
+  await S(() => window.__store.getState().navigate({ name: 'home' }));
+  await page.waitForSelector('.home-resume-kind');
+  ok('accueil : « Dernier document » pour une vidéo', (await page.locator('.home-resume-kind').first().innerText()).includes('Dernier document'));
 
   // ── 5. Skeuomorphisme : pile de boîtiers ──
   await S(() => {

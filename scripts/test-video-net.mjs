@@ -22,6 +22,7 @@ ok('srv3 : <p t d>', JSON.stringify(vn.parseCaptions('<timedtext><body><p t="150
 ok('XML ancien, entités doublement encodées', vn.parseCaptions('<transcript><text start="2.5" dur="1">L&amp;#39;idée</text></transcript>')[0].t === 'L’idée'.replace('’', "'"));
 ok('piste : français écrit à la main avant l’automatique', vn.pickTrack([{ baseUrl: 'a', languageCode: 'fr', kind: 'asr' }, { baseUrl: 'b', languageCode: 'en' }, { baseUrl: 'c', languageCode: 'fr' }]).baseUrl === 'c');
 ok('piste : automatique en français avant l’anglais écrit', vn.pickTrack([{ baseUrl: 'b', languageCode: 'en' }, { baseUrl: 'a', languageCode: 'fr', kind: 'asr' }]).baseUrl === 'a');
+ok('chapitres : minutage avant ou après le titre ; rien sans 0:00', vn.parseChapters('Intro (0:00)\nPartie 1 - 3:20').length === 2 && vn.parseChapters('Rendez-vous à 12:30\n5:00 seul').length === 0);
 ok('page de la vidéo : objet du lecteur extrait', vn.playerResponseFromPage('<script>var ytInitialPlayerResponse = {"a":{"b":"}"},"c":1};var x=1;</script>').c === 1);
 ok('miniatures : seulement les serveurs d’images des plateformes', vn.thumbAllowed('https://i.ytimg.com/vi/x/hq.jpg') && !vn.thumbAllowed('https://evil.example/x.jpg') && !vn.thumbAllowed('http://i.ytimg.com/x.jpg'));
 
@@ -43,7 +44,7 @@ const server = http.createServer((req, res) => {
     req.on('end', () => {
       const b = JSON.parse(body);
       if (androidFails || b.videoId !== 'AbCdEfGhIjK') return json({ playabilityStatus: { status: 'LOGIN_REQUIRED' } });
-      json({ captions: { playerCaptionsTracklistRenderer: { captionTracks: tracks } }, videoDetails: { lengthSeconds: '600' } });
+      json({ captions: { playerCaptionsTracklistRenderer: { captionTracks: tracks } }, videoDetails: { lengthSeconds: '600', shortDescription: 'Un cours.\n0:00 Introduction\n2:15 - Le doute\n8:40 Conclusion' } });
     });
     return;
   }
@@ -77,6 +78,7 @@ ok('Vimeo : titre, chaîne, durée', mv.ok && mv.title === 'Conférence' && mv.d
 const md = await net.meta('dailymotion', 'x7abcde');
 ok('Dailymotion : titre, chaîne, durée', md.ok && md.author === 'Auteur D' && md.duration === 321, md);
 const tr = await net.transcript('youtube', 'AbCdEfGhIjK', 'fr');
+ok('chapitres lus dans la description', tr.chapters?.length === 3 && tr.chapters[1].s === 135 && tr.chapters[1].t === 'Le doute', tr.chapters);
 ok('sous-titres : json3 demandé, répliques, durée', tr.ok && tr.cues.length === 2 && tr.cues[0].t === 'Première phrase.' && tr.duration === 600 && tr.auto === true && tr.lang === 'fr', tr);
 androidFails = true;
 hits.length = 0;

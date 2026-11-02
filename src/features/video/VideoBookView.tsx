@@ -1,11 +1,11 @@
 // Page d'une vidéo : lecteur intégré (YouTube, Vimeo, Dailymotion) ou lien ouvert dans le navigateur ;
 // transcription synchronisée (sous-titres YouTube) qu'on surligne comme un livre ; « Noter ce moment » ;
 // extraits minutés (un clic sur le minutage ramène la vidéo à ce moment).
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
-import { Check, ChevronLeft, Copy, ExternalLink, FileText, Highlighter, Maximize2, RefreshCw, Search, Trash2 } from 'lucide-react';
+import { Bookmark as BookmarkIcon, Check, ChevronLeft, Copy, ExternalLink, FileText, Highlighter, ListTree, Maximize2, RefreshCw, RotateCcw, Search, Trash2 } from 'lucide-react';
 import { useStore } from '../../lib/store';
-import type { Book, CategoryId, Highlight } from '../../lib/types';
+import type { Book, Bookmark, CategoryId, Highlight } from '../../lib/types';
 import { CATEGORIES, CATEGORY_BY_ID } from '../../lib/categories';
 import { formatCitation } from '../../lib/citation';
 import { fmtKeys, isMod } from '../../lib/keys';
@@ -16,8 +16,10 @@ import {
   CONTROLLED,
   EMBEDDED,
   PROVIDER_LABEL,
+  addVideoBookmark,
   addVideoExtract,
   byTime,
+  chapterAt,
   embedUrl,
   fetchTranscript,
   fmtDuration,
@@ -25,7 +27,9 @@ import {
   loadTranscript,
   parseTime,
   saveVideoPosition,
+  secondsOfBookmark,
   startOfExtract,
+  useVideoSeek,
   type TranscriptLine,
 } from './video';
 import './video.css';
@@ -55,7 +59,7 @@ const openOutside = (url: string) => window.open(url, '_blank', 'noopener');
 
 // ── Extraits ─────────────────────────────────────────────────
 
-const ExtractItem = memo(function ExtractItem({ h, book, active, onSeek }: { h: Highlight; book: Book; active: boolean; onSeek(sec: number): void }) {
+const ExtractItem = memo(function ExtractItem({ h, book, active, onSeek, onReplay }: { h: Highlight; book: Book; active: boolean; onSeek(sec: number): void; onReplay?: (h: Highlight) => void }) {
   const c = h.category ? CATEGORY_BY_ID[h.category] : null;
   const ref = useRef<HTMLLIElement>(null);
   useEffect(() => {
@@ -80,6 +84,11 @@ const ExtractItem = memo(function ExtractItem({ h, book, active, onSeek }: { h: 
         )}
       </div>
       <div className="vv-extract-actions">
+        {onReplay && (
+          <button className="icon-btn sm" aria-label="Rejouer l’extrait" title="Rejouer exactement ce passage" onClick={() => onReplay(h)} data-testid="video-extract-replay">
+            <RotateCcw size={14} />
+          </button>
+        )}
         <button
           className="icon-btn sm"
           aria-label="Copier la citation"
@@ -390,6 +399,65 @@ export function VideoExtracts({ bookId, onCite }: { bookId: string; onCite?: (h:
   );
 }
 
+/** Sommaire : les chapitres de la vidéo ; le chapitre en cours est mis en avant. */
+function ChapterList({ chapters, now, onSeek, counts }: { chapters: { s: number; t: string }[]; now: number; onSeek(sec: number): void; counts: number[] }) {
+  const cur = chapterAt(chapters, now)?.i ?? -1;
+  return (
+    <ol className="vv-chapters" aria-label="Chapitres" data-testid="video-chapters">
+      {chapters.map((c, i) => (
+        <li key={i}>
+          <button className={`vv-chapter ${i === cur ? 'is-now' : ''}`} onClick={() => onSeek(c.s)} data-testid="video-chapter">
+            <span className="vv-chapter-time">{fmtTime(c.s)}</span>
+            <span className="vv-chapter-title">{c.t}</span>
+            {counts[i] > 0 && <span className="vv-chapter-n" title={`${counts[i]} extrait${counts[i] > 1 ? 's' : ''}`}>{counts[i]}</span>}
+          </button>
+        </li>
+      ))}
+    </ol>
+  );
+}
+
+/** Signets de la vidéo : minutage (clic : y aller), nom modifiable, suppression. */
+function BookmarkList({ marks, onSeek }: { marks: Bookmark[]; onSeek(sec: number): void }) {
+  if (!marks.length)
+    return (
+      <div className="vv-tr-empty" data-testid="video-bookmarks-empty">
+        <BookmarkIcon size={22} aria-hidden="true" />
+        <h3>Aucun signet</h3>
+        <p>« Signet » sous le lecteur (ou ⌘D) marque le moment en cours, pour y revenir d’un clic.</p>
+      </div>
+    );
+  return (
+    <ul className="vv-marks" aria-label="Signets" data-testid="video-bookmarks">
+      {marks.map((bm) => (
+        <li key={bm.id} className="vv-mark" data-testid="video-bookmark">
+          <button className="vv-line-time" onClick={() => onSeek(secondsOfBookmark(bm))} title="Aller à ce moment">
+            {bm.locationLabel}
+          </button>
+          <div className="vv-mark-body">
+            <input
+              className="vv-mark-label"
+              defaultValue={bm.label}
+              aria-label="Nom du signet"
+              onBlur={(e) => {
+                const v = e.target.value.trim();
+                if (v && v !== bm.label) useStore.getState().updateBookmark(bm.id, { label: v });
+              }}
+              onKeyDown={(e) => e.key === 'Enter' && (e.target as HTMLInputElement).blur()}
+            />
+            {bm.excerpt && <p className="vv-mark-excerpt">{bm.excerpt}</p>}
+          </div>
+          <button className="icon-btn sm pb-danger" aria-label="Supprimer le signet" onClick={() => useStore.getState().removeBookmark(bm.id)}>
+            <Trash2 size={13} />
+          </button>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+const RATES = [0.75, 1, 1.25, 1.5, 1.75, 2];
+
 // ── Page ─────────────────────────────────────────────────────
 
 export function VideoBookView({ bookId }: { bookId: string }) {
@@ -408,6 +476,10 @@ export function VideoBookView({ bookId }: { bookId: string }) {
   const [lines, setLines] = useState<TranscriptLine[] | null>(null);
   const [trState, setTrState] = useState<'idle' | 'loading' | 'error'>('idle');
   const sorted = useMemo(() => [...highlights].sort(byTime), [highlights]);
+  const marks = useStore(useShallow((s) => s.bookmarks.filter((b) => b.bookId === bookId)));
+  const sortedMarks = useMemo(() => [...marks].sort((a, b) => secondsOfBookmark(a) - secondsOfBookmark(b)), [marks]);
+  const [tab, setTab] = useState<'transcript' | 'chapters' | 'marks'>('transcript');
+  const [rate, setRate] = useState(1);
 
   useEffect(() => {
     useStore.getState().updateBook(bookId, { lastOpenedAt: Date.now() });
@@ -441,6 +513,68 @@ export function VideoBookView({ bookId }: { bookId: string }) {
     seek(startOfExtract(h));
   }, [jump, bookId, controlled, player.ready, seek]);
 
+  // Arrivée par un signet (⌘K, liste des signets) ou par une phrase trouvée dans une transcription.
+  const bmJump = useStore((s) => s.bookmarkJump);
+  const seekReq = useVideoSeek((s) => s.req);
+  const handled = useRef(new Set<number>());
+  useEffect(() => {
+    if (controlled && !player.ready) return;
+    if (bmJump && !handled.current.has(bmJump.nonce)) {
+      const bm = useStore.getState().bookmarks.find((x) => x.id === bmJump.bookmarkId);
+      if (bm?.bookId === bookId) {
+        handled.current.add(bmJump.nonce);
+        seek(secondsOfBookmark(bm));
+      }
+    }
+    if (seekReq && seekReq.bookId === bookId && !handled.current.has(seekReq.nonce)) {
+      handled.current.add(seekReq.nonce);
+      seek(seekReq.sec);
+    }
+  }, [bmJump, seekReq, bookId, controlled, player.ready, seek]);
+
+  // « Rejouer l'extrait » : du début à la fin du passage (au moins 15 s pour un moment noté), puis pause.
+  const replayUntil = useRef<number | null>(null);
+  const replay = useCallback(
+    (h: Highlight) => {
+      const start = startOfExtract(h);
+      const end = h.anchor.kind === 'html' ? h.anchor.end / 1000 : start;
+      replayUntil.current = Math.max(end, start + 15);
+      player.seek(start, true);
+      useStore.getState().setActiveHighlight(h.id);
+    },
+    [player],
+  );
+  useEffect(() => {
+    if (replayUntil.current != null && player.time >= replayUntil.current) {
+      replayUntil.current = null;
+      player.pause();
+    }
+  }, [player.time, player]);
+
+  // Signet au moment en cours (bouton « Signet », ou ⌘D hors d'un champ de saisie).
+  const linesRef = useRef<TranscriptLine[] | null>(null);
+  linesRef.current = lines;
+  const addMark = useCallback(() => {
+    const b = useStore.getState().books.find((x) => x.id === bookId);
+    const t = controlled ? player.time : b?.video?.position ?? 0;
+    const ch = chapterAt(b?.video?.chapters, t);
+    const line = linesRef.current?.filter((l) => l.s <= t * 1000).pop();
+    const bm = addVideoBookmark(bookId, t, ch ? ch.t : '', line?.t ?? '');
+    useStore.getState().toast(`Signet ajouté à ${bm.locationLabel}`, 'success');
+    setTab('marks');
+  }, [bookId, controlled, player.time]);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!isMod(e) || e.key.toLowerCase() !== 'd' || e.shiftKey || e.altKey) return;
+      const t = e.target as HTMLElement | null;
+      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
+      e.preventDefault();
+      addMark();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [addMark]);
+
   // Où l'on en est : retenu toutes les 5 secondes de lecture, et en quittant la page.
   const saved = useRef(0);
   useEffect(() => {
@@ -473,7 +607,7 @@ export function VideoBookView({ bookId }: { bookId: string }) {
     if (r.ok && r.lines) {
       setLines(r.lines);
       setTrState('idle');
-      useStore.getState().toast('Transcription prête', 'success');
+      useStore.getState().toast(r.chapters ? `Transcription prête, et ${r.chapters} chapitres` : 'Transcription prête', 'success');
     } else {
       setTrState('error');
       useStore.getState().toast(r.error ?? 'Transcription impossible', 'error');
@@ -494,6 +628,7 @@ export function VideoBookView({ bookId }: { bookId: string }) {
   const v = book.video;
   const now = controlled ? player.time : 0;
   const src = embedded ? embedUrl(provider, v.id, startAt) : '';
+  const curChapter = chapterAt(v.chapters, controlled ? player.time : startAt);
 
   return (
     <div className="vv" data-testid="video-view">
@@ -546,19 +681,49 @@ export function VideoBookView({ bookId }: { bookId: string }) {
               </div>
             )}
           </div>
-          {src && (
-            <div className="vv-under">
+          <div className="vv-under">
+            {src && (
               <button className="btn btn-sm btn-ghost" onClick={fullscreen} title="Regarder en plein écran (Échap pour revenir)" data-testid="video-fullscreen">
                 <Maximize2 size={13} /> Plein écran
               </button>
-              {controlled && (
-                <span className="vv-clock" aria-live="off">
-                  <span data-testid="video-now">{fmtTime(player.time)}</span>
-                  {player.duration > 0 && <span className="vv-clock-dur"> / {fmtTime(player.duration)}</span>}
-                </span>
-              )}
-            </div>
-          )}
+            )}
+            <button className="btn btn-sm btn-ghost" onClick={addMark} title={fmtKeys('Marquer ce moment (⌘D)')} data-testid="video-bookmark-add">
+              <BookmarkIcon size={13} /> Signet
+            </button>
+            {controlled && (
+              <label className="vv-rate" title="Vitesse de lecture">
+                <span className="sr-label">Vitesse de lecture</span>
+                <select
+                  className="vv-rate-select"
+                  value={rate}
+                  onChange={(e) => {
+                    const r = Number(e.target.value);
+                    setRate(r);
+                    player.setRate(r);
+                  }}
+                  data-testid="video-rate"
+                >
+                  {RATES.map((r) => (
+                    <option key={r} value={r}>
+                      {String(r).replace('.', ',')}×
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
+            <span className="spacer" />
+            {curChapter && (
+              <span className="vv-now-chapter" title="Chapitre en cours" data-testid="video-now-chapter">
+                {curChapter.t}
+              </span>
+            )}
+            {controlled && (
+              <span className="vv-clock" aria-live="off">
+                <span data-testid="video-now">{fmtTime(player.time)}</span>
+                {player.duration > 0 && <span className="vv-clock-dur"> / {fmtTime(player.duration)}</span>}
+              </span>
+            )}
+          </div>
           <MomentComposer bookId={book.id} now={now} live={controlled && player.ready} />
           <div className="vv-extracts">
             <h2 className="vv-h">
@@ -568,16 +733,43 @@ export function VideoBookView({ bookId }: { bookId: string }) {
               <p className="vv-empty">Les passages que vous notez ou surlignez arrivent ici, rangés par minutage.</p>
             ) : (
               <ul className="vv-list" aria-label="Extraits de la vidéo">
-                {sorted.map((h) => (
-                  <ExtractItem key={h.id} h={h} book={book} active={activeHl === h.id} onSeek={seek} />
-                ))}
+                {sorted.map((h, i) => {
+                  const ch = chapterAt(v.chapters, startOfExtract(h));
+                  const prev = i > 0 ? chapterAt(v.chapters, startOfExtract(sorted[i - 1])) : null;
+                  return (
+                    <Fragment key={h.id}>
+                      {ch && ch.i !== prev?.i && (
+                        <li className="vv-list-chapter" aria-hidden="true" data-testid="video-extract-chapter">
+                          {ch.t}
+                        </li>
+                      )}
+                      <ExtractItem h={h} book={book} active={activeHl === h.id} onSeek={seek} onReplay={controlled ? replay : undefined} />
+                    </Fragment>
+                  );
+                })}
               </ul>
             )}
           </div>
         </section>
-        <aside className="vv-side" aria-label="Transcription">
-          <h2 className="vv-side-title">Transcription</h2>
-          <Transcript book={book} lines={lines} timeMs={now * 1000} highlights={highlights} onSeek={seek} state={trState} onFetch={() => void getTranscript()} />
+        <aside className="vv-side" aria-label="Transcription, sommaire et signets">
+          <div className="vv-tabs" role="tablist" aria-label="Panneau">
+            <button role="tab" aria-selected={tab === 'transcript'} className={`vv-tab ${tab === 'transcript' ? 'is-on' : ''}`} onClick={() => setTab('transcript')} data-testid="video-tab-transcript">
+              Transcription
+            </button>
+            {!!v.chapters?.length && (
+              <button role="tab" aria-selected={tab === 'chapters'} className={`vv-tab ${tab === 'chapters' ? 'is-on' : ''}`} onClick={() => setTab('chapters')} data-testid="video-tab-chapters">
+                <ListTree size={13} /> Sommaire
+              </button>
+            )}
+            <button role="tab" aria-selected={tab === 'marks'} className={`vv-tab ${tab === 'marks' ? 'is-on' : ''}`} onClick={() => setTab('marks')} data-testid="video-tab-marks">
+              Signets {marks.length > 0 && <span className="vv-tab-n">{marks.length}</span>}
+            </button>
+          </div>
+          {tab === 'transcript' && <Transcript book={book} lines={lines} timeMs={now * 1000} highlights={highlights} onSeek={seek} state={trState} onFetch={() => void getTranscript()} />}
+          {tab === 'chapters' && v.chapters?.length ? (
+            <ChapterList chapters={v.chapters} now={now} onSeek={seek} counts={v.chapters.map((_, i) => sorted.filter((h) => chapterAt(v.chapters, startOfExtract(h))?.i === i).length)} />
+          ) : null}
+          {tab === 'marks' && <BookmarkList marks={sortedMarks} onSeek={seek} />}
         </aside>
       </div>
     </div>

@@ -20,6 +20,8 @@ export interface Player extends PlayerState {
   seek(sec: number, play?: boolean): void;
   play(): void;
   pause(): void;
+  /** Vitesse de lecture (0,5 à 2). */
+  setRate(rate: number): void;
 }
 
 const INIT: PlayerState = { ready: false, time: 0, duration: 0, playing: false };
@@ -129,5 +131,14 @@ export function usePlayer(provider: VideoProvider): Player {
   const play = useCallback(() => (provider === 'youtube' ? post({ event: 'command', func: 'playVideo', args: [], id: 1, channel: 'widget' }) : post({ method: 'play' })), [provider, post]);
   const pause = useCallback(() => (provider === 'youtube' ? post({ event: 'command', func: 'pauseVideo', args: [], id: 1, channel: 'widget' }) : post({ method: 'pause' })), [provider, post]);
 
-  return { ...st, frameRef, onLoad, seek, play, pause };
+  const setRate = useCallback(
+    (rate: number) => {
+      const r = Math.min(2, Math.max(0.25, rate));
+      if (provider === 'youtube') post({ event: 'command', func: 'setPlaybackRate', args: [r], id: 1, channel: 'widget' });
+      else if (provider === 'vimeo') post({ method: 'setPlaybackRate', value: r });
+    },
+    [provider, post],
+  );
+
+  return { ...st, frameRef, onLoad, seek, play, pause, setRate };
 }

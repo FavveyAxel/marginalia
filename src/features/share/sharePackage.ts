@@ -18,6 +18,7 @@
 // Ne partent jamais : les signets de lecture, la position de lecture, les versions des écrits, le
 // chemin d'origine d'un écrit sur le disque, l'état de révision des cartes (elles repartent de zéro),
 // les notes privées des écrits (retirées du .docx comme à tout export).
+import { cleanChapters } from '../video/video';
 import JSZip from 'jszip';
 import { host } from '../../lib/platform';
 import { useStore, type State } from '../../lib/store';
@@ -313,7 +314,8 @@ export function safeVideoInfo(raw: unknown): Book['video'] | null {
   }
   if (!url) return null;
   const duration = typeof v.duration === 'number' && Number.isFinite(v.duration) && v.duration > 0 ? Math.round(v.duration) : undefined;
-  return { provider, id: provider === 'link' ? '' : id, url, ...(duration ? { duration } : {}) };
+  const chapters = cleanChapters(v.chapters);
+  return { provider, id: provider === 'link' ? '' : id, url, ...(duration ? { duration } : {}), ...(chapters.length ? { chapters } : {}) };
 }
 
 /**

@@ -1110,3 +1110,204 @@
     transition: none;
   }
 }
+
+/* ── Sous le lecteur : signet, vitesse, chapitre en cours ── */
+.vv-under {
+  gap: 4px;
+}
+.vv-under .spacer {
+  flex: 1;
+}
+.vv-rate-select {
+  height: 28px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  font: inherit;
+  font-size: var(--fs-sm);
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-2);
+  cursor: pointer;
+}
+.vv-rate-select:hover {
+  background: var(--bg-active);
+}
+.vv-now-chapter {
+  max-width: 40%;
+  margin-right: 10px;
+  font-size: var(--fs-sm);
+  color: var(--ink-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ── Panneau de droite : onglets ── */
+.vv-tabs {
+  display: flex;
+  gap: 2px;
+  padding: 12px 14px 0;
+  border-bottom: 1px solid var(--border);
+}
+.vv-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 34px;
+  padding: 0 12px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  font: inherit;
+  font-size: var(--fs-sm);
+  color: var(--muted);
+  cursor: pointer;
+  margin-bottom: -1px;
+}
+.vv-tab:hover {
+  color: var(--ink);
+}
+.vv-tab.is-on {
+  color: var(--ink);
+  font-weight: 500;
+  border-bottom-color: var(--ink);
+}
+.vv-tab-n {
+  font-size: var(--fs-xs);
+  color: var(--muted);
+  font-weight: 400;
+}
+
+/* ── Sommaire ── */
+.vv-chapters {
+  list-style: none;
+  margin: 0;
+  padding: 8px 10px 24px;
+  overflow-y: auto;
+  flex: 1;
+  min-height: 0;
+}
+.vv-chapter {
+  width: 100%;
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  padding: 9px 10px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  font: inherit;
+  text-align: left;
+  color: var(--ink);
+  cursor: pointer;
+}
+.vv-chapter:hover {
+  background: var(--bg-active);
+}
+.vv-chapter.is-now {
+  background: color-mix(in srgb, var(--focus) 9%, transparent);
+}
+.vv-chapter-time {
+  flex: none;
+  width: 52px;
+  font-size: var(--fs-xs);
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+}
+.vv-chapter.is-now .vv-chapter-time {
+  color: var(--focus);
+}
+.vv-chapter-title {
+  flex: 1;
+  font-family: var(--font-read);
+  font-size: 14.5px;
+  line-height: 1.4;
+}
+.vv-chapter-n {
+  flex: none;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  box-sizing: border-box;
+  border-radius: 99px;
+  display: grid;
+  place-items: center;
+  font-size: 11px;
+  color: var(--ink-2);
+  background: var(--bg-inset);
+}
+.vv-list-chapter {
+  margin: 10px 0 0;
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  color: var(--muted);
+}
+.vv-list-chapter:first-child {
+  margin-top: 0;
+}
+
+/* ── Signets ── */
+.vv-marks {
+  list-style: none;
+  margin: 0;
+  padding: 8px 12px 24px;
+  overflow-y: auto;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.vv-mark {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 8px;
+  border-radius: var(--radius-sm);
+}
+.vv-mark:hover {
+  background: var(--bg-active);
+}
+.vv-mark .vv-line-time {
+  margin-top: 4px;
+  width: 48px;
+}
+.vv-mark-body {
+  flex: 1;
+  min-width: 0;
+}
+.vv-mark-label {
+  width: 100%;
+  border: 0;
+  padding: 2px 4px;
+  margin-left: -4px;
+  border-radius: 4px;
+  background: transparent;
+  font: inherit;
+  font-size: var(--fs-md);
+  font-weight: 500;
+  color: var(--ink);
+}
+.vv-mark-label:focus {
+  outline: none;
+  background: var(--bg-inset);
+}
+.vv-mark-excerpt {
+  margin: 2px 0 0;
+  font-family: var(--font-read);
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--muted);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.vv-mark .pb-danger {
+  opacity: 0;
+}
+.vv-mark:hover .pb-danger,
+.vv-mark:focus-within .pb-danger {
+  opacity: 1;
+}

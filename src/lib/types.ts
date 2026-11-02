@@ -26,6 +26,8 @@ export interface VideoInfo {
   position?: number;
   /** Transcription rangée avec la vidéo (langue, sous-titres automatiques ou non, date). */
   transcript?: { lang: string; auto: boolean; at: number };
+  /** Chapitres (début en secondes, titre), lus dans la description de la vidéo : son sommaire. */
+  chapters?: { s: number; t: string }[];
 }
 
 /** Catégories de surlignage (ce que le passage FAIT dans le texte). */

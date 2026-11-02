@@ -1,7 +1,7 @@
 // Accueil : reprise de la lecture, révision du jour, espaces, derniers extraits, raccourcis.
 // Premier lancement (aucun livre) : accueil d'embarquement en trois cartes.
 import { useMemo, useState } from 'react';
-import { BookOpen, Brain, FilePen, Lightbulb, ListTree, Plus, Search, Upload, FolderKanban } from 'lucide-react';
+import { BookOpen, Brain, MonitorPlay, FilePen, Lightbulb, ListTree, Plus, Search, Upload, FolderKanban } from 'lucide-react';
 import { useStore, uid } from '../../lib/store';
 import type { EssayPlan } from '../../lib/types';
 import { kindColor, kindLabel, kindOf } from '../../lib/categories';
@@ -159,7 +159,8 @@ function Dashboard() {
               <BookCover book={lastBook} size="sm" />
               <span className="home-resume-text">
                 <span className="home-resume-kind muted">
-                  <BookOpen size={12} /> {lastBook.lastOpenedAt ? 'Dernière lecture' : 'Dernier ajout'}
+                  {lastBook.format === 'video' ? <MonitorPlay size={12} /> : <BookOpen size={12} />}{' '}
+                  {lastBook.lastOpenedAt ? (lastBook.format === 'video' ? 'Dernier document' : 'Dernière lecture') : 'Dernier ajout'}
                 </span>
                 <span className="home-resume-title">{lastBook.title}</span>
                 <span className="muted truncate">{lastBook.author || 'Auteur inconnu'}</span>

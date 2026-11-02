@@ -1,6 +1,7 @@
 // Palette de commandes ⌘K (façon Raycast / Linear).
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
+  MonitorPlay,
   Lock,
   ShieldCheck,
   Bookmark as BookmarkIcon,
@@ -32,6 +33,7 @@ import { Kbd } from './ui';
 import { createBoard, createBoardIn } from '../features/map/model/actions';
 import { parsePageQuery, requestGoToPage } from '../features/reader/pages';
 import { requestFormatPainter } from '../features/editor/painterEvents';
+import { fmtTime, openVideoAt, useTranscriptIndex } from '../features/video/video';
 import './command.css';
 
 const normRaw = (x: string) => x.normalize('NFD').replace(/\p{Diacritic}/gu, '').toLowerCase();
@@ -72,7 +74,7 @@ interface Cmd {
 const hay = (c: Cmd) => (c.haystack ??= norm(c.text));
 const labelNorm = (c: Cmd) => (c.labelNorm ??= norm(c.label));
 
-const GROUPS = ['Actions', 'Livres', 'Écrits', 'Cartes', 'Concepts', 'Extraits', 'Signets', 'Plans', 'Arguments', 'Fiches-texte', 'Espaces'];
+const GROUPS = ['Actions', 'Livres', 'Écrits', 'Cartes', 'Concepts', 'Extraits', 'Transcriptions', 'Signets', 'Plans', 'Arguments', 'Fiches-texte', 'Espaces'];
 
 export function CommandPalette() {
   const open = useStore((s) => s.commandOpen);
@@ -99,6 +101,8 @@ function Palette() {
   // Livre ouvert dans le lecteur (un livre papier n'a pas de pages à atteindre).
   const readerBookId = useStore((s) => (s.route.name === 'reader' && s.books.find((b) => b.id === (s.route as { bookId: string }).bookId)?.format !== 'paper' && s.books.find((b) => b.id === (s.route as { bookId: string }).bookId)?.format !== 'video' ? s.route.bookId : null));
   const [q, setQ] = useState('');
+  // Transcriptions des vidéos : lues à l'ouverture de la recherche, cherchées phrase par phrase.
+  const transcripts = useTranscriptIndex(true);
   const [focus, setFocus] = useState(0);
   const listRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -274,6 +278,21 @@ function Palette() {
           run: () => st().jumpToHighlight(h.id),
         }),
       );
+    for (const [bookId, lines] of transcripts) {
+      const title = bookTitle.get(bookId);
+      if (!title) continue;
+      lines.forEach((l, i) =>
+        items.push({
+          id: `t-${bookId}-${i}`,
+          group: 'Transcriptions',
+          label: l.t,
+          meta: `${title} · ${fmtTime(l.s / 1000)}`,
+          icon: <MonitorPlay size={15} />,
+          text: l.t,
+          run: () => openVideoAt(bookId, l.s / 1000),
+        }),
+      );
+    }
     [...bookmarks]
       .sort((a, b) => b.createdAt - a.createdAt)
       .forEach((bm) => {
@@ -344,7 +363,7 @@ function Palette() {
         }),
       );
     return items;
-  }, [books, drafts, concepts, highlights, workspaces, plans, args, studies, bookmarks, maps, readerBookId]);
+  }, [books, drafts, concepts, highlights, workspaces, plans, args, studies, bookmarks, maps, readerBookId, transcripts]);
 
   const byGroup = useMemo(() => {
     const m = new Map<string, Cmd[]>(GROUPS.map((g) => [g, []]));
@@ -367,7 +386,7 @@ function Palette() {
         list = head.concat(tail);
       }
       // Sans requête : toutes les actions (c'est un menu), quelques éléments des autres groupes
-      const cap = terms.length ? MAX : g === 'Actions' ? list.length : MAX_EMPTY;
+      const cap = terms.length ? MAX : g === 'Actions' ? list.length : g === 'Transcriptions' ? 0 : MAX_EMPTY;
       out.push(...list.slice(0, cap));
     }
     const page = readerBookId ? parsePageQuery(q) : null;

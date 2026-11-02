@@ -2,7 +2,9 @@
 // bibliothèque, extraits minutés, transcription (sous-titres YouTube) rangée avec la vidéo.
 // Une vidéo est un document sans fichier (format « video ») ; ses extraits sont ancrés dans le
 // temps (ancre « html », chapitre 0, début et fin en millisecondes ; voir VideoInfo dans types.ts).
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
+import { create } from 'zustand';
+import { useShallow } from 'zustand/react/shallow';
 import { uid, useStore } from '../../lib/store';
 import { host, type VideoCue } from '../../lib/platform';
 import type { Book, CategoryId, Highlight, HtmlAnchor, VideoInfo, VideoProvider } from '../../lib/types';
@@ -238,7 +240,17 @@ export function groupCues(cues: VideoCue[]): TranscriptLine[] {
   return out;
 }
 
+/** Transcriptions déjà lues (recherche ⌘K, page de la vidéo). */
+const transcriptCache = new Map<string, TranscriptLine[] | null>();
+
 export async function loadTranscript(bookId: string): Promise<TranscriptLine[] | null> {
+  if (transcriptCache.has(bookId)) return transcriptCache.get(bookId) ?? null;
+  const lines = await readTranscript(bookId);
+  transcriptCache.set(bookId, lines);
+  return lines;
+}
+
+async function readTranscript(bookId: string): Promise<TranscriptLine[] | null> {
   try {
     const raw = await host.readFile(bookId, TRANSCRIPT_FILE);
     const j = JSON.parse(new TextDecoder().decode(raw)) as { lines?: unknown };
@@ -258,22 +270,29 @@ export const videoOnline = () => useStore.getState().settings.videoOnline !== fa
 export const videoNetAvailable = () => !!host.video;
 
 /** Récupère les sous-titres (YouTube) et range la transcription avec la vidéo. */
-export async function fetchTranscript(bookId: string): Promise<{ ok: boolean; error?: string; lines?: TranscriptLine[] }> {
+export async function fetchTranscript(bookId: string): Promise<{ ok: boolean; error?: string; lines?: TranscriptLine[]; chapters?: number }> {
   const b = useStore.getState().books.find((x) => x.id === bookId);
   if (!b?.video) return { ok: false, error: 'Vidéo introuvable.' };
   if (b.video.provider !== 'youtube') return { ok: false, error: 'La transcription automatique n’existe que pour les vidéos YouTube.' };
   if (!host.video) return { ok: false, error: 'Disponible dans l’app de bureau.' };
   if (!videoOnline()) return { ok: false, error: 'Les vidéos en ligne sont désactivées dans les Réglages.' };
   const r = await host.video.transcript('youtube', b.video.id, 'fr').catch(() => null);
-  if (!r || !r.ok || !r.cues?.length) return { ok: false, error: r?.error ?? 'Impossible de récupérer les sous-titres pour l’instant.' };
+  // Chapitres (sommaire) : gardés même quand la vidéo n'a pas de sous-titres.
+  const chapters = cleanChapters(r?.chapters);
+  if (chapters.length) {
+    const cur = useStore.getState().books.find((x) => x.id === bookId);
+    if (cur?.video) useStore.getState().updateBook(bookId, { video: { ...cur.video, chapters, ...(!cur.video.duration && r?.duration ? { duration: r.duration } : {}) } });
+  }
+  if (!r || !r.ok || !r.cues?.length) return { ok: false, chapters: chapters.length, error: r?.error ?? 'Impossible de récupérer les sous-titres pour l’instant.' };
   const lines = groupCues(r.cues);
   await saveTranscript(bookId, lines, { lang: r.lang ?? 'fr', auto: !!r.auto });
+  transcriptCache.set(bookId, lines);
   const cur = useStore.getState().books.find((x) => x.id === bookId);
   if (cur?.video) {
     const duration = cur.video.duration || r.duration || Math.ceil((lines[lines.length - 1]?.e ?? 0) / 1000) || undefined;
     useStore.getState().updateBook(bookId, { video: { ...cur.video, ...(duration ? { duration } : {}), transcript: { lang: r.lang ?? 'fr', auto: !!r.auto, at: Date.now() } } });
   }
-  return { ok: true, lines };
+  return { ok: true, lines, chapters: chapters.length };
 }
 
 /** Miniature de la plateforme → data: URL réduite (16:9, 480 px), rangée avec la vidéo. */
@@ -311,3 +330,73 @@ export function useVideoOnlineSync() {
     if (ready) void host.video?.setOnline(on).catch(() => undefined);
   }, [ready, on]);
 }
+
+/** Chapitres reçus : titres non vides, débuts croissants, au plus 200. */
+export function cleanChapters(raw: unknown): { s: number; t: string }[] {
+  if (!Array.isArray(raw)) return [];
+  const out: { s: number; t: string }[] = [];
+  for (const c of raw) {
+    if (!c || typeof c !== 'object') continue;
+    const s = Number((c as { s: unknown }).s);
+    const t = typeof (c as { t: unknown }).t === 'string' ? (c as { t: string }).t.replace(/\s+/g, ' ').trim().slice(0, 140) : '';
+    if (!t || !Number.isFinite(s) || s < 0 || (out.length && s <= out[out.length - 1].s)) continue;
+    out.push({ s: Math.round(s), t });
+    if (out.length >= 200) break;
+  }
+  return out.length >= 2 ? out : [];
+}
+
+/** Chapitre en cours à un moment (secondes), ou null. */
+export function chapterAt(chapters: { s: number; t: string }[] | undefined, sec: number): { i: number; s: number; t: string } | null {
+  if (!chapters?.length) return null;
+  let i = -1;
+  for (let k = 0; k < chapters.length && chapters[k].s <= sec + 0.5; k++) i = k;
+  return i < 0 ? null : { i, ...chapters[i] };
+}
+
+// ── Aller à un moment d'une vidéo (recherche dans les transcriptions) ──
+
+export const useVideoSeek = create<{ req: { bookId: string; sec: number; nonce: number } | null }>(() => ({ req: null }));
+
+/** Ouvre la vidéo et l'amène à ce moment (le lecteur y va dès qu'il répond). */
+export function openVideoAt(bookId: string, sec: number) {
+  useVideoSeek.setState({ req: { bookId, sec, nonce: Date.now() } });
+  useStore.getState().openBook(bookId);
+}
+
+/** Toutes les transcriptions des vidéos de la bibliothèque, lues à la demande (recherche ⌘K). */
+export function useTranscriptIndex(enabled: boolean): Map<string, TranscriptLine[]> {
+  const ids = useStore(useShallow((s) => s.books.filter((b) => b.format === 'video' && b.video?.transcript).map((b) => b.id)));
+  const [index, setIndex] = useState<Map<string, TranscriptLine[]>>(() => new Map());
+  useEffect(() => {
+    if (!enabled || !ids.length) return;
+    let alive = true;
+    void Promise.all(ids.map(async (id) => [id, await loadTranscript(id)] as const)).then((pairs) => {
+      if (!alive) return;
+      setIndex(new Map(pairs.filter((p): p is readonly [string, TranscriptLine[]] => !!p[1]).map(([id, l]) => [id, l])));
+    });
+    return () => {
+      alive = false;
+    };
+  }, [enabled, ids]);
+  return index;
+}
+
+/** Signets d'une vidéo : signet à ce moment (position et ancre en temps, comme un extrait). */
+export function addVideoBookmark(bookId: string, sec: number, label: string, excerpt = '') {
+  const b = useStore.getState().books.find((x) => x.id === bookId);
+  const t = Math.max(0, Math.round(sec));
+  return useStore.getState().addBookmark({
+    bookId,
+    position: { kind: 'html', chapter: 0, scroll: t },
+    anchor: videoAnchor(t * 1000, t * 1000),
+    locationLabel: fmtTime(t),
+    progress: b?.video?.duration ? Math.min(1, t / b.video.duration) : undefined,
+    excerpt: excerpt.slice(0, 160),
+    label: label.trim() || `Signet à ${fmtTime(t)}`,
+  });
+}
+
+/** Moment d'un signet de vidéo, en secondes. */
+export const secondsOfBookmark = (bm: { anchor?: { kind: string; start?: number }; position: { kind: string; scroll?: number } }): number =>
+  bm.anchor && bm.anchor.kind === 'html' && typeof bm.anchor.start === 'number' ? bm.anchor.start / 1000 : bm.position.kind === 'html' ? Number(bm.position.scroll) || 0 : 0;

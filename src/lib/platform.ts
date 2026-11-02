@@ -153,6 +153,8 @@ export interface VideoTranscriptResult {
   lang?: string;
   auto?: boolean;
   cues?: VideoCue[];
+  /** Chapitres de la vidéo (début en secondes, titre), même sans sous-titres. */
+  chapters?: { s: number; t: string }[];
   duration?: number;
 }
 export interface VideoApi {

@@ -251,33 +251,35 @@ export type DropTarget =
   | { kind: 'item'; itemId: string; pos: 'before' | 'after' };
 
 /** Résout une cible en (parent, avant-qui) ou null si le dépôt est impossible. */
-function resolveTarget(drag: DragPayload, t: DropTarget): { parentId: string | null; beforeId: string | null } | null {
+function resolveTarget(drag: DragPayload, t: DropTarget): { workspaceId: string; parentId: string | null; beforeId: string | null } | null {
   const s = useStore.getState();
-  if (t.kind === 'workspace') return t.workspaceId === drag.workspaceId ? { parentId: null, beforeId: null } : null;
+  // Des documents (un ou toute la sélection) peuvent changer d'espace ; un groupe reste dans le sien.
+  const crossOk = drag.type === 'item';
+  if (t.kind === 'workspace') return t.workspaceId === drag.workspaceId || (crossOk && s.workspaces.some((w) => w.id === t.workspaceId)) ? { workspaceId: t.workspaceId, parentId: null, beforeId: null } : null;
   if (t.kind === 'item') {
     if (drag.type !== 'item') return null;
     const moving = new Set(dragIds(drag));
     const target = s.wsItems.find((i) => i.id === t.itemId);
-    if (!target || target.workspaceId !== drag.workspaceId || moving.has(target.id)) return null;
-    if (t.pos === 'before') return { parentId: target.groupId, beforeId: target.id };
+    if (!target || (target.workspaceId !== drag.workspaceId && !crossOk) || moving.has(target.id)) return null;
+    if (t.pos === 'before') return { workspaceId: target.workspaceId, parentId: target.groupId, beforeId: target.id };
     const sibs = s.wsItems
       .filter((i) => i.workspaceId === target.workspaceId && i.groupId === target.groupId && !moving.has(i.id))
       .sort(byOrder);
     const at = sibs.findIndex((i) => i.id === target.id);
-    return { parentId: target.groupId, beforeId: sibs[at + 1]?.id ?? null };
+    return { workspaceId: target.workspaceId, parentId: target.groupId, beforeId: sibs[at + 1]?.id ?? null };
   }
   const g = s.groups.find((x) => x.id === t.groupId);
-  if (!g || g.workspaceId !== drag.workspaceId) return null;
+  if (!g || (g.workspaceId !== drag.workspaceId && !crossOk)) return null;
   if (drag.type === 'item' || t.pos === 'into') {
     if (drag.type === 'group' && (drag.id === g.id || subtreeIds(s.groups, drag.id).has(g.id))) return null;
-    return { parentId: g.id, beforeId: null };
+    return { workspaceId: g.workspaceId, parentId: g.id, beforeId: null };
   }
   // groupe sur groupe : avant / après (frère)
   if (drag.id === g.id || subtreeIds(s.groups, drag.id).has(g.id)) return null;
-  if (t.pos === 'before') return { parentId: g.parentId, beforeId: g.id };
+  if (t.pos === 'before') return { workspaceId: g.workspaceId, parentId: g.parentId, beforeId: g.id };
   const sibs = sortedGroups(s.groups, g.workspaceId, g.parentId).filter((x) => x.id !== drag.id);
   const at = sibs.findIndex((x) => x.id === g.id);
-  return { parentId: g.parentId, beforeId: sibs[at + 1]?.id ?? null };
+  return { workspaceId: g.workspaceId, parentId: g.parentId, beforeId: sibs[at + 1]?.id ?? null };
 }
 
 /** Où ranger des documents venus d'un autre onglet : l'espace, le groupe et l'élément avant lequel les poser. */
@@ -325,6 +327,21 @@ export function dropOnto(drag: DragPayload, t: DropTarget): boolean {
   const r = resolveTarget(drag, t);
   if (!r) return false;
   if (drag.type === 'item') {
+    if (r.workspaceId !== drag.workspaceId) {
+      // Vers un autre espace : les documents y passent (sans doublon), puis prennent leur place.
+      const ids = dragIds(drag);
+      const n = moveItems(ids, r.workspaceId, r.parentId);
+      if (!n) return false;
+      if (r.beforeId) {
+        // Un document déjà présent dans l'espace d'arrivée a été fusionné : on ne place que ceux qui restent.
+        const left = ids.filter((id) => useStore.getState().wsItems.some((x) => x.id === id && x.workspaceId === r.workspaceId));
+        for (const id of sortForMove(left)) placeItem(id, r.parentId, r.beforeId);
+      }
+      const s = useStore.getState();
+      const place = r.parentId ? s.groups.find((g) => g.id === r.parentId)?.name : s.workspaces.find((w) => w.id === r.workspaceId)?.name;
+      if (place) s.toast(n > 1 ? `${n} documents déplacés vers « ${place} »` : `Déplacé vers « ${place} »`, 'success');
+      return true;
+    }
     // Sélection multiple : chacun est posé avant la même cible, dans l'ordre affiché (une seule transaction).
     for (const id of sortForMove(dragIds(drag))) placeItem(id, r.parentId, r.beforeId);
   } else return placeGroup(drag.id, r.parentId, r.beforeId);

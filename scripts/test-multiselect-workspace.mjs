@@ -255,6 +255,27 @@ try {
   await tick(400);
   ok('⌘⇧Z : rétabli', (await wsItemsOf('Mémoire')).map((i) => i.refId).sort().join() === 'b1,b3,b9');
 
+  // ── Glisser la sélection sur un autre espace, dans la barre latérale ──
+  {
+    const rootBooks = (await wsItemsOf('Liberté')).filter((i) => i.groupId === null && i.kind === 'book').sort((a, b) => a.order - b.order);
+    const pick = rootBooks.slice(0, 2).map((i) => `Livre ${i.refId.slice(1)}`);
+    await cardMain(pick[0]).click(meta);
+    await cardMain(pick[1]).click(meta);
+    const memRow = page.locator('.ws-row-ws', { hasText: 'Mémoire' }).first();
+    const mb = await memRow.boundingBox();
+    await card(pick[1]).dragTo(memRow, { targetPosition: { x: mb.width / 2, y: mb.height / 2 } });
+    await tick(400);
+    const moved = rootBooks.slice(0, 2).map((i) => i.refId);
+    const memNow = (await wsItemsOf('Mémoire')).map((i) => i.refId);
+    ok(`glisser la sélection sur l’espace « Mémoire » : ${pick.join(' et ')} y passent`, moved.every((r) => memNow.includes(r)), memNow.join());
+    ok('… et quittent « Liberté »', (await wsItemsOf('Liberté')).every((i) => !moved.includes(i.refId)));
+    ok('toast « 2 documents déplacés vers « Mémoire » »', (await page.locator('.toast', { hasText: '2 documents déplacés vers « Mémoire »' }).count()) >= 1);
+    await page.locator('.ws-title').hover();
+    await page.keyboard.press('Meta+z');
+    await tick(400);
+    ok('⌘Z : le glisser vers un autre espace est défait d’un coup', (await wsItemsOf('Liberté')).filter((i) => moved.includes(i.refId)).length === 2);
+  }
+
   // ── Mode « Sélectionner » (cases à cocher) ──
   await page.getByRole('button', { name: 'Sélectionner' }).click();
   await tick();

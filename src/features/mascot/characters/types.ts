@@ -1,4 +1,4 @@
-// Compagnons : le cerveau, ou un philosophe dessiné dans le même style (encre, couleurs chaudes).
+// Compagnons : le cerveau, un philosophe ou un compositeur dessiné dans le même style (encre, couleurs chaudes).
 // Chaque philosophe réutilise toutes les poses du cerveau (marche, saut, lecture, guitare…) : il ne
 // fournit que sa tête, son vêtement et ce qui grandit avec le nombre de documents (niveau 0 à 4).
 //
@@ -26,7 +26,7 @@
 import type { ReactNode } from 'react';
 import type { Expr, Level, Pose, View } from '../Sprite';
 
-export type CharId = 'brain' | 'socrate' | 'platon' | 'aristote' | 'rousseau';
+export type CharId = 'brain' | 'socrate' | 'platon' | 'aristote' | 'rousseau' | 'mozart' | 'vivaldi';
 
 export type DrawArgs = {
   /** Vue dessinée (face, profil regard à droite, dos). */

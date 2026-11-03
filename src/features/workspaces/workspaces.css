@@ -743,8 +743,15 @@
   overflow: hidden;
   overflow-wrap: anywhere;
 }
+/* Auteur : jusqu'à deux lignes (un nom long se lit en entier), puis « … ». */
 .ws-card-meta {
   font-size: var(--fs-sm);
+  line-height: 1.3;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  overflow-wrap: anywhere;
 }
 .ws-card.dragging {
   opacity: 0.5;

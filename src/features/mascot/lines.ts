@@ -454,4 +454,6 @@ export const HELLO_BY: Record<string, string[]> = {
   Platon: ['Sorti de la caverne, me voici.', 'Que nul n’entre ici s’il ne lit pas.', 'Les Idées m’envoient prendre des nouvelles.'],
   Aristote: ['J’ai classé ta bibliothèque. Enfin, presque.', 'Le Lycée est fermé aujourd’hui, je passe ici.', 'Je cherche le juste milieu de cette page.'],
   Rousseau: ['Je reviens de promenade, solitaire comme toujours.', 'J’herborisais dans tes marges.', 'Bonjour, citoyen lecteur.'],
+  Mozart: ['Me revoilà, en mesure !', 'J’ai une petite mélodie pour ta page.', 'Trop de notes ? Jamais assez de pages.'],
+  Vivaldi: ['Quelle saison pour lire !', 'Je viens accorder ta bibliothèque.', 'Un concerto pour tes extraits ?'],
 };

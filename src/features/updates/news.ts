@@ -21,6 +21,27 @@ export interface NewsEntry {
 
 export const NEWS: NewsEntry[] = [
   {
+    version: '3.49',
+    items: [
+      {
+        icon: 'sparkles',
+        title: 'Mozart et Vivaldi rejoignent les compagnons',
+        text: 'Réglages › Compagnon : deux musiciens en plus des philosophes. Et une nouvelle occupation pour tous : jouer du piano, du violon ou de la harpe pendant que vous lisez.',
+        action: { label: 'Choisir un compagnon', run: 'settings' },
+      },
+      {
+        icon: 'notes',
+        title: 'Vidéos : signets, chapitres, vitesse',
+        text: 'Posez un signet sur un moment (⌘D), parcourez les chapitres de la vidéo, changez la vitesse de lecture et rejouez un extrait du début à la fin. La recherche (⌘K) trouve aussi une phrase dans vos transcriptions.',
+      },
+      {
+        icon: 'map',
+        title: 'Vidéos dans les espaces de travail',
+        text: 'Une vidéo ajoutée à un espace de travail porte l’étiquette « Vidéo » et son icône, sur la carte comme dans la barre latérale.',
+      },
+    ],
+  },
+  {
     version: '3.48',
     items: [
       {

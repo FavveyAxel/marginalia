@@ -541,6 +541,7 @@ function GroupNode({ g, depth, items }: { g: WorkspaceGroup; depth: number; item
 // ── Élément ────────────────────────────────────────────────
 
 function ItemRow({ r, depth }: { r: ResolvedItem; depth: number }) {
+  const isVideo = useStore((s) => r.item.kind === 'book' && s.books.some((b) => b.id === r.item.refId && b.format === 'video'));
   const env = useContext(EnvCtx);
   const { item } = r;
   const route = env.route;
@@ -606,7 +607,7 @@ function ItemRow({ r, depth }: { r: ResolvedItem; depth: number }) {
     >
       <span className="ws-chev-slot" />
       <span className={`ws-ico ws-ico-${item.kind}`}>
-        <ItemIcon kind={item.kind} />
+        <ItemIcon kind={item.kind} video={isVideo} />
       </span>
       <span className="ws-name truncate">{r.title}</span>
       <MoreButton label={`Actions de ${r.title}`} onOpen={(el) => env.menuFrom(el, entries(), `Menu de ${r.title}`)} />

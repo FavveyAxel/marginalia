@@ -2,7 +2,7 @@
 import { useEffect, useMemo, useRef, useState, type DragEvent } from 'react';
 import { ShareButton } from '../collab/ShareButton';
 import { useCollab } from '../collab/collabState';
-import { Check, CheckSquare, ChevronRight, FilePen, Folder, FolderPlus, GitCompareArrows, Lock, MoreHorizontal, Network, PackagePlus, Pencil, Upload } from 'lucide-react';
+import { Check, CheckSquare, ChevronRight, FilePen, Folder, FolderPlus, GitCompareArrows, Lock, MonitorPlay, MoreHorizontal, Network, PackagePlus, Pencil, Upload } from 'lucide-react';
 import { LassoBox, useLasso, useMultiSelect, useSelectionKeys, type MultiSelect } from '../../lib/useMultiSelect';
 import { useStore } from '../../lib/store';
 import type { WorkspaceGroup } from '../../lib/types';
@@ -122,8 +122,10 @@ export function WorkspaceView({ workspaceId, groupId }: { workspaceId: string; g
 
   const stats = useMemo(() => {
     const bookIds = new Set(scope.filter((i) => i.item.kind === 'book').map((i) => i.item.refId));
+    const videos = useStore.getState().books.filter((b) => b.format === 'video' && bookIds.has(b.id)).length;
     return {
-      books: bookIds.size,
+      books: bookIds.size - videos,
+      videos,
       highlights: highlights.filter((h) => bookIds.has(h.bookId)).length,
       due: dueCardsFor(bookIds),
     };
@@ -249,6 +251,7 @@ export function WorkspaceView({ workspaceId, groupId }: { workspaceId: string; g
             <div className="ws-stats" aria-label="Statistiques">
               <span>{plural(scope.length, 'élément', 'éléments')}</span>
               {stats.books > 0 && <span>{plural(stats.books, 'livre', 'livres')}</span>}
+              {stats.videos > 0 && <span>{plural(stats.videos, 'vidéo', 'vidéos')}</span>}
               {stats.books > 0 && <span>{plural(stats.highlights, 'extrait', 'extraits')}</span>}
               {stats.due > 0 && <span className="ws-stat-due">{plural(stats.due, 'carte à réviser', 'cartes à réviser')}</span>}
               {!effGroupId && subGroups.length > 0 && <span>{plural(groups.filter((g) => g.workspaceId === workspaceId).length, 'groupe', 'groupes')}</span>}
@@ -567,11 +570,23 @@ function ItemCard({
         )}
         <span className="ws-card-preview">{book ? <BookCover book={book} size="md" /> : <DocPreview r={r} />}</span>
         <span className="ws-card-body">
-          <span className="ws-card-kind">
-            <ItemIcon kind={item.kind} size={12} /> {KIND_LABEL[item.kind]}
+          <span className="ws-card-kind" data-testid="ws-card-kind">
+            {book?.format === 'video' ? (
+              <>
+                <MonitorPlay size={12} /> Vidéo
+              </>
+            ) : (
+              <>
+                <ItemIcon kind={item.kind} size={12} /> {KIND_LABEL[item.kind]}
+              </>
+            )}
           </span>
           <span className="ws-card-title">{r.title}</span>
-          {r.meta && <span className="ws-card-meta muted truncate">{r.meta}</span>}
+          {r.meta && (
+            <span className="ws-card-meta muted" title={r.meta}>
+              {r.meta}
+            </span>
+          )}
         </span>
       </button>
       <button

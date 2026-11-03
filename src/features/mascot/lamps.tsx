@@ -32,6 +32,8 @@ const SPECS: Record<CharId, Spec> = {
   platon: { flame: [0, -5.8], grip: [0, -17.2], placed: 1, held: 0.9, mirror: false },
   aristote: { flame: [0, -6.4], grip: [0, -18.8], placed: 0.95, held: 0.85, mirror: false },
   rousseau: { flame: [0, -6.6], grip: [0, -16.6], placed: 1, held: 0.9, mirror: false },
+  mozart: { flame: [0, -6.6], grip: [0, -16.6], placed: 1, held: 0.9, mirror: false },
+  vivaldi: { flame: [0, -6.6], grip: [0, -16.6], placed: 1, held: 0.9, mirror: false },
 };
 
 const spec = (c: string | undefined): Spec => SPECS[(c as CharId) in SPECS ? (c as CharId) : 'brain'];
@@ -247,7 +249,7 @@ export function Lamp({ char, frame, x, y, held, uid: _uid }: { char?: string; fr
   if (c === 'socrate') body = <ClayLantern frame={frame} />;
   else if (c === 'platon') body = <HornLantern frame={frame} />;
   else if (c === 'aristote') body = <DomeLantern frame={frame} />;
-  else if (c === 'rousseau') body = <Lantern frame={frame} />;
+  else if (c === 'rousseau' || c === 'mozart' || c === 'vivaldi') body = <Lantern frame={frame} />;
   else body = <Banker frame={frame} held={held} />;
   return <g transform={place(s, x, y, held).transform}>{body}</g>;
 }

@@ -686,7 +686,7 @@ export interface Settings {
   tourDone?: boolean;
   /** Mac : version pour laquelle l'autorisation « Accès complet au disque » a déjà été proposée. */
   diskAccessAskedVersion?: string;
-  mascotCharacter?: 'brain' | 'socrate' | 'platon' | 'aristote' | 'rousseau';
+  mascotCharacter?: 'brain' | 'socrate' | 'platon' | 'aristote' | 'rousseau' | 'mozart' | 'vivaldi';
   /**
    * Style de l'interface : « normal » (plat) ou « skeuo » (skeuomorphisme moderne : verre dépoli, relief doux,
    * papier ; la Bibliothèque devient une étagère). Absent : normal.

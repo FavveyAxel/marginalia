@@ -261,7 +261,7 @@ await withApp(5421, async (page, errors) => {
   await page.evaluate(() => window.__store.getState().navigate({ name: 'settings' }));
   await sleep(600);
   await page.locator('[aria-label="Visites du compagnon"] button', { hasText: 'Souvent' }).click();
-  check((await page.locator('.set-who-card').count()) === 5, 'réglages : cinq compagnons proposés');
+  check((await page.locator('.set-who-card').count()) === 7, 'réglages : sept compagnons proposés (dont Mozart et Vivaldi)');
   await page.locator('.set-who-card', { hasText: 'Socrate' }).click();
   check((await page.evaluate(() => window.__store.getState().settings.mascotCharacter)) === 'socrate', 'choix de Socrate enregistré');
   check(/barbe/.test(await page.locator('.set-mascot .set-desc').textContent()), 'la description parle de sa barbe');

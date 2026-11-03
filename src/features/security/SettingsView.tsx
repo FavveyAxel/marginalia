@@ -836,6 +836,8 @@ const GROWS_TEXT: Record<CharId, string> = {
   platon: 'plus ses épaules s’élargissent',
   aristote: 'plus sa pile de rouleaux monte',
   rousseau: 'plus sa perruque s’étoffe',
+  mozart: 'plus sa perruque s’étoffe',
+  vivaldi: 'plus sa chevelure rousse s’allonge',
 };
 const TITLE_TEXT: Record<CharId, string> = {
   brain: 'Un petit cerveau qui passe sur l’interface',
@@ -843,6 +845,8 @@ const TITLE_TEXT: Record<CharId, string> = {
   platon: 'Platon passe sur l’interface',
   aristote: 'Aristote passe sur l’interface',
   rousseau: 'Rousseau passe sur l’interface',
+  mozart: 'Mozart passe sur l’interface',
+  vivaldi: 'Vivaldi passe sur l’interface',
 };
 
 const MASCOT_FREQS: { v: MascotFreq; label: string }[] = [

@@ -2,7 +2,7 @@
 // sélecteurs (ajouter / déplacer) et aides de glisser-déposer.
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type DragEvent, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
-import { ArrowLeft, BookOpen, ChevronRight, FilePen, Folder, ListTree, Network, ScrollText, Search, Sigma, X } from 'lucide-react';
+import { ArrowLeft, BookOpen, ChevronRight, FilePen, Folder, ListTree, Network, ScrollText, Search, Sigma, X, MonitorPlay } from 'lucide-react';
 import { useStore } from '../../lib/store';
 import type { WorkspaceItemKind } from '../../lib/types';
 import {
@@ -18,11 +18,12 @@ import {
 import { importFromDrop } from './wsActions';
 import './workspaces.css';
 
-export function ItemIcon({ kind, size = 14 }: { kind: WorkspaceItemKind; size?: number }) {
+export function ItemIcon({ kind, size = 14, video }: { kind: WorkspaceItemKind; size?: number; video?: boolean }) {
   const p = { size, strokeWidth: 1.8 };
   switch (kind) {
     case 'book':
-      return <BookOpen {...p} />;
+      // Une vidéo est rangée comme un livre, mais se reconnaît à son icône.
+      return video ? <MonitorPlay {...p} /> : <BookOpen {...p} />;
     case 'draft':
       return <FilePen {...p} />;
     case 'plan':

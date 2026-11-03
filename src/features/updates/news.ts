@@ -21,6 +21,16 @@ export interface NewsEntry {
 
 export const NEWS: NewsEntry[] = [
   {
+    version: '3.50',
+    items: [
+      {
+        icon: 'map',
+        title: 'Déplacer un document vers un autre espace',
+        text: 'Clic droit sur un document › « Déplacer vers… » : tous vos espaces sont proposés, avec leurs groupes, et plus seulement celui où il se trouve.',
+      },
+    ],
+  },
+  {
     version: '3.49',
     items: [
       {

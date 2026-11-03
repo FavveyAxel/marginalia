@@ -8,6 +8,8 @@ import type { WorkspaceItemKind } from '../../lib/types';
 import {
   KIND_LABEL,
   dropOnto,
+  dragIds,
+  moveItems,
   canDrop,
   sortedGroups,
   subtreeIds,
@@ -578,24 +580,42 @@ export function AddItemsDialog({ workspaceId, groupId, onClose }: { workspaceId:
 
 export function MoveDialog({ payload, onClose }: { payload: DragPayload; onClose: () => void }) {
   const groups = useStore((s) => s.groups);
-  const ws = useStore((s) => s.workspaces.find((w) => w.id === payload.workspaceId));
+  const workspaces = useStore((s) => s.workspaces);
   const item = useStore((s) => s.wsItems.find((i) => i.id === payload.id));
   const toast = useStore((s) => s.toast);
+  const isItem = payload.type === 'item';
 
+  // Documents : tous les espaces, l'espace actuel en premier. Groupes : seulement leur espace.
   const rows = useMemo(() => {
-    const out: { id: string | null; name: string; depth: number }[] = [{ id: null, name: ws?.name ?? 'Espace', depth: 0 }];
-    const walk = (parent: string | null, depth: number) => {
-      for (const g of sortedGroups(groups, payload.workspaceId, parent)) {
-        out.push({ id: g.id, name: g.name, depth });
-        walk(g.id, depth + 1);
-      }
-    };
-    walk(null, 1);
+    const out: { ws: string; id: string | null; name: string; depth: number; tint?: string }[] = [];
+    const spaces = isItem ? [...workspaces].sort((x, y) => Number(y.id === payload.workspaceId) - Number(x.id === payload.workspaceId)) : workspaces.filter((w) => w.id === payload.workspaceId);
+    for (const w of spaces) {
+      out.push({ ws: w.id, id: null, name: w.name, depth: 0, tint: w.tint });
+      const walk = (parent: string | null, depth: number) => {
+        for (const g of sortedGroups(groups, w.id, parent)) {
+          out.push({ ws: w.id, id: g.id, name: g.name, depth });
+          walk(g.id, depth + 1);
+        }
+      };
+      walk(null, 1);
+    }
     return out;
-  }, [groups, payload.workspaceId, ws?.name]);
+  }, [groups, workspaces, payload.workspaceId, isItem]);
 
   const forbidden = payload.type === 'group' ? subtreeIds(groups, payload.id) : new Set<string>();
-  const currentParent = payload.type === 'item' ? (item?.groupId ?? null) : (groups.find((g) => g.id === payload.id)?.parentId ?? null);
+  const currentParent = isItem ? (item?.groupId ?? null) : (groups.find((g) => g.id === payload.id)?.parentId ?? null);
+  const isCurrent = (r: { ws: string; id: string | null }) => r.ws === payload.workspaceId && r.id === currentParent;
+
+  const go = (r: { ws: string; id: string | null; name: string }) => {
+    let done = false;
+    if (isItem) done = moveItems(dragIds(payload), r.ws, r.id) > 0;
+    else {
+      const target: DropTarget = r.id ? { kind: 'group', groupId: r.id, pos: 'into' } : { kind: 'workspace', workspaceId: payload.workspaceId };
+      done = dropOnto(payload, target);
+    }
+    if (done) toast(`Déplacé vers « ${r.name} »`, 'success');
+    onClose();
+  };
 
   return (
     <Modal title="Déplacer vers" onClose={onClose}>
@@ -603,7 +623,7 @@ export function MoveDialog({ payload, onClose }: { payload: DragPayload; onClose
         <header className="ws-pick-head">
           <div>
             <h3>Déplacer vers…</h3>
-            <span className="muted">Choisissez la destination dans l’espace.</span>
+            <span className="muted">{isItem ? 'Choisissez l’espace, ou un groupe dans un espace.' : 'Choisissez la destination dans l’espace.'}</span>
           </div>
           <button className="icon-btn sm" onClick={onClose} aria-label="Fermer">
             <X size={15} />
@@ -611,22 +631,19 @@ export function MoveDialog({ payload, onClose }: { payload: DragPayload; onClose
         </header>
         <div className="ws-pick-list ws-move-list">
           {rows.map((r) => {
-            const bad = (r.id !== null && forbidden.has(r.id)) || r.id === currentParent;
+            const bad = (r.id !== null && forbidden.has(r.id)) || isCurrent(r);
             return (
               <button
-                key={r.id ?? 'root'}
-                className="ws-move-row"
+                key={`${r.ws}:${r.id ?? 'root'}`}
+                className={`ws-move-row ${r.id ? '' : 'ws-move-space'}`}
+                data-testid="ws-move-row"
                 disabled={bad}
                 style={{ paddingLeft: 10 + r.depth * 12 }}
-                onClick={() => {
-                  const target: DropTarget = r.id ? { kind: 'group', groupId: r.id, pos: 'into' } : { kind: 'workspace', workspaceId: payload.workspaceId };
-                  if (dropOnto(payload, target)) toast(`Déplacé vers « ${r.name} »`, 'success');
-                  onClose();
-                }}
+                onClick={() => go(r)}
               >
-                {r.id ? <Folder size={14} /> : <span className="ws-dot" style={{ background: `var(${ws?.tint ?? '--cat-these'})` }} />}
+                {r.id ? <Folder size={14} /> : <span className="ws-dot" style={{ background: `var(${r.tint ?? '--cat-these'})` }} />}
                 <span className="truncate">{r.name}</span>
-                {r.id === currentParent && <span className="muted ws-move-here">Emplacement actuel</span>}
+                {isCurrent(r) && <span className="muted ws-move-here">Emplacement actuel</span>}
               </button>
             );
           })}

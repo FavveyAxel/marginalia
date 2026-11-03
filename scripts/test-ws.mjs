@@ -474,6 +474,28 @@ async function run(dark) {
       await page.locator('.ws-move-row', { hasText: 'Annexes' }).click();
       s = await state(page);
       ok('« Déplacer vers… » (élément)', s.wsItems.find((i) => i.refId === ids.md && i.workspaceId === wsA).groupId === s.groups.find((x) => x.name === 'Annexes').id);
+      // Vers un autre espace, puis retour : le dialogue liste tous les espaces, l'actuel en premier.
+      await treeItem0(page, 'Éthique').click({ button: 'right' });
+      await page.getByRole('menuitem', { name: 'Déplacer vers…' }).click();
+      await page.waitForSelector('.ws-move-list');
+      const spaces = await page.locator('.ws-move-row.ws-move-space').allInnerTexts();
+      const nameA = s.workspaces.find((w) => w.id === wsA).name;
+      ok('« Déplacer vers… » propose tous les espaces, l’actuel en premier', spaces.length === s.workspaces.length && spaces[0].includes(nameA), spaces.join(' | '));
+      const nameB = s.workspaces.find((w) => w.id === wsB).name;
+      await page.locator('.ws-move-row.ws-move-space', { hasText: nameB }).click();
+      s = await state(page);
+      ok('« Déplacer vers… » un autre espace', s.wsItems.some((i) => i.refId === ids.md && i.workspaceId === wsB && i.groupId === null) && !s.wsItems.some((i) => i.refId === ids.md && i.workspaceId === wsA));
+      // Retour (l'espace B est replié dans l'arbre) : par la carte de l'espace B.
+      await st(page, (w) => window.__store.getState().navigate({ name: 'workspace', workspaceId: w }), wsB);
+      await tick(page, 400);
+      await page.locator('.ws-card', { hasText: 'Éthique' }).first().click({ button: 'right' });
+      await page.getByRole('menuitem', { name: 'Déplacer vers…' }).click();
+      await page.waitForSelector('.ws-move-list');
+      await page.locator('.ws-move-row.ws-move-space', { hasText: nameA }).click();
+      await st(page, (w) => window.__store.getState().navigate({ name: 'workspace', workspaceId: w }), wsA);
+      await tick(page, 400);
+      s = await state(page);
+      ok('retour dans l’espace d’origine', s.wsItems.some((i) => i.refId === ids.md && i.workspaceId === wsA) && !s.wsItems.some((i) => i.refId === ids.md && i.workspaceId === wsB));
       await treeItem0(page, 'Éthique').click({ button: 'right' });
       await page.getByRole('menuitem', { name: 'Retirer de l’espace' }).click();
       s = await state(page);

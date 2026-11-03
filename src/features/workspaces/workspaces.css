@@ -1052,3 +1052,10 @@ body:has(.ws-selbar) .toasts {
 /* Survol : l'aperçu (couverture, page, carte) se soulève, comme la page des écrits. */
 .ws-card-preview > * { transition: transform var(--dur) var(--ease); }
 .ws-card:hover .ws-card-preview > * { transform: translateY(-3px); }
+/* Un espace par bloc : léger écart entre deux espaces dans « Déplacer vers… ». */
+.ws-move-space:not(:first-child) {
+  margin-top: 6px;
+}
+.ws-move-space {
+  font-weight: 600;
+}

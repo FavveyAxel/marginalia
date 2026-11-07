@@ -510,8 +510,9 @@
 :root[data-style='skeuo'] .board-canvas .map-root,
 :root[data-style='skeuo'] .map-tab-body .map-root { background: transparent; --map-dot: transparent; }
 
-/* Extraits : papier clair et encre sombre, quel que soit le thème. */
-:root[data-style='skeuo'] .map-flow .map-extract {
+/* Extraits et cartes-documents : papier clair et encre sombre, quel que soit le thème. */
+:root[data-style='skeuo'] .map-flow .map-extract,
+:root[data-style='skeuo'] .map-flow .map-doc {
   --ink: var(--pinned-ink);
   --ink-2: var(--pinned-ink);
   --muted: var(--pinned-muted);
@@ -525,6 +526,7 @@
   box-shadow: 0 1px 1px rgba(0, 0, 0, 0.18), 0 12px 22px -8px rgba(0, 0, 0, 0.5);
 }
 :root[data-style='skeuo'] .map-flow .map-extract::before { border-radius: 2px 2px 0 0; }
+:root[data-style='skeuo'] .map-flow .map-doc { border-top: 3px solid var(--c); }
 :root[data-style='skeuo'] .map-flow .map-extract.central { background: color-mix(in srgb, var(--c) 7%, var(--pinned-paper)); }
 :root[data-style='skeuo'] .map-flow .map-idea { border-radius: 1px 1px 2px 16px / 1px 1px 2px 7px; }
 :root[data-style='skeuo'] .map-flow .map-idea::before { display: none; }

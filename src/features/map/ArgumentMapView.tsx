@@ -28,7 +28,7 @@ import { CorkSync } from './ui/CorkSync';
 import { useShallow } from 'zustand/react/shallow';
 import { CircleHelp, Crosshair, Orbit } from 'lucide-react';
 import { BookOpen, ChevronsDownUp, ChevronsUpDown, Copy, CornerDownRight, Lightbulb, Map as MapIcon, Maximize2, Palette, PanelLeft, Pencil, ScanSearch, Star, Trash2, Wand2, Waypoints, X, AlignStartVertical, MousePointer2, Group, History, Link2 } from 'lucide-react';
-import { ContextMenu, type MenuEntry } from '../workspaces/wsUi';
+import { ContextMenu, getDrag, type MenuEntry } from '../workspaces/wsUi';
 import { separateUndoStep, uid, useStore } from '../../lib/store';
 import { RELATIONS, kindLabel, type ExtractKind } from '../../lib/categories';
 import { fmtKeys, isMac, matchKeys } from '../../lib/keys';
@@ -62,7 +62,9 @@ import { addCenter, layoutRootId, mapCenter, NEUTRAL_RELATION, newLinkRelation, 
 import { foldAll, toggleFold, unfoldAll, unfoldTo } from './model/fold';
 import { CENTER_W, centerBarEntries, centerNodeEntries, poseCenterEntries } from './ui/center';
 import { FOLD_KEYS, foldAllEntries, foldNodeEntries, useFoldView } from './ui/fold';
-import { BacklinksButton, MapPicker, PortalBackPill, PortalToolButton, portalMenuEntries, useBacklinkCount, type PortalData } from './ui/portal';
+import { BacklinksButton, MapPicker, PortalBackPill, PortalToolButton, addPortal, portalMenuEntries, useBacklinkCount, type PortalData } from './ui/portal';
+import { addDocs, type DocData } from './ui/docNode';
+import { dragIds } from '../workspaces/wsModel';
 import { portalNode } from './model/portals';
 import { CHAIN_KEY, ChainButton, ChainPanel, useChainCtl } from './ui/chain';
 import './map.css';
@@ -323,13 +325,15 @@ function Inner({ source, tools }: { source: MapSource; tools?: MapToolbarItem[] 
         return {
           ...(o ?? {}),
           id: n.id,
-          type: n.portal ? 'portal' : n.highlightId ? 'extract' : n.kind ? 'center' : 'idea',
+          type: n.portal ? 'portal' : n.doc ? 'doc' : n.highlightId ? 'extract' : n.kind ? 'center' : 'idea',
           position: { x: n.x, y: n.y },
           className: [glide.has(n.id) ? 'map-glide' : '', marks.get(n.id) ?? '', flash === n.id ? 'map-flash' : '', fold?.folded ? 'map-folded' : ''].filter(Boolean).join(' ') || undefined,
           hidden: hidden.has(n.id),
           selected: hasWant ? n.id === want : !hidden.has(n.id) && (o?.selected ?? false),
           data: n.portal
             ? ({ portal: n.portal, central, fold } as PortalData)
+            : n.doc
+              ? ({ doc: n.doc, central, fold } as DocData)
             : n.highlightId
               ? ({ highlight: h, central, collapsed: n.collapsed, book: h ? bookTags.get(h.bookId) : undefined, fold } as ExtractData)
               : n.kind
@@ -1049,6 +1053,21 @@ function Inner({ source, tools }: { source: MapSource; tools?: MapToolbarItem[] 
   const onDrop = (e: DragEvent) => {
     e.preventDefault();
     setDropping(false);
+    // Documents glissés depuis la barre latérale ou un autre onglet : cartes-documents (carte → portail).
+    const dragged = getDrag();
+    if (dragged && key) {
+      const st = useStore.getState();
+      const refs = dragged.type === 'ref' ? (dragged.refs ?? []) : dragged.type === 'item' ? dragIds(dragged).map((id) => st.wsItems.find((w) => w.id === id)).filter(Boolean).map((w) => ({ kind: w!.kind, refId: w!.refId })) : [];
+      const p = rf.screenToFlowPosition({ x: e.clientX, y: e.clientY });
+      const at = { x: Math.round(p.x - NODE_W / 2), y: Math.round(p.y - 40) };
+      const docs = refs.filter((r) => r.kind === 'book' || r.kind === 'draft' || r.kind === 'plan').map((r) => ({ kind: r.kind as 'book' | 'draft' | 'plan', id: r.refId }));
+      let n = docs.length ? addDocs(key, docs, at) : 0;
+      for (const r of refs) if (r.kind === 'map' && r.refId !== key && addPortal(key, r.refId)) n++;
+      if (refs.length) {
+        if (!n) st.toast('Déjà sur la carte', 'info');
+        return;
+      }
+    }
     if (isPassageDrag(e)) {
       const p = rf.screenToFlowPosition({ x: e.clientX, y: e.clientY });
       dropPassage({ x: e.clientX, y: e.clientY }, { x: Math.round(p.x - NODE_W / 2), y: Math.round(p.y - 40) });
@@ -1331,7 +1350,7 @@ function Inner({ source, tools }: { source: MapSource; tools?: MapToolbarItem[] 
           newIdea({ x: at.x - NODE_W / 2, y: at.y - 36 });
         }}
         onDragOver={(e) => {
-          if (e.dataTransfer.types.includes('text/marginalia-hl') || e.dataTransfer.types.includes(PASSAGE_TYPE)) {
+          if (e.dataTransfer.types.includes('text/marginalia-hl') || e.dataTransfer.types.includes(PASSAGE_TYPE) || (e.dataTransfer.types.includes('application/x-marginalia-ws') && getDrag())) {
             e.preventDefault();
             setDropping(true);
           }

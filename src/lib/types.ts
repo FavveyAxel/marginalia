@@ -316,6 +316,17 @@ export interface MapNode {
   folded?: boolean;
   /** Portail : clé (dans `maps`) de la carte vers laquelle cette carte mène. Absent : carte ordinaire. */
   portal?: string;
+  /**
+   * Carte-document : renvoie vers un écrit, un livre (vidéo, image comprises) ou un plan de l'app.
+   * Affichée d'après l'original (titre, couverture, mots…) ; `text` garde le titre au moment de la pose.
+   */
+  doc?: MapDocRef;
+}
+
+/** Document vers lequel mène une carte-document. */
+export interface MapDocRef {
+  kind: 'draft' | 'book' | 'plan';
+  id: string;
 }
 
 /** Force d'un lien (1 faible, 2 normal, 3 fort). Absent : normal. */

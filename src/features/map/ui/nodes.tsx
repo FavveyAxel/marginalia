@@ -11,6 +11,7 @@ import { roleLabel, useMapCtx, type ExtractData, type IdeaData } from './ctx';
 import { CenterNode } from './center';
 import { FoldToggle, type FoldData } from './fold';
 import { PortalNode, ReuseBadge } from './portal';
+import { DocNode } from './docNode';
 
 const sides: [Position, string][] = [
   [Position.Top, 't'],
@@ -200,4 +201,4 @@ export function IdeaNode({ id, data, selected }: NodeProps) {
   );
 }
 
-export const nodeTypes = { extract: ExtractNode, idea: IdeaNode, center: CenterNode, portal: PortalNode };
+export const nodeTypes = { extract: ExtractNode, idea: IdeaNode, center: CenterNode, portal: PortalNode, doc: DocNode };

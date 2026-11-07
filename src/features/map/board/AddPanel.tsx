@@ -1,7 +1,7 @@
 // Panneau « Ajouter » d'une carte libre : extraits de tous les livres, cartes venues d'autres
 // cartes (avec leurs liens), concepts, idées. Toutes les écritures passent par model/actions.
 import { useEffect, useMemo, useState, type CSSProperties } from 'react';
-import { Highlighter, Lightbulb, Network, StickyNote, Waypoints, X } from 'lucide-react';
+import { FileStack, Highlighter, Lightbulb, Network, StickyNote, Waypoints, X } from 'lucide-react';
 import { useStore } from '../../../lib/store';
 import { CATEGORIES, catColor, kindColor, kindLabel, kindOf, type ExtractKind } from '../../../lib/categories';
 import { locatorOf } from '../../../lib/citation';
@@ -11,10 +11,15 @@ import { nodeCategory, nodeText } from '../model/core';
 import { mapDisplayTitle } from '../model/convert';
 import { mapChoices, PORTAL_KIND_LABEL } from '../model/portals';
 import { addPortal } from '../ui/portal';
+import { addDocs } from '../ui/docNode';
+import { BookCover } from '../../library/BookCover';
+import { docKey, placedDocs } from '../model/docs';
+import type { MapDocRef } from '../../../lib/types';
 
-type Tab = 'extraits' | 'cartes' | 'concepts' | 'idees';
+type Tab = 'extraits' | 'documents' | 'cartes' | 'concepts' | 'idees';
 const TABS: { id: Tab; label: string; icon: JSX.Element }[] = [
   { id: 'extraits', label: 'Extraits', icon: <Highlighter size={13} /> },
+  { id: 'documents', label: 'Documents', icon: <FileStack size={13} /> },
   { id: 'cartes', label: 'Autres cartes', icon: <Network size={13} /> },
   { id: 'concepts', label: 'Concepts', icon: <Lightbulb size={13} /> },
   { id: 'idees', label: 'Idées', icon: <StickyNote size={13} /> },
@@ -42,6 +47,7 @@ export function AddPanel({ boardKey, onClose }: { boardKey: string; onClose(): v
         ))}
       </div>
       {tab === 'extraits' && <ExtractsTab boardKey={boardKey} />}
+      {tab === 'documents' && <DocsTab boardKey={boardKey} />}
       {tab === 'cartes' && <MapsTab boardKey={boardKey} />}
       {tab === 'concepts' && <ConceptsTab boardKey={boardKey} />}
       {tab === 'idees' && <IdeasTab boardKey={boardKey} />}
@@ -335,3 +341,82 @@ function IdeasTab({ boardKey }: { boardKey: string }) {
   );
 }
 
+
+// ── Documents : écrits, livres, vidéos, images, plans ───────
+type DocFilter = 'tous' | 'ecrits' | 'livres' | 'videos' | 'images' | 'plans';
+const DOC_FILTERS: [DocFilter, string][] = [
+  ['tous', 'Tous'],
+  ['ecrits', 'Écrits'],
+  ['livres', 'Livres'],
+  ['videos', 'Vidéos'],
+  ['images', 'Images'],
+  ['plans', 'Plans'],
+];
+
+function DocsTab({ boardKey }: { boardKey: string }) {
+  const books = useStore((s) => s.books);
+  const drafts = useStore((s) => s.drafts);
+  const plans = useStore((s) => s.plans);
+  const map = useStore((s) => s.maps[boardKey]);
+  const [q, setQ] = useState('');
+  const [f, setF] = useState<DocFilter>('tous');
+  const { sel, toggle, clear } = useToggleSet();
+  const placed = useMemo(() => placedDocs(map?.nodes ?? []), [map]);
+  const rows = useMemo(() => {
+    const out: { ref: MapDocRef; title: string; kind: string; sub: string; at: number; group: DocFilter; thumb: JSX.Element }[] = [];
+    for (const d of drafts)
+      out.push({ ref: { kind: 'draft', id: d.id }, title: d.title || 'Sans titre', kind: 'Écrit', sub: `${d.wordCount.toLocaleString('fr-FR')} mots`, at: d.updatedAt, group: 'ecrits', thumb: <span className="board-add-doc-ic">¶</span> });
+    for (const b of books) {
+      const group: DocFilter = b.format === 'video' ? 'videos' : b.format === 'image' ? 'images' : 'livres';
+      out.push({ ref: { kind: 'book', id: b.id }, title: b.title || 'Sans titre', kind: group === 'videos' ? 'Vidéo' : group === 'images' ? 'Image' : 'Livre', sub: b.author, at: b.lastOpenedAt ?? b.addedAt, group, thumb: <BookCover book={b} size="xs" /> });
+    }
+    for (const p of plans)
+      out.push({ ref: { kind: 'plan', id: p.id }, title: p.sujet.trim() || p.title || 'Plan sans titre', kind: 'Plan', sub: plural(p.parts.length, 'partie', 'parties'), at: p.updatedAt, group: 'plans', thumb: <span className="board-add-doc-ic">≡</span> });
+    const t = fold(q.trim());
+    return out.filter((r) => (f === 'tous' || r.group === f) && (!t || fold(`${r.title} ${r.sub}`).includes(t))).sort((a, b) => b.at - a.at);
+  }, [books, drafts, plans, q, f]);
+  return (
+    <>
+      <div className="board-add-filters">
+        <input className="input board-add-search" placeholder="Rechercher un document" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Rechercher un document" />
+        <div className="board-add-chips">
+          {DOC_FILTERS.map(([id, label]) => (
+            <button key={id} className={`chip ${f === id ? 'active' : ''}`} onClick={() => setF(id)}>
+              {label}
+            </button>
+          ))}
+        </div>
+      </div>
+      <div className="board-add-list" role="listbox" aria-multiselectable="true" aria-label="Documents">
+        {rows.length === 0 && <p className="muted board-add-empty">Aucun document ne correspond.</p>}
+        {rows.slice(0, LIMIT).map((r) => {
+          const k = docKey(r.ref);
+          const already = placed.has(k);
+          const on = sel.has(k);
+          return (
+            <label key={k} className={`board-add-row board-add-doc ${on ? 'on' : ''} ${already ? 'disabled' : ''}`} data-doc={k}>
+              <input type="checkbox" checked={on || already} disabled={already} onChange={() => toggle(k)} />
+              {r.thumb}
+              <span className="board-add-body">
+                <span className="board-add-text">{r.title}</span>
+                <span className="board-add-loc muted">{already ? 'Déjà sur la carte' : [r.kind, r.sub].filter(Boolean).join(' · ')}</span>
+              </span>
+            </label>
+          );
+        })}
+      </div>
+      <p className="muted board-add-tip">Vous pouvez aussi glisser un document depuis la barre latérale directement sur la carte.</p>
+      <Foot
+        n={sel.size}
+        label={plural(sel.size, 'document', 'documents')}
+        onClear={clear}
+        onAdd={() => {
+          const refs = rows.filter((r) => sel.has(docKey(r.ref))).map((r) => r.ref);
+          const n = addDocs(boardKey, refs);
+          clear();
+          if (n) done(n, ['document', 'documents']);
+        }}
+      />
+    </>
+  );
+}

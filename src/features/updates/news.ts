@@ -21,6 +21,27 @@ export interface NewsEntry {
 
 export const NEWS: NewsEntry[] = [
   {
+    version: '3.51',
+    items: [
+      {
+        icon: 'notes',
+        title: 'Le plan et l’écrit restent liés',
+        text: 'Un plan rattaché suit les titres de son écrit, et l’écrit suit les fiches déplacées dans le plan. Chaque partie a un statut (à écrire, brouillon, à relire, terminé), un objectif et ses mots écrits. Vues Plan, Fiches et Tableau ; ⌘⌥P passe de l’un à l’autre.',
+      },
+      {
+        icon: 'map',
+        title: 'Des documents sur vos cartes',
+        text: 'Posez un écrit, un livre, une vidéo, une image ou un plan sur une carte (Ajouter › Documents, ou glissez-le depuis la barre latérale). La carte suit l’original et l’ouvre d’un double-clic.',
+        action: { label: 'Voir mes cartes', run: 'maps' },
+      },
+      {
+        icon: 'sparkles',
+        title: 'Glisser vers un autre espace',
+        text: 'Sélectionnez un ou plusieurs documents et lâchez-les sur un autre espace de la barre latérale.',
+      },
+    ],
+  },
+  {
     version: '3.50',
     items: [
       {

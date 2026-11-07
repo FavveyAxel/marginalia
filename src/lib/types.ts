@@ -456,7 +456,17 @@ export type PlanItemRef =
   | { kind: 'argument'; id: string }
   | { kind: 'text'; text: string };
 
-export interface PlanNode {
+/** Avancement d'une partie du plan (vue Tableau). Absent : « à écrire ». */
+export type PlanStatus = 'todo' | 'draft' | 'review' | 'done';
+
+/** Statut et objectif de mots d'une partie (ou de l'introduction, de la conclusion). */
+export interface PlanProgress {
+  status?: PlanStatus;
+  /** Objectif de mots de la partie. */
+  goal?: number;
+}
+
+export interface PlanNode extends PlanProgress {
   id: string;
   title: string;
   /** Idée directrice / phrase de transition. */
@@ -475,8 +485,18 @@ export interface EssayPlan {
   problematique: string;
   parts: PlanNode[];
   conclusion: string;
-  /** Brouillon (Draft) généré depuis ce plan, le cas échéant. */
+  /**
+   * Écrit rattaché au plan (créé depuis le plan, ou rattaché ensuite). Tant qu'il existe, le plan et
+   * l'écrit restent liés : titres et ordre des parties suivent l'écrit (voir plans/planLink.ts).
+   */
   draftId: string | null;
+  /** Statut et objectif de l'introduction et de la conclusion (les parties portent les leurs). */
+  introProgress?: PlanProgress;
+  conclusionProgress?: PlanProgress;
+  /** Fiches déplacées dans le plan : l'écrit rangera ses sections dans cet ordre à sa prochaine ouverture. */
+  pendingOrder?: boolean;
+  /** Parties renommées dans le plan : id → titre actuel dans l'écrit, renommé à sa prochaine ouverture. */
+  pendingRenames?: Record<string, string>;
   createdAt: number;
   updatedAt: number;
   /** Plan reçu par un partage (voir ShareOrigin). */
@@ -512,6 +532,11 @@ export interface Draft {
   wordCount: number;
   /** Objectif de mots (facultatif, réglable depuis l'éditeur). */
   wordGoal?: number;
+  /**
+   * Titres de l'écrit et mots de chacun (texte propre au titre, jusqu'au titre suivant), relevés à
+   * chaque modification : le plan rattaché s'en sert sans ouvrir le document (plans/planLink.ts).
+   */
+  outline?: DraftHeading[];
   template: 'vide' | 'dissertation' | 'explication' | 'fiche' | null;
   /** Historique de versions (copies .docx dans versions/ du dossier de l'écrit), du plus ancien au plus récent. */
   versions?: DraftVersion[];
@@ -519,6 +544,13 @@ export interface Draft {
   updatedAt: number;
   /** Écrit reçu par un partage (voir ShareOrigin ; ses versions ne sont pas transmises). */
   shareOrigin?: ShareOrigin;
+}
+
+/** Un titre de l'écrit (niveau 1 à 3) et le nombre de mots qui le suivent jusqu'au titre suivant. */
+export interface DraftHeading {
+  level: 1 | 2 | 3;
+  text: string;
+  words: number;
 }
 
 /** Carte de révision (répétition espacée FSRS). */
@@ -821,10 +853,23 @@ export type Route =
   | { name: 'extracts' }
   | { name: 'arguments'; argumentId: string | null }
   | { name: 'revision' }
-  | { name: 'plans'; planId: string | null }
+  | {
+      name: 'plans';
+      planId: string | null;
+      /** Partie où ouvrir le plan (titre, comparé sans numérotation) ; vue du plan. */
+      at?: string;
+      view?: 'plan' | 'fiches' | 'tableau';
+    }
   /** Carte libre (clé dans `maps`, kind 'board'). */
   | { name: 'board'; boardId: string }
-  | { name: 'write'; draftId: string | null }
+  | {
+      name: 'write';
+      draftId: string | null;
+      /** Titre où ouvrir l'écrit (« Écrire cette partie »), comparé sans la numérotation. */
+      at?: string;
+      /** Titre à créer à l'ouverture (partie du plan absente de l'écrit), après `after` ou avant `before`. */
+      insert?: { text: string; level: 2 | 3; after: string | null; before: string | null; nonce: string };
+    }
   /** Toutes les cartes (libres, de livres, de mouvements) et où elles sont rangées. */
   | { name: 'maps' }
   | { name: 'trash' }

@@ -1776,3 +1776,21 @@
 
 /* Travailler à plusieurs : invité qui ne peut pas modifier les écrits (choix de l'hôte). */
 .ed-live-readonly :is(.ed-toolbar, .ed-selbar) { opacity: 0.45; pointer-events: none; }
+
+/* Bouton « Plan » de l'écrit et menu de rattachement (planLinkEditor.tsx). */
+.ed-plan-pop { width: 320px; padding: 6px; }
+.ed-plan-pop-h { padding: 8px 10px 10px; display: flex; flex-direction: column; gap: 3px; }
+.ed-plan-pop-h span { color: var(--muted); font-size: 12px; line-height: 1.4; }
+.ed-plan-pop-row { display: flex; align-items: center; gap: 8px; width: 100%; padding: 7px 10px; border-radius: var(--radius-sm); text-align: left; color: var(--ink-2); }
+.ed-plan-pop-row:hover { background: var(--bg-hover); color: var(--ink); }
+.ed-plan-pop-row.primary { color: var(--ink); font-weight: 500; }
+.ed-plan-pop-row small { margin-left: auto; color: var(--faint); font-weight: 400; flex: none; }
+.ed-plan-pop-sep { padding: 10px 10px 4px; font-size: 11px; color: var(--muted); border-top: 1px solid var(--border); margin-top: 4px; }
+.ed-plan-pop-list { max-height: 240px; overflow: auto; }
+.ed-plan-pop-q { margin: 2px 6px 6px; width: calc(100% - 12px); }
+.ed-plan-pop-none { padding: 6px 10px 8px; color: var(--faint); font-size: 12px; }
+.ed-card-plan { display: inline-flex; align-items: center; gap: 4px; margin-left: auto; padding: 1px 6px; border-radius: var(--radius-sm); color: var(--muted); font-size: inherit; }
+.ed-card-plan:hover { background: var(--bg-hover); color: var(--ink); }
+
+.ed-plan-pop-row, .ed-card-plan { border: 0; background: transparent; font: inherit; cursor: pointer; }
+.ed-plan-pop-row { font-size: var(--fs-sm); }

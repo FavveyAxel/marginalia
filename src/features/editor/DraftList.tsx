@@ -1,6 +1,6 @@
 // Liste des écrits (route { name: 'write', draftId: null }).
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent as ReactMouseEvent } from 'react';
-import { BookOpenText, CheckSquare, ChevronDown, FileText, FolderOpen, FolderPlus, GraduationCap, MoreHorizontal, NotebookPen, Pencil, Plus, ScrollText, Trash2 } from 'lucide-react';
+import { BookOpenText, CheckSquare, ListTree, ChevronDown, FileText, FolderOpen, FolderPlus, GraduationCap, MoreHorizontal, NotebookPen, Pencil, Plus, ScrollText, Trash2 } from 'lucide-react';
 import { useShallow } from 'zustand/react/shallow';
 import { useStore } from '../../lib/store';
 import type { Draft } from '../../lib/types';
@@ -209,6 +209,7 @@ function DraftCard({ draft, index, sel }: { draft: Draft; index: number; sel: Ca
           </span>
           <span aria-hidden>·</span>
           <span>{relativeTime(draft.updatedAt)}</span>
+          <LinkedPlanTag draftId={draft.id} />
         </div>
         {draft.externalPath && (
           <div className="ed-card-ext truncate" title={draft.externalPath}>
@@ -374,5 +375,25 @@ export function DraftList() {
       )}
       {addIds && <AddToWorkspaceDialog kind="draft" refIds={addIds} onClose={() => setAddIds(null)} />}
     </div>
+  );
+}
+
+/** Écrit rattaché à un plan : petite étiquette qui y mène. */
+function LinkedPlanTag({ draftId }: { draftId: string }) {
+  const plan = useStore((s) => s.plans.find((p) => p.draftId === draftId));
+  const navigate = useStore((s) => s.navigate);
+  if (!plan) return null;
+  return (
+    <button
+      className="ed-card-plan"
+      title={`Plan rattaché : ${plan.title || plan.sujet || 'Plan'}`}
+      onClick={(e) => {
+        e.stopPropagation();
+        navigate({ name: 'plans', planId: plan.id });
+      }}
+      data-testid="draft-plan-tag"
+    >
+      <ListTree size={12} /> Plan
+    </button>
   );
 }

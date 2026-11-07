@@ -231,6 +231,8 @@ async function run(dark) {
     await page.locator('[data-tab="highlight"]').click();
     const src = page.locator('[data-rid="h1"]');
     const dst = page.locator('[data-nid="' + pl.parts[0].children[0].id + '"]');
+    await dst.evaluate((el) => el.scrollIntoView({ block: 'center' }));
+    await page.waitForTimeout(150);
     const sb = await src.boundingBox(); const db = await dst.boundingBox();
     await page.mouse.move(sb.x + 40, sb.y + 12);
     await page.mouse.down();
@@ -258,7 +260,8 @@ async function run(dark) {
     pl = await page.evaluate(() => window.__store.getState().plans[0]);
     ok(`[${tag}] draftId mémorisé`, pl.draftId === 'd-test');
     await page.waitForSelector('.toasts >> text=Ouvrir l’écrit').catch(() => {});
-    await page.waitForSelector('.plan-editor-view [data-testid="plan-send"]');
+    // plan rattaché à l'écrit créé : « Ouvrir l'écrit » remplace « Créer l'écrit »
+    await page.waitForSelector('.plan-editor-view [data-testid="plan-open-draft"]');
     ok(`[${tag}] bouton « Ouvrir l’écrit » proposé`, (await page.getByRole('button', { name: 'Ouvrir l’écrit' }).count()) >= 1);
     await shot(page, `shots/plans/06-apres-envoi-${tag}.png`);
     // Sonde informative : createDraft réel (module Éditeur) avec le HTML du plan (non bloquant).

@@ -35,8 +35,8 @@ import {
   type StylePatch,
 } from './ooxml';
 import { familyName } from './fonts';
-import { PRIVATE_STYLE_DEF, PRIVATE_STYLE_ID, VIEW_META, inPrivateNote, privateParagraphs, setNotesHidden, stripClipboard, textblocksOf, togglePrivateNote } from './privateNotes';
-import { moveSection as moveSectionOp, stepSection, type LevelOf } from './outlineMove';
+import { PRIVATE_STYLE_DEF, PRIVATE_STYLE_ID, VIEW_META, inPrivateNote, isPrivateNode, privateParagraphs, setNotesHidden, stripClipboard, textblocksOf, togglePrivateNote } from './privateNotes';
+import { arrangeSections, headingWords, insertPos, renameHeading, moveSection as moveSectionOp, stepSection, type LevelOf } from './outlineMove';
 import { FIT_MAX, FIT_MIN, ZOOM_MAX, ZOOM_MIN, readZoomPref, type ZoomPref } from './view';
 import { attachLineBreakKeys, isolateSelectedLines } from './lineBreaks';
 
@@ -267,6 +267,15 @@ export interface DocEngine {
   stepSection(dir: -1 | 1, pos?: number): boolean;
   /** Fin de document (cible « après le dernier titre »). */
   docEnd(): number;
+  // ── Plan rattaché (plans/planLink.ts) ──
+  /** Titres et mots du texte propre à chacun (notes privées exclues). */
+  headingWords(): { level: 1 | 2 | 3; text: string; words: number }[];
+  /** Range les sections comme le plan, en une étape d'annulation. true si le texte a changé. */
+  arrangeSections(partLevel: 1 | 2 | 3, order: { text: string; subs: string[] }[], norm: (t: string) => string): boolean;
+  /** Renomme un titre (partie renommée dans le plan). */
+  renameHeading(from: string, to: string, norm: (t: string) => string): boolean;
+  /** Crée un titre (partie du plan absente de l'écrit) ; renvoie sa position, ou null. */
+  insertHeading(level: 2 | 3, text: string, after: string | null, before: string | null, norm: (t: string) => string): Promise<number | null>;
   /** Correcteur orthographique (config `proofing` de SuperDoc, voir spell/) ; null le coupe. Réappliqué après réouverture. */
   setProofing(cfg: object | null): void;
   /** Éditeur de présentation de SuperDoc (correcteur : hitTest, proofingManager, editor). */
@@ -2626,6 +2635,53 @@ export async function openDocEngine(host: HTMLElement, data: ArrayBuffer, opts: 
     },
     docEnd() {
       return body()?.state.doc.content.size ?? 0;
+    },
+    headingWords() {
+      const d = body()?.state.doc;
+      return d ? headingWords(d, levelOf, isPrivateNode, countWords) : [];
+    },
+    arrangeSections(partLevel, order, norm) {
+      const ed = body();
+      if (!ed) return false;
+      const changed = arrangeSections(ed, levelOf, partLevel, order, norm);
+      if (changed) touched = true;
+      return changed;
+    },
+    renameHeading(from, to, norm) {
+      const ed = body();
+      if (!ed) return false;
+      const ok = renameHeading(ed, levelOf, from, to, norm);
+      if (ok) touched = true;
+      return ok;
+    },
+    async insertHeading(level, text, after, before, norm) {
+      const ed = body();
+      if (!ed) return null;
+      touched = true;
+      const { state } = ed;
+      const at = insertPos(state.doc, levelOf, after, before, norm);
+      // Modèle : un titre de même niveau du document (même style, même mise en forme de caractères).
+      let tpl: Any = null;
+      state.doc.forEach((n: Any) => {
+        if (!tpl && n.type.name === 'paragraph' && levelOf(n) === level) tpl = n;
+      });
+      const schema = state.schema;
+      const txt = schema.text(text);
+      const runType = schema.nodes.run;
+      let para: Any;
+      if (tpl) {
+        const r0 = tpl.firstChild?.type.name === 'run' ? tpl.firstChild : null;
+        const pp = { styleId: tpl.attrs.paragraphProperties?.styleId };
+        para = tpl.type.create({ paragraphProperties: pp }, r0 ? r0.type.create(r0.attrs, txt) : runType ? runType.create(null, txt) : txt);
+      } else para = schema.nodes.paragraph.create(null, runType ? runType.create(null, txt) : txt);
+      ed.view.dispatch(state.tr.insert(at, para));
+      try {
+        ed.commands.setTextSelection({ from: at + 2, to: at + 2 });
+      } catch {
+        /* position hors texte */
+      }
+      if (!tpl) await this.setParagraphStyle(level === 2 ? 'h2' : 'h3');
+      return at;
     },
     setProofing(cfg) {
       proofingCfg = cfg;

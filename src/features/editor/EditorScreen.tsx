@@ -28,6 +28,7 @@ import {
 } from './save';
 import { quoteText } from './ExtractsPane';
 import { SidePanel } from './SidePanel';
+import { PlanButton, usePlanLink } from './planLinkEditor';
 import { Popover, usePop } from './Popover';
 import { Toolbar } from './Toolbar';
 import { PageSetupButton, ZoomMenu } from './ViewControls';
@@ -1046,6 +1047,9 @@ function Editor({ draft }: { draft: Draft }) {
     return cur;
   }, [outline, fmt.pos]);
 
+  const planLink = usePlanLink({ draft, engineRef, ready: phase === 'ready', editable: phase === 'ready' && !loadGuard, outline, refresh: refreshUi });
+  planLink.caretRef.current = outline[activeHeading]?.text ?? null;
+
   const toggleExtracts = useCallback(() => {
     setExtractsOpen((v) => {
       writePref(EXTRACTS_KEY, !v);
@@ -1145,6 +1149,7 @@ function Editor({ draft }: { draft: Draft }) {
         >
           <HistoryIcon size={16} />
         </button>
+        <PlanButton draft={draft} plan={planLink.plan} caret={outline[activeHeading]?.text ?? null} disabled={phase !== 'ready'} />
         <button
           className={`icon-btn ${extractsOpen && !versionsOpen ? 'active' : ''}`}
           onClick={() => {
@@ -1310,7 +1315,7 @@ function Editor({ draft }: { draft: Draft }) {
       </Popover>
 
       <div className="ed-body">
-        <Outline items={outline} caretActive={activeHeading} engine={() => engineRef.current} editable={editable && !layoutBusy} notify={notesNotify} refresh={refreshUi} />
+        <Outline items={outline} marks={planLink.marks} caretActive={activeHeading} engine={() => engineRef.current} editable={editable && !layoutBusy} notify={notesNotify} refresh={refreshUi} />
         {phase === 'ready' && (
           <>
             <button className={`ed-count ${countPop.isOpen ? 'open' : ''}`} onClick={(e) => countPop.toggle(e.currentTarget)} aria-label="Statistiques de l’écrit">

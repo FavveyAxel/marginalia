@@ -97,3 +97,122 @@ export function stepSection(ed: Any, levelOf: LevelOf, pos: number, dir: -1 | 1,
   if (!next || next.level !== cur.level) return null;
   return moveSection(ed, levelOf, cur.from, next.to);
 }
+
+/**
+ * Range les sections comme le plan (une seule transaction, une seule étape d'annulation).
+ * `order` : parties dans l'ordre voulu (titre tel qu'il est dans l'écrit) et, pour chacune, ses
+ * sous-parties. Les titres sont comparés par `norm`. Ce qui n'est pas listé garde sa place
+ * relative en fin de partie (sous-parties) ou en fin de document (parties).
+ * Renvoie true si le document a changé.
+ */
+export function arrangeSections(
+  ed: Any,
+  levelOf: LevelOf,
+  partLevel: 1 | 2 | 3,
+  order: { text: string; subs: string[] }[],
+  norm: (t: string) => string,
+): boolean {
+  const { state } = ed;
+  const list = sections(state.doc, levelOf);
+  const parts = list.filter((s) => s.level === partLevel);
+  if (!parts.length) return false;
+  const subLevel = partLevel + 1;
+  const start = parts[0].from;
+  const end = parts[parts.length - 1].to;
+  // une partie = son titre et son texte propre (head), puis ses sous-parties (subs)
+  const units = parts.map((p) => {
+    const subs = list.filter((s) => s.level === subLevel && s.from > p.from && s.to <= p.to);
+    // une sous-partie s'arrête au titre suivant de niveau ≤ ; sous la partie, elles se suivent
+    return { p, headTo: subs.length ? subs[0].from : p.to, subs };
+  });
+  const allSubs = units.flatMap((u) => u.subs);
+  const takePart = new Set<number>();
+  const takeSub = new Set<number>();
+  const findPart = (t: string) => {
+    const k = parts.findIndex((p, i) => !takePart.has(i) && norm(p.text) === norm(t));
+    if (k >= 0) takePart.add(k);
+    return k;
+  };
+  const findSub = (t: string) => {
+    const k = allSubs.findIndex((s, i) => !takeSub.has(i) && norm(s.text) === norm(t));
+    if (k >= 0) takeSub.add(k);
+    return k;
+  };
+  const plan = order.map((o) => ({ part: findPart(o.text), subs: o.subs.map(findSub).filter((k) => k >= 0) })).filter((o) => o.part >= 0);
+  // parties non listées : à la fin, dans leur ordre
+  parts.forEach((_, i) => !takePart.has(i) && plan.push({ part: i, subs: [] }));
+  // sous-parties non listées : restent dans leur partie d'origine, après celles du plan
+  units.forEach((u, i) =>
+    u.subs.forEach((s) => {
+      const k = allSubs.indexOf(s);
+      if (takeSub.has(k)) return;
+      takeSub.add(k);
+      plan.find((o) => o.part === i)!.subs.push(k);
+    }),
+  );
+  const slices: [number, number][] = [];
+  for (const o of plan) {
+    const u = units[o.part];
+    slices.push([u.p.from, u.headTo]);
+    for (const k of o.subs) slices.push([allSubs[k].from, allSubs[k].to]);
+  }
+  // déjà dans l'ordre ?
+  let at = start;
+  if (slices.every(([a, b]) => (a === at ? ((at = b), true) : false)) && at === end) return false;
+  let frag = state.doc.slice(slices[0][0], slices[0][1]).content;
+  for (const [a, b] of slices.slice(1)) frag = frag.append(state.doc.slice(a, b).content);
+  const tr = state.tr.replaceWith(start, end, frag);
+  tr.setMeta(CLOSE_HISTORY, true);
+  ed.view.dispatch(tr);
+  ed.view.dispatch(ed.state.tr.setMeta(CLOSE_HISTORY, true));
+  return true;
+}
+
+/** Où créer un titre : à la fin de la section `after`, sinon au début de `before`, sinon en fin de document. */
+export function insertPos(doc: Any, levelOf: LevelOf, after: string | null, before: string | null, norm: (t: string) => string): number {
+  const list = sections(doc, levelOf);
+  const a = after ? list.find((s) => norm(s.text) === norm(after)) : null;
+  if (a) return a.to;
+  const b = before ? list.find((s) => norm(s.text) === norm(before)) : null;
+  if (b) return b.from;
+  return doc.content.size;
+}
+
+/** Mots du texte propre à chaque titre (jusqu'au titre suivant, tous niveaux), notes privées exclues. */
+export function headingWords(doc: Any, levelOf: LevelOf, isPrivate: (n: Any) => boolean, count: (t: string) => number) {
+  const out: { level: 1 | 2 | 3; text: string; words: number }[] = [];
+  let buf: string[] = [];
+  const flush = () => {
+    if (out.length) out[out.length - 1].words = count(buf.join('\n'));
+    buf = [];
+  };
+  doc.descendants((n: Any) => {
+    if (!n.isTextblock) return true;
+    const l = n.type.name === 'paragraph' ? levelOf(n) : 0;
+    const text = n.textContent.trim();
+    if (l && text) {
+      flush();
+      out.push({ level: l, text, words: 0 });
+    } else if (!isPrivate(n)) buf.push(n.textContent);
+    return false;
+  });
+  flush();
+  return out;
+}
+
+/** Renomme le titre `from` (comparé par `norm`) : garde la mise en forme du premier passage de texte. */
+export function renameHeading(ed: Any, levelOf: LevelOf, from: string, to: string, norm: (t: string) => string): boolean {
+  const { state } = ed;
+  let hit: { node: Any; pos: number } | null = null;
+  state.doc.forEach((n: Any, pos: number) => {
+    if (!hit && n.type.name === 'paragraph' && levelOf(n) && norm(n.textContent) === norm(from)) hit = { node: n, pos };
+  });
+  if (!hit) return false;
+  const { node, pos } = hit as { node: Any; pos: number };
+  const txt = state.schema.text(to);
+  const r0 = node.firstChild?.type.name === 'run' ? node.firstChild : null;
+  const content = r0 ? r0.type.create(r0.attrs, txt) : txt;
+  const tr = state.tr.replaceWith(pos + 1, pos + node.nodeSize - 1, content);
+  ed.view.dispatch(tr);
+  return true;
+}

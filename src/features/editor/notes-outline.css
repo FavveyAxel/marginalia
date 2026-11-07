@@ -122,3 +122,22 @@
     animation: none;
   }
 }
+/* Plan rattaché : statut de la partie et mots écrits. */
+.ed-ol-row .ed-outline-item:has(.ed-ol-st) {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+}
+.ed-ol-row .ed-ol-st {
+  width: 7px;
+  height: 7px;
+  transform: translateY(-1px);
+}
+.ed-ol-words {
+  flex: none;
+  align-self: center;
+  padding: 0 4px 0 6px;
+  font-size: 11px;
+  color: var(--faint);
+  font-variant-numeric: tabular-nums;
+}

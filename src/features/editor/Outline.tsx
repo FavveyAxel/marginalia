@@ -3,7 +3,10 @@
 import { useEffect, useRef, useState, type MutableRefObject } from 'react';
 import { GripVertical } from 'lucide-react';
 import type { DocEngine, OutlineItem } from './engine';
+import type { HeadingMark } from './planLinkEditor';
+import { statusLabel, statusOf } from '../plans/planLink';
 import './notes-outline.css';
+import '../plans/status.css';
 import { fmtKeys } from '../../lib/keys';
 
 type Notify = (message: string, tone?: 'info' | 'error' | 'success') => void;
@@ -50,6 +53,7 @@ export function useSectionKeys(engineRef: MutableRefObject<DocEngine | null>, ed
 
 export function Outline({
   items,
+  marks,
   caretActive,
   engine,
   editable,
@@ -57,6 +61,8 @@ export function Outline({
   refresh,
 }: {
   items: OutlineItem[];
+  /** Plan rattaché : statut et mots de chaque titre retrouvé dans le plan (index dans `items`). */
+  marks?: Map<number, HeadingMark>;
   /** Titre courant d'après le curseur. */
   caretActive: number;
   engine: () => DocEngine | null;
@@ -213,8 +219,14 @@ export function Outline({
                 title={editable ? `${o.text}\nGlisser pour déplacer la section (${MOVE_KEYS.up} / ${MOVE_KEYS.down})` : o.text}
                 aria-keyshortcuts="Alt+Shift+ArrowUp Alt+Shift+ArrowDown"
               >
+                {marks?.has(i) && <span className={`ed-ol-st st-${statusOf(marks.get(i))}`} aria-label={statusLabel(statusOf(marks.get(i)))} />}
                 <span className="ed-outline-text">{o.text}</span>
               </button>
+              {marks?.has(i) && (
+                <span className="ed-ol-words" title={marks.get(i)!.goal ? `${marks.get(i)!.words} mots sur ${marks.get(i)!.goal}` : `${marks.get(i)!.words} mots`}>
+                  {marks.get(i)!.words.toLocaleString('fr-FR')}
+                </span>
+              )}
             </div>
           ))}
         </div>

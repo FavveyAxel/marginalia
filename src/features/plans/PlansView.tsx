@@ -1,7 +1,7 @@
 // Plans de dissertation : liste des plans, puis éditeur (route { name: 'plans', planId }).
 import { useMemo, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
-import { FileText, ListTree, Plus, Search } from 'lucide-react';
+import { FilePen, FileText, ListTree, Plus, Search } from 'lucide-react';
 import { uid, useStore } from '../../lib/store';
 import type { EssayPlan } from '../../lib/types';
 import { relativeTime } from '../../components/ui';
@@ -112,6 +112,7 @@ function PlanList({ missing }: { missing: boolean }) {
                     {p.parts.length} {p.parts.length > 1 ? 'parties' : 'partie'} · {countItems(p.parts)}{' '}
                     {countItems(p.parts) > 1 ? 'éléments' : 'élément'} · {relativeTime(p.updatedAt)}
                   </span>
+                  <LinkedDraftTag draftId={p.draftId} />
                 </button>
               ))}
             </div>
@@ -119,5 +120,16 @@ function PlanList({ missing }: { missing: boolean }) {
         </div>
       </div>
     </div>
+  );
+}
+
+/** Plan rattaché à un écrit : le nom de l'écrit. */
+function LinkedDraftTag({ draftId }: { draftId: string | null }) {
+  const d = useStore((s) => (draftId ? s.drafts.find((x) => x.id === draftId) : undefined));
+  if (!d) return null;
+  return (
+    <span className="plan-card-meta plan-card-draft truncate" data-testid="plan-draft-tag">
+      <FilePen size={12} /> Lié à « {d.title || 'Sans titre'} »
+    </span>
   );
 }

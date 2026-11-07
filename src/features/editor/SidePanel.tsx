@@ -12,6 +12,8 @@ import { useStore } from '../../lib/store';
 import type { Book, Highlight, PlanItemRef } from '../../lib/types';
 import { CategoryDot, PageSkeleton } from '../../components/ui';
 import { ExtractsPane } from './ExtractsPane';
+import { statusLabel, statusOf } from '../plans/planLink';
+import '../plans/status.css';
 import { flatten } from '../plans/planTree';
 import { locatorOf } from '../../lib/citation';
 import './side-panel.css';
@@ -392,6 +394,14 @@ function PlanContent({
         </div>
       )}
       <div className="ed-extracts-list ed-plan">
+        {plan.draftId === draftId && (
+          <div className="ed-plan-linked">
+            <span className="ed-plan-linked-tag">Plan rattaché à cet écrit</span>
+            <button className="btn btn-sm" onClick={() => useStore.getState().navigate({ name: 'plans', planId: plan.id })}>
+              Ouvrir le plan
+            </button>
+          </div>
+        )}
         <h3 className="ed-plan-title">{plan.title || 'Plan sans titre'}</h3>
         {plan.sujet && <p className="ed-plan-sujet">{plan.sujet}</p>}
         {plan.problematique.trim() && (
@@ -403,6 +413,7 @@ function PlanContent({
         {flat.map(({ node, depth, label }) => (
           <div key={node.id} className={`ed-plan-node d${depth}`}>
             <div className="ed-plan-node-head">
+              {plan.draftId === draftId && <span className={`st-dot st-${statusOf(node)}`} title={statusLabel(statusOf(node))} />}
               <span className="ed-plan-num">{label}</span>
               <span className="ed-plan-node-title">{node.title || 'Sans titre'}</span>
               {node.title && (

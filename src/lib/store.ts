@@ -782,7 +782,7 @@ export const useStore = create<State>()(tracked((set, get) => ({
     const drafts: { id: string; title: string }[] = [];
     for (const f of files) {
       try {
-        // Un document Word ou Markdown est un écrit (éditable), pas un livre.
+        // Un document Word, OpenDocument ou Markdown est un écrit (éditable), pas un livre.
         if (!opts?.asBook && isDraftFile(f.name)) {
           const d = await createDraftFromFile(f.name, f.data);
           drafts.push(d);

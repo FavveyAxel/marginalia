@@ -801,9 +801,12 @@ interface RunFmt {
   b?: boolean;
   i?: boolean;
   u?: boolean;
+  s?: boolean;
+  sup?: boolean;
+  sub?: boolean;
 }
 function runXml(text: string, f: RunFmt, extraRPr = ''): string {
-  const rpr = `${extraRPr}${f.b ? '<w:b/><w:bCs/>' : ''}${f.i ? '<w:i/><w:iCs/>' : ''}${f.u ? '<w:u w:val="single"/>' : ''}`;
+  const rpr = `${extraRPr}${f.b ? '<w:b/><w:bCs/>' : ''}${f.i ? '<w:i/><w:iCs/>' : ''}${f.s ? '<w:strike/>' : ''}${f.u ? '<w:u w:val="single"/>' : ''}${f.sup ? '<w:vertAlign w:val="superscript"/>' : f.sub ? '<w:vertAlign w:val="subscript"/>' : ''}`;
   return `<w:r>${rpr ? `<w:rPr>${rpr}</w:rPr>` : ''}<w:t xml:space="preserve">${esc(text)}</w:t></w:r>`;
 }
 
@@ -818,6 +821,66 @@ interface GenCtx {
   nums: { ordered: boolean }[];
   /** Signets de citation liés (`<span data-cite-hl>`) déjà émis. */
   bms?: number;
+  /** Images (`<img src="data:…">`) : rangées dans word/media, une relation chacune. */
+  media?: { name: string; data: Uint8Array; ext: string; rid: string }[];
+}
+
+/** Image d'un `<img src="data:image/…;base64,…">` (largeur/hauteur en px à 96 ppp, bornées à la page). */
+function imageXml(e: HTMLElement, ctx: GenCtx): string {
+  const m = (e.getAttribute('src') ?? '').match(/^data:image\/(png|jpe?g|gif);base64,([A-Za-z0-9+/=]+)$/);
+  if (!m) return '';
+  const ext = m[1] === 'jpg' ? 'jpeg' : m[1];
+  const bin = atob(m[2]);
+  const data = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) data[i] = bin.charCodeAt(i);
+  ctx.media = ctx.media ?? [];
+  const n = ctx.media.length + 1;
+  const rid = `rIdImg${n}`;
+  ctx.media.push({ name: `image${n}.${ext}`, data, ext, rid });
+  let w = Number(e.getAttribute('width')) || 400;
+  let h = Number(e.getAttribute('height')) || Math.round(w * 0.66);
+  const MAXW = 604; // 16 cm de texte (A4, marges 2,5 cm)
+  if (w > MAXW) {
+    h = Math.round((h * MAXW) / w);
+    w = MAXW;
+  }
+  const cx = Math.round(w * 9525);
+  const cy = Math.round(h * 9525);
+  const alt = esc(e.getAttribute('alt') ?? '');
+  return `<w:r><w:drawing><wp:inline distT="0" distB="0" distL="0" distR="0" xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing"><wp:extent cx="${cx}" cy="${cy}"/><wp:docPr id="${n}" name="Image ${n}" descr="${alt}"/><a:graphic xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:pic xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:nvPicPr><pic:cNvPr id="${n}" name="image${n}.${ext}"/><pic:cNvPicPr/></pic:nvPicPr><pic:blipFill><a:blip r:embed="${rid}"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill><pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="${cx}" cy="${cy}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr></pic:pic></a:graphicData></a:graphic></wp:inline></w:drawing></w:r>`;
+}
+
+/** Alignement d'un paragraphe (`style="text-align: …"` ou `data-align`). */
+function alignOf(e: HTMLElement): string {
+  const a = (e.dataset.align || e.style?.textAlign || '').toLowerCase();
+  const v = a === 'center' ? 'center' : a === 'right' || a === 'end' ? 'right' : a === 'justify' ? 'both' : a === 'left' || a === 'start' ? 'left' : '';
+  return v ? `<w:jc w:val="${v}"/>` : '';
+}
+
+/** Tableau : bordures fines, colonnes égales ; chaque cellule garde ses paragraphes. */
+function tableXml(t: Element, ctx: GenCtx): string {
+  const rows = Array.from(t.querySelectorAll(':scope > tr, :scope > thead > tr, :scope > tbody > tr, :scope > tfoot > tr'));
+  if (!rows.length) return '';
+  const cols = Math.max(1, ...rows.map((r) => Array.from(r.children).filter((c) => /^t[dh]$/i.test(c.tagName)).length));
+  const W = 9638; // largeur du texte en vingtièmes de point (17 cm)
+  const cw = Math.floor(W / cols);
+  const b = (side: string) => `<w:${side} w:val="single" w:sz="4" w:space="0" w:color="999999"/>`;
+  const borders = `<w:tblBorders>${['top', 'left', 'bottom', 'right', 'insideH', 'insideV'].map(b).join('')}</w:tblBorders>`;
+  let out = `<w:tbl><w:tblPr><w:tblW w:w="${W}" w:type="dxa"/>${borders}<w:tblLayout w:type="fixed"/><w:tblCellMar><w:left w:w="100" w:type="dxa"/><w:right w:w="100" w:type="dxa"/></w:tblCellMar></w:tblPr><w:tblGrid>${Array.from({ length: cols }, () => `<w:gridCol w:w="${cw}"/>`).join('')}</w:tblGrid>`;
+  for (const r of rows) {
+    const cells = Array.from(r.children).filter((c) => /^t[dh]$/i.test(c.tagName)) as HTMLElement[];
+    const header = cells.length > 0 && cells.every((c) => c.tagName.toLowerCase() === 'th');
+    out += `<w:tr>${header ? '<w:trPr><w:tblHeader/></w:trPr>' : ''}`;
+    for (let k = 0; k < cols; k++) {
+      const c = cells[k];
+      let inner = c ? blocksXml(c, ctx) : '';
+      if (c && c.tagName.toLowerCase() === 'th') inner = inner.replace(/<w:r>(<w:rPr>)?/g, (_m, p) => (p ? '<w:r><w:rPr><w:b/>' : '<w:r><w:rPr><w:b/></w:rPr>'));
+      if (!inner) inner = '<w:p/>';
+      out += `<w:tc><w:tcPr><w:tcW w:w="${cw}" w:type="dxa"/></w:tcPr>${inner}</w:tc>`;
+    }
+    out += '</w:tr>';
+  }
+  return `${out}</w:tbl><w:p><w:pPr><w:spacing w:after="0"/></w:pPr></w:p>`;
 }
 
 function inlineXml(node: Node, f: RunFmt, ctx: GenCtx): string {
@@ -834,6 +897,7 @@ function inlineXml(node: Node, f: RunFmt, ctx: GenCtx): string {
     return `<w:r><w:rPr><w:rStyle w:val="FootnoteReference"/></w:rPr><w:footnoteReference w:id="${id}"/></w:r>`;
   }
   if (tag === 'br') return '<w:r><w:br/></w:r>';
+  if (tag === 'img') return imageXml(e, ctx);
   // Citation liée à un extrait : <span data-cite-hl="<highlightId>">« texte »</span> → signet Word
   // `_mglHl_<id>` autour du texte (même lien citation → extrait que l'insertion depuis l'éditeur).
   const hl = e.getAttribute('data-cite-hl');
@@ -847,6 +911,9 @@ function inlineXml(node: Node, f: RunFmt, ctx: GenCtx): string {
   if (tag === 'strong' || tag === 'b') nf.b = true;
   if (tag === 'em' || tag === 'i' || tag === 'cite') nf.i = true;
   if (tag === 'u') nf.u = true;
+  if (tag === 's' || tag === 'del' || tag === 'strike') nf.s = true;
+  if (tag === 'sup') nf.sup = true;
+  if (tag === 'sub') nf.sub = true;
   return Array.from(e.childNodes)
     .map((c) => inlineXml(c, nf, ctx))
     .join('');
@@ -865,7 +932,7 @@ function blocksXml(parent: Element, ctx: GenCtx, quote = false): string {
   const flush = () => {
     if (!pending.length) return;
     const runs = pending.map((n) => inlineXml(n, {}, ctx)).join('');
-    const hasText = pending.some((n) => (n.textContent ?? '').trim() || (n as Element).hasAttribute?.('data-footnote'));
+    const hasText = pending.some((n) => (n.textContent ?? '').trim() || (n as Element).hasAttribute?.('data-footnote') || (n as Element).tagName?.toLowerCase() === 'img' || !!(n as Element).querySelector?.('img'));
     if (hasText) out += paraXml(quote ? 'Quote' : null, runs);
     pending = [];
   };
@@ -880,10 +947,11 @@ function blocksXml(parent: Element, ctx: GenCtx, quote = false): string {
     const inl = () => Array.from(e.childNodes).map((n) => inlineXml(n, {}, ctx)).join('');
     if (/^h[1-6]$/.test(tag)) {
       const lvl = Math.min(3, Number(tag[1]));
-      out += paraXml(`Heading${lvl}`, inl());
+      out += paraXml(`Heading${lvl}`, inl(), alignOf(e));
     } else if (tag === 'p' && e.dataset.break === 'page') out += paraXml(null, '<w:r><w:br w:type="page"/></w:r>');
-    else if (tag === 'p' && e.dataset.style && /^[A-Za-z0-9]+$/.test(e.dataset.style)) out += paraXml(e.dataset.style, inl());
-    else if (tag === 'p') out += paraXml(quote ? 'Quote' : null, inl());
+    else if (tag === 'p' && e.dataset.style && /^[A-Za-z0-9]+$/.test(e.dataset.style)) out += paraXml(e.dataset.style, inl(), alignOf(e));
+    else if (tag === 'p') out += paraXml(quote ? 'Quote' : null, inl(), alignOf(e));
+    else if (tag === 'table') out += tableXml(e, ctx);
     else if (tag === 'blockquote') out += blocksXml(e, ctx, true);
     else if (tag === 'ul' || tag === 'ol') out += listXml(e, ctx, 0);
     else if (tag === 'hr') out += paraXml(null, '');
@@ -1019,7 +1087,7 @@ export async function htmlToDocx(html: string, title: string, layout: DocLayout 
   zip.file(
     '[Content_Types].xml',
     `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/><Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/><Override PartName="/word/settings.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.settings+xml"/><Override PartName="/word/numbering.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.numbering+xml"/><Override PartName="/word/footnotes.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.footnotes+xml"/><Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/><Override PartName="/docProps/app.xml" ContentType="application/vnd.openxmlformats-officedocument.extended-properties+xml"/>${ac ? '<Override PartName="/word/footer1.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.footer+xml"/><Override PartName="/word/footer2.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.footer+xml"/>' : ''}${ft ? '<Override PartName="/word/fontTable.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.fontTable+xml"/>' : ''}</Types>`,
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/>${(ctx.media ?? []).some((m) => m.ext === 'png') ? '<Default Extension="png" ContentType="image/png"/>' : ''}${(ctx.media ?? []).some((m) => m.ext === 'jpeg') ? '<Default Extension="jpeg" ContentType="image/jpeg"/>' : ''}${(ctx.media ?? []).some((m) => m.ext === 'gif') ? '<Default Extension="gif" ContentType="image/gif"/>' : ''}<Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/><Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/><Override PartName="/word/settings.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.settings+xml"/><Override PartName="/word/numbering.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.numbering+xml"/><Override PartName="/word/footnotes.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.footnotes+xml"/><Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/><Override PartName="/docProps/app.xml" ContentType="application/vnd.openxmlformats-officedocument.extended-properties+xml"/>${ac ? '<Override PartName="/word/footer1.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.footer+xml"/><Override PartName="/word/footer2.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.footer+xml"/>' : ''}${ft ? '<Override PartName="/word/fontTable.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.fontTable+xml"/>' : ''}</Types>`,
   );
   zip.file(
     '_rels/.rels',
@@ -1029,8 +1097,9 @@ export async function htmlToDocx(html: string, title: string, layout: DocLayout 
   zip.file(
     'word/_rels/document.xml.rels',
     `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/settings" Target="settings.xml"/><Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/numbering" Target="numbering.xml"/><Relationship Id="rId4" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/footnotes" Target="footnotes.xml"/>${ac ? '<Relationship Id="rId10" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/footer" Target="footer1.xml"/><Relationship Id="rId11" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/footer" Target="footer2.xml"/>' : ''}${ft ? '<Relationship Id="rId5" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/fontTable" Target="fontTable.xml"/>' : ''}</Relationships>`,
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/settings" Target="settings.xml"/><Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/numbering" Target="numbering.xml"/><Relationship Id="rId4" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/footnotes" Target="footnotes.xml"/>${ac ? '<Relationship Id="rId10" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/footer" Target="footer1.xml"/><Relationship Id="rId11" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/footer" Target="footer2.xml"/>' : ''}${ft ? '<Relationship Id="rId5" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/fontTable" Target="fontTable.xml"/>' : ''}${(ctx.media ?? []).map((m) => `<Relationship Id="${m.rid}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/${m.name}"/>`).join('')}</Relationships>`,
   );
+  for (const m of ctx.media ?? []) zip.file(`word/media/${m.name}`, m.data);
   zip.file('word/document.xml', docXml);
   zip.file('word/styles.xml', stylesXml(layout));
   if (ft) zip.file('word/fontTable.xml', ft);

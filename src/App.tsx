@@ -498,7 +498,7 @@ function DropOverlay() {
       <div className="drop-card">
         <Upload size={28} />
         <strong>Déposez pour importer</strong>
-        <span className="muted">Fichiers ou dossiers : EPUB, PDF, Word, Markdown, TXT, HTML, photos</span>
+        <span className="muted">Fichiers ou dossiers : EPUB, PDF, Word, LibreOffice (.odt), Markdown, TXT, HTML, photos</span>
       </div>
     </div>
   );

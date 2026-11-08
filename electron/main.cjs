@@ -35,7 +35,7 @@ const DEV_URL = process.env.VITE_DEV_SERVER_URL || '';
 const APP_ORIGIN = 'app://marginalia';
 const DIST_DIR = path.join(__dirname, '..', 'dist');
 const IMAGES = ['jpg', 'jpeg', 'png', 'webp', 'heic', 'heif', 'tif', 'tiff'];
-const ACCEPTED = ['epub', 'pdf', 'docx', 'md', 'markdown', 'txt', 'html', 'htm', ...IMAGES];
+const ACCEPTED = ['epub', 'pdf', 'docx', 'odt', 'md', 'markdown', 'txt', 'html', 'htm', ...IMAGES];
 // Partage entre deux Marginalia (« .marginalia ») : accepté à l'ouverture et au sélecteur, pas dans l'import d'un dossier.
 const SHARE_EXT = 'marginalia';
 const ACCEPTED_OPEN = [...ACCEPTED, SHARE_EXT];

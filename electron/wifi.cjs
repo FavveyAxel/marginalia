@@ -41,7 +41,7 @@ const MAX_FILES = 200;
 const PREFERRED_PORT = 47800;
 const BOOK_EXT = ['epub', 'pdf'];
 const IMAGE_EXT = ['jpg', 'jpeg', 'png', 'webp', 'heic', 'heif', 'tif', 'tiff', 'gif', 'bmp', 'avif'];
-const DOC_EXT = ['docx', 'txt', 'md', 'markdown'];
+const DOC_EXT = ['docx', 'odt', 'txt', 'md', 'markdown'];
 const ACCEPT_EXT = new Set([...BOOK_EXT, ...IMAGE_EXT, ...DOC_EXT]);
 
 /** Adresse du réseau local (IPv4 privée, lien local, boucle locale ; IPv6 ULA / lien local). */

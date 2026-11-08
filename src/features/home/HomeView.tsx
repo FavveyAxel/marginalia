@@ -93,7 +93,7 @@ function Onboarding() {
           <Upload size={18} />
         </span>
         <h3>Importer un premier texte</h3>
-        <p>EPUB, PDF, Word, Markdown, TXT ou HTML. Vous pouvez aussi glisser un fichier dans la fenêtre.</p>
+        <p>EPUB, PDF, Word, LibreOffice (.odt), Markdown, TXT ou HTML. Vous pouvez aussi glisser un fichier dans la fenêtre.</p>
         <button className="btn btn-primary" onClick={() => void importFirst()}>
           Importer un texte <Kbd>⌘O</Kbd>
         </button>

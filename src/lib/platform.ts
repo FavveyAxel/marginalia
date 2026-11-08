@@ -591,7 +591,7 @@ export const DERIVED_FILES = ['ocr.json', 'display.jpg'];
 export const SHARE_FILE_EXT = 'marginalia';
 export const isShareFile = (name: string) => name.toLowerCase().endsWith('.' + SHARE_FILE_EXT);
 
-export const ACCEPTED_EXTENSIONS = ['epub', 'pdf', 'docx', 'md', 'markdown', 'txt', 'html', 'htm', ...IMAGE_EXTENSIONS, SHARE_FILE_EXT];
+export const ACCEPTED_EXTENSIONS = ['epub', 'pdf', 'docx', 'odt', 'md', 'markdown', 'txt', 'html', 'htm', ...IMAGE_EXTENSIONS, SHARE_FILE_EXT];
 
 declare global {
   interface Window {

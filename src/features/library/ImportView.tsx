@@ -91,7 +91,7 @@ export function ImportView({ workspaceId, groupId = null }: { workspaceId?: stri
           <div className="imp-head">
             <h1 className="page-title">Importer</h1>
             <p className="imp-lede">
-              Livres, documents et photos de pages. Les livres (EPUB, PDF, photos) rejoignent la bibliothèque ; les documents Word et Markdown deviennent des
+              Livres, documents et photos de pages. Les livres (EPUB, PDF, photos) rejoignent la bibliothèque ; les documents Word, LibreOffice et Markdown deviennent des
               écrits.{ws ? (
                 <>
                   {' '}
@@ -127,7 +127,7 @@ export function ImportView({ workspaceId, groupId = null }: { workspaceId?: stri
                 </button>
               )}
             </div>
-            <p className="imp-formats">EPUB · PDF · Word · Markdown · Texte · HTML · Photos (JPG, PNG, HEIC…) · Partage Marginalia</p>
+            <p className="imp-formats">EPUB · PDF · Word · LibreOffice (.odt) · Markdown · Texte · HTML · Photos (JPG, PNG, HEIC…) · Partage Marginalia</p>
           </section>
 
           {result && (

@@ -141,7 +141,7 @@ export function kindOf(name: string): InboxKind {
   if (IMAGE_EXTENSIONS.includes(e)) return 'image';
   if (WEB_EXT.includes(e)) return 'web';
   if (LINK_EXT.includes(e)) return 'link';
-  if (e === 'docx') return 'draft';
+  if (e === 'docx' || e === 'odt') return 'draft';
   return 'other';
 }
 

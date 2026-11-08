@@ -341,6 +341,7 @@ body.plan-dragging .plan-node > .plan-items .plan-drop-hint { border-color: colo
 .st-written { padding: 2px 9px 4px; font-size: var(--fs-xs); color: var(--muted); }
 
 /* mots / objectif */
+.st-meter-n { white-space: nowrap; }
 .st-meter { display: inline-flex; align-items: center; gap: 8px; font-variant-numeric: tabular-nums; }
 .st-meter-bar { width: 90px; height: 4px; border-radius: 2px; background: var(--bg-active); overflow: hidden; }
 .st-meter-bar i { display: block; height: 100%; background: var(--st-c); border-radius: 2px; }

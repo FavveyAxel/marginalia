@@ -468,7 +468,7 @@ function Showcase() {
  * arrivent l'un après l'autre (en cascade quand plusieurs entrent ensemble). Sur téléphone, où une
  * section est haute, chaque paragraphe apparaît ainsi au moment où on l'atteint.
  */
-const RV_SEL = 'h2, h3, p, li, .shot-wrap, .photo-card, .pict, .dl-group';
+const RV_SEL = 'h2, h3, p, li, .shot-wrap, .photo-card, .plan-link-card, .pict, .dl-group';
 function useReveal() {
   useEffect(() => {
     const all = Array.from(document.querySelectorAll<HTMLElement>('.reveal')).flatMap((sec) => Array.from(sec.querySelectorAll<HTMLElement>(RV_SEL)));
@@ -501,6 +501,8 @@ const MORE: { icon: string; title: string; pose: Pose; line: string; items: stri
     line: 'Ouvrez vos livres, et même une photo de page : je lis tout.',
     items: [
       'EPUB, PDF, Word, Markdown, texte, HTML',
+      'Vidéos YouTube et Vimeo, avec leur transcription',
+      'Livres papier : le code-barres suffit',
       'Photos et scans : texte reconnu sans connexion',
       'Synchronisation avec l’app Livres (Mac)',
       'Depuis le téléphone par QR code, et retour en PDF ou Word',
@@ -534,6 +536,8 @@ const MORE: { icon: string; title: string; pose: Pose; line: string; items: stri
       'Un passage du livre glissé sur la carte',
       'Présentation en plein écran, export image ou PDF',
       'Un plan tiré de la carte',
+      'Écrits, livres, vidéos, images et plans épinglés sur la carte',
+      'Cartes importées depuis Excel ou .csv',
     ],
   },
   {
@@ -555,11 +559,13 @@ const MORE: { icon: string; title: string; pose: Pose; line: string; items: stri
     line: 'Le livre ouvert à côté, la plume à la main.',
     items: [
       'Plans nourris de vos extraits et arguments',
+      'Plan lié à l’écrit : statut et objectif par partie, fiches et tableau',
       'Traitement de texte au format Word',
       'Notes de bas de page et commentaires en marge',
       'Citations reliées à leur passage',
       'Correcteur, mode concentration, versions comparées',
-      'Export Word, PDF, page web, Markdown',
+      'Export Word, PDF, page web, Markdown, et impression',
+      'Bibliographie des livres cités',
     ],
   },
   {
@@ -572,8 +578,8 @@ const MORE: { icon: string; title: string; pose: Pose; line: string; items: stri
       'Historique, et corbeille de 30 jours',
       'Sauvegardes automatiques, et complètes en .zip',
       'Mises à jour installées quand vous le décidez',
-      'Thèmes clair, sépia et sombre',
-      'Un compagnon : Rousseau, Socrate, Platon, Aristote ou le cerveau',
+      'Thèmes clair, sépia et sombre ; style Normal ou Skeuomorphisme (étagère, liège)',
+      'Un compagnon : Rousseau, Socrate, Platon, Aristote, Mozart, Vivaldi ou le cerveau',
     ],
   },
 ];
@@ -772,7 +778,7 @@ function Together() {
 }
 
 const PRIVACY = [
-  { icon: 'offline', title: 'Hors ligne, par construction', text: 'Trois connexions seulement, que vous pouvez couper : chercher une mise à jour (téléchargée si vous le voulez), retrouver l’édition d’un livre papier, travailler à plusieurs.' },
+  { icon: 'offline', title: 'Hors ligne, par construction', text: 'Quatre connexions seulement, que vous pouvez couper : chercher une mise à jour (téléchargée si vous le voulez), retrouver l’édition d’un livre papier, travailler à plusieurs, et les vidéos (titre, miniature, sous-titres et lecture, chez YouTube ou Vimeo).' },
   { icon: 'link', title: 'À plusieurs, sans serveur', text: 'Vos ordinateurs se parlent directement, chiffrés de bout en bout. Le point de rencontre change toutes les 10 minutes, et l’hôte accepte chaque arrivée.' },
   { icon: 'noacc', title: 'Ni compte, ni pistage', text: 'Pas d’inscription, pas de publicité, pas de statistiques. Personne ne sait ce que vous lisez.' },
   { icon: 'scan', title: 'Le texte des photos, lu chez vous', text: 'La reconnaissance de texte tourne sur votre ordinateur : vos photos et vos scans ne partent nulle part.' },
@@ -878,6 +884,31 @@ function App() {
           </div>
         </section>
 
+        <section className="plan-link reveal" id="plan" aria-labelledby="plan-title">
+          <div className="plan-link-stack">
+            <div className="shot-wrap">
+              <img className="plan-link-shot" src="/captures/plan-fiches.png" alt="Le plan « Être libre, est-ce n’obéir à personne ? » en fiches : une rangée par partie, chaque sous-partie avec son statut, son idée directrice et ses mots écrits sur l’objectif" width={1440} height={900} loading="lazy" />
+            </div>
+            <img className="plan-link-card" src="/captures/plan-tableau.png" alt="Le même plan en tableau : les parties rangées en quatre colonnes, à écrire, brouillon, à relire, terminé" width={1440} height={900} loading="lazy" />
+          </div>
+          <div className="plan-link-text">
+            <h2 id="plan-title">Le plan et l’écrit, liés</h2>
+            <p>Chaque partie du plan est une section de l’écrit. Déplacez une fiche, le texte suit&nbsp;; ajoutez un titre dans l’écrit, il rejoint le plan.</p>
+            <p>À écrire, brouillon, à relire, terminé&nbsp;: chaque partie a son statut, son objectif et ses mots écrits. Le tableau montre où vous en êtes.</p>
+          </div>
+        </section>
+
+        <section className="video reveal" id="videos" aria-labelledby="video-title">
+          <div className="video-text">
+            <h2 id="video-title">Les vidéos aussi</h2>
+            <p>Collez le lien d’une vidéo YouTube ou Vimeo&nbsp;: elle rejoint la bibliothèque. Elle se regarde dans l’app, sa transcription défile à côté.</p>
+            <p>Surlignez une phrase ou notez un moment&nbsp;: l’extrait garde sa minute, un clic y ramène. Chapitres, signets et vitesse de lecture.</p>
+          </div>
+          <div className="shot-wrap">
+            <img className="video-shot" src="/captures/video.png" alt="Une vidéo de cours dans Marginalia : le lecteur, la transcription synchronisée avec trois phrases surlignées, et les extraits minutés en dessous" width={1440} height={900} loading="lazy" />
+          </div>
+        </section>
+
         <section className="photo reveal" aria-labelledby="photo-title">
           <div className="photo-text">
             <h2 id="photo-title">Une photo, et le texte est là</h2>
@@ -895,10 +926,11 @@ function App() {
         <section className="carte reveal" id="carte" aria-labelledby="carte-title">
           <div className="carte-text">
             <h2 id="carte-title">Mettre ses idées à plat</h2>
-            <p>Votre problématique au centre, vos idées autour, comme sur un tableau blanc. Reliez, regroupez, repliez. Quand tout est en place, tirez-en un plan.</p>
+            <p>Votre problématique au centre, vos idées autour. Reliez, regroupez, repliez. Quand tout est en place, tirez-en un plan.</p>
+            <p>Épinglez aussi vos documents&nbsp;: un écrit, un livre, une vidéo, une image ou un plan, qui s’ouvre d’un double-clic.</p>
           </div>
           <div className="shot-wrap" data-perch="carte">
-            <img className="carte-shot" src="/captures/carte.png" alt="Une carte mentale libre « Idées pour le mémoire » : la problématique sur le télétravail au centre, quatre branches en couleur et une zone « À faire en mars »" width={1440} height={900} loading="lazy" />
+            <img className="carte-shot" src="/captures/liege.png" alt="Une carte sur un tableau de liège : la problématique « Être libre, est-ce n’obéir à personne ? » au centre, deux idées épinglées, et des cartes vers la dissertation, le plan, Du contrat social et une vidéo" width={1440} height={900} loading="lazy" />
           </div>
         </section>
 

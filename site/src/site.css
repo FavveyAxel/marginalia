@@ -552,3 +552,37 @@ a.btn-primary:hover { background: #3a342b; }
 }
 .hero-trust a { color: inherit; text-decoration: underline; text-decoration-color: color-mix(in srgb, currentColor 40%, transparent); text-underline-offset: 3px; }
 .hero-trust a:hover { color: var(--ink); }
+
+/* ── Le plan et l'écrit, liés (capture à gauche, tableau en carte) ── */
+.plan-link {
+  max-width: 75rem; margin: 9rem auto 0; padding: 0 var(--gutter);
+  display: grid; grid-template-columns: minmax(0, 7fr) minmax(0, 4fr); gap: 4.5rem; align-items: center;
+}
+.plan-link h2 { font-size: 3.5rem; }
+.plan-link p { margin: 1rem 0 0; color: var(--ink-2); max-width: 40ch; }
+.plan-link-stack { position: relative; padding-bottom: 5rem; }
+.plan-link-shot { display: block; width: 100%; height: auto; border-radius: 0.75rem; box-shadow: var(--shadow-lg); }
+.plan-link-card {
+  position: absolute; right: -2.5rem; bottom: 0; width: 46%; height: auto; border-radius: 0.75rem;
+  box-shadow: 0 1px 2px rgba(30, 24, 14, 0.08), 0 24px 48px -16px rgba(30, 24, 14, 0.35);
+}
+/* ── Les vidéos aussi (texte à gauche) ── */
+.video {
+  max-width: 75rem; margin: 9rem auto 0; padding: 0 var(--gutter);
+  display: grid; grid-template-columns: minmax(0, 4fr) minmax(0, 7fr); gap: 4.5rem; align-items: center;
+}
+.video h2 { font-size: 3.5rem; }
+.video p { margin: 1rem 0 0; color: var(--ink-2); max-width: 40ch; }
+.video-shot { display: block; width: 100%; height: auto; border-radius: 0.75rem; box-shadow: var(--shadow-lg); }
+.plan-link-card.rv { transform: translateY(2rem) scale(0.98); transition-duration: 0.9s; }
+.plan-link-card.rv.is-in { transform: none; }
+@media (max-width: 900px) {
+  .plan-link, .video { grid-template-columns: minmax(0, 1fr); gap: 1.75rem; }
+  .plan-link-text { order: -1; }
+  .plan-link-stack { padding-bottom: 0; }
+  .plan-link-card { display: none; }
+}
+@media (max-width: 620px) {
+  .plan-link, .video { margin-top: 6rem; }
+  .plan-link h2, .video h2 { font-size: 2.5rem; }
+}

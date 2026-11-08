@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<title>Image fixe d'une vidéo (captures du site)</title>
+<style>
+  /* Image de démonstration pour les captures du site : une vidéo de cours inventée, aucune vraie vidéo. */
+  html, body { margin: 0; height: 100%; overflow: hidden; }
+  body {
+    background:
+      radial-gradient(ellipse at 28% 38%, rgba(255, 236, 196, 0.55), transparent 55%),
+      linear-gradient(135deg, #2f4a5c 0%, #3d5f6e 45%, #b9853a 100%);
+    font-family: Georgia, 'Times New Roman', serif;
+    color: #fbf4e6;
+  }
+  .board { position: absolute; left: 7%; top: 14%; width: 46%; height: 58%; background: #23362f; border: 10px solid #6b4a2e; box-shadow: 0 18px 40px rgba(0,0,0,.35); }
+  .board p { margin: 0; position: absolute; color: rgba(245, 240, 225, .9); font-style: italic; }
+  .board .a { left: 8%; top: 14%; font-size: 3.4vw; }
+  .board .b { left: 8%; top: 44%; font-size: 2.1vw; opacity: .8; }
+  .board .c { left: 8%; top: 64%; font-size: 2.1vw; opacity: .8; }
+  .board svg { position: absolute; right: 8%; bottom: 12%; width: 30%; }
+  .lamp { position: absolute; right: 16%; top: 0; width: 2px; height: 24%; background: rgba(0,0,0,.4); }
+  .lamp::after { content: ''; position: absolute; left: -26px; top: 100%; width: 54px; height: 30px; border-radius: 54px 54px 6px 6px; background: #e9c46a; box-shadow: 0 20px 70px 20px rgba(255, 220, 150, .45); }
+  .shelf { position: absolute; right: 9%; bottom: 22%; width: 28%; height: 34%; display: flex; align-items: flex-end; gap: 6px; border-bottom: 8px solid #5a3b22; }
+  .shelf i { display: block; width: 14%; border-radius: 2px 2px 0 0; }
+  .cap { position: absolute; left: 7%; bottom: 9%; font: 600 2vw system-ui, sans-serif; letter-spacing: .01em; text-shadow: 0 2px 8px rgba(0,0,0,.4); }
+</style>
+</head>
+<body>
+  <div class="board">
+    <p class="a">Être libre ?</p>
+    <p class="b">choisir · vouloir · obéir</p>
+    <p class="c">nos désirs viennent-ils de nous ?</p>
+    <svg viewBox="0 0 100 60" fill="none" stroke="rgba(245,240,225,.85)" stroke-width="2" stroke-linecap="round"><circle cx="20" cy="30" r="8"/><circle cx="80" cy="12" r="6"/><circle cx="80" cy="48" r="6"/><path d="M28 27 L74 14 M28 33 L74 46"/></svg>
+  </div>
+  <div class="lamp"></div>
+  <div class="shelf"><i style="height:78%;background:#8c3b2f"></i><i style="height:92%;background:#2f5d50"></i><i style="height:70%;background:#c9a24a"></i><i style="height:86%;background:#3d4f7a"></i><i style="height:64%;background:#7a5a3b"></i></div>
+  <div class="cap">La liberté, une histoire</div>
+<script>
+// Répond au protocole « widget » comme le faux lecteur des tests, à l'arrêt sur cette image.
+const send = (o) => parent.postMessage(JSON.stringify(o), '*');
+window.addEventListener('message', (e) => {
+  let d;
+  try { d = JSON.parse(e.data); } catch { return; }
+  if (d.event === 'listening') {
+    send({ event: 'onReady', id: 1, channel: 'widget' });
+    send({ event: 'infoDelivery', id: 1, channel: 'widget', info: { currentTime: 1572, duration: 2530, playerState: 2 } });
+  }
+});
+</script>
+</body>
+</html>

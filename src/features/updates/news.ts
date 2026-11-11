@@ -21,6 +21,16 @@ export interface NewsEntry {
 
 export const NEWS: NewsEntry[] = [
   {
+    version: '3.52',
+    items: [
+      {
+        icon: 'notes',
+        title: 'Les documents LibreOffice (.odt)',
+        text: 'Un fichier .odt devient un écrit, comme un Word : titres (et donc plan), mise en forme, listes, citations, tableaux, images et notes de bas de page. Glissez-le dans la fenêtre, importez-le ou envoyez-le depuis votre téléphone.',
+      },
+    ],
+  },
+  {
     version: '3.51',
     items: [
       {

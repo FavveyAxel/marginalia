@@ -500,7 +500,7 @@ const MORE: { icon: string; title: string; pose: Pose; line: string; items: stri
     pose: 'read' as Pose,
     line: 'Ouvrez vos livres, et même une photo de page : je lis tout.',
     items: [
-      'EPUB, PDF, Word, Markdown, texte, HTML',
+      'EPUB, PDF, Word, LibreOffice (.odt), Markdown, texte, HTML',
       'Vidéos YouTube et Vimeo, avec leur transcription',
       'Livres papier : le code-barres suffit',
       'Photos et scans : texte reconnu sans connexion',

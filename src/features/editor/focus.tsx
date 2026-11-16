@@ -1,5 +1,6 @@
 // Mode concentration de l'éditeur : réglages (menu du bouton ↗), interface qui s'efface pendant la
-// frappe, paragraphes estompés autour du paragraphe du curseur, défilement « machine à écrire ».
+// frappe, paragraphes estompés autour du paragraphe du curseur, « machine à écrire » (la ligne du
+// curseur reste au milieu ; chariot : le point de frappe ne bouge pas, la page glisse ; sons de frappe).
 //
 // Les pages sont peintes par SuperDoc (PresentationEditor) depuis un ProseMirror caché : chaque
 // fragment peint (.superdoc-fragment…) porte data-pm-start / data-pm-end, positions du document.
@@ -10,11 +11,18 @@ import { ChevronDown, Maximize2 } from 'lucide-react';
 import { Kbd } from '../../components/ui';
 import { fmtKeys, isMod } from '../../lib/keys';
 import type { DocEngine } from './engine';
+import { createTypeSounds, type TypeSounds } from './typeSounds';
 import { Popover, usePop } from './Popover';
 import './focus.css';
 
 const DIM_KEY = 'marginalia.ed.focusDim';
 const TYPEWRITER_KEY = 'marginalia.ed.typewriter';
+const CARRIAGE_KEY = 'marginalia.ed.twCarriage';
+const SOUNDS_KEY = 'marginalia.ed.twSounds';
+const VOLUME_KEY = 'marginalia.ed.twVolume';
+const VOLUME_DEFAULT = 0.5;
+/** Raccourci de la machine à écrire. */
+export const TYPEWRITER_KEYS = '⌘⇧T';
 
 const read = (k: string, d: boolean) => {
   try {
@@ -29,6 +37,16 @@ const write = (k: string, v: boolean) => {
     localStorage.setItem(k, v ? '1' : '0');
   } catch {
     /* indisponible */
+  }
+};
+
+const readVolume = () => {
+  try {
+    const v = localStorage.getItem(VOLUME_KEY);
+    const n = v === null ? NaN : Number(v);
+    return Number.isFinite(n) && n >= 0 && n <= 1 ? n : VOLUME_DEFAULT;
+  } catch {
+    return VOLUME_DEFAULT;
   }
 };
 
@@ -60,8 +78,17 @@ function movesCaret(e: KeyboardEvent): boolean {
 export interface FocusPrefs {
   dim: boolean;
   typewriter: boolean;
+  /** Machine à écrire : le point de frappe reste au milieu, la page glisse de gauche à droite. */
+  carriage: boolean;
+  /** Machine à écrire : sons de frappe. */
+  sounds: boolean;
+  /** Volume des sons, de 0 à 1. */
+  volume: number;
   setDim: (v: boolean) => void;
   setTypewriter: (v: boolean) => void;
+  setCarriage: (v: boolean) => void;
+  setSounds: (v: boolean) => void;
+  setVolume: (v: number) => void;
 }
 
 export function useFocusPrefs(): FocusPrefs {
@@ -75,7 +102,27 @@ export function useFocusPrefs(): FocusPrefs {
     write(TYPEWRITER_KEY, v);
     setTwState(v);
   }, []);
-  return { dim, typewriter, setDim, setTypewriter };
+  const [carriage, setCarriageState] = useState(() => read(CARRIAGE_KEY, true));
+  const [sounds, setSoundsState] = useState(() => read(SOUNDS_KEY, true));
+  const [volume, setVolumeState] = useState(readVolume);
+  const setCarriage = useCallback((v: boolean) => {
+    write(CARRIAGE_KEY, v);
+    setCarriageState(v);
+  }, []);
+  const setSounds = useCallback((v: boolean) => {
+    write(SOUNDS_KEY, v);
+    setSoundsState(v);
+  }, []);
+  const setVolume = useCallback((v: number) => {
+    const n = Math.max(0, Math.min(1, v));
+    try {
+      localStorage.setItem(VOLUME_KEY, String(n));
+    } catch {
+      /* indisponible */
+    }
+    setVolumeState(n);
+  }, []);
+  return { dim, typewriter, carriage, sounds, volume, setDim, setTypewriter, setCarriage, setSounds, setVolume };
 }
 
 // ── Interface qui s'efface pendant la frappe ─────────────────
@@ -232,8 +279,12 @@ const TW_RATIO = 0.45;
  * La ligne du curseur se tient vers 45 % de la hauteur visible : recentrage doux à chaque frappe
  * (ou déplacement au clavier). Le défilement manuel n'est pas contrarié : le recentrage reprend à
  * la frappe suivante. Espace ajouté en haut et en bas (variables --ed-tw-top / --ed-tw-bottom).
+ *
+ * `carriage` : le curseur se tient aussi au milieu de la largeur, comme le point de frappe d'une
+ * machine ; la page glisse à chaque caractère et revient d'un trait en fin de ligne. Espace ajouté
+ * à gauche et à droite (--ed-tw-side), défilement horizontal piloté d'ici (classe ed-tw-x).
  */
-export function useTypewriter(hostRef: MutableRefObject<HTMLElement | null>, engine: () => DocEngine | null, active: boolean) {
+export function useTypewriter(hostRef: MutableRefObject<HTMLElement | null>, engine: () => DocEngine | null, active: boolean, carriage = false) {
   useEffect(() => {
     const host = hostRef.current;
     const scroller = host?.closest<HTMLElement>('.ed-scroll');
@@ -241,6 +292,7 @@ export function useTypewriter(hostRef: MutableRefObject<HTMLElement | null>, eng
 
     // Espace haut et bas : la première et la dernière ligne peuvent atteindre le milieu.
     let padTop = 0;
+    let padSide = 0;
     const setPads = () => {
       const h = scroller.clientHeight;
       const top = Math.max(40, Math.round(h * TW_RATIO - 48));
@@ -251,54 +303,83 @@ export function useTypewriter(hostRef: MutableRefObject<HTMLElement | null>, eng
       // la vue ne saute pas quand l'espace du haut change
       if (delta) scroller.scrollTop += delta;
       padTop = top;
+      if (carriage) {
+        // Espace à gauche et à droite : le début et la fin de chaque ligne peuvent atteindre le milieu.
+        const w = scroller.clientWidth;
+        const side = Math.round(w / 2);
+        scroller.style.setProperty('--ed-tw-side', `${side}px`);
+        scroller.style.setProperty('--ed-tw-w', `${w}px`);
+        scroller.scrollLeft += side - padSide;
+        padSide = side;
+      }
     };
     const basePad = parseFloat(getComputedStyle(scroller).paddingTop) || 0;
     padTop = basePad;
     scroller.classList.add('ed-tw');
+    if (carriage) scroller.classList.add('ed-tw-x');
     setPads();
     const ro = new ResizeObserver(() => setPads());
     ro.observe(scroller);
 
     let raf = 0;
-    let dest = scroller.scrollTop;
+    let destY = scroller.scrollTop;
+    let destX = scroller.scrollLeft;
     const stop = () => {
       cancelAnimationFrame(raf);
       raf = 0;
     };
-    let lastSet = -1;
+    let lastY = -1;
+    let lastX = -1;
     const step = () => {
-      const cur = scroller.scrollTop;
+      const y = scroller.scrollTop;
+      const x = scroller.scrollLeft;
       // défilement venu d'ailleurs (barre de défilement, recherche, plan…) : on lui laisse la main
-      if (lastSet >= 0 && Math.abs(cur - lastSet) > 2) {
+      if ((lastY >= 0 && Math.abs(y - lastY) > 2) || (lastX >= 0 && Math.abs(x - lastX) > 2)) {
         raf = 0;
         return;
       }
-      const d = dest - cur;
-      if (Math.abs(d) < 0.75) {
-        scroller.scrollTop = dest;
+      const dy = destY - y;
+      const dx = carriage ? destX - x : 0;
+      if (Math.abs(dy) < 0.75 && Math.abs(dx) < 0.75) {
+        scroller.scrollTop = destY;
+        if (carriage) scroller.scrollLeft = destX;
         raf = 0;
         return;
       }
-      scroller.scrollTop = cur + d * 0.2;
-      lastSet = scroller.scrollTop;
+      scroller.scrollTop = y + dy * 0.2;
+      lastY = scroller.scrollTop;
+      if (carriage) {
+        // chaque caractère : glissement court ; fin de ligne : le chariot revient d'un trait
+        scroller.scrollLeft = x + dx * 0.24;
+        lastX = scroller.scrollLeft;
+      }
       raf = requestAnimationFrame(step);
     };
     const recenter = () => {
       const c = engine()?.caretCoords();
       if (!c) return;
       const sr = scroller.getBoundingClientRect();
-      const target = sr.top + scroller.clientHeight * TW_RATIO;
-      const d = (c.top + c.bottom) / 2 - target;
-      const max = scroller.scrollHeight - scroller.clientHeight;
-      const base = raf ? dest : scroller.scrollTop;
-      const next = Math.max(0, Math.min(max, base + d));
-      if (Math.abs(next - scroller.scrollTop) < 2) return;
-      dest = next;
+      const y = scroller.scrollTop;
+      const maxY = scroller.scrollHeight - scroller.clientHeight;
+      const nextY = Math.max(0, Math.min(maxY, y + (c.top + c.bottom) / 2 - (sr.top + scroller.clientHeight * TW_RATIO)));
+      let moveX = false;
+      let nextX = destX;
+      if (carriage && c.left !== null) {
+        const x = scroller.scrollLeft;
+        const maxX = scroller.scrollWidth - scroller.clientWidth;
+        nextX = Math.max(0, Math.min(maxX, x + c.left - (sr.left + scroller.clientWidth / 2)));
+        moveX = Math.abs(nextX - x) >= 1;
+      }
+      const moveY = Math.abs(nextY - y) >= 2;
+      if (!moveY && !moveX) return;
+      destY = moveY ? nextY : y;
+      if (carriage) destX = moveX ? nextX : scroller.scrollLeft;
       if (reducedMotion()) {
         stop();
-        scroller.scrollTop = dest;
+        scroller.scrollTop = destY;
+        if (carriage) scroller.scrollLeft = destX;
       } else if (!raf) {
-        lastSet = -1;
+        lastY = lastX = -1;
         raf = requestAnimationFrame(step);
       }
     };
@@ -346,10 +427,80 @@ export function useTypewriter(hostRef: MutableRefObject<HTMLElement | null>, eng
       scroller.removeEventListener('touchstart', cancel);
       scroller.removeEventListener('pointerdown', cancel);
       const top = scroller.scrollTop;
-      scroller.classList.remove('ed-tw');
-      scroller.style.removeProperty('--ed-tw-top');
-      scroller.style.removeProperty('--ed-tw-bottom');
+      scroller.classList.remove('ed-tw', 'ed-tw-x');
+      for (const v of ['--ed-tw-top', '--ed-tw-bottom', '--ed-tw-side', '--ed-tw-w']) scroller.style.removeProperty(v);
       scroller.scrollTop = Math.max(0, top - (padTop - basePad));
+      if (carriage) scroller.scrollLeft = 0;
+    };
+  }, [active, carriage, hostRef, engine]);
+}
+
+// ── Machine à écrire : sons de frappe ────────────────────────
+/**
+ * Un son par frappe dans le texte : touche, espace, retour arrière, retour chariot (Entrée). Quand
+ * la frappe fait passer le curseur à la ligne suivante, la clochette tinte puis le chariot revient.
+ */
+export function useTypeSounds(hostRef: MutableRefObject<HTMLElement | null>, engine: () => DocEngine | null, active: boolean, volume: number) {
+  const sounds = useRef<TypeSounds | null>(null);
+  const vol = useRef(volume);
+  vol.current = volume;
+
+  useEffect(() => {
+    sounds.current?.setVolume(volume);
+  }, [volume]);
+
+  useEffect(() => {
+    const scroller = hostRef.current?.closest<HTMLElement>('.ed-scroll');
+    if (!scroller || !active) return;
+    const snd = createTypeSounds(vol.current);
+    if (!snd) return;
+    sounds.current = snd;
+    /** Position du curseur dans la page (insensible au défilement). */
+    const caretY = () => {
+      const c = engine()?.caretCoords();
+      return c ? { y: c.top - scroller.getBoundingClientRect().top + scroller.scrollTop, h: c.bottom - c.top } : null;
+    };
+    // Fin de ligne : d'une frappe à l'autre, le curseur est descendu d'une ligne. `line` est la
+    // dernière position relevée pendant la frappe en cours ; toute autre action l'oublie.
+    let line: { y: number; h: number } | null = null;
+    let timers: ReturnType<typeof setTimeout>[] = [];
+    const look = () => {
+      const now = caretY();
+      if (line && now && now.y - line.y >= line.h * 0.6) {
+        snd.play('bell');
+        snd.play('return', 0.16);
+      }
+      line = now;
+    };
+    const forget = () => {
+      timers.forEach(clearTimeout);
+      line = null;
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (!inDocument(e.target)) return;
+      const char = !isMod(e) && !e.altKey && (e.key.length === 1 || e.key === 'Dead' || e.key === 'Process');
+      if (!char && e.key !== 'Tab') {
+        if (['Shift', 'CapsLock', 'Control', 'Alt', 'Meta', 'AltGraph'].includes(e.key)) return;
+        forget();
+        if (isMod(e) || e.altKey) return;
+        if (e.key === 'Enter') snd.play('return');
+        else if (e.key === 'Backspace' || e.key === 'Delete') snd.play('back');
+        return;
+      }
+      snd.play(e.key === ' ' || e.key === 'Tab' ? 'space' : 'key');
+      // relevé avant cette frappe (effet des précédentes), puis après la repeinture de celle-ci
+      look();
+      timers.forEach(clearTimeout);
+      timers = [setTimeout(look, 60), setTimeout(look, 160)];
+    };
+    scroller.addEventListener('pointerdown', forget);
+    window.addEventListener('keydown', onKey, true);
+    return () => {
+      window.removeEventListener('keydown', onKey, true);
+      scroller.removeEventListener('pointerdown', forget);
+      timers.forEach(clearTimeout);
+      sounds.current = null;
+      snd.dispose();
     };
   }, [active, hostRef, engine]);
 }
@@ -400,7 +551,42 @@ export function FocusButton({ focusMode, setFocusMode, prefs }: { focusMode: boo
             Machine à écrire
             <small>La ligne en cours reste au milieu</small>
           </span>
+          <Kbd>{TYPEWRITER_KEYS}</Kbd>
         </label>
+        {prefs.typewriter && (
+          <div className="ed-focus-sub">
+            <label className="ed-spell-check">
+              <input type="checkbox" checked={prefs.carriage} onChange={(e) => prefs.setCarriage(e.target.checked)} data-focus-opt="carriage" />
+              <span className="ed-focus-opt-label">
+                Chariot
+                <small>La page glisse sous le point de frappe</small>
+              </span>
+            </label>
+            <label className="ed-spell-check">
+              <input type="checkbox" checked={prefs.sounds} onChange={(e) => prefs.setSounds(e.target.checked)} data-focus-opt="sounds" />
+              <span className="ed-focus-opt-label">
+                Sons de frappe
+                <small>Touches, clochette, retour chariot</small>
+              </span>
+            </label>
+            {prefs.sounds && (
+              <label className="ed-focus-volume">
+                <span>Volume</span>
+                <input
+                  type="range"
+                  min={0}
+                  max={100}
+                  step={5}
+                  value={Math.round(prefs.volume * 100)}
+                  onChange={(e) => prefs.setVolume(Number(e.target.value) / 100)}
+                  aria-label="Volume des sons de frappe"
+                  data-focus-opt="volume"
+                />
+                <output>{Math.round(prefs.volume * 100)} %</output>
+              </label>
+            )}
+          </div>
+        )}
       </Popover>
     </span>
   );

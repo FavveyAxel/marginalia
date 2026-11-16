@@ -49,7 +49,7 @@ import { attachCiteLinks, tagInsertedCitation, type CiteHover } from './citeLink
 import { ActiveClock, addVersion, addVersionFromLibrary, registerSnapshotter, restoredTitle, fullDate, versionTitle, versionsOf } from './versions';
 import { fmtKeys, isMac, isMod, matchKeys } from '../../lib/keys';
 import { readZoomPref, stepZoom, usePageTint, writeZoomPref } from './view';
-import { FocusButton, useChromeAutoHide, useFocusPrefs, useParagraphDim, useTypewriter } from './focus';
+import { FocusButton, TYPEWRITER_KEYS, useChromeAutoHide, useFocusPrefs, useParagraphDim, useTypeSounds, useTypewriter } from './focus';
 import { FormatReveal, useFormatMarks } from './marks';
 import { CommentsButton, CommentsLayer, useComments } from './comments';
 import { hasPrivateNotes } from './privateNotes';
@@ -761,11 +761,14 @@ function Editor({ draft }: { draft: Draft }) {
       } else if (matchKeys(e, '⌘⇧F')) {
         e.preventDefault();
         setFocusMode((f) => !f);
+      } else if (matchKeys(e, TYPEWRITER_KEYS)) {
+        e.preventDefault();
+        focusPrefs.setTypewriter(!focusPrefs.typewriter);
       }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [save, focusMode]);
+  }, [save, focusMode, focusPrefs.typewriter, focusPrefs.setTypewriter]);
 
   // ⌘8 (Ctrl+Maj+8 sous Windows) : marques de mise en forme, comme Word ; partout dans l'éditeur.
   useEffect(() => {
@@ -1089,7 +1092,9 @@ function Editor({ draft }: { draft: Draft }) {
   const chrome = useChromeAutoHide(rootRef, focusMode);
   const dimOn = focusMode && focusPrefs.dim && phase === 'ready';
   useParagraphDim(hostRef, getEngine, dimOn, fmt);
-  useTypewriter(hostRef, getEngine, focusPrefs.typewriter && phase === 'ready');
+  const typewriterOn = focusPrefs.typewriter && phase === 'ready';
+  useTypewriter(hostRef, getEngine, typewriterOn, focusPrefs.carriage);
+  useTypeSounds(hostRef, getEngine, typewriterOn && focusPrefs.sounds && editable, focusPrefs.volume);
   useFormatMarks(hostRef, getEngine, showMarks && phase === 'ready', fmt);
   const comments = useComments({ engineRef, hostRef, ready: phase === 'ready', editable: editable && !layoutBusy, tick: commentsTick, caret: fmt.pos, notify: toast });
   // Reproduire la mise en forme (pinceau, ⌥⌘C / ⌥⌘V) et glisser-déposer du texte sélectionné.

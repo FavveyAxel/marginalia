@@ -234,7 +234,7 @@ export interface DocEngine {
   /** Mode concentration (focus.tsx) : positions du ou des blocs de premier niveau qui contiennent la sélection. */
   caretBlockRange(): { from: number; to: number } | null;
   /** Mode concentration (focus.tsx) : rectangle (coordonnées écran) du curseur, ou null. */
-  caretCoords(): { top: number; bottom: number } | null;
+  caretCoords(): { top: number; bottom: number; left: number | null } | null;
   /** Marques de mise en forme (marks.tsx) : mise en forme de chaque paragraphe, dans l'ordre du document. */
   paragraphFormats(): ParaFormat[];
   /** « Révéler la mise en forme » (marks.tsx) : valeurs distinctes sur la sélection (plusieurs = mixte). */
@@ -2443,7 +2443,7 @@ export async function openDocEngine(host: HTMLElement, data: ArrayBuffer, opts: 
         // coordonnées des pages peintes (déjà dans la fenêtre), pas du ProseMirror caché
         const c: Any = pres()?.coordsAtPos?.(sel.head);
         if (!c || !Number.isFinite(c.top) || !Number.isFinite(c.bottom)) return null;
-        return { top: c.top, bottom: c.bottom };
+        return { top: c.top, bottom: c.bottom, left: Number.isFinite(c.left) ? c.left : null };
       } catch {
         return null;
       }

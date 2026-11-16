@@ -27,7 +27,44 @@
   padding-bottom: var(--ed-tw-bottom, 72px);
 }
 
+/* Chariot : la page glisse de gauche à droite sous un point de frappe fixe. Le moteur garde la
+   largeur de la zone (--ed-tw-w) ; l'espace de chaque côté laisse le début et la fin d'une ligne
+   atteindre le milieu. Défilement horizontal piloté par focus.tsx, jamais à la main. */
+.ed-scroll.ed-tw-x {
+  overflow-x: hidden;
+  padding-left: var(--ed-tw-side, 0);
+  padding-right: var(--ed-tw-side, 0);
+}
+.ed-scroll.ed-tw-x > .ed-engine {
+  width: var(--ed-tw-w, 100%);
+}
+.ed-root.ed-cm-on .ed-scroll.ed-tw-x > .ed-engine {
+  width: calc(var(--ed-tw-w, 100%) - var(--cm-col) - 36px);
+}
 /* ── Menu des réglages ── */
+.ed-focus-sub {
+  margin-left: 11px;
+  padding-left: 11px;
+  border-left: 1px solid var(--border);
+}
+.ed-focus-volume {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 8px 6px 30px;
+  font-size: var(--fs-xs);
+  color: var(--muted);
+}
+.ed-focus-volume input {
+  flex: 1;
+  min-width: 0;
+  accent-color: var(--ink);
+}
+.ed-focus-volume output {
+  width: 38px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
 .ed-focus-options {
   min-width: 260px;
 }

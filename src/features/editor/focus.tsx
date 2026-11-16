@@ -505,7 +505,7 @@ export function useTypewriter(hostRef: MutableRefObject<HTMLElement | null>, eng
         struck.add(hide);
       }
       // comme une frappe : la lettre arrive grasse et grossie, se resserre, puis laisse la lettre peinte
-      const anim = el.animate([{ transform: `scale(${k * 1.35})` }, { transform: `scale(${k})` }], { duration: 90, easing: 'linear' });
+      const anim = el.animate([{ transform: `scale(${k * 1.18})` }, { transform: `scale(${k})` }], { duration: 90, easing: 'linear' });
       anim.onfinish = anim.oncancel = () => {
         el.remove();
         if (hide) struck.delete(hide);

@@ -27,11 +27,15 @@
   padding-bottom: var(--ed-tw-bottom, 72px);
 }
 
-/* Chariot : la page glisse de gauche à droite sous un point de frappe fixe. Le moteur garde la
-   largeur de la zone (--ed-tw-w) ; l'espace de chaque côté laisse le début et la fin d'une ligne
-   atteindre le milieu. Défilement horizontal piloté par focus.tsx, jamais à la main. */
+/* Chariot : la page glisse de gauche à droite sous un point de frappe fixe, au milieu de
+   l'éditeur. La zone d'écriture passe sous le plan et le panneau latéral (--ed-tw-l / --ed-tw-r,
+   mesurés par focus.tsx) ; le moteur garde la largeur de la colonne centrale (--ed-tw-w) ; l'espace
+   de chaque côté laisse le début et la fin d'une ligne atteindre le milieu. Défilement horizontal
+   piloté par focus.tsx, jamais à la main. */
 .ed-scroll.ed-tw-x {
   overflow-x: hidden;
+  margin-left: calc(-1 * var(--ed-tw-l, 0px));
+  margin-right: calc(-1 * var(--ed-tw-r, 0px));
   padding-left: var(--ed-tw-side, 0);
   padding-right: var(--ed-tw-side, 0);
 }
@@ -41,6 +45,45 @@
 .ed-root.ed-cm-on .ed-scroll.ed-tw-x > .ed-engine {
   width: calc(var(--ed-tw-w, 100%) - var(--cm-col) - 36px);
 }
+/* Le plan et le panneau latéral restent au-dessus de la page qui glisse. */
+.ed-root.ed-tw-carriage .ed-body > :is(.ed-outline, .ed-side) {
+  position: relative;
+  z-index: 5;
+}
+.ed-root.ed-tw-carriage .ed-outline {
+  background: var(--bg-app);
+}
+/* Par-dessus la zone d'écriture : fondu vers les bords (la lumière reste sur le point de frappe)
+   et repère sous la ligne en cours. */
+.ed-tw-stage {
+  position: absolute;
+  z-index: 3;
+  left: calc(-1 * var(--ed-tw-l, 0px));
+  right: calc(-1 * var(--ed-tw-r, 0px));
+  pointer-events: none;
+  background: radial-gradient(ellipse 62% 78% at 50% 45%, transparent 38%, color-mix(in srgb, var(--bg-app) 72%, transparent) 100%);
+}
+.ed-tw-guide {
+  position: absolute;
+  left: 50%;
+  width: 44px;
+  height: 5px;
+  margin-left: -22px;
+  border: 1.5px solid var(--faint);
+  border-top: 0;
+  border-radius: 0 0 1px 1px;
+}
+.ed-tw-guide::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 7px;
+  margin-left: -4px;
+  border-left: 4px solid transparent;
+  border-right: 4px solid transparent;
+  border-bottom: 5px solid var(--muted);
+}
+
 /* ── Menu des réglages ── */
 .ed-focus-sub {
   margin-left: 11px;

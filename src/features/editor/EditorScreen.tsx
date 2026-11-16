@@ -762,8 +762,10 @@ function Editor({ draft }: { draft: Draft }) {
         e.preventDefault();
         setFocusMode((f) => !f);
       } else if (matchKeys(e, TYPEWRITER_KEYS)) {
+        // la machine complète : plein écran à l'allumage, retour à l'éditeur à l'extinction
         e.preventDefault();
         focusPrefs.setTypewriter(!focusPrefs.typewriter);
+        setFocusMode(!focusPrefs.typewriter);
       }
     };
     window.addEventListener('keydown', onKey);
@@ -1108,7 +1110,7 @@ function Editor({ draft }: { draft: Draft }) {
   return (
     <div
       ref={rootRef}
-      className={`ed-root ed-root-in ${focusMode ? 'ed-focus' : ''} ${chrome.hidden ? 'ed-chrome-off' : ''} ${dimOn ? 'ed-dim' : ''} ${focusPrefs.typewriter ? 'ed-typewriter' : ''} ${showMarks ? 'ed-marks' : ''} ${extractsOpen ? 'ed-has-extracts' : ''} ${comments.columnOn ? 'ed-cm-on' : ''} ${comments.shown ? '' : 'ed-cm-hidden'} ${painter.mode ? 'ed-painting' : ''} ${liveReadOnly ? 'ed-live-readonly' : ''}`}
+      className={`ed-root ed-root-in ${focusMode ? 'ed-focus' : ''} ${chrome.hidden ? 'ed-chrome-off' : ''} ${dimOn ? 'ed-dim' : ''} ${focusPrefs.typewriter ? 'ed-typewriter' : ''} ${typewriterOn && focusPrefs.carriage ? 'ed-tw-carriage' : ''} ${showMarks ? 'ed-marks' : ''} ${extractsOpen ? 'ed-has-extracts' : ''} ${comments.columnOn ? 'ed-cm-on' : ''} ${comments.shown ? '' : 'ed-cm-hidden'} ${painter.mode ? 'ed-painting' : ''} ${liveReadOnly ? 'ed-live-readonly' : ''}`}
       style={{ '--cm-col': `${comments.colW}px` } as React.CSSProperties}
     >
       <header className="topbar ed-topbar">

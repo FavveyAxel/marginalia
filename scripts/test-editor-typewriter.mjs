@@ -55,8 +55,19 @@ const carriage = (page) =>
     const sc = document.querySelector('.ed-scroll');
     const r = sc.getBoundingClientRect();
     const pg = document.querySelector('.superdoc-page').getBoundingClientRect();
-    return { off: c ? c.left - (r.left + sc.clientWidth / 2) : null, pageLeft: pg.left, pageMid: pg.left + pg.width / 2 - (r.left + sc.clientWidth / 2), scrollLeft: sc.scrollLeft, on: sc.classList.contains('ed-tw-x') };
+    const col = document.querySelector('.ed-center').getBoundingClientRect();
+    const body = document.querySelector('.ed-body').getBoundingClientRect();
+    return { off: c ? c.left - (r.left + sc.clientWidth / 2) : null, pageLeft: pg.left, pageMid: pg.left + pg.width / 2 - (col.left + col.width / 2), wide: Math.abs(r.left - body.left) < 2 && Math.abs(r.right - body.right) < 2, scrollLeft: sc.scrollLeft, on: sc.classList.contains('ed-tw-x') };
   });
+/** Mode concentration : rappelle l'interface (souris en haut) puis ouvre le menu des réglages. */
+async function openMenu(page) {
+  await page.mouse.move(700, 300);
+  await page.mouse.move(700, 20);
+  await page.waitForTimeout(350);
+  await page.click('[data-focus-options]');
+  await page.waitForSelector('.ed-focus-options');
+  await page.waitForTimeout(200);
+}
 const log = (page) => page.evaluate(() => window.__twLog.splice(0));
 const count = (l, k) => l.filter((x) => x === k).length;
 
@@ -103,9 +114,8 @@ try {
   await clickInText(page, '§6 ');
   await page.keyboard.press('Control+Shift+KeyT');
   await page.waitForTimeout(700);
-  check('⌘⇧T : machine à écrire allumée', await page.evaluate(() => localStorage.getItem('marginalia.ed.typewriter') === '1' && document.querySelector('.ed-scroll').classList.contains('ed-tw')));
-  await page.click('[data-focus-options]');
-  await page.waitForSelector('.ed-focus-options');
+  check('⌘⇧T : machine à écrire allumée, en plein écran', await page.evaluate(() => localStorage.getItem('marginalia.ed.typewriter') === '1' && document.querySelector('.ed-scroll').classList.contains('ed-tw') && document.querySelector('.ed-root').classList.contains('ed-focus')));
+  await openMenu(page);
   await page.waitForTimeout(300);
   check('menu : chariot et sons cochés par défaut, volume 50 %', await page.evaluate(() => {
     const q = (k) => document.querySelector(`[data-focus-opt="${k}"]`);
@@ -122,6 +132,11 @@ try {
   await page.waitForTimeout(900);
   const end = await carriage(page);
   check('chariot : le curseur se tient au milieu de la largeur', end.on && end.off !== null && Math.abs(end.off) < 4, JSON.stringify(end));
+  check('chariot : la zone d’écriture prend toute la largeur de l’éditeur, repère affiché', end.wide && (await page.evaluate(() => {
+    const g = document.querySelector('.ed-tw-guide')?.getBoundingClientRect();
+    const c = window.__ed.engine().caretCoords();
+    return !!g && Math.abs(g.left + g.width / 2 - c.left) < 4 && g.top >= c.bottom && g.top - c.bottom < 12;
+  })));
   await log(page);
   await page.keyboard.press('Enter');
   await page.waitForTimeout(900);
@@ -156,10 +171,14 @@ try {
   const wrapped = await carriage(page);
   check('après le passage à la ligne : curseur toujours au milieu', Math.abs(wrapped.off) < 4, `écart ${wrapped.off.toFixed(1)}`);
   await shot(page, 'frappe.png');
+  await page.evaluate(() => window.__store.getState().setTheme?.('dark'));
+  await page.evaluate(() => document.documentElement.setAttribute('data-theme', 'dark'));
+  await page.waitForTimeout(500);
+  await shot(page, 'frappe-sombre.png');
+  await page.evaluate(() => document.documentElement.setAttribute('data-theme', 'light'));
 
   // ── Volume ──
-  await page.click('[data-focus-options]');
-  await page.waitForSelector('.ed-focus-options');
+  await openMenu(page);
   await page.fill('[data-focus-opt="volume"]', '80');
   check('volume réglé et mémorisé', await page.evaluate(() => localStorage.getItem('marginalia.ed.twVolume') === '0.8'));
   // ── Chariot décoché ──
@@ -167,7 +186,7 @@ try {
   await page.keyboard.press('Escape');
   await page.waitForTimeout(500);
   const off = await carriage(page);
-  check('chariot décoché : page revenue au milieu', !off.on && off.scrollLeft === 0 && Math.abs(off.pageMid - rest.pageMid) < 2, JSON.stringify(off));
+  check('chariot décoché : page revenue au milieu, plus de repère', !off.on && off.scrollLeft === 0 && Math.abs(off.pageMid - rest.pageMid) < 6 && (await page.evaluate(() => !document.querySelector('.ed-tw-stage'))), JSON.stringify(off));
   await clickInText(page, 'Un autre court');
   await page.keyboard.press('End');
   await page.keyboard.type(' Sans chariot.', { delay: 15 });
@@ -176,8 +195,7 @@ try {
   const l3 = await log(page);
   check('sans chariot : la page ne glisse plus, les sons restent', Math.abs(still.pageLeft - off.pageLeft) < 1 && count(l3, 'key') === 12 && count(l3, 'space') === 2, l3.join(' '));
   // ── Sons décochés ──
-  await page.click('[data-focus-options]');
-  await page.waitForSelector('.ed-focus-options');
+  await openMenu(page);
   await page.click('[data-focus-opt="sounds"]');
   check('sons décochés : plus de réglage de volume', await page.evaluate(() => !document.querySelector('[data-focus-opt="volume"]')));
   await page.keyboard.press('Escape');
@@ -196,8 +214,7 @@ try {
   await page.reload();
   await page.waitForFunction(() => window.__store && window.__store.getState().ready, null, { timeout: 60000 });
   await openDraft(page, draft.id);
-  await page.click('[data-focus-options]');
-  await page.waitForSelector('.ed-focus-options');
+  await openMenu(page);
   check('rechargement : réglages conservés', await page.evaluate(() => {
     const q = (k) => document.querySelector(`[data-focus-opt="${k}"]`);
     return q('typewriter').checked && !q('carriage').checked && !q('sounds').checked;
@@ -226,7 +243,7 @@ try {
   await log(page);
   await page.keyboard.type('x');
   await page.waitForTimeout(200);
-  check('⌘⇧T : machine éteinte, page au milieu, silence', !out.on && out.scrollLeft === 0 && (await log(page)).length === 0 && (await page.evaluate(() => !document.querySelector('.ed-scroll').classList.contains('ed-tw'))));
+  check('⌘⇧T : machine éteinte, éditeur revenu, page au milieu, silence', !out.on && out.scrollLeft === 0 && (await page.evaluate(() => !document.querySelector('.ed-focus'))) && (await log(page)).length === 0 && (await page.evaluate(() => !document.querySelector('.ed-scroll').classList.contains('ed-tw'))));
   await page.evaluate((keys) => keys.forEach((k) => localStorage.removeItem(k)), KEYS);
 
   check('aucune erreur de page, aucune requête hors de l’app', errors.length === 0, errors.join(' | '));

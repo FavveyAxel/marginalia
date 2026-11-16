@@ -290,6 +290,28 @@ export function useTypewriter(hostRef: MutableRefObject<HTMLElement | null>, eng
     const scroller = host?.closest<HTMLElement>('.ed-scroll');
     if (!host || !scroller || !active) return;
 
+    // Chariot : la zone d'écriture s'étend sous le plan et le panneau latéral (marges négatives,
+    // --ed-tw-l / --ed-tw-r) : le point de frappe est au milieu de l'éditeur et la page glisse sur
+    // toute sa largeur. Par-dessus : le repère du point de frappe et un fondu vers les bords.
+    const center = scroller.parentElement;
+    const bodyEl = scroller.closest<HTMLElement>('.ed-body');
+    const stage = carriage && center ? document.createElement('div') : null;
+    const guide = stage ? document.createElement('div') : null;
+    if (stage && guide && center) {
+      stage.className = 'ed-tw-stage';
+      stage.setAttribute('aria-hidden', 'true');
+      guide.className = 'ed-tw-guide';
+      stage.appendChild(guide);
+      center.appendChild(stage);
+    }
+    let lineBottom = 14;
+    const placeGuide = () => {
+      if (!stage || !guide) return;
+      stage.style.top = `${scroller.offsetTop}px`;
+      stage.style.height = `${scroller.clientHeight}px`;
+      guide.style.top = `${Math.round(scroller.clientHeight * TW_RATIO + lineBottom + 3)}px`;
+    };
+
     // Espace haut et bas : la première et la dernière ligne peuvent atteindre le milieu.
     let padTop = 0;
     let padSide = 0;
@@ -305,12 +327,21 @@ export function useTypewriter(hostRef: MutableRefObject<HTMLElement | null>, eng
       padTop = top;
       if (carriage) {
         // Espace à gauche et à droite : le début et la fin de chaque ligne peuvent atteindre le milieu.
-        const w = scroller.clientWidth;
-        const side = Math.round(w / 2);
+        // Le moteur garde la largeur de la colonne centrale (zoom « ajuster » inchangé).
+        const cr = center?.getBoundingClientRect();
+        const br = bodyEl?.getBoundingClientRect();
+        const l = cr && br ? Math.max(0, Math.round(cr.left - br.left)) : 0;
+        const r = cr && br ? Math.max(0, Math.round(br.right - cr.right)) : 0;
+        center?.style.setProperty('--ed-tw-l', `${l}px`);
+        center?.style.setProperty('--ed-tw-r', `${r}px`);
+        scroller.style.setProperty('--ed-tw-w', `${Math.round(cr?.width ?? scroller.clientWidth)}px`);
+        const side = Math.round(scroller.clientWidth / 2);
         scroller.style.setProperty('--ed-tw-side', `${side}px`);
-        scroller.style.setProperty('--ed-tw-w', `${w}px`);
-        scroller.scrollLeft += side - padSide;
-        padSide = side;
+        // au repos, la page reste où elle était
+        const neutral = side - l;
+        scroller.scrollLeft += neutral - padSide;
+        padSide = neutral;
+        placeGuide();
       }
     };
     const basePad = parseFloat(getComputedStyle(scroller).paddingTop) || 0;
@@ -320,6 +351,7 @@ export function useTypewriter(hostRef: MutableRefObject<HTMLElement | null>, eng
     setPads();
     const ro = new ResizeObserver(() => setPads());
     ro.observe(scroller);
+    if (carriage && center) ro.observe(center);
 
     let raf = 0;
     let destY = scroller.scrollTop;
@@ -369,6 +401,11 @@ export function useTypewriter(hostRef: MutableRefObject<HTMLElement | null>, eng
         const maxX = scroller.scrollWidth - scroller.clientWidth;
         nextX = Math.max(0, Math.min(maxX, x + c.left - (sr.left + scroller.clientWidth / 2)));
         moveX = Math.abs(nextX - x) >= 1;
+        const lb = (c.bottom - c.top) / 2;
+        if (Math.abs(lb - lineBottom) > 1) {
+          lineBottom = lb;
+          placeGuide();
+        }
       }
       const moveY = Math.abs(nextY - y) >= 2;
       if (!moveY && !moveX) return;
@@ -426,6 +463,9 @@ export function useTypewriter(hostRef: MutableRefObject<HTMLElement | null>, eng
       scroller.removeEventListener('wheel', cancel);
       scroller.removeEventListener('touchstart', cancel);
       scroller.removeEventListener('pointerdown', cancel);
+      stage?.remove();
+      center?.style.removeProperty('--ed-tw-l');
+      center?.style.removeProperty('--ed-tw-r');
       const top = scroller.scrollTop;
       scroller.classList.remove('ed-tw', 'ed-tw-x');
       for (const v of ['--ed-tw-top', '--ed-tw-bottom', '--ed-tw-side', '--ed-tw-w']) scroller.style.removeProperty(v);

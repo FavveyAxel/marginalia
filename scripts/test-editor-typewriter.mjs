@@ -153,7 +153,7 @@ try {
   const struck = await page.waitForFunction(() => {
     const el = document.querySelector('.ed-tw-strike');
     const c = window.__ed.engine().caretCoords();
-    if (!el || !c) return null;
+    if (!el || !c || el.textContent !== 's') return null;
     const r = el.getBoundingClientRect();
     return { ch: el.textContent, dx: Math.abs(r.right - c.left), dy: Math.abs((r.top + r.bottom) / 2 - (c.top + c.bottom) / 2), in: !!el.closest('.ed-scroll') };
   }, null, { timeout: 2000, polling: 'raf' }).then((h) => h.jsonValue()).catch(() => null);

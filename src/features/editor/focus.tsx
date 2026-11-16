@@ -362,6 +362,7 @@ export function useTypewriter(hostRef: MutableRefObject<HTMLElement | null>, eng
     };
     let lastY = -1;
     let lastX = -1;
+    let slowUntil = 0;
     const step = () => {
       const y = scroller.scrollTop;
       const x = scroller.scrollLeft;
@@ -381,8 +382,9 @@ export function useTypewriter(hostRef: MutableRefObject<HTMLElement | null>, eng
       scroller.scrollTop = y + dy * 0.2;
       lastY = scroller.scrollTop;
       if (carriage) {
-        // chaque caractère : glissement court ; fin de ligne : le chariot revient d'un trait
-        scroller.scrollLeft = x + dx * 0.24;
+        // chaque caractère : la page suit la frappe sans traîner ; changement de ligne : le
+        // chariot revient d'un trait, plus posément
+        scroller.scrollLeft = x + dx * (performance.now() < slowUntil ? 0.2 : 0.52);
         lastX = scroller.scrollLeft;
       }
       raf = requestAnimationFrame(step);
@@ -409,6 +411,7 @@ export function useTypewriter(hostRef: MutableRefObject<HTMLElement | null>, eng
       }
       const moveY = Math.abs(nextY - y) >= 2;
       if (!moveY && !moveX) return;
+      if (moveY && carriage && Math.abs(nextY - destY) >= 2) slowUntil = performance.now() + 500;
       destY = moveY ? nextY : y;
       if (carriage) destX = moveX ? nextX : scroller.scrollLeft;
       if (reducedMotion()) {
@@ -467,6 +470,7 @@ export function useTypewriter(hostRef: MutableRefObject<HTMLElement | null>, eng
       el.setAttribute('aria-hidden', 'true');
       el.textContent = ch;
       el.style.font = cs.font;
+      el.style.fontWeight = '700';
       el.style.color = cs.color;
       el.style.letterSpacing = cs.letterSpacing;
       scroller.appendChild(el);
@@ -476,14 +480,8 @@ export function useTypewriter(hostRef: MutableRefObject<HTMLElement | null>, eng
       el.style.left = `${box.left + box.width / 2 - sr.left + scroller.scrollLeft - el.offsetWidth / 2}px`;
       el.style.top = `${box.top + box.height / 2 - sr.top + scroller.scrollTop - el.offsetHeight / 2}px`;
       (window as unknown as { __twStrikes?: string[] }).__twStrikes?.push(ch);
-      const anim = el.animate(
-        [
-          { transform: `scale(${k * 1.55})`, opacity: 0.9 },
-          { transform: `scale(${k})`, opacity: 1, offset: 0.6 },
-          { transform: `scale(${k})`, opacity: 0 },
-        ],
-        { duration: 170, easing: 'cubic-bezier(0.2, 0.7, 0.2, 1)' },
-      );
+      // comme une frappe : la lettre arrive grasse et grossie, se resserre, puis laisse la lettre peinte
+      const anim = el.animate([{ transform: `scale(${k * 1.35})` }, { transform: `scale(${k})` }], { duration: 90, easing: 'linear' });
       anim.onfinish = anim.oncancel = () => el.remove();
       return true;
     };

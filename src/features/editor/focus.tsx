@@ -315,6 +315,8 @@ export function useTypewriter(hostRef: MutableRefObject<HTMLElement | null>, eng
     // Espace haut et bas : la première et la dernière ligne peuvent atteindre le milieu.
     let padTop = 0;
     let padSide = 0;
+    /** Espace de côté en plus, quand la page déborde de la colonne (zoom fort, fenêtre étroite). */
+    let extra = 0;
     const setPads = () => {
       const h = scroller.clientHeight;
       const top = Math.max(40, Math.round(h * TW_RATIO - 48));
@@ -335,7 +337,7 @@ export function useTypewriter(hostRef: MutableRefObject<HTMLElement | null>, eng
         center?.style.setProperty('--ed-tw-l', `${l}px`);
         center?.style.setProperty('--ed-tw-r', `${r}px`);
         scroller.style.setProperty('--ed-tw-w', `${Math.round(cr?.width ?? scroller.clientWidth)}px`);
-        const side = Math.round(scroller.clientWidth / 2);
+        const side = Math.round(scroller.clientWidth / 2) + extra;
         scroller.style.setProperty('--ed-tw-side', `${side}px`);
         // au repos, la page reste où elle était
         const neutral = side - l;
@@ -399,9 +401,16 @@ export function useTypewriter(hostRef: MutableRefObject<HTMLElement | null>, eng
       let moveX = false;
       let nextX = destX;
       if (carriage && c.left !== null) {
+        const off = c.left - (sr.left + scroller.clientWidth / 2);
+        // la page déborde de la colonne : on élargit l'espace de côté pour que le curseur atteigne le milieu
+        const short = Math.max(-(scroller.scrollLeft + off), scroller.scrollLeft + off - (scroller.scrollWidth - scroller.clientWidth));
+        if (short > 0 && extra < 6000) {
+          extra += Math.ceil(short) + 80;
+          setPads();
+        }
         const x = scroller.scrollLeft;
         const maxX = scroller.scrollWidth - scroller.clientWidth;
-        nextX = Math.max(0, Math.min(maxX, x + c.left - (sr.left + scroller.clientWidth / 2)));
+        nextX = Math.max(0, Math.min(maxX, x + off));
         moveX = Math.abs(nextX - x) >= 1;
         const lb = (c.bottom - c.top) / 2;
         if (Math.abs(lb - lineBottom) > 1) {
@@ -439,6 +448,11 @@ export function useTypewriter(hostRef: MutableRefObject<HTMLElement | null>, eng
     // qui marque le papier. Calque posé sur la lettre peinte (le texte n'est pas touché), dans la
     // zone qui défile : il suit la page pendant que le chariot glisse.
     let strikeRaf = 0;
+    type HighlightSet = Set<Range>;
+    const highlights = (CSS as unknown as { highlights?: Map<string, HighlightSet> }).highlights;
+    const HighlightCtor = (window as unknown as { Highlight?: new () => HighlightSet }).Highlight;
+    const struck: HighlightSet = highlights && HighlightCtor ? new HighlightCtor() : new Set<Range>();
+    if (highlights && HighlightCtor) highlights.set('ed-tw-struck', struck);
     const strike = (want: string): boolean => {
       const c = engine()?.caretCoords();
       const point = (document as Document & { caretRangeFromPoint?: (x: number, y: number) => Range | null }).caretRangeFromPoint;
@@ -450,6 +464,7 @@ export function useTypewriter(hostRef: MutableRefObject<HTMLElement | null>, eng
       // la lettre dont le bord droit touche le curseur
       let box: DOMRect | null = null;
       let ch = '';
+      let idx = -1;
       for (const i of [at.startOffset - 1, at.startOffset]) {
         if (i < 0 || i >= data.length) continue;
         const r = document.createRange();
@@ -459,6 +474,7 @@ export function useTypewriter(hostRef: MutableRefObject<HTMLElement | null>, eng
         if (b.width > 0 && Math.abs(b.right - c.left) < 3) {
           box = b;
           ch = data[i];
+          idx = i;
           break;
         }
       }
@@ -470,19 +486,30 @@ export function useTypewriter(hostRef: MutableRefObject<HTMLElement | null>, eng
       el.setAttribute('aria-hidden', 'true');
       el.textContent = ch;
       el.style.font = cs.font;
-      el.style.fontWeight = '700';
+      el.style.lineHeight = 'normal';
       el.style.color = cs.color;
       el.style.letterSpacing = cs.letterSpacing;
       scroller.appendChild(el);
-      // même taille que la lettre peinte, quel que soit le zoom
-      const k = box.height / (el.offsetHeight || box.height);
+      // même taille que la lettre peinte, quel que soit le zoom ; puis en gras, le temps de la frappe
+      const k = box.width / (el.offsetWidth || box.width);
+      el.style.fontWeight = '700';
       const sr = scroller.getBoundingClientRect();
       el.style.left = `${box.left + box.width / 2 - sr.left + scroller.scrollLeft - el.offsetWidth / 2}px`;
       el.style.top = `${box.top + box.height / 2 - sr.top + scroller.scrollTop - el.offsetHeight / 2}px`;
       (window as unknown as { __twStrikes?: string[] }).__twStrikes?.push(ch);
+      // la lettre peinte s'efface le temps de l'animation : on ne voit que celle qui frappe
+      const hide = highlights ? document.createRange() : null;
+      if (hide && highlights) {
+        hide.setStart(node, idx);
+        hide.setEnd(node, idx + 1);
+        struck.add(hide);
+      }
       // comme une frappe : la lettre arrive grasse et grossie, se resserre, puis laisse la lettre peinte
       const anim = el.animate([{ transform: `scale(${k * 1.35})` }, { transform: `scale(${k})` }], { duration: 90, easing: 'linear' });
-      anim.onfinish = anim.oncancel = () => el.remove();
+      anim.onfinish = anim.oncancel = () => {
+        el.remove();
+        if (hide) struck.delete(hide);
+      };
       return true;
     };
     /** Attend que la lettre soit peinte devant le curseur (quelques images après la frappe). */
@@ -530,6 +557,7 @@ export function useTypewriter(hostRef: MutableRefObject<HTMLElement | null>, eng
       scroller.removeEventListener('pointerdown', cancel);
       cancelAnimationFrame(strikeRaf);
       scroller.querySelectorAll('.ed-tw-strike').forEach((x) => x.remove());
+      highlights?.delete('ed-tw-struck');
       stage?.remove();
       center?.style.removeProperty('--ed-tw-l');
       center?.style.removeProperty('--ed-tw-r');

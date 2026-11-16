@@ -155,7 +155,7 @@ try {
     const c = window.__ed.engine().caretCoords();
     if (!el || !c || el.textContent !== 's') return null;
     const r = el.getBoundingClientRect();
-    return { ch: el.textContent, dx: Math.abs(r.right - c.left), dy: Math.abs((r.top + r.bottom) / 2 - (c.top + c.bottom) / 2), in: !!el.closest('.ed-scroll') };
+    return { ch: el.textContent, hidden: CSS.highlights.get('ed-tw-struck')?.size ?? -1, dx: Math.abs(r.right - c.left), dy: Math.abs((r.top + r.bottom) / 2 - (c.top + c.bottom) / 2), in: !!el.closest('.ed-scroll') };
   }, null, { timeout: 2000, polling: 'raf' }).then((h) => h.jsonValue()).catch(() => null);
   await page.keyboard.type('W');
   await page.waitForFunction(() => { const el = document.querySelector('.ed-tw-strike'); if (!el || el.textContent !== 'W') return false; const an = el.getAnimations()[0]; an.pause(); an.currentTime = 25; return true; }, null, { timeout: 2000, polling: 'raf' }).catch(() => {});
@@ -163,10 +163,10 @@ try {
   await page.evaluate(() => document.querySelector('.ed-tw-strike')?.getAnimations()[0]?.finish());
   await page.keyboard.press('Backspace');
   await page.evaluate(() => window.__twLog.splice(-2));
-  check('frappe : la lettre tapée s’anime sur place', !!struck && struck.ch === 's' && struck.dx < 14 && struck.dy < 12 && struck.in, JSON.stringify(struck));
+  check('frappe : la lettre tapée s’anime sur place', !!struck && struck.ch === 's' && struck.hidden === 1 && struck.dx < 14 && struck.dy < 12 && struck.in, JSON.stringify(struck));
   await page.waitForTimeout(400);
   const strikes = await page.evaluate(() => window.__twStrikes.splice(0));
-  check('frappe : une animation par lettre, aucune pour les espaces, calques retirés', strikes.join('') === 'DixmotssaisisW' && (await page.evaluate(() => !document.querySelector('.ed-tw-strike'))), strikes.join(''));
+  check('frappe : une animation par lettre, aucune pour les espaces, calques retirés', strikes.join('') === 'DixmotssaisisW' && (await page.evaluate(() => !document.querySelector('.ed-tw-strike') && CSS.highlights.get('ed-tw-struck').size === 0)), strikes.join(''));
   await page.waitForTimeout(700);
   const typed = await carriage(page);
   check('frappe : la page glisse vers la gauche, le curseur ne bouge pas', Math.abs(typed.off) < 4 && typed.pageLeft < home.pageLeft - 60, `page ${Math.round(home.pageLeft)} → ${Math.round(typed.pageLeft)}, écart ${typed.off.toFixed(1)}`);
@@ -246,6 +246,30 @@ try {
   await page.keyboard.press('Escape');
   const text2 = await page.evaluate(() => window.__ed.engine().plainText());
   check('texte retrouvé après rechargement', text2.includes('Sans chariot. Silence.'));
+
+  // ── Zoom fort : la page déborde de la colonne, le début de ligne atteint quand même le milieu ──
+  await page.keyboard.press('Control+Shift+KeyF'); // plein écran : le plan ne recouvre pas la page
+  await page.evaluate(() => window.__ed.engine().setZoom(180));
+  await page.waitForTimeout(1200);
+  {
+    // la page déborde : clic dans la partie visible de la ligne (ni sous le plan, ni sous le panneau)
+    const find = () => { for (const l of document.querySelectorAll('.superdoc-page .superdoc-line')) if (l.textContent.includes('Le dernier court')) { l.scrollIntoView({ block: 'center' }); const r = l.getBoundingClientRect(); return { x: Math.max(260, Math.min(1000, r.left + 60)), y: r.top + r.height / 2 }; } };
+    await page.evaluate(find);
+    await page.waitForTimeout(250);
+    const pt = await page.evaluate(find);
+    await page.mouse.click(pt.x, pt.y);
+    await page.waitForTimeout(250);
+  }
+  await page.keyboard.press('Home');
+  await page.waitForTimeout(900);
+  const zoomHome = await carriage(page);
+  await page.keyboard.press('End');
+  await page.waitForTimeout(900);
+  const zoomEnd = await carriage(page);
+  check('zoom 180 % : début et fin de ligne au milieu', Math.abs(zoomHome.off) < 4 && Math.abs(zoomEnd.off) < 4, `début ${zoomHome.off?.toFixed(1)}, fin ${zoomEnd.off?.toFixed(1)}`);
+  await page.evaluate(() => window.__ed.engine().setZoom(100));
+  await page.keyboard.press('Control+Shift+KeyF');
+  await page.waitForTimeout(900);
 
   // ── Mouvement réduit : chariot sans glissement ──
   await page.emulateMedia({ reducedMotion: 'reduce' });

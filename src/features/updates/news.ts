@@ -21,6 +21,16 @@ export interface NewsEntry {
 
 export const NEWS: NewsEntry[] = [
   {
+    version: '3.55',
+    items: [
+      {
+        icon: 'sparkles',
+        title: 'Machine à écrire : la lettre qui se pose',
+        text: 'Chaque lettre tapée arrive un peu grossie puis se pose à sa place. La page suit la frappe sans traîner, et le début de ligne revient bien sous le point de frappe, même à fort zoom.',
+      },
+    ],
+  },
+  {
     version: '3.54',
     items: [
       {

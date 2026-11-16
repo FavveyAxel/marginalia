@@ -84,6 +84,18 @@
   border-bottom: 5px solid var(--muted);
 }
 
+/* Lettre qui vient d'être frappée (calque animé par focus.tsx). */
+.ed-tw-strike {
+  position: absolute;
+  z-index: 2;
+  white-space: pre;
+  line-height: 1;
+  pointer-events: none;
+  transform-origin: 50% 62%;
+  text-shadow: 0 0 0.6px currentColor;
+  will-change: transform, opacity;
+}
+
 /* ── Menu des réglages ── */
 .ed-focus-sub {
   margin-left: 11px;

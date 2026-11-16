@@ -432,9 +432,76 @@ export function useTypewriter(hostRef: MutableRefObject<HTMLElement | null>, eng
       requestAnimationFrame(recenter);
       timers = [setTimeout(recenter, 70), setTimeout(recenter, 200), setTimeout(recenter, 420)];
     };
+    // Frappe : la lettre qui vient d'être tapée arrive grossie puis se pose, comme un caractère
+    // qui marque le papier. Calque posé sur la lettre peinte (le texte n'est pas touché), dans la
+    // zone qui défile : il suit la page pendant que le chariot glisse.
+    let strikeRaf = 0;
+    const strike = (want: string): boolean => {
+      const c = engine()?.caretCoords();
+      const point = (document as Document & { caretRangeFromPoint?: (x: number, y: number) => Range | null }).caretRangeFromPoint;
+      if (!c || c.left === null || !point) return false;
+      const at = point.call(document, c.left - 2, (c.top + c.bottom) / 2);
+      const node = at?.startContainer;
+      if (!at || !node || node.nodeType !== Node.TEXT_NODE || !host.contains(node)) return false;
+      const data = (node as Text).data;
+      // la lettre dont le bord droit touche le curseur
+      let box: DOMRect | null = null;
+      let ch = '';
+      for (const i of [at.startOffset - 1, at.startOffset]) {
+        if (i < 0 || i >= data.length) continue;
+        const r = document.createRange();
+        r.setStart(node, i);
+        r.setEnd(node, i + 1);
+        const b = r.getBoundingClientRect();
+        if (b.width > 0 && Math.abs(b.right - c.left) < 3) {
+          box = b;
+          ch = data[i];
+          break;
+        }
+      }
+      const parent = node.parentElement;
+      if (!box || ch !== want || !parent) return false;
+      const cs = getComputedStyle(parent);
+      const el = document.createElement('span');
+      el.className = 'ed-tw-strike';
+      el.setAttribute('aria-hidden', 'true');
+      el.textContent = ch;
+      el.style.font = cs.font;
+      el.style.color = cs.color;
+      el.style.letterSpacing = cs.letterSpacing;
+      scroller.appendChild(el);
+      // même taille que la lettre peinte, quel que soit le zoom
+      const k = box.height / (el.offsetHeight || box.height);
+      const sr = scroller.getBoundingClientRect();
+      el.style.left = `${box.left + box.width / 2 - sr.left + scroller.scrollLeft - el.offsetWidth / 2}px`;
+      el.style.top = `${box.top + box.height / 2 - sr.top + scroller.scrollTop - el.offsetHeight / 2}px`;
+      (window as unknown as { __twStrikes?: string[] }).__twStrikes?.push(ch);
+      const anim = el.animate(
+        [
+          { transform: `scale(${k * 1.55})`, opacity: 0.9 },
+          { transform: `scale(${k})`, opacity: 1, offset: 0.6 },
+          { transform: `scale(${k})`, opacity: 0 },
+        ],
+        { duration: 170, easing: 'cubic-bezier(0.2, 0.7, 0.2, 1)' },
+      );
+      anim.onfinish = anim.oncancel = () => el.remove();
+      return true;
+    };
+    /** Attend que la lettre soit peinte devant le curseur (quelques images après la frappe). */
+    const strikeSoon = (want: string) => {
+      if (reducedMotion()) return;
+      cancelAnimationFrame(strikeRaf);
+      let tries = 0;
+      const wait = () => {
+        if (!strike(want) && ++tries < 14) strikeRaf = requestAnimationFrame(wait);
+      };
+      strikeRaf = requestAnimationFrame(wait);
+    };
     const onKey = (e: KeyboardEvent) => {
-      if (inDocument(e.target) && movesCaret(e)) schedule();
-      else followUntil = 0; // autre commande (recherche…) : son défilement n'est pas contrarié
+      if (inDocument(e.target) && movesCaret(e)) {
+        schedule();
+        if (e.key.length === 1 && e.key !== ' ' && !isMod(e)) strikeSoon(e.key);
+      } else followUntil = 0; // autre commande (recherche…) : son défilement n'est pas contrarié
     };
     const onScroll = () => {
       if (raf || performance.now() > followUntil) return;
@@ -463,6 +530,8 @@ export function useTypewriter(hostRef: MutableRefObject<HTMLElement | null>, eng
       scroller.removeEventListener('wheel', cancel);
       scroller.removeEventListener('touchstart', cancel);
       scroller.removeEventListener('pointerdown', cancel);
+      cancelAnimationFrame(strikeRaf);
+      scroller.querySelectorAll('.ed-tw-strike').forEach((x) => x.remove());
       stage?.remove();
       center?.style.removeProperty('--ed-tw-l');
       center?.style.removeProperty('--ed-tw-r');

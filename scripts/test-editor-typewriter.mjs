@@ -82,6 +82,7 @@ const browser = await chromium.launch({ executablePath: '/opt/pw-browsers/chromi
 const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } });
 await ctx.addInitScript(() => {
   window.__twLog = [];
+  window.__twStrikes = [];
 });
 const page = await ctx.newPage();
 const errors = [];
@@ -145,7 +146,27 @@ try {
   check('Entrée : son du retour chariot', JSON.stringify(await log(page)) === '["return"]');
   await shot(page, 'retour-chariot.png');
 
-  await page.keyboard.type('Dix mots saisis', { delay: 30 });
+  await page.evaluate(() => window.__twStrikes.splice(0));
+  await page.keyboard.type('Dix mots saisi', { delay: 60 });
+  // dernière lettre : calque relevé pendant l'animation
+  await page.keyboard.type('s');
+  const struck = await page.waitForFunction(() => {
+    const el = document.querySelector('.ed-tw-strike');
+    const c = window.__ed.engine().caretCoords();
+    if (!el || !c) return null;
+    const r = el.getBoundingClientRect();
+    return { ch: el.textContent, dx: Math.abs(r.right - c.left), dy: Math.abs((r.top + r.bottom) / 2 - (c.top + c.bottom) / 2), in: !!el.closest('.ed-scroll') };
+  }, null, { timeout: 2000, polling: 'raf' }).then((h) => h.jsonValue()).catch(() => null);
+  await page.keyboard.type('W');
+  await page.waitForFunction(() => { const el = document.querySelector('.ed-tw-strike'); if (!el || el.textContent !== 'W') return false; const an = el.getAnimations()[0]; an.pause(); an.currentTime = 25; return true; }, null, { timeout: 2000, polling: 'raf' }).catch(() => {});
+  { const c = await page.evaluate(() => window.__ed.engine().caretCoords()); await page.screenshot({ path: path.join(OUT, 'lettre.png'), clip: { x: c.left - 220, y: c.top - 60, width: 440, height: 140 } }); }
+  await page.evaluate(() => document.querySelector('.ed-tw-strike')?.getAnimations()[0]?.finish());
+  await page.keyboard.press('Backspace');
+  await page.evaluate(() => window.__twLog.splice(-2));
+  check('frappe : la lettre tapée s’anime sur place', !!struck && struck.ch === 's' && struck.dx < 14 && struck.dy < 12 && struck.in, JSON.stringify(struck));
+  await page.waitForTimeout(400);
+  const strikes = await page.evaluate(() => window.__twStrikes.splice(0));
+  check('frappe : une animation par lettre, aucune pour les espaces, calques retirés', strikes.join('') === 'DixmotssaisisW' && (await page.evaluate(() => !document.querySelector('.ed-tw-strike'))), strikes.join(''));
   await page.waitForTimeout(700);
   const typed = await carriage(page);
   check('frappe : la page glisse vers la gauche, le curseur ne bouge pas', Math.abs(typed.off) < 4 && typed.pageLeft < home.pageLeft - 60, `page ${Math.round(home.pageLeft)} → ${Math.round(typed.pageLeft)}, écart ${typed.off.toFixed(1)}`);
@@ -230,8 +251,10 @@ try {
   await page.emulateMedia({ reducedMotion: 'reduce' });
   await clickInText(page, 'Le dernier court');
   await page.keyboard.press('End');
+  await page.evaluate(() => window.__twStrikes.splice(0));
   await page.keyboard.type(' Net.', { delay: 15 });
   await page.waitForTimeout(500);
+  check('mouvement réduit : pas d’animation de frappe', (await page.evaluate(() => window.__twStrikes.length)) === 0);
   const red = await carriage(page);
   check('mouvement réduit : curseur au milieu, sans glissement', red.on && Math.abs(red.off) < 4, JSON.stringify(red));
   await page.emulateMedia({ reducedMotion: 'no-preference' });

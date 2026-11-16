@@ -21,6 +21,16 @@ export interface NewsEntry {
 
 export const NEWS: NewsEntry[] = [
   {
+    version: '3.54',
+    items: [
+      {
+        icon: 'sparkles',
+        title: 'La machine à écrire, en plein écran',
+        text: '⌘⇧T allume maintenant la machine en mode concentration. Le curseur se tient au milieu de tout l’éditeur, au-dessus d’un petit repère, la page glisse sur toute la largeur et ses bords s’estompent.',
+      },
+    ],
+  },
+  {
     version: '3.53',
     items: [
       {

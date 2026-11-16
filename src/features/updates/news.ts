@@ -21,6 +21,16 @@ export interface NewsEntry {
 
 export const NEWS: NewsEntry[] = [
   {
+    version: '3.53',
+    items: [
+      {
+        icon: 'sparkles',
+        title: 'La machine à écrire, avec chariot et sons',
+        text: 'Dans un écrit, ⌘⇧T (ou le menu du bouton ↗) : le curseur reste au milieu de l’écran, la page glisse à chaque lettre et revient d’un trait en fin de ligne. Sons de frappe, clochette et retour chariot, au volume de votre choix ; chariot et sons se décochent séparément.',
+      },
+    ],
+  },
+  {
     version: '3.52',
     items: [
       {

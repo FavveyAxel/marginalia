@@ -21,6 +21,16 @@ export interface NewsEntry {
 
 export const NEWS: NewsEntry[] = [
   {
+    version: '3.56',
+    items: [
+      {
+        icon: 'notes',
+        title: 'Renommer un document',
+        text: 'Clic droit sur un livre, un PDF, une vidéo ou une image → « Renommer » (ou F2 dans la bibliothèque). Dans un espace, aussi sur un écrit ou un plan. Le titre change dans Marginalia ; le fichier d’origine garde son nom.',
+      },
+    ],
+  },
+  {
     version: '3.55',
     items: [
       {

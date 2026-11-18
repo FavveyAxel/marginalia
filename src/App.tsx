@@ -29,6 +29,7 @@ import { ErrorBoundary } from './components/ErrorBoundary';
 import { LockScreen } from './features/security/LockScreen';
 import { SecurityAsk } from './features/security/SecurityAsk';
 import { ShareHost } from './features/share/ShareHost';
+import { RenameHost } from './features/workspaces/rename';
 import { CollabHost } from './features/collab/CollabHost';
 import { RailCollab } from './features/collab/SidebarCollab';
 import { refreshSecurity, useSecurity } from './features/security/state';
@@ -680,6 +681,7 @@ export function App() {
       <ImportProgress />
       <DropOverlay />
       <ShareHost />
+      <RenameHost />
       <CollabHost />
       <SecurityAsk />
       <Toasts />

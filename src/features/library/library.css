@@ -755,3 +755,11 @@
 .lib-cover-video.lib-cover-xs .lib-cover-video-play {
   border-width: 4px 0 4px 6px;
 }
+
+/* Raccourci affiché à droite d'une entrée du menu d'un livre. */
+.lib-menu-key {
+  margin-left: auto;
+  padding-left: 16px;
+  font-size: var(--fs-xs);
+  color: var(--muted);
+}

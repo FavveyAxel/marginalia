@@ -27,8 +27,7 @@ import {
   RefreshCw,
   Inbox,
   Layers,
-  Share2,
-} from 'lucide-react';
+  Share2, Pencil } from 'lucide-react';
 import { useStore } from '../../lib/store';
 import { openShareDialog } from '../share/shareUi';
 import { host, ACCEPTED_EXTENSIONS, type AppleBook } from '../../lib/platform';
@@ -43,6 +42,7 @@ import { BookCover } from './BookCover';
 import { useMultiSelect, useLasso, useSelectionKeys, LassoBox } from '../../lib/useMultiSelect';
 import { SelectionActionBar, SelectCheck, AddToWorkspaceDialog, selectedLabel } from '../../components/MultiSelect';
 import { ContextMenu, refDragSource, type MenuEntry } from '../workspaces/wsUi';
+import { askRename } from '../workspaces/rename';
 import { LibraryShelf } from './LibraryShelf';
 import './library.css';
 import { AssemblePhotos } from './AssemblePhotos';
@@ -310,6 +310,9 @@ export function LibraryView() {
     } else if (e.key === 'Enter') {
       if (selectMode) sel.toggle(b.id);
       else open(b);
+    } else if (e.key === 'F2') {
+      e.preventDefault();
+      askRename('book', b.id);
     }
   };
   // Glisser vers un espace de la barre latérale : la sélection si le livre en fait partie, sinon lui seul.
@@ -836,6 +839,10 @@ function BookMenu({
             <ChevronRight size={13} className="lib-menu-chev" />
           </button>
           <div className="divider" />
+          <button className="menu-item" role="menuitem" onClick={run(() => askRename('book', book.id))} data-testid="lib-rename">
+            <Pencil size={14} /> Renommer
+            <span className="lib-menu-key">F2</span>
+          </button>
           <button className="menu-item" role="menuitem" onClick={run(() => onInfo(book.id))}>
             <Info size={14} /> Infos et édition
           </button>

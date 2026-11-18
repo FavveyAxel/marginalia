@@ -305,6 +305,15 @@
   color: var(--ink-2);
   line-height: 1.5;
 }
+.ws-rename-input {
+  width: 100%;
+  margin: 8px 0 14px;
+}
+.ws-confirm p.ws-rename-hint {
+  margin: -6px 0 16px;
+  font-size: var(--fs-xs);
+  color: var(--muted);
+}
 .ws-confirm-actions,
 .ws-pick-foot {
   display: flex;

@@ -6,6 +6,7 @@ import type { WorkspaceGroup, WorkspaceItem } from '../../lib/types';
 import { TINTS, TINT_LABEL, openItem, ungroup, type DragPayload } from './wsModel';
 import type { MenuEntry } from './wsUi';
 import { openShareDialog } from '../share/shareUi';
+import { askRename, canRename } from './rename';
 
 export interface MenuCtx {
   newGroup(workspaceId: string, parentId: string | null): void;
@@ -85,6 +86,7 @@ export function itemMenu(ctx: MenuCtx, item: WorkspaceItem): MenuEntry[] {
   return [
     { label: 'Ouvrir', icon: <ExternalLink size={14} />, onClick: () => openItem(item) },
     ...(item.kind === 'book' && ctx.compareWith ? [{ label: 'Comparer avec un autre livre…', icon: <GitCompareArrows size={14} />, onClick: () => ctx.compareWith!(item.refId) }] : []),
+    ...(canRename(item.kind) ? [{ label: 'Renommer', icon: <Pencil size={14} />, onClick: () => askRename(item.kind as 'book' | 'draft' | 'plan', item.refId) }] : []),
     { label: 'Déplacer vers…', icon: <ArrowRightLeft size={14} />, onClick: () => ctx.openMove({ type: 'item', id: item.id, workspaceId: item.workspaceId }) },
     { sep: true },
     { label: 'Retirer de l’espace', icon: <Trash2 size={14} />, danger: true, onClick: () => useStore.getState().removeFromWorkspace(item.id) },

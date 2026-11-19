@@ -192,6 +192,13 @@ const sealLine = (key, line) => LINE_PREFIX + seal(key, Buffer.from(line, 'utf8'
 const isSealedLine = (line) => line.startsWith(LINE_PREFIX);
 const openLine = (key, line) => open(key, Buffer.from(line.slice(LINE_PREFIX.length), 'base64')).toString('utf8');
 
+// ── Nouveau mot de passe (verrouillage, espaces chiffrés) ──
+const PASSWORD_MIN = 8;
+function checkNewPassword(pw) {
+  if (typeof pw !== 'string' || [...pw].length < PASSWORD_MIN) throw new Error(`Le mot de passe doit compter au moins ${PASSWORD_MIN} caractères.`);
+  if (pw.length > 1024) throw new Error('Mot de passe trop long.');
+}
+
 function newDek() {
   return crypto.randomBytes(32);
 }
@@ -219,6 +226,8 @@ module.exports = {
   sealLine,
   openLine,
   isSealedLine,
+  PASSWORD_MIN,
+  checkNewPassword,
   newDek,
   wipe,
   sha256,

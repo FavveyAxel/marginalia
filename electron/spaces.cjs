@@ -99,12 +99,27 @@ function ownerOf(sk, buf, wsIds) {
 }
 
 // ── Capsule d'un espace (dans la base) ──
+/** `json` : texte ou octets UTF-8 (mêmes octets sur le disque dans les deux cas). */
 function sealCapsule(sk, wsId, json) {
-  return seal(sk, wsId, zlib.deflateRawSync(Buffer.from(String(json), 'utf8'), { level: 6 })).toString('base64');
+  const bytes = Buffer.isBuffer(json) ? json : Buffer.from(String(json), 'utf8');
+  const packed = zlib.deflateRawSync(bytes, { level: 6 });
+  try {
+    return seal(sk, wsId, packed).toString('base64');
+  } finally {
+    packed.fill(0);
+  }
+}
+/** Capsule ouverte, en octets UTF-8 (effaçables, contrairement à une chaîne). */
+function openCapsuleBytes(sk, wsId, b64) {
+  const plain = open(sk, wsId, Buffer.from(String(b64 || ''), 'base64'));
+  try {
+    return zlib.inflateRawSync(plain, { maxOutputLength: MAX_CAPSULE });
+  } finally {
+    plain.fill(0);
+  }
 }
 function openCapsule(sk, wsId, b64) {
-  const plain = open(sk, wsId, Buffer.from(String(b64 || ''), 'base64'));
-  return zlib.inflateRawSync(plain, { maxOutputLength: MAX_CAPSULE }).toString('utf8');
+  return openCapsuleBytes(sk, wsId, b64).toString('utf8');
 }
 
 // ── Fichier de clés (spaces.json) ──
@@ -144,5 +159,24 @@ function rewrapRecovery(ks, sk) {
   return { ks: { ...ks, recovery: vault.wrapWithRecovery(recoveryKey, sk) }, recoveryKey };
 }
 
+// ── Ce que cite une capsule (identifiants seulement, jamais de contenu) ──
+const CAPSULE_LISTS = ['books', 'highlights', 'concepts', 'arguments', 'studies', 'plans', 'drafts', 'cards', 'groups', 'wsItems', 'bookmarks', 'trash', 'activity', 'mapVersions'];
+/** Fichiers (livres, écrits, corbeille) cités par une capsule. */
+function capsuleFileOwners(capsule) {
+  const ids = new Set();
+  const add = (id) => isSpaceId(id) && ids.add(id);
+  for (const b of Array.isArray(capsule.books) ? capsule.books : []) add(b && b.id);
+  for (const d of Array.isArray(capsule.drafts) ? capsule.drafts : []) add(d && d.id);
+  for (const t of Array.isArray(capsule.trash) ? capsule.trash : []) for (const f of Array.isArray(t && t.files) ? t.files : []) add(f && f.ownerId);
+  return ids;
+}
+/** Éléments d'une capsule : « collection:id » (cartes : « maps:clé »). */
+function capsuleIds(capsule) {
+  const out = new Set();
+  for (const k of CAPSULE_LISTS) for (const x of Array.isArray(capsule[k]) ? capsule[k] : []) if (x && typeof x.id === 'string') out.add(`${k}:${x.id}`);
+  if (capsule.maps && typeof capsule.maps === 'object') for (const k of Object.keys(capsule.maps)) out.add(`maps:${k}`);
+  return out;
+}
+
 const isLegacyFile = (buf) => hasMagic(buf, MAGIC);
-module.exports = { MAGIC, MAGIC2, isLegacyFile, isSpaceId, isSealed, seal, open, ownerOf, sealCapsule, openCapsule, createKeystore, validKeystore, unlock, rewrapPassword, rewrapRecovery, spaceKey, markOf };
+module.exports = { MAGIC, MAGIC2, isLegacyFile, isSpaceId, isSealed, seal, open, ownerOf, sealCapsule, openCapsule, openCapsuleBytes, createKeystore, validKeystore, unlock, rewrapPassword, rewrapRecovery, spaceKey, markOf, CAPSULE_LISTS, capsuleFileOwners, capsuleIds };

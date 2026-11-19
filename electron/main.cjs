@@ -16,7 +16,7 @@
 // ouvert dans l'éditeur ; pour modifier un .docx en place, utiliser « Ouvrir un .docx » dans Écrire.
 'use strict';
 
-const { app, BrowserWindow, Menu, dialog, ipcMain, nativeTheme, net, powerMonitor, protocol, safeStorage, screen, session, shell, systemPreferences } = require('electron');
+const { app, BrowserWindow, Menu, MessageChannelMain, dialog, ipcMain, nativeTheme, net, powerMonitor, protocol, safeStorage, screen, session, shell, systemPreferences, utilityProcess, webContents } = require('electron');
 const path = require('node:path');
 
 // ── App installée : aucune porte de développement ni de test ──
@@ -712,7 +712,6 @@ const FAKE_KEYCHAIN_FAIL = E2E && process.env.MARGINALIA_E2E_KEYCHAIN_FAIL === '
 const TEST_AUTOLOCK_MS = E2E ? Number(process.env.MARGINALIA_E2E_AUTOLOCK_MS) || 0 : 0;
 const TEST_CRASH_AFTER = E2E ? Number(process.env.MARGINALIA_E2E_MIGRATION_CRASH_AFTER) || 0 : 0;
 const AUTOLOCK_CHOICES = [0, 5, 15, 30, 60];
-const PASSWORD_MIN = 8;
 // Tests uniquement (MARGINALIA_E2E=1) : un « trousseau » simulé, la clé de test étant fixe.
 const FAKE_KEY = crypto.createHash('sha256').update('marginalia-e2e-faux-trousseau').digest();
 
@@ -1087,10 +1086,6 @@ function askRenderer(payload) {
 
 // ── Opérations (canal « marginalia:security ») ───────────────
 const fail = (error) => ({ ok: false, error });
-function checkNewPassword(pw) {
-  if (typeof pw !== 'string' || [...pw].length < PASSWORD_MIN) throw new Error(`Le mot de passe doit compter au moins ${PASSWORD_MIN} caractères.`);
-  if (pw.length > 1024) throw new Error('Mot de passe trop long.');
-}
 const validDelay = (v, dflt) => (AUTOLOCK_CHOICES.includes(Number(v)) ? Number(v) : dflt);
 function requireUnlocked() {
   if (isLocked()) throw new vault.LockedError();
@@ -1469,12 +1464,18 @@ handle('marginalia:security', async (_e, op, args) => {
 // Le contenu d'un espace chiffré voyage dans la base sous forme de capsule scellée (sealedSpaces), avec
 // les clés enveloppées (spaceKeys) et la liste des fichiers qui lui appartiennent (spaceOwners) :
 // tout est écrit d'un seul tenant avec la base, donc sauvegardé et restauré avec elle. L'interface ne
-// reçoit jamais ces trois champs ; elle envoie, à chaque enregistrement, les capsules en clair des
-// espaces déverrouillés qui ont changé, et ce processus les scelle. Espace verrouillé : sa capsule est
-// reconduite telle quelle.
+// reçoit jamais ces trois champs ; elle confie, à chaque enregistrement, les capsules en clair des
+// espaces déverrouillés qui ont changé au processus des secrets (ci-dessous), qui les scelle. Espace
+// verrouillé : sa capsule est reconduite telle quelle.
+//
+// Ce processus-ci ne voit JAMAIS ni le mot de passe, ni la clé de secours, ni la clé maîtresse, ni le
+// contenu en clair d'un espace (sauf Touch ID, voir spaceOps.unlock) : une chaîne JavaScript ne s'efface
+// pas, et ce processus vit aussi longtemps que l'app. Tout cela ne vit que dans deux processus qui
+// meurent au verrouillage : le rendu (remplacé par un processus neuf, voir freshRenderer) et le
+// processus des secrets (electron/secrets-worker.cjs, terminé).
 const sp = {
   ks: null, // clés enveloppées (mot de passe, clé de secours, Touch ID)
-  sk: null, // clé maîtresse en mémoire, tant qu'un espace au moins est déverrouillé
+  skLoaded: false, // le processus des secrets tient la clé maîtresse (un espace au moins est déverrouillé, ou va l'être)
   unlocked: new Set(),
   blobs: new Map(), // id d'espace → capsule scellée (base64)
   hashes: new Map(), // id d'espace → empreinte de la dernière capsule scellée (évite de resceller)
@@ -1486,6 +1487,7 @@ const sp = {
   meta: { version: null, items: null },
   failures: 0,
   nextTryAt: 0,
+  carryOver: false, // rendu remplacé après le verrouillage d'UN espace : les autres restent ouverts
 };
 class SpaceLockedError extends Error {
   constructor() {
@@ -1493,13 +1495,177 @@ class SpaceLockedError extends Error {
     this.code = 'MG_SPACE_LOCKED';
   }
 }
+
+// ── Processus des secrets (electron/secrets-worker.cjs) ──────
+// Lancé à la demande (une saisie de mot de passe, un espace qu'on ouvre), terminé dès qu'il ne sert plus
+// et, toujours, au verrouillage : ce qu'il a vu meurt avec lui. Le rendu lui parle par un MessagePort
+// direct (ce processus-ci ne fait que relier les deux bouts) ; ce processus-ci lui parle par parentPort
+// et ne reçoit de lui que du chiffré, des empreintes et des identifiants.
+const secrets = { cur: null, gen: 0, busy: 0, idleTimer: null };
+const SECRETS_IDLE_MS = 30000;
+function secretsStart() {
+  if (secrets.cur) return secrets.cur;
+  const proc = utilityProcess.fork(path.join(__dirname, 'secrets-worker.cjs'), [], { serviceName: 'Marginalia secrets', stdio: 'inherit' });
+  const w = { proc, gen: ++secrets.gen, seq: 0, calls: new Map(), reveals: 0, alive: true, expected: false };
+  proc.on('message', (m) => {
+    if (!m || typeof m !== 'object') return;
+    if (typeof m.reveals === 'number') w.reveals = m.reveals;
+    if (m.evt === 'reveals') return secretsIdleSoon();
+    const c = w.calls.get(m.id);
+    if (!c) return;
+    w.calls.delete(m.id);
+    if (m.ok) c.resolve(m.r);
+    else {
+      const e = new Error(String(m.error || 'Erreur du processus des secrets'));
+      if (m.code) e.code = m.code;
+      c.reject(e);
+    }
+  });
+  proc.on('exit', (code) => {
+    w.alive = false;
+    for (const c of w.calls.values()) c.reject(new Error('Le processus des secrets s’est arrêté.'));
+    w.calls.clear();
+    if (secrets.cur !== w) return;
+    secrets.cur = null;
+    if (!w.expected) {
+      diag('espaces', 'processus des secrets arrêté', { code });
+      // La clé maîtresse est perdue : les espaces ouverts ne peuvent plus être enregistrés. On les
+      // verrouille, et le rendu (qui tient leur contenu) repart de zéro.
+      if (sp.skLoaded || sp.unlocked.size) {
+        sp.unlocked.clear();
+        sp.skLoaded = false;
+        notify('Les espaces chiffrés ont été verrouillés après un incident. Leur contenu enregistré est intact.', 'info');
+        if (mainWindow && !mainWindow.isDestroyed()) freshRenderer(mainWindow, 'secrets-perdus').catch((e) => diag('fenetre', 'remplacement du rendu', e && e.message));
+      }
+    }
+  });
+  secrets.cur = w;
+  secretsIdleSoon();
+  return w;
+}
+function secretsCallOn(w, op, args, ports) {
+  if (!w || !w.alive) return Promise.reject(new Error('Le processus des secrets est arrêté : recommencez.'));
+  const id = ++w.seq;
+  return new Promise((resolve, reject) => {
+    w.calls.set(id, { resolve, reject });
+    try {
+      w.proc.postMessage({ id, op, args }, ports || []);
+    } catch (e) {
+      w.calls.delete(id);
+      reject(e);
+    }
+  });
+}
+/** Opération dans le processus des secrets ; `spawn` : le lancer s'il ne tourne pas (Touch ID seulement). */
+function secretsCall(op, args, { spawn = false } = {}) {
+  const w = secrets.cur || (spawn ? secretsStart() : null);
+  if (!w) return Promise.reject(Object.assign(new Error('Saisie expirée : recommencez.'), { code: 'MG_EXPIRED' }));
+  return secretsCallOn(w, op, args);
+}
+/** Termine le processus des secrets : tout ce qu'il tenait (clé, secrets, contenus) disparaît avec lui. */
+function secretsStop() {
+  const w = secrets.cur;
+  secrets.cur = null;
+  if (secrets.idleTimer) clearTimeout(secrets.idleTimer);
+  secrets.idleTimer = null;
+  if (!w) return;
+  w.expected = true;
+  try {
+    w.proc.kill();
+  } catch {
+    /* déjà parti */
+  }
+}
+/** Rien à garder (aucune clé, aucune opération en cours, rien à retirer) : terminé tout de suite. */
+function secretsIdleCheck() {
+  const w = secrets.cur;
+  if (!w || sp.skLoaded || secrets.busy || w.calls.size || w.reveals) return;
+  secretsStop();
+}
+function secretsIdleSoon() {
+  // Garde-fou : sans clé à garder, le processus ne survit pas plus de 30 s (saisie déposée puis abandonnée).
+  if (secrets.idleTimer) clearTimeout(secrets.idleTimer);
+  secrets.idleTimer = setTimeout(() => {
+    secrets.idleTimer = null;
+    const w = secrets.cur;
+    if (w && !sp.skLoaded && !secrets.busy && !w.calls.size) secretsStop();
+  }, SECRETS_IDLE_MS);
+  secrets.idleTimer.unref?.();
+  setImmediate(secretsIdleCheck);
+}
+/** Une opération qui enchaîne plusieurs appels : le processus n'est pas terminé au milieu. */
+async function secretsOp(fn) {
+  secrets.busy++;
+  try {
+    return await fn();
+  } finally {
+    secrets.busy--;
+    if (!secrets.busy) setImmediate(secretsIdleCheck);
+  }
+}
+/**
+ * Un espace se verrouille, d'autres restent ouverts : le processus des secrets, qui a vu le contenu de
+ * celui-ci, est remplacé par un neuf. La clé maîtresse passe directement de l'un à l'autre (MessagePort
+ * entre les deux ; ce processus-ci ne la voit pas).
+ */
+async function secretsRespawn() {
+  const old = secrets.cur;
+  if (!old) return false;
+  secrets.cur = null;
+  old.expected = true;
+  const fresh = secretsStart();
+  const { port1, port2 } = new MessageChannelMain();
+  try {
+    const [, got] = await Promise.all([secretsCallOn(old, 'handoffOut', {}, [port1]), secretsCallOn(fresh, 'handoffIn', {}, [port2])]);
+    return !!got;
+  } catch (e) {
+    diag('espaces', 'passage de la clé', e && e.message);
+    return false;
+  } finally {
+    try {
+      old.proc.kill();
+    } catch {
+      /* déjà parti */
+    }
+  }
+}
+/** Poignée déposée par le rendu (voir preload.cjs) ; null si ce n'en est pas une. */
+const handleOf = (v) => (v && typeof v === 'object' && typeof v.h === 'string' && v.h.length <= 64 ? v.h : null);
+/** Ce que le rendu retirera lui-même du processus des secrets. */
+const revealRef = (rh) => ({ h: rh, gen: secrets.cur ? secrets.cur.gen : 0 });
+// Le rendu demande un canal direct vers le processus des secrets (lancé si besoin) ; `known` : la
+// génération du canal qu'il a déjà. Ce processus-ci ne voit passer aucun message de ce canal.
+handle('marginalia:secrets-port', (event, known) => {
+  const w = secrets.cur || secretsStart();
+  if (known !== w.gen) {
+    const { port1, port2 } = new MessageChannelMain();
+    w.proc.postMessage({ op: 'port' }, [port1]);
+    event.sender.postMessage('marginalia:secrets-port', w.gen, [port2]);
+  }
+  secretsIdleSoon();
+  return w.gen;
+});
+
 function lockAllSpaces() {
   sp.unlocked.clear();
-  vault.wipe(sp.sk);
-  sp.sk = null;
+  sp.skLoaded = false;
+  secretsStop();
 }
-/** Base lue sur le disque : les champs des espaces restent ici, l'interface reçoit le reste. */
+/**
+ * Base lue sur le disque : les champs des espaces restent ici, l'interface reçoit le reste.
+ * `sp.carryOver` : rendu neuf après le verrouillage d'un seul espace ; les autres restent ouverts (l'état
+ * en mémoire est celui du disque, toutes les écritures ayant été attendues), le rendu les rouvrira.
+ */
 function absorbSpaces(data) {
+  if (sp.carryOver) {
+    sp.carryOver = false;
+    if (data && typeof data === 'object') {
+      for (const k of ['sealedSpaces', 'spaceOwners', 'spacePending', 'spaceKeys']) delete data[k];
+      sp.base = JSON.stringify(data);
+      sp.meta = { version: data.version ?? null, items: countItems(data) };
+      return data;
+    }
+  }
   lockAllSpaces(); // nouvelle page : elle ne contient aucun espace déverrouillé
   sp.blobs.clear();
   sp.hashes.clear();
@@ -1546,23 +1712,7 @@ function composeDb(json) {
     (sp.ks ? ',"spaceKeys":' + JSON.stringify(sp.ks) : '');
   return t.slice(0, -1) + (/^\{\s*$/.test(t.slice(0, -1)) ? '' : ',') + extra + '}';
 }
-/** Fichiers (livres, écrits, corbeille) cités par une capsule. */
-function capsuleFileOwners(capsule) {
-  const ids = new Set();
-  const add = (id) => spacesKit.isSpaceId(id) && ids.add(id);
-  for (const b of Array.isArray(capsule.books) ? capsule.books : []) add(b && b.id);
-  for (const d of Array.isArray(capsule.drafts) ? capsule.drafts : []) add(d && d.id);
-  for (const t of Array.isArray(capsule.trash) ? capsule.trash : []) for (const f of Array.isArray(t && t.files) ? t.files : []) add(f && f.ownerId);
-  return ids;
-}
-const CAPSULE_LISTS = ['books', 'highlights', 'concepts', 'arguments', 'studies', 'plans', 'drafts', 'cards', 'groups', 'wsItems', 'bookmarks', 'trash', 'activity', 'mapVersions'];
-/** Éléments d'une capsule : « collection:id » (cartes : « maps:clé »). */
-function capsuleIds(capsule) {
-  const out = new Set();
-  for (const k of CAPSULE_LISTS) for (const x of Array.isArray(capsule[k]) ? capsule[k] : []) if (x && typeof x.id === 'string') out.add(`${k}:${x.id}`);
-  if (capsule.maps && typeof capsule.maps === 'object') for (const k of Object.keys(capsule.maps)) out.add(`maps:${k}`);
-  return out;
-}
+const CAPSULE_LISTS = spacesKit.CAPSULE_LISTS;
 /**
  * Ce qui vient d'entrer dans un espace chiffré était peut-être en clair dans les copies de secours de la
  * base (db.json.bak, sauvegardes quotidiennes, copies d'avant migration) : on l'en retire, sinon le

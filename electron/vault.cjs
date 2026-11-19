@@ -70,7 +70,11 @@ function wrapKey(kek, dek, extra = {}) {
   const ct = Buffer.concat([c.update(dek), c.final()]);
   return { ...extra, iv: b64(iv), ct: b64(ct), tag: b64(c.getAuthTag()) };
 }
+/** Champs base64 d'une enveloppe : chaînes exigées (un objet hostile ferait lever String() dans unb64). */
+const isEnvelope = (w, fields) => !!w && typeof w === 'object' && fields.every((f) => typeof w[f] === 'string');
+
 function unwrapKey(kek, w) {
+  if (!isEnvelope(w, ['iv', 'ct', 'tag'])) throw new Error('enveloppe invalide');
   // Étiquette entière exigée : GCM accepterait une étiquette tronquée, bien plus facile à forger.
   if (unb64(w.tag).length !== TAG_LEN || unb64(w.iv).length !== IV_LEN) throw new Error('enveloppe invalide');
   const d = crypto.createDecipheriv('aes-256-gcm', kek, unb64(w.iv), { authTagLength: TAG_LEN });
@@ -102,10 +106,18 @@ async function unwrapWithPassword(password, w) {
   if (!w || w.kdf !== 'scrypt') return null;
   // Paramètres lus dans keystore.json : jamais plus faibles que ceux de cette version, ni démesurés (un
   // fichier modifié ne doit ni affaiblir la dérivation, ni faire tomber l'app en demandant des Go).
-  const pow2 = Number.isInteger(w.N) && w.N >= SCRYPT.N && w.N <= 2 ** 20 && (w.N & (w.N - 1)) === 0;
-  if (!pow2 || w.r !== SCRYPT.r || !Number.isInteger(w.p) || w.p < 1 || w.p > 4) return null;
+  // Plafonds : N = 2^18 (256 Mo avec r = 8, sous SCRYPT_MAXMEM ; 2^19 dépasserait la limite et ferait
+  // rejeter scrypt) et p = 2 (au-delà, plusieurs secondes de calcul pour un simple fichier modifié).
+  const pow2 = Number.isInteger(w.N) && w.N >= SCRYPT.N && w.N <= 2 ** 18 && (w.N & (w.N - 1)) === 0;
+  if (!pow2 || w.r !== SCRYPT.r || !Number.isInteger(w.p) || w.p < 1 || w.p > 2) return null;
+  if (!isEnvelope(w, ['salt', 'iv', 'ct', 'tag'])) return null;
   if (unb64(w.salt).length < 16 || unb64(w.iv).length !== IV_LEN || unb64(w.tag).length !== TAG_LEN || unb64(w.ct).length !== 32) return null;
-  const kek = await scryptAsync(password, unb64(w.salt), { N: w.N, r: w.r, p: w.p });
+  let kek;
+  try {
+    kek = await scryptAsync(password, unb64(w.salt), { N: w.N, r: w.r, p: w.p });
+  } catch {
+    return null; // paramètres refusés par scrypt (mémoire) : enveloppe inutilisable, pas une panne
+  }
   try {
     return unwrapKey(kek, w);
   } catch {
@@ -163,7 +175,7 @@ function wrapWithRecovery(recoveryKey, dek) {
 }
 function unwrapWithRecovery(recoveryKey, w) {
   const n = normalizeRecoveryKey(recoveryKey);
-  if (!n || !w) return null;
+  if (!n || !isEnvelope(w, ['salt', 'iv', 'ct', 'tag'])) return null;
   const kek = recoveryKek(n, unb64(w.salt));
   try {
     return unwrapKey(kek, w);

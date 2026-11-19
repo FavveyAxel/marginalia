@@ -156,6 +156,29 @@ function decodeEntities(s) {
 const clean = (t) => decodeEntities(decodeEntities(String(t || '').replace(/<[^>]*>/g, ''))).replace(/[​‎‏]/g, '').replace(/\s+/g, ' ').trim();
 
 /**
+ * Parcourt les balises « <tag …>contenu</tag> » d'un texte, dans l'ordre : fn(attributs, contenu), arrêt
+ * si elle rend false. Équivaut à /<tag\b([^>]*)>([\s\S]*?)<\/tag>/g, en temps linéaire.
+ */
+function eachTag(text, tag, fn) {
+  const head = '<' + tag;
+  const close = '</' + tag + '>';
+  let i = 0;
+  while ((i = text.indexOf(head, i)) >= 0) {
+    const next = text[i + head.length];
+    if (next !== undefined && /\w/.test(next)) {
+      i += head.length; // « <pre », « <textarea » : autre balise
+      continue;
+    }
+    const gt = text.indexOf('>', i + head.length);
+    if (gt < 0) return; // plus aucun « > » : aucune balise complète plus loin
+    const end = text.indexOf(close, gt + 1);
+    if (end < 0) return; // plus aucune balise fermante plus loin non plus
+    if (fn(text.slice(i + head.length, gt), text.slice(gt + 1, end)) === false) return;
+    i = end + close.length;
+  }
+}
+
+/**
  * Texte des sous-titres → liste de répliques { s, d, t } (début et durée en ms, texte).
  * Formats lus : json3 (events/segs), srv3 (<p t d><s>…</s></p>) et l'ancien XML (<text start dur>).
  */
@@ -170,31 +193,45 @@ function parseCaptions(body) {
     } catch {
       return out;
     }
-    for (const ev of Array.isArray(j.events) ? j.events : []) {
-      if (!Array.isArray(ev.segs)) continue;
+    // Minutage : nombre fini (ou chaîne de chiffres) seulement. Number() lèverait sur un objet hostile
+    // (« valueOf » piégé) et 1e999 donnerait des répliques à l'infini.
+    const ms = (v) => {
+      const n = typeof v === 'number' ? v : typeof v === 'string' ? Number(v) : NaN;
+      return Number.isFinite(n) ? Math.max(0, Math.round(n)) : 0;
+    };
+    for (const ev of j && Array.isArray(j.events) ? j.events : []) {
+      if (!ev || typeof ev !== 'object' || !Array.isArray(ev.segs)) continue;
       const t = clean(ev.segs.map((s) => (s && typeof s.utf8 === 'string' ? s.utf8 : '')).join(''));
       if (!t) continue;
-      out.push({ s: Math.max(0, Math.round(Number(ev.tStartMs) || 0)), d: Math.max(0, Math.round(Number(ev.dDurationMs) || 0)), t });
+      out.push({ s: ms(ev.tStartMs), d: ms(ev.dDurationMs), t });
       if (out.length >= MAX_CUES) break;
     }
     return out;
   }
-  const p = /<p\b([^>]*)>([\s\S]*?)<\/p>/g;
-  let m;
-  while ((m = p.exec(text)) && out.length < MAX_CUES) {
-    const at = /\bt="(\d+)"/.exec(m[1]);
-    const du = /\bd="(\d+)"/.exec(m[1]);
-    const t = clean(m[2]);
-    if (at && t) out.push({ s: Number(at[1]), d: du ? Number(du[1]) : 0, t });
-  }
+  // Balises parcourues avec indexOf plutôt qu'une expression paresseuse : sans balise fermante (ou sans
+  // « > »), celle-ci repartait de chaque « <p » jusqu'au bout du texte (coût quadratique sur un fichier
+  // hostile). Minutage : nombre fini seulement (une suite de 400 chiffres donnerait l'infini).
+  const num = (v) => {
+    const n = Number(v);
+    return Number.isFinite(n) ? n : null;
+  };
+  eachTag(text, 'p', (attrs, inner) => {
+    const at = /\bt="(\d+)"/.exec(attrs);
+    const du = /\bd="(\d+)"/.exec(attrs);
+    const t = clean(inner);
+    const s = at ? num(at[1]) : null;
+    if (s !== null && t) out.push({ s, d: du ? num(du[1]) ?? 0 : 0, t });
+    return out.length < MAX_CUES;
+  });
   if (out.length) return out;
-  const x = /<text\b([^>]*)>([\s\S]*?)<\/text>/g;
-  while ((m = x.exec(text)) && out.length < MAX_CUES) {
-    const st = /\bstart="([\d.]+)"/.exec(m[1]);
-    const du = /\bdur="([\d.]+)"/.exec(m[1]);
-    const t = clean(m[2]);
-    if (st && t) out.push({ s: Math.round(Number(st[1]) * 1000), d: du ? Math.round(Number(du[1]) * 1000) : 0, t });
-  }
+  eachTag(text, 'text', (attrs, inner) => {
+    const st = /\bstart="([\d.]+)"/.exec(attrs);
+    const du = /\bdur="([\d.]+)"/.exec(attrs);
+    const t = clean(inner);
+    const s = st ? num(Math.round(Number(st[1]) * 1000)) : null;
+    if (s !== null && t) out.push({ s, d: du ? num(Math.round(Number(du[1]) * 1000)) ?? 0 : 0, t });
+    return out.length < MAX_CUES;
+  });
   return out;
 }
 

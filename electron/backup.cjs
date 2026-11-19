@@ -8,10 +8,13 @@
 // réservés : rien ne peut sortir du dossier de destination.
 'use strict';
 
+const fs = require('node:fs');
 const fsp = require('node:fs/promises');
 const path = require('node:path');
 const zlib = require('node:zlib');
 const { promisify } = require('node:util');
+const { pipeline } = require('node:stream/promises');
+const { Transform } = require('node:stream');
 
 const deflateRaw = promisify(zlib.deflateRaw);
 const inflateRaw = promisify(zlib.inflateRaw);
@@ -41,13 +44,32 @@ function dosDateTime(d) {
 
 const LIMIT = 0xffffffff;
 
-/** Nom d'entrée sûr : relatif, séparateurs « / », sans « . » ni « .. », sans caractère de contrôle. */
+// Extraction : une entrée jusqu'à MEM_ENTRY octets est traitée en mémoire (lue d'un bloc, décompressée
+// avec un plafond de sortie) ; au-delà, elle passe en flux vers le disque, par morceaux. Aucune lecture
+// unique ne dépasse donc 2^31 - 1 octets (au-delà, fs.read fait tomber tout le processus).
+const MEM_ENTRY = 64 * 1024 * 1024;
+// Taille annoncée maximale d'une entrée : très au-delà d'un gros PDF de la bibliothèque, mais une
+// entrée décrite plus grande est forcément une archive piégée.
+const MAX_ENTRY = 16 * 1024 * 1024 * 1024;
+const CHUNK = 1024 * 1024;
+
+// Noms de périphériques réservés sous Windows (avec ou sans extension, dans n'importe quel dossier) :
+// « CON », « nul.txt »… ouvriraient le périphérique au lieu d'un fichier.
+const WIN_RESERVED = /^(con|prn|aux|nul|com[0-9¹²³]|lpt[0-9¹²³])(\.|$)/i;
+
+/**
+ * Nom d'entrée sûr : relatif, séparateurs « / », sans « . » ni « .. », sans caractère de contrôle.
+ * Règles Windows appliquées partout (une archive voyage d'un système à l'autre) : pas de « : » (lecteur
+ * « C: », flux de données « a:b »), pas de nom de périphérique, pas de segment fini par un point ou une
+ * espace (Windows les retire en silence : « a. » et « a » désigneraient le même fichier).
+ */
 function safeEntryName(name) {
   if (typeof name !== 'string' || !name || name.length > 1024) return null;
   const n = name.replace(/\\/g, '/');
-  if (n.startsWith('/') || /^[a-zA-Z]:/.test(n) || /[\u0000-\u001f]/.test(n)) return null;
+  if (n.startsWith('/') || n.includes(':') || /[\u0000-\u001f]/.test(n)) return null;
   const parts = n.split('/').filter((p, i, a) => !(p === '' && i === a.length - 1)); // « dossier/ » final toléré
   if (!parts.length || parts.some((p) => p === '' || p === '.' || p === '..')) return null;
+  if (parts.some((p) => WIN_RESERVED.test(p) || /[. ]$/.test(p))) return null;
   return parts.join('/');
 }
 
@@ -206,6 +228,11 @@ async function readZipEntries(zipFile) {
           q += 4 + len;
         }
       }
+      // Tailles et position vérifiées ici, avant toute lecture : entiers sûrs, données dans le fichier.
+      // Une valeur démesurée (ZIP64 à 2^63, taille compressée ≥ 2^31…) ferait sinon lever fs.read, voire
+      // abattre tout le processus (assertion native, impossible à rattraper).
+      if (![csize, usize, at].every((v) => Number.isSafeInteger(v) && v >= 0) || at + 30 + csize > size || usize > MAX_ENTRY)
+        throw new Error('Archive .zip invalide (taille ou position d’une entrée)');
       const mode = (ext >>> 16) & 0o170000;
       out.push({ name, method, crc, csize, usize, at, flags, isDir: name.endsWith('/'), isLink: mode === 0o120000 });
       p += 46 + nLen + xLen + cLen;
@@ -227,6 +254,7 @@ async function extractZip(zipFile, destDir, accept = () => true) {
   const fh = await fsp.open(zipFile, 'r');
   const written = [];
   try {
+    const { size } = await fh.stat();
     for (const e of entries) {
       const name = safeEntryName(e.name);
       if (!name) throw new Error(`Archive refusée : chemin interdit (${e.name})`);
@@ -235,25 +263,78 @@ async function extractZip(zipFile, destDir, accept = () => true) {
       if (e.flags & 0x1) throw new Error('Archive chiffrée non prise en charge');
       const target = path.resolve(root, ...name.split('/'));
       if (!target.startsWith(root + path.sep)) throw new Error(`Archive refusée : chemin interdit (${e.name})`);
-      const head = Buffer.alloc(30);
-      await fh.read(head, 0, 30, e.at);
+      if (e.method !== 0 && e.method !== 8) throw new Error(`Méthode de compression non prise en charge (${e.method})`);
+      if (e.method === 0 && e.csize !== e.usize) throw new Error(`Archive endommagée : ${name}`);
+      const head = await readExactly(fh, 30, e.at);
       if (head.readUInt32LE(0) !== 0x04034b50) throw new Error('Archive .zip invalide (en-tête local)');
       const start = e.at + 30 + head.readUInt16LE(26) + head.readUInt16LE(28);
-      const body = Buffer.alloc(e.csize);
-      await fh.read(body, 0, e.csize, start);
-      let data;
-      if (e.method === 0) data = body;
-      else if (e.method === 8) data = await inflateRaw(body);
-      else throw new Error(`Méthode de compression non prise en charge (${e.method})`);
-      if (data.length !== e.usize || crc32(data) !== e.crc) throw new Error(`Archive endommagée : ${name}`);
+      // Le début réel des données dépend de l'en-tête local : revérifié avant toute allocation.
+      if (start + e.csize > size) throw new Error('Archive .zip tronquée');
       await fsp.mkdir(path.dirname(target), { recursive: true });
-      await fsp.writeFile(target, data);
+      if (e.csize <= MEM_ENTRY && e.usize <= MEM_ENTRY) {
+        const body = await readExactly(fh, e.csize, start);
+        let data = body;
+        if (e.method === 8) {
+          try {
+            // Plafond de sortie : jamais plus que la taille annoncée (+1 pour détecter un dépassement),
+            // sinon quelques Ko pourraient se décompresser en centaines de Mo en mémoire.
+            data = await inflateRaw(body, { maxOutputLength: e.usize + 1 });
+          } catch {
+            throw new Error(`Archive endommagée : ${name}`);
+          }
+        }
+        if (data.length !== e.usize || crc32(data) !== e.crc) throw new Error(`Archive endommagée : ${name}`);
+        await fsp.writeFile(target, data);
+      } else {
+        await extractLarge(zipFile, start, e, target, name);
+      }
       written.push(name);
     }
   } finally {
     await fh.close();
   }
   return written;
+}
+
+/** Lit exactement `len` octets à `pos` (petite entrée ou en-tête), sinon lève : fichier tronqué. */
+async function readExactly(fh, len, pos) {
+  const buf = Buffer.alloc(len);
+  let done = 0;
+  while (done < len) {
+    const { bytesRead } = await fh.read(buf, done, Math.min(len - done, CHUNK * 64), pos + done);
+    if (!bytesRead) throw new Error('Archive .zip tronquée');
+    done += bytesRead;
+  }
+  return buf;
+}
+
+/**
+ * Grosse entrée : lue par morceaux, décompressée en flux et écrite sur le disque, sans jamais tenir en
+ * mémoire. Un compteur interrompt tout dès que la sortie dépasse la taille annoncée ; le CRC est calculé
+ * au fil de l'eau. En cas d'échec, le fichier partiel est supprimé.
+ */
+async function extractLarge(zipFile, start, e, target, name) {
+  let count = 0;
+  let crc = 0;
+  const check = new Transform({
+    transform(chunk, _enc, cb) {
+      count += chunk.length;
+      if (count > e.usize) return cb(new Error(`Archive endommagée : ${name}`));
+      crc = crc32(chunk, crc);
+      cb(null, chunk);
+    },
+  });
+  // Grosse sortie annoncée pour zéro octet compressé : impossible, archive endommagée.
+  if (e.csize === 0) throw new Error(`Archive endommagée : ${name}`);
+  const stages = [fs.createReadStream(zipFile, { start, end: start + e.csize - 1, highWaterMark: CHUNK })];
+  if (e.method === 8) stages.push(zlib.createInflateRaw());
+  try {
+    await pipeline(...stages, check, fs.createWriteStream(target));
+    if (count !== e.usize || crc !== e.crc) throw new Error(`Archive endommagée : ${name}`);
+  } catch (err) {
+    await fsp.rm(target, { force: true }).catch(() => {});
+    throw /^Archive /.test(err && err.message) ? err : new Error(`Archive endommagée : ${name}`);
+  }
 }
 
 /** Fichiers ordinaires d'un dossier, récursivement (noms relatifs « a/b.c ») ; les liens sont ignorés. */

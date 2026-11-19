@@ -29,7 +29,9 @@ const MAX_RESULTS = 12;
 
 /** Chiffres (et X final) d'une saisie : espaces, tirets et préfixe « ISBN » retirés. */
 function cleanIsbn(s) {
-  return String(s || '')
+  // Chaîne ou nombre seulement : un objet venu d'un serveur (« toString » piégé) ferait lever String().
+  if (typeof s !== 'string' && !(typeof s === 'number' && Number.isFinite(s))) return '';
+  return String(s)
     .toUpperCase()
     .replace(/^\s*ISBN(?:-1[03])?:?\s*/, '')
     .replace(/[\s ‐-―-]/g, '');
@@ -196,7 +198,9 @@ function get(url, { allow, limit, accept, timeoutMs = TIMEOUT_MS, maxRedirects =
 
 const str = (v, max = 300) => (typeof v === 'string' ? v.replace(/\s+/g, ' ').trim().slice(0, max) : '');
 const yearOf = (v) => {
-  const m = /(1[4-9]\d\d|20\d\d)/.exec(String(v == null ? '' : v));
+  // Chaîne ou nombre seulement : String() lève sur un objet hostile (« toString » non fonction).
+  if (typeof v !== 'string' && typeof v !== 'number') return '';
+  const m = /(1[4-9]\d\d|20\d\d)/.exec(String(v));
   return m ? m[1] : '';
 };
 // Google donne ses vignettes en http : passées en https (sauf le serveur local des tests).
@@ -254,7 +258,9 @@ function fromOpenLibrarySearch(json, ep) {
     const ed = d.editions && Array.isArray(d.editions.docs) && d.editions.docs[0] ? d.editions.docs[0] : null;
     const title = str((ed && ed.title) || d.title);
     if (!title) continue;
-    const isbns = [...((ed && ed.isbn) || []), ...(ed ? [] : d.isbn || [])];
+    // Listes attendues : tout autre type venu du serveur (nombre, objet) est ignoré, jamais itéré.
+    const list = (v) => (Array.isArray(v) ? v : []);
+    const isbns = [...list(ed && ed.isbn), ...(ed ? [] : list(d.isbn))];
     let isbn = '';
     for (const i of isbns) {
       const n = normalizeIsbn(i);
@@ -287,7 +293,7 @@ function fromOpenLibraryEdition(json, ep, isbn) {
   if (!title) return [];
   const pubs = Array.isArray(json.publishers) ? json.publishers : [];
   const covers = Array.isArray(json.covers) ? json.covers.filter((c) => Number.isFinite(c) && c > 0) : [];
-  const own = [...(json.isbn_13 || []), ...(json.isbn_10 || [])].map(normalizeIsbn).find(Boolean);
+  const own = [...(Array.isArray(json.isbn_13) ? json.isbn_13 : []), ...(Array.isArray(json.isbn_10) ? json.isbn_10 : [])].map((x) => normalizeIsbn(x)).find(Boolean);
   return [
     {
       source: 'openlibrary',

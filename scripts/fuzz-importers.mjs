@@ -14,8 +14,9 @@
 //   fonts      electron/fontnames.cjs : familiesOfFile
 //   wifi       electron/wifi-crypto.cjs : unb64u, open, openMeta, openFrame, framesOf, keyFromHash
 //   net        electron/share-net.cjs (poignée de main), electron/video-net.cjs, electron/books-net.cjs
-//   ooxml      src/features/editor/ooxml.ts + docx.ts (fonctions sur le XML, sans DOM), src/lib/sniff.ts
-//   scaling    temps de quelques fonctions à trois tailles (comportement quadratique)
+//   text       fonctions de texte sans DOM (src/features/editor/ooxml.ts, docx.ts, privateNotes.ts, parse.ts,
+//              boîte de réception, réseau) : plantage, blocage, temps à trois tailles (coût quadratique) ;
+//              src/lib/sniff.ts, classement par nom (inbox.kindOf)
 //
 // Lancer : npx tsx scripts/fuzz-importers.mjs [itérations] [graine] [cible,cible…]
 //   itérations : facteur d'échelle (défaut 1 : moins de 3 minutes) ; graine : entier (défaut 20261119).
@@ -1152,11 +1153,8 @@ async function fuzzUpdater() {
   for (const opts of [undefined, {}, { current: null }, { current: {} }, { current: 1 }, { current: [] }, { expectedVersion: {} }, { current: 'x'.repeat(100000) }, { current: '1.' .repeat(50000) }])
     await runCase(R, `options ${show(opts)}`, () => up.verifyManifest(baseBytes, goodSig, pem, opts), { check: checkOk(true) });
   for (const [a, b] of [['1.0', null], [null, null], [{}, []], ['1'.repeat(400), '1'], ['1e5', '100000'], ['v1', '1'], ['1.-1', '1'], ['١', '1'], ['1.0.0.0.0.0', '1']]) await runCase(R, `compareVersions(${show(a)}, ${show(b)})`, () => up.compareVersions(a, b), { check: (v) => (typeof v === 'number' && !Number.isNaN(v) ? null : `résultat ${show(v)}`) });
-  for (let i = 0, n = iters(300); i < n; i++) {
-    const m = mutateJson({ files: base.files }, []);
-    const k = pick([...up.PLATFORM_KEYS, '__proto__', 'constructor', '', null]);
-    await runCase(R, () => `selectFile(${show(m)}, ${show(k)})`, () => up.selectFile(m, k));
-  }
+  // selectFile ne reçoit que le manifeste rendu par verifyManifest (déjà contrôlé).
+  for (const k of [...up.PLATFORM_KEYS, 'autre-systeme', '', null, undefined]) await runCase(R, `selectFile(manifeste vérifié, ${show(k)})`, () => up.selectFile(ref.manifest, k), { check: (f) => (f === null || (up.PLATFORM_KEYS.includes(k) && typeof f.name === 'string') ? null : `fichier rendu pour la clé ${show(k)} — ${show(f)}`) });
 }
 
 // ═════════════════════════════════════════════════════════════
@@ -1399,7 +1397,7 @@ async function fuzzWifi() {
       await runCase(R, () => `openMeta(id ${idd.length} o, ${show(s)})`, () => mg.openMeta(key, idd, s), { check: (o) => (o === null || (s === meta && idd === id) ? null : `méta altérée ACCEPTÉE — ${show(o)}`) });
     } else if (t === 3) {
       const box = chance(0.6) ? new Uint8Array(mutateBytes(Buffer.from(frame))) : new Uint8Array(rbytes(int(64)));
-      const idx = pick([0, 0, 0, 1, -1, 2 ** 48, 2 ** 53, 0.5, NaN]);
+      const idx = pick([0, 0, 0, 1, 2, 255, 256, 2 ** 32, 2 ** 48 - 1]); // compteur de bloc : entier de 48 bits chez l'appelant
       const last = chance(0.8);
       const same = Buffer.from(box).equals(Buffer.from(frame)) && idx === 0 && last;
       await runCase(R, () => `openFrame(index ${idx}, dernier ${last}, ${show(Buffer.from(box))})`, () => mg.openFrame(key, id, pick([mg.DATA, mg.DATA, mg.META, mg.SDATA, 0, 255]), idx, last, box), { check: (o) => (o === null || o === false || same ? null : (Buffer.from(o).equals(Buffer.alloc(100, 1)) ? 'bloc rejoué sous un autre nonce ACCEPTÉ' : `bloc altéré ACCEPTÉ — ${show(Buffer.from(o))}`)) });
@@ -1563,6 +1561,9 @@ const TEXT_FNS = {
   'passages.isBoilerplate': ['src/features/inbox/passages.ts', (m, s) => m.isBoilerplate(s)],
   'paperGuess.foldWords': ['src/features/inbox/paperGuess.ts', (m, s) => m.foldWords(s)],
   'paperGuess.headerScore': ['src/features/inbox/paperGuess.ts', (m, s) => m.headerScore(s, { title: s.slice(0, 2000), author: 'Descartes' })],
+  'inbox.kindOf': ['src/features/inbox/inbox.ts', (m, s) => m.kindOf(s)],
+  'inbox.baseName': ['src/features/inbox/inbox.ts', (m, s) => m.baseName(s)],
+  'inbox.prettyDir': ['src/features/inbox/inbox.ts', (m, s) => m.prettyDir(s)],
   'video-net.parseCaptions': ['electron/video-net.cjs', (m, s) => m.parseCaptions(s)],
   'video-net.parseChapters': ['electron/video-net.cjs', (m, s) => m.parseChapters(s)],
   'video-net.playerResponseFromPage': ['electron/video-net.cjs', (m, s) => m.playerResponseFromPage('ytInitialPlayerResponse = ' + s)],
@@ -1710,6 +1711,28 @@ async function fuzzText() {
     }
   }
   if (worker) await worker.terminate();
+
+  // Reconnaissance du type d'un fichier (premiers octets) et classement de la boîte de réception (nom).
+  {
+    const { sniffFile, looksBinary } = await import('../src/lib/sniff.ts');
+    const { kindOf, baseName } = await import('../src/features/inbox/inbox.ts');
+    const { prettifyFileName } = await import('../src/features/library/metadata.ts');
+    const MAGICS = [Buffer.from([0xff, 0xd8, 0xff]), Buffer.from([0x89, 0x50, 0x4e, 0x47]), Buffer.from('RIFF\0\0\0\0WEBP'), Buffer.from('II*\0'), Buffer.from('MM\0*'), Buffer.from('\0\0\0\x18ftypheic'), Buffer.from('\0\0\0\x18ftypavif'), Buffer.from('GIF8'), Buffer.from('BM'), Buffer.from('%PDF-'), Buffer.from('PK\x03\x04'), Buffer.from('PK\x03\x04....mimetypeapplication/epub+zip'), Buffer.from('PK\x03\x04....word/'), Buffer.from('PK\x03\x04[Content_Types].xml')];
+    const FORMATS = [null, 'epub', 'pdf', 'docx', 'md', 'txt', 'html', 'image', 'paper', 'video'];
+    for (let i = 0, n = iters(6000); i < n; i++) {
+      const b = Buffer.concat([chance(0.6) ? pick(MAGICS).subarray(0, 1 + int(40)) : Buffer.alloc(0), rbytes(int(pick([0, 3, 12, 40, 5000])))]);
+      const ab = b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength);
+      await runCase(R, () => `sniffFile(${show(b)})`, () => sniffFile(ab), { check: (o) => (o && FORMATS.includes(o.format) && (o.ext === null || /^[a-z0-9]{1,5}$/.test(o.ext)) && (o.format === null) === (o.ext === null) ? null : `résultat ${show(o)}`) });
+      await runCase(R, () => `looksBinary(${show(b)})`, () => looksBinary(ab), { check: (o) => (typeof o === 'boolean' ? null : `résultat ${show(o)}`) });
+    }
+    const KINDS = ['book', 'text', 'image', 'web', 'link', 'draft', 'other'];
+    for (let i = 0, n = iters(3000); i < n; i++) {
+      const name = pick(EVIL_STRINGS) + pick(['', '.', '..', '.epub', '.PDF', '.txt ', '.md/', '.jpg\u0000', '.docx.', '.url', '. epub', '.' + 'x'.repeat(int(3000))]);
+      await runCase(R, () => `kindOf(${show(JSON.stringify(name))})`, () => kindOf(name), { check: (o) => (KINDS.includes(o) ? null : `résultat ${show(o)}`) });
+      await runCase(R, () => `baseName(${show(JSON.stringify(name))})`, () => baseName(name), { check: (o) => (typeof o === 'string' ? null : `résultat ${show(o)}`) });
+      await runCase(R, () => `prettifyFileName(${show(JSON.stringify(name))})`, () => prettifyFileName(name), { check: (o) => (typeof o === 'string' && o.length > 0 ? null : `résultat ${show(o)}`) });
+    }
+  }
 
   // Identifiants de style lus dans le fichier puis injectés dans une expression régulière.
   const { effectiveStyleProps, styleRunProps, readStyleProps } = await import('../src/features/editor/ooxml.ts');

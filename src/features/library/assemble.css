@@ -97,14 +97,16 @@
 .asm-thumb-wait {
   position: absolute;
   inset: 0;
-  background: linear-gradient(100deg, transparent 30%, color-mix(in srgb, var(--ink) 6%, transparent) 50%, transparent 70%) var(--bg-inset);
-  background-size: 200% 100%;
-  animation: asm-wait 1.2s linear infinite;
+  overflow: hidden;
+  background: var(--bg-inset);
 }
-@keyframes asm-wait {
-  to {
-    background-position: -200% 0;
-  }
+.asm-thumb-wait::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(100deg, transparent 30%, color-mix(in srgb, var(--ink) 6%, transparent) 50%, transparent 70%);
+  transform: translateX(-100%);
+  animation: shimmer 1.2s linear infinite;
 }
 .asm-thumb-fail {
   position: absolute;

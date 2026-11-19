@@ -315,6 +315,7 @@ function EmptyConfirm({
         <button
           className="btn btn-sm btn-danger"
           disabled={busy}
+          aria-busy={busy}
           onClick={onConfirm}
         >
           Vider la corbeille

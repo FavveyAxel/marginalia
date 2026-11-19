@@ -130,7 +130,7 @@ export function LockScreen({ status, onUnlocked }: { status: SecurityStatus; onU
                 {error}
               </p>
             )}
-            <button className="btn btn-primary lock-submit" type="submit" disabled={!password || busy}>
+            <button className="btn btn-primary lock-submit" type="submit" disabled={!password || busy} aria-busy={busy}>
               {busy ? 'Vérification…' : 'Déverrouiller'}
             </button>
             {status.touchId && (

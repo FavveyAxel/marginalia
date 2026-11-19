@@ -144,7 +144,7 @@ export function ConvertDialog({ mapKey, kind, onClose }: { mapKey: string; kind:
           <button type="button" className="btn" onClick={onClose}>
             Annuler
           </button>
-          <button type="submit" className="btn btn-primary" disabled={busy} data-testid="convert-go">
+          <button type="submit" className="btn btn-primary" disabled={busy} aria-busy={busy} data-testid="convert-go">
             {plan ? 'Créer et ouvrir le plan' : 'Créer et ouvrir l’écrit'}
           </button>
         </footer>

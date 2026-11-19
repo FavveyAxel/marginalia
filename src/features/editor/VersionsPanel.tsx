@@ -138,7 +138,7 @@ export function VersionsPanel({ draft, currentDocx, createVersion, restore, rest
                 <button type="button" className="btn btn-sm btn-ghost" onClick={() => setNaming(null)}>
                   Annuler
                 </button>
-                <button type="submit" className="btn btn-sm btn-primary" disabled={busy}>
+                <button type="submit" className="btn btn-sm btn-primary" disabled={busy} aria-busy={busy}>
                   {busy ? 'Création…' : 'Créer'}
                 </button>
               </div>

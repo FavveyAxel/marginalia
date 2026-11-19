@@ -204,7 +204,7 @@ export function AssemblePhotos({
           <button className="btn" onClick={onClose} disabled={!!busy}>
             Annuler
           </button>
-          <button className="btn btn-primary" onClick={() => void run()} disabled={order.length < 2 || !!busy} data-testid="assemble-go">
+          <button className="btn btn-primary" onClick={() => void run()} disabled={order.length < 2 || !!busy} aria-busy={!!busy} data-testid="assemble-go">
             <Layers size={14} /> {busy ? `Assemblage… ${busy.done} / ${busy.total}` : `Assembler (${order.length} pages)`}
           </button>
         </footer>

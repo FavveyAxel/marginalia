@@ -389,10 +389,20 @@
 .lib-skel-line,
 .lib-skel-xs {
   display: block;
+  position: relative;
+  overflow: hidden;
   border-radius: var(--radius-sm);
-  background: linear-gradient(90deg, var(--bg-inset), var(--bg-active), var(--bg-inset));
-  background-size: 200% 100%;
-  animation: lib-shimmer 1.4s ease-in-out infinite;
+  background: var(--bg-inset);
+}
+.lib-skel-cover::after,
+.lib-skel-line::after,
+.lib-skel-xs::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--bg-active) 85%, transparent), transparent);
+  transform: translateX(-100%);
+  animation: shimmer 1.4s ease-in-out infinite;
 }
 .lib-skel-cover {
   height: 232px;
@@ -408,11 +418,6 @@
 .lib-skel-xs {
   width: 18px;
   height: 26px;
-}
-@keyframes lib-shimmer {
-  to {
-    background-position: -200% 0;
-  }
 }
 
 /* États vides */

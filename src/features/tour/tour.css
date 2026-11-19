@@ -5,11 +5,22 @@
   position: fixed; border-radius: 12px; pointer-events: none;
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 55%, transparent), 0 0 0 200vmax rgba(20, 16, 10, 0.42);
   transition: left 320ms var(--ease-out), top 320ms var(--ease-out), width 320ms var(--ease-out), height 320ms var(--ease-out);
+}
+/* Pulsation : un anneau à part, animé en opacité et en échelle (composité). Animer l'ombre de 200vmax
+   repeignait tout l'écran à chaque image pendant toute la visite. */
+.tour-hole::after {
+  content: '';
+  position: absolute;
+  inset: -3px;
+  border-radius: 15px;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 30%, transparent);
+  opacity: 0;
   animation: tour-pulse 2.2s ease-in-out infinite;
+  will-change: transform, opacity;
 }
 @keyframes tour-pulse {
-  0%, 100% { box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 55%, transparent), 0 0 0 200vmax rgba(20, 16, 10, 0.42); }
-  50% { box-shadow: 0 0 0 6px color-mix(in srgb, var(--primary) 30%, transparent), 0 0 0 200vmax rgba(20, 16, 10, 0.42); }
+  0%, 100% { opacity: 0; transform: scale(1); }
+  50% { opacity: 1; transform: scale(1.02); }
 }
 /* Les clics ne passent pas à l'interface pendant la visite (sauf sur la carte). */
 .tour-block { position: fixed; inset: 0; }
@@ -37,5 +48,6 @@
 body:has(.tour) .mascot-layer { display: none; }
 @media (prefers-reduced-motion: reduce) {
   .tour-hole { animation: none; transition: none; }
+  .tour-hole::after { animation: none; }
   .tour-card.is-placed { animation: none; }
 }

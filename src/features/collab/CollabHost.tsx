@@ -275,7 +275,7 @@ function People({ members, me, canRemove = false }: { members: CollabMember[]; m
           </p>
           <div className="cl-remove-actions">
             <button className="btn btn-sm" disabled={busy} onClick={() => setAsk(null)}>Annuler</button>
-            <button className="btn btn-sm btn-danger" disabled={busy} onClick={() => void remove(target.id)} data-testid="collab-remove-go">
+            <button className="btn btn-sm btn-danger" disabled={busy} aria-busy={busy} onClick={() => void remove(target.id)} data-testid="collab-remove-go">
               Retirer {target.name}
             </button>
           </div>
@@ -447,7 +447,7 @@ function CollabPanel({ workspaceId, onClose }: { workspaceId: string; onClose: (
         <div className="sh-actions">
           <button className="btn" onClick={onClose}>Annuler</button>
           <span className="spacer" />
-          <button className="btn btn-primary" disabled={busy || c.phase === 'starting'} onClick={() => void start()} data-testid="collab-open">
+          <button className="btn btn-primary" disabled={busy || c.phase === 'starting'} aria-busy={busy || c.phase === 'starting'} onClick={() => void start()} data-testid="collab-open">
             {busy ? 'Ouverture…' : 'Ouvrir la session'}
           </button>
         </div>

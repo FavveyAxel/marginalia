@@ -1064,6 +1064,7 @@ function DeleteDialog({ book, nExtracts, onClose }: { book: Book; nExtracts: num
           <button
             className="btn btn-danger"
             disabled={busy}
+            aria-busy={busy}
             onClick={async () => {
               setBusy(true);
               await useStore.getState().removeBook(book.id);

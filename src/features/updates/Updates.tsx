@@ -426,6 +426,7 @@ function UpdateReady({ d, u }: { d: UpdateState; u: UpdateInfo | null }) {
           <button
             className="btn btn-sm btn-primary"
             disabled={installing || busy}
+            aria-busy={installing || busy}
             onClick={async () => {
               setBusy(true);
               await restartToUpdate();

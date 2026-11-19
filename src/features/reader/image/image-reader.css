@@ -128,7 +128,8 @@
 .img-focus-line {
   border-radius: 3px;
   box-shadow: 0 0 0 2px var(--focus), 0 0 0 6px color-mix(in srgb, var(--focus) 18%, transparent);
-  transition: all var(--dur) var(--ease-out);
+  /* Glisse d'une ligne à l'autre : élément seul, en position absolue (pas de reflux autour). */
+  transition: left var(--dur) var(--ease-out), top var(--dur) var(--ease-out), width var(--dur) var(--ease-out), height var(--dur) var(--ease-out);
 }
 
 /* ── Calque de texte transparent ── */

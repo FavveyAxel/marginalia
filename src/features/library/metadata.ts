@@ -276,6 +276,38 @@ function unquote(v: string): string {
   return t;
 }
 
+const LINE_END = /[\n\r\u2028\u2029]/;
+const SPACE = /\s/;
+
+/**
+ * Premier titre ATX (« # Titre ## ») du corps, sans ses dièses de fin. Même résultat que l'ancienne
+ * expression /^#\s+(.+?)\s*#*\s*$/m, mais en un seul passage : celle-ci retentait, à chaque caractère
+ * du titre, toute la fin de ligne (« # a a a… ###… a » de 100 000 mots : plus de 25 s, onglet figé).
+ * Comme l'expression, les blancs après le « # » peuvent enjamber des sauts de ligne.
+ */
+function atxTitle(body: string): string | null {
+  for (let pos = 0; pos < body.length; ) {
+    if (body[pos] === '#' && pos + 1 < body.length && SPACE.test(body[pos + 1])) {
+      let q = pos + 1;
+      while (q < body.length && SPACE.test(body[q])) q++;
+      // Que des blancs jusqu'à la fin : l'expression ne pouvait capturer qu'un blanc (titre vide).
+      if (q >= body.length) return null;
+      let end = q;
+      while (end < body.length && !LINE_END.test(body[end])) end++;
+      // Fin de ligne de la forme \s*#*\s* retirée, en gardant au moins un caractère (comme « .+? »).
+      let c = end;
+      while (c > q && SPACE.test(body[c - 1])) c--;
+      while (c > q && body[c - 1] === '#') c--;
+      while (c > q && SPACE.test(body[c - 1])) c--;
+      return body.slice(q, Math.max(q + 1, c));
+    }
+    // Ligne suivante (le « ^ » multiligne suit chacun des terminateurs de ligne de JavaScript).
+    while (pos < body.length && !LINE_END.test(body[pos])) pos++;
+    pos++;
+  }
+  return null;
+}
+
 function mdMeta(f: PickedFile): Partial<BookMetadata> {
   const text = decode(f.data).replace(/^\uFEFF/, '');
   const out: Partial<BookMetadata> = {};
@@ -298,8 +330,8 @@ function mdMeta(f: PickedFile): Partial<BookMetadata> {
     }
   }
   if (!out.title) {
-    const h = /^#\s+(.+?)\s*#*\s*$/m.exec(body);
-    if (h) out.title = clean(h[1].replace(/[*_`]/g, ''));
+    const h = atxTitle(body);
+    if (h) out.title = clean(h.replace(/[*_`]/g, ''));
   }
   if (Object.keys(edition).length) out.edition = edition;
   return out;
@@ -318,6 +350,13 @@ function htmlMeta(f: PickedFile): Partial<BookMetadata> {
     return {};
   }
 }
+
+/**
+ * Longueur maximale d'un titre, d'un auteur ou d'un champ d'édition. Ces valeurs viennent du fichier
+ * (un EPUB peut déclarer 450 000 caractères d'auteurs, un HTML un <title> de 700 000) et s'affichent
+ * partout dans la bibliothèque ; aucun vrai titre n'approche 500 caractères.
+ */
+const META_MAX = 500;
 
 export async function extractMetadata(f: PickedFile): Promise<BookMetadata> {
   const ext = extOf(f.name);
@@ -341,11 +380,11 @@ export async function extractMetadata(f: PickedFile): Promise<BookMetadata> {
   }
   const edition: Partial<Edition> = {};
   for (const [k, v] of Object.entries(found.edition ?? {})) {
-    if (typeof v === 'string' && v) (edition as Record<string, string>)[k] = v;
+    if (typeof v === 'string' && v) (edition as Record<string, string>)[k] = v.slice(0, META_MAX);
   }
   return {
-    title: clean(found.title) || prettifyFileName(f.name),
-    author: clean(found.author),
+    title: (clean(found.title) || prettifyFileName(f.name)).slice(0, META_MAX),
+    author: clean(found.author).slice(0, META_MAX),
     format,
     cover: found.cover ?? null,
     edition: Object.keys(edition).length ? edition : undefined,

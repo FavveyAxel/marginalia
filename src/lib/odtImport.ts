@@ -105,6 +105,19 @@ function lengthPx(v: string | null): number | null {
   return Math.round(m[2] === 'cm' ? n * CM_PX : m[2] === 'mm' ? (n / 10) * CM_PX : m[2] === 'in' ? n * 96 : m[2] === 'pt' ? (n * 96) / 72 : n);
 }
 
+/**
+ * Nombre d'espaces d'un <text:s text:c="…"/>. Le compte vient du fichier reçu : sans borne, un
+ * text:c="400000000" produit des centaines de Mo de HTML (onglet figé) et un text:c="1e12" ou négatif
+ * fait lever une RangeError brute à String.repeat. Un vrai document n'aligne jamais plus de quelques
+ * dizaines d'espaces : on borne à 1..1000 (1 par défaut, comme la norme ODF, si la valeur n'est pas un nombre).
+ */
+const MAX_SPACES = 1000;
+function spaceCount(el: Element): number {
+  const n = Math.floor(Number(el.getAttributeNS(NS.text, 'c') || 1));
+  if (!Number.isFinite(n)) return 1;
+  return Math.min(MAX_SPACES, Math.max(1, n));
+}
+
 const MIME: Record<string, string> = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif' };
 
 function toBase64(u8: Uint8Array): string {
@@ -160,7 +173,7 @@ export async function odtToHtml(data: ArrayBuffer): Promise<OdtResult> {
       if (c.nodeType === 3) t += c.textContent;
       else if (c.nodeType === 1) {
         const el = c as Element;
-        if (el.localName === 's') t += ' '.repeat(Number(el.getAttributeNS(NS.text, 'c') || 1));
+        if (el.localName === 's') t += ' '.repeat(spaceCount(el));
         else if (el.localName === 'tab' || el.localName === 'line-break') t += ' ';
         else if (el.localName !== 'note') t += inlineText(el);
       }
@@ -179,7 +192,7 @@ export async function odtToHtml(data: ArrayBuffer): Promise<OdtResult> {
       const el = c as Element;
       const ln = el.localName;
       if (el.namespaceURI === NS.text) {
-        if (ln === 's') into.append(out.createTextNode(' '.repeat(Math.max(0, Number(el.getAttributeNS(NS.text, 'c') || 1) - 1)) + ' '));
+        if (ln === 's') into.append(out.createTextNode(' '.repeat(spaceCount(el) - 1) + ' '));
         else if (ln === 'tab') into.append(out.createTextNode(' '));
         else if (ln === 'line-break') into.append(out.createElement('br'));
         else if (ln === 'note') {

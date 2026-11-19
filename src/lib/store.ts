@@ -804,7 +804,10 @@ export const useStore = create<State>()(tracked((set, get) => ({
         const ext = extOf(f.name);
         // Extension réelle d'après le contenu (photo sans extension, extension trompeuse…).
         const sniffedExt = sniffFile(f.data).ext;
-        const fileName = `source.${sniffedExt ?? (ext || 'bin')}`;
+        // Le nom stocké ne prend l'extension que si elle est sûre : venue du nom de fichier reçu, elle
+        // pourrait porter « /../ » ou un octet nul (« x./../../evil » → « source./evil »).
+        const safeExt = (sniffedExt ?? ext).toLowerCase();
+        const fileName = `source.${/^[a-z0-9]{1,8}$/.test(safeExt) ? safeExt : 'bin'}`;
         await host.storeFile(id, fileName, f.data);
         const book: Book = {
           id,
@@ -1427,7 +1430,9 @@ async function completeMissingBook(f: PickedFile): Promise<Book | null> {
   const target = waiting.find((b) => b.sourceSha256 === sha);
   if (!target) return null;
   const meta = await extractMetadata(f);
-  const fileName = `source.${sniffFile(f.data).ext ?? (extOf(f.name) || 'bin')}`;
+  // Extension retenue seulement si elle est sûre (même raison qu'à l'import : nom de fichier non fiable).
+  const safeExt = (sniffFile(f.data).ext ?? extOf(f.name)).toLowerCase();
+  const fileName = `source.${/^[a-z0-9]{1,8}$/.test(safeExt) ? safeExt : 'bin'}`;
   await host.storeFile(target.id, fileName, f.data);
   nextMeta = { action: 'import' };
   const patch: Partial<Book> = { fileName, format: meta.format, originalName: f.name, ...(target.cover ? {} : { cover: meta.cover }) };

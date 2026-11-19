@@ -8,6 +8,7 @@ import { _electron as electron } from 'playwright-core';
 import path from 'node:path';
 import fs from 'node:fs';
 import os from 'node:os';
+import crypto from 'node:crypto';
 
 const ROOT = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..');
 const SHOTS = path.join(ROOT, 'shots/collab-scope');
@@ -151,6 +152,62 @@ try {
     s.createGroup(ws, null, 'Groupe légitime');
   });
   ok(await until(A.page, () => window.__store.getState().groups.some((g) => g.name === 'Groupe légitime')), 'un changement légitime de Marc arrive toujours chez Léa');
+
+  // ── 7. Livre PRIVÉ de Léa, et Marc qui en a vraiment le fichier (preuve de possession) ──
+  // Marc envoie le fichier complet et son empreinte : Léa reconnaît son livre (pas de doublon), mais ce qui
+  // revient à Marc est SA fiche (titre, nom de fichier), jamais le titre ni le nom de fichier privés de Léa.
+  const PDFBUF = fs.readFileSync(path.join(ROOT, 'fixtures/discours.pdf'));
+  const PDFSHA = crypto.createHash('sha256').update(PDFBUF).digest('hex');
+  const priv = await A.page.evaluate(async (b64) => {
+    const s = () => window.__store.getState();
+    const back = window.__collab.state.getState().workspaceId;
+    s().navigate({ name: 'home' });
+    await new Promise((r) => setTimeout(r, 300));
+    s().updateSettings({ activeWorkspaceId: null });
+    const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+    const [b] = await s().importFiles([{ name: 'Copie perso de Léa.pdf', data: bytes.buffer }]);
+    s().patch('books', b.id, { title: 'TITRE-PRIVE-DE-LEA' });
+    s().navigate({ name: 'workspace', workspaceId: back, groupId: null });
+    const st = s();
+    return { id: b.id, originalName: st.books.find((x) => x.id === b.id).originalName, inWs: st.wsItems.some((i) => i.refId === b.id), count: st.books.length };
+  }, PDFBUF.toString('base64'));
+  ok(!priv.inWs, '7. préparation : livre privé de Léa hors de tout espace', priv.originalName);
+  // Marc capte ce qu'il reçoit.
+  await B.page.evaluate(() => {
+    window.__got = [];
+    window.marginalia.collabNet.onEvent((e) => {
+      if (e.type !== 'message') return;
+      const u = new Uint8Array(e.bytes);
+      const n = new DataView(u.buffer, u.byteOffset).getUint32(0);
+      try { window.__got.push({ head: JSON.parse(new TextDecoder().decode(u.subarray(4, 4 + n))), bodyLen: u.length - 4 - n }); } catch {}
+    });
+  });
+  // Un extrait sur un livre inconnu de Léa : elle demande le livre à Marc…
+  const anchor = { kind: 'pdf', page: 1, rects: [{ x: 0.1, y: 0.1, w: 0.2, h: 0.02 }] };
+  await raw({ t: 'recs', recs: [{ c: 'highlight', g: 'hl-preuve', tag: T(7), d: { bookId: 'X-PREUVE', text: 'extrait de Marc', note: '', conceptIds: [], anchor } }] }, 'h');
+  await wait(1500);
+  // … qui répond avec le fichier complet et son empreinte.
+  await B.page.evaluate(async ({ head, b64 }) => {
+    const body = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+    const enc = new TextEncoder().encode(JSON.stringify(head));
+    const out = new Uint8Array(4 + enc.length + body.length);
+    new DataView(out.buffer).setUint32(0, enc.length);
+    out.set(enc, 4);
+    out.set(body, 4 + enc.length);
+    await window.marginalia.collabNet.send('h', out);
+  }, { head: { t: 'files', c: 'book', g: 'X-PREUVE', rec: { title: 'Titre de Marc', author: 'Descartes', format: 'pdf', fileName: 'source.pdf', originalName: 'marc.pdf', size: PDFBUF.length, sha256: PDFSHA }, list: [{ name: 'source.pdf', len: PDFBUF.length }] }, b64: PDFBUF.toString('base64') });
+  await wait(2500);
+  const st7 = await A.page.evaluate((id) => {
+    const s = window.__store.getState();
+    return { count: s.books.length, title: s.books.find((b) => b.id === id)?.title, marc: s.books.some((b) => b.title === 'Titre de Marc'), hl: s.highlights.find((h) => h.text === 'extrait de Marc')?.bookId ?? null };
+  }, priv.id);
+  ok(st7.count === priv.count && !st7.marc && st7.title === 'TITRE-PRIVE-DE-LEA', '7. fichier prouvé : Léa reconnaît son livre, aucun doublon, son titre ne change pas', st7);
+  await B.page.evaluate(() => (window.__got = []));
+  await raw({ t: 'fetch', c: 'book', g: 'X-PREUVE' }, 'h');
+  await until(B.page, () => window.__got.some((g) => g.head.t === 'files' && g.head.g === 'X-PREUVE'), null, 10000);
+  const back7 = await B.page.evaluate(() => window.__got.filter((g) => g.head.t === 'files' && g.head.g === 'X-PREUVE').map((g) => g.head.rec)[0] ?? null);
+  const str7 = JSON.stringify(back7 ?? {});
+  ok(!!back7 && back7.title === 'Titre de Marc' && back7.originalName === 'marc.pdf' && !str7.includes('TITRE-PRIVE-DE-LEA') && !str7.includes(priv.originalName) && !back7.cover, '7. ce que Marc reçoit ensuite est sa propre fiche, pas celle (privée) de Léa', back7 ? { title: back7.title, originalName: back7.originalName, cover: !!back7.cover } : null);
 
   for (const X of [A, B]) ok(X.errors.length === 0, `${X.name} : aucune erreur de page`, X.errors.slice(0, 3));
 } finally {

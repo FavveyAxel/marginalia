@@ -587,8 +587,10 @@ async function onFiles(head: Head, body: Uint8Array) {
     let proven = false;
     if (!missing && sha) {
       const names = bookSourceFiles({ format: meta.format, fileName: String(meta.fileName ?? files[0]?.name ?? ''), pages: meta.pages } as unknown as Book);
+      // splitFiles rend déjà des ArrayBuffer (copies) : les traiter comme des Uint8Array (.buffer
+      // indéfini) faisait échouer onFiles pour TOUT livre reçu avec son fichier.
       const datas = names.map((n) => files.find((f) => f.name === n)?.data);
-      const fp = datas.every(Boolean) ? await fingerprintOf(datas.map((d) => (d as Uint8Array).buffer.slice((d as Uint8Array).byteOffset, (d as Uint8Array).byteOffset + (d as Uint8Array).byteLength) as ArrayBuffer)) : null;
+      const fp = names.length && datas.every((d): d is ArrayBuffer => d instanceof ArrayBuffer) ? await fingerprintOf(datas as ArrayBuffer[]).catch(() => null) : null;
       proven = !!fp && fp.sha256 === sha;
     }
     // 1. Parmi les livres déjà partagés dans cette session (ou reçus par ce partage).

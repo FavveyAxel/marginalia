@@ -21,6 +21,16 @@ export interface NewsEntry {
 
 export const NEWS: NewsEntry[] = [
   {
+    version: '3.58',
+    items: [
+      {
+        icon: 'lock',
+        title: 'Travailler à plusieurs : éléments privés protégés',
+        text: 'Un invité ne peut plus atteindre un écrit, un plan ou un groupe hors de l’espace partagé, même en connaissant son identifiant.',
+      },
+    ],
+  },
+  {
     version: '3.57',
     items: [
       {

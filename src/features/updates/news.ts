@@ -21,6 +21,21 @@ export interface NewsEntry {
 
 export const NEWS: NewsEntry[] = [
   {
+    version: '3.59',
+    items: [
+      {
+        icon: 'lock',
+        title: 'Espaces chiffrés',
+        text: 'Clic droit sur un espace → « Chiffrer cet espace… ». Son contenu propre est chiffré à part et disparaît de la recherche, de la révision et du disque tant qu’il est verrouillé. Un mot de passe commun, une clé de secours, Touch ID sur Mac.',
+      },
+      {
+        icon: 'lock',
+        title: 'Sécurité renforcée',
+        text: 'Tests d’intrusion sur le réseau, le partage et le chiffrement : l’app installée ne se laisse plus piloter par un autre programme, plus aucune fuite par le DNS, moteur à jour.',
+      },
+    ],
+  },
+  {
     version: '3.58',
     items: [
       {

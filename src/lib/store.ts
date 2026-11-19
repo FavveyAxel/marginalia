@@ -1636,7 +1636,8 @@ export async function spaceClosing(wsId: string): Promise<void> {
   redoStack = [];
   openSpaces.delete(wsId);
   lastCapsules.delete(wsId);
-  rawSet({ ...dbPatch(main), unlockedSpaces: [...openSpaces] });
+  // Les notifications encore affichées peuvent citer ce contenu, ou proposer de l'ouvrir : retirées.
+  rawSet({ ...dbPatch(main), unlockedSpaces: [...openSpaces], toasts: [] });
   lastSaved = '';
 }
 /** Chiffrement retiré d'un espace déverrouillé : son contenu reste dans le store et rejoint la base commune. */

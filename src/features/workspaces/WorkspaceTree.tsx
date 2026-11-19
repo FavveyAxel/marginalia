@@ -403,7 +403,7 @@ function WsNode({ id }: { id: string }) {
           ))}
           {empty && (
             <div className="ws-hint" style={{ ['--d' as string]: 1 }}>
-              Espace vide
+              {ws.encrypted && !spaceOpen ? 'Verrouillé' : 'Espace vide'}
             </div>
           )}
         </div>

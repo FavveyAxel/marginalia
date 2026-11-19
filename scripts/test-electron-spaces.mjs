@@ -26,7 +26,7 @@ async function launch() {
   app = await electron.launch({
     executablePath: path.join(ROOT, 'node_modules/electron/dist/electron'),
     args: ['--no-sandbox', ROOT],
-    env: { ...process.env, HOME: home, XDG_CONFIG_HOME: home, MARGINALIA_E2E: '1', MARGINALIA_E2E_USER_DATA: UD, VITE_DEV_SERVER_URL: '' },
+    env: { ...process.env, HOME: home, XDG_CONFIG_HOME: home, MARGINALIA_E2E: '1', MARGINALIA_E2E_USER_DATA: UD, VITE_DEV_SERVER_URL: '', MARGINALIA_E2E_FAKE_SAFESTORAGE: '1', MARGINALIA_E2E_FAKE_TOUCHID: '1' },
     timeout: 120000,
   });
   page = await app.firstWindow();
@@ -215,6 +215,55 @@ try {
   db = dbOnDisk();
   ok(!db.workspaces.find((w) => w.id === seed.prive)?.encrypted && !db.sealedSpaces?.[seed.prive] && db.drafts.some((d) => d.id === seed.dPrive && d.title === 'Journal modifié') && db.books.some((b) => b.id === seed.book) && db.highlights.some((h) => h.id === 'hl-secret'), 'chiffrement retiré : tout le contenu est revenu dans la base commune');
   ok(head(seed.dPrive, seed.draftFile) !== 'MGLSPC1' && head(seed.book, seed.bookFile) !== 'MGLSPC1' && head(added.id, added.file) !== 'MGLSPC1', 'chiffrement retiré : fichiers rendus lisibles');
+
+  // ── 7. Rechiffrer (mot de passe déjà choisi), Touch ID ──
+  await menu(seed.prive, 'Chiffrer cet espace…');
+  await page.waitForSelector('[data-testid="space-encrypt-dialog"]');
+  ok((await page.locator('[data-testid="space-new-password"]').count()) === 0, 'mot de passe déjà choisi : on ne le redemande pas en double');
+  await page.fill('[data-testid="space-encrypt-dialog"] [data-testid="space-password"]', PASSWORD);
+  await page.click('[data-testid="space-encrypt-go"]');
+  await page.waitForSelector('[data-testid="space-encrypt-dialog"]', { state: 'detached', timeout: 30000 });
+  await flush();
+  ok(diskHas(SECRET).length === 0 && head(seed.dPrive, seed.draftFile) === 'MGLSPC1', 'rechiffré : de nouveau scellé, rien en clair', diskHas(SECRET));
+  const tid = await st((pw) => window.marginalia.spaces.setTouchId(true, pw), PASSWORD);
+  ok(tid.ok === true && (await st(() => window.marginalia.spaces.setTouchId(true, 'faux'))).ok === false, 'Touch ID : activé avec le mot de passe, refusé sans');
+  await st((id) => window.__store.getState().navigate({ name: 'workspace', workspaceId: id, groupId: null }), seed.prive);
+  await page.click('[data-testid="space-lock"]');
+  await page.waitForSelector('[data-testid="space-locked"]', { timeout: 30000 });
+  await page.click('[data-testid="space-touchid"]');
+  await page.waitForSelector('[data-testid="space-bar"]', { timeout: 30000 });
+  ok(await st(({ dPrive }) => window.__store.getState().drafts.some((d) => d.id === dPrive), seed), 'Touch ID (simulé) : espace déverrouillé');
+
+  // ── 8. Avec le chiffrement global de l'app par-dessus ──
+  const pend = await st(() => window.marginalia.security.prepare());
+  await st((t) => window.marginalia.security.enable(t), pend.token);
+  for (let i = 0; i < 120; i++) {
+    const s2 = await st(() => window.marginalia.security.status());
+    if (s2.encrypted && !(s2.migration && (s2.migration.running || !s2.migration.finished))) break;
+    await wait(500);
+  }
+  await wait(1500);
+  const h8 = (f) => fs.readFileSync(f).subarray(0, 7).toString('latin1');
+  ok(h8(path.join(UD, 'db.json')) === 'MGLENC1', 'chiffrement global activé : la base est chiffrée');
+  ok(head(seed.dPrive, seed.draftFile) === 'MGLSPC1' && head(seed.book, seed.bookFile) === 'MGLSPC1', 'les fichiers de l’espace gardent la clé de l’espace (pas de double chiffrement)');
+  const coursFile = await st((id) => window.__store.getState().drafts.find((d) => d.id === id).fileName, seed.dCours);
+  ok(head(seed.dCours, coursFile) === 'MGLENC1', 'les autres fichiers passent au chiffrement global');
+  ok(await st(({ dPrive, f }) => window.marginalia.readFile(dPrive, f).then((b) => b.byteLength > 100, () => false), { dPrive: seed.dPrive, f: seed.draftFile }), 'fichier de l’espace toujours lisible, espace ouvert');
+  await st(({ dPrive }) => window.__store.getState().patch('drafts', dPrive, { title: 'Journal sous double protection' }), seed);
+  await flush();
+  await page.click('[data-testid="space-lock"]');
+  await page.waitForSelector('[data-testid="space-locked"]', { timeout: 30000 });
+  await quit();
+  ok(diskHas(SECRET).length === 0 && diskHas('Journal').length === 0 && diskHas('Dissertation').length === 0, 'app fermée : plus aucun texte en clair, ni de l’espace ni du reste', [...diskHas(SECRET), ...diskHas('Journal'), ...diskHas('Dissertation')]);
+  await launch();
+  ok(await st(({ dPrive, dCours }) => { const s = window.__store.getState(); return s.drafts.some((d) => d.id === dCours) && !s.drafts.some((d) => d.id === dPrive); }, seed), 'redémarrage : la base (chiffrée) s’ouvre par le trousseau, l’espace reste verrouillé');
+  await st((id) => window.__store.getState().navigate({ name: 'workspace', workspaceId: id, groupId: null }), seed.prive);
+  await page.waitForSelector('[data-testid="space-locked"]');
+  await page.fill('[data-testid="space-password"]', PASSWORD);
+  await page.click('[data-testid="space-unlock"]');
+  await page.waitForSelector('[data-testid="space-bar"]', { timeout: 30000 });
+  ok(await st(({ dPrive }) => window.__store.getState().drafts.find((d) => d.id === dPrive)?.title === 'Journal sous double protection', seed), 'espace déverrouillé sous chiffrement global : contenu retrouvé');
+  ok(await st(({ dPrive, f }) => window.marginalia.readFile(dPrive, f).then((b) => b.byteLength > 100, () => false), { dPrive: seed.dPrive, f: seed.draftFile }), 'et son fichier se lit');
   ok(errors.length === 0, 'aucune erreur de page', errors.slice(0, 3));
 } catch (e) {
   ok(false, 'exception — ' + String(e && e.stack || e).slice(0, 700));

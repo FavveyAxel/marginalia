@@ -17,10 +17,33 @@
 'use strict';
 
 const { app, BrowserWindow, Menu, dialog, ipcMain, nativeTheme, net, powerMonitor, protocol, safeStorage, screen, session, shell, systemPreferences } = require('electron');
+const path = require('node:path');
+
+// ── App installée : aucune porte de développement ni de test ──
+// Les variables MARGINALIA_* (tests) et VITE_DEV_SERVER_URL (développement) changent le comportement de
+// l'app : page chargée dans la fenêtre avec l'accès à l'API, clé et serveur de mise à jour, dossiers…
+// Un programme qui les poserait (variable d'environnement de l'utilisateur) prendrait la main sur
+// Marginalia et sur ce qu'elle déchiffre. Dans l'app installée, elles sont ignorées, et les options de
+// débogage (--inspect, --remote-debugging-port…) ferment l'app aussitôt. Les fusibles Electron
+// (package.json › build.electronFuses) ferment le reste : ELECTRON_RUN_AS_NODE, NODE_OPTIONS, app.asar
+// modifié.
+// Autotest de l'app empaquetée (scripts/smoke-packaged.mjs) : --mg-self-test=<rapport.json>, dans un dossier
+// de données temporaire ; le rapport ne contient que des vérifications, jamais de données.
+const SELF_TEST = (() => {
+  const a = process.argv.find((x) => typeof x === 'string' && x.startsWith('--mg-self-test='));
+  const f = a ? a.slice('--mg-self-test='.length) : '';
+  return f && /\.json$/i.test(f) && path.isAbsolute(f) ? f : null;
+})();
+if (app.isPackaged) {
+  for (const k of Object.keys(process.env)) if (k.startsWith('MARGINALIA_') || k === 'VITE_DEV_SERVER_URL') delete process.env[k];
+  const DEBUG_SWITCHES = ['inspect', 'inspect-brk', 'inspect-port', 'inspect-publish-uid', 'remote-debugging-port', 'remote-debugging-pipe', 'remote-debugging-address', 'remote-allow-origins', 'js-flags'];
+  if (DEBUG_SWITCHES.some((sw) => app.commandLine.hasSwitch(sw)) || process.argv.some((x) => typeof x === 'string' && /^--(inspect|remote-debugging|js-flags)/.test(x))) {
+    process.exit(1);
+  }
+}
 const fs = require('node:fs');
 const fsp = require('node:fs/promises');
 const os = require('node:os');
-const path = require('node:path');
 const crypto = require('node:crypto');
 const { pathToFileURL } = require('node:url');
 const zipkit = require('./backup.cjs');
@@ -64,6 +87,8 @@ protocol.registerSchemesAsPrivileged([
 // Tests seulement : dossier de données isolé (sur Mac, XDG_CONFIG_HOME est ignoré ; sans cela deux
 // lancements de test partageraient données et verrou d'instance unique).
 if (process.env.MARGINALIA_E2E === '1' && process.env.MARGINALIA_E2E_USER_DATA) app.setPath('userData', process.env.MARGINALIA_E2E_USER_DATA);
+// Autotest : dossier de données neuf et temporaire (jamais les données de l'utilisateur).
+if (SELF_TEST) app.setPath('userData', fs.mkdtempSync(path.join(os.tmpdir(), 'mg-selftest-')));
 
 // ── Instance unique ──────────────────────────────────────────
 // Relancée par la mise à jour (« --updated ») : l'ancienne version peut être encore en train de se fermer
@@ -2489,7 +2514,7 @@ handle('marginalia:appVersion', () => appVersion());
 handle('marginalia:checkUpdate', async () => {
   const current = appVersion();
   // Tests de bout en bout : jamais de réseau, sauf vers le faux serveur fourni.
-  if (E2E && !process.env.MARGINALIA_UPDATE_URL) return { current, latest: null, newer: false };
+  if ((E2E && !process.env.MARGINALIA_UPDATE_URL) || SELF_TEST) return { current, latest: null, newer: false };
   try {
     const r = await fetchJson(UPDATE_URL);
     const latest = String((r && r.tag_name) || '').replace(/^v/i, '');
@@ -3923,6 +3948,58 @@ function computeFirstRun() {
 }
 handle('marginalia:firstRun', () => firstRun);
 
+/**
+ * Autotest de l'app empaquetée (--mg-self-test=<rapport.json>) : interface chargée depuis app://, pont
+ * preload, fichiers de dist/ servis, rendu PDF (fenêtre d'impression), quelques secondes sans plantage, et
+ * portes de développement fermées. Écrit le rapport puis quitte. Lu par scripts/smoke-packaged.mjs.
+ */
+async function runSelfTest(file) {
+  const r = { version: app.getVersion(), packaged: app.isPackaged, appPath: app.getAppPath(), checks: {}, consoleErrors: [], pageErrors: [], crashed: null, errors: [] };
+  const sleep = (ms) => new Promise((res) => setTimeout(res, ms));
+  const until = async (fn, ms) => {
+    const end = Date.now() + ms;
+    for (;;) {
+      try {
+        const v = await fn();
+        if (v) return v;
+      } catch {
+        /* pas encore */
+      }
+      if (Date.now() > end) throw new Error('délai dépassé');
+      await sleep(250);
+    }
+  };
+  try {
+    const win = await until(() => mainWindow && !mainWindow.isDestroyed() && mainWindow, 60000);
+    win.webContents.on('console-message', (e, level, message) => {
+      const lv = e && e.level !== undefined ? e.level : level;
+      const msg = String(e && e.message !== undefined ? e.message : message);
+      if (lv === 'error' || lv === 3) (/^Uncaught/.test(msg) ? r.pageErrors : r.consoleErrors).push(msg.slice(0, 400));
+    });
+    win.webContents.on('render-process-gone', (_e, d) => (r.crashed = (d && d.reason) || 'renderer'));
+    await until(() => win.webContents.executeJavaScript("!!document.querySelector('.app') && typeof window.marginalia === 'object' && window.marginalia.kind === 'electron'"), 60000);
+    r.checks.ui = true;
+    r.checks.url = win.webContents.getURL();
+    r.checks.envClean = !process.env.VITE_DEV_SERVER_URL && !Object.keys(process.env).some((k) => k.startsWith('MARGINALIA_'));
+    const assets = ['index.html', 'ocr/worker.min.js', 'ocr/tesseract-core-simd-lstm.wasm.js', 'ocr/lang/fra.traineddata.gz', 'ocr/lang/eng.traineddata.gz', 'pdfjs/cmaps/78-H.bcmap'];
+    r.checks.assets = await win.webContents.executeJavaScript(
+      `(async () => { const o = {}; for (const a of ${JSON.stringify(assets)}) { try { const x = await fetch('app://marginalia/' + a); o[a] = x.ok ? (await x.arrayBuffer()).byteLength : -x.status; } catch (e) { o[a] = String(e); } } return o; })()`,
+    );
+    const pdf = await withPrintWindow('<!doctype html><html><body><p>Marginalia</p></body></html>', { offscreen: true }, (w, fullBleed) => w.webContents.printToPDF(pdfOptions(fullBleed)));
+    r.checks.pdfBytes = pdf ? pdf.length : 0;
+    await sleep(3000);
+    r.checks.alive = !r.crashed && !win.isDestroyed();
+  } catch (e) {
+    r.errors.push(String((e && e.message) || e));
+  }
+  try {
+    fs.writeFileSync(file, JSON.stringify(r, null, 2));
+  } catch (e) {
+    console.error('autotest : rapport impossible à écrire', e);
+  }
+  app.exit(0);
+}
+
 app.whenReady().then(async () => {
   firstRun = computeFirstRun();
   // Chiffrement (option) : clé débloquée par le trousseau, ou écran de verrouillage dans la fenêtre.
@@ -3974,6 +4051,7 @@ app.whenReady().then(async () => {
   // macOS passe par `open-file`).
   const argvFiles = process.argv.slice(app.isPackaged ? 1 : 2).filter((a) => !a.startsWith('-'));
   createWindow();
+  if (SELF_TEST) void runSelfTest(SELF_TEST);
   queueOpen(argvFiles);
 
   app.on('activate', () => {

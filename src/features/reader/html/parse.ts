@@ -116,6 +116,15 @@ export function resolvePath(base: string, href: string): { path: string; frag: s
   return { path: parts.join('/'), frag };
 }
 
+/** decodeURI qui rend null au lieu de lever une URIError (séquence « % » invalide). */
+function safeDecodeURI(s: string): string | null {
+  try {
+    return decodeURI(s);
+  } catch {
+    return null;
+  }
+}
+
 const isExternal = (href: string) => /^[a-z][a-z0-9+.-]*:/i.test(href);
 
 /**
@@ -303,22 +312,55 @@ const hasContent = (el: HTMLElement) => /\S/.test(el.textContent ?? '') || !!el.
 
 const UNWRAPPABLE = /^(DIV|SECTION|ARTICLE|MAIN|HEADER|FOOTER|NAV|ASIDE|HGROUP|BODY|SPAN)$/;
 
-/** Fait remonter les titres de découpe au premier niveau (déballe section, div…). */
+/**
+ * Fait remonter les titres de découpe au premier niveau (déballe section, div…).
+ *
+ * Un titre est « remontable » si tous ses ancêtres sous `root` sont déballables ; chacun de ces ancêtres
+ * finit déballé (remplacé par ses enfants), et l'ordre des déballages ne change pas l'arbre obtenu. On
+ * les repère donc en un seul parcours, puis on les déballe du plus haut au plus bas (chaque nœud ne
+ * bouge qu'une fois). L'ancienne version relançait querySelectorAll après chaque déballage :
+ * 10 000 × <div><h1>a</h1></div> (210 Ko) prenaient 11 s, et elle s'arrêtait à 10 000 déballages.
+ */
 function hoistHeadings(root: HTMLElement, tag: string) {
-  for (let guard = 0; guard < 10000; guard++) {
-    const h = Array.from(root.querySelectorAll(tag)).find((x) => x.parentNode !== root && canHoist(x, root));
-    if (!h) return;
-    let top: Node = h;
-    while (top.parentNode && top.parentNode !== root) top = top.parentNode;
-    const el = top as Element;
-    while (el.firstChild) root.insertBefore(el.firstChild, el);
+  // ok(p) : p et tous ses ancêtres jusqu'à root (exclu) sont déballables (mémorisé : parcours linéaire).
+  const okMemo = new Map<Element, boolean>();
+  const ok = (start: Element): boolean => {
+    const chain: Element[] = [];
+    let res = true;
+    for (let p: Element | null = start; p && p !== root; p = p.parentElement) {
+      const known = okMemo.get(p);
+      if (known !== undefined) {
+        res = known;
+        break;
+      }
+      chain.push(p);
+      if (!UNWRAPPABLE.test(p.tagName)) {
+        res = false;
+        break;
+      }
+    }
+    // un maillon non déballable rend faux tout ce qui est au-dessous de lui dans la chaîne
+    let r = res;
+    for (let i = chain.length - 1; i >= 0; i--) {
+      if (!UNWRAPPABLE.test(chain[i].tagName)) r = false;
+      okMemo.set(chain[i], r);
+    }
+    return okMemo.get(start) ?? res;
+  };
+  const unwrap = new Set<Element>();
+  for (const h of Array.from(root.querySelectorAll(tag))) {
+    const parent = h.parentElement;
+    if (!parent || parent === root || !ok(parent)) continue;
+    for (let p: Element | null = parent; p && p !== root && !unwrap.has(p); p = p.parentElement) unwrap.add(p);
+  }
+  if (!unwrap.size) return;
+  // ordre du document : un ancêtre avant ses descendants
+  for (const el of Array.from(root.querySelectorAll('*'))) {
+    if (!unwrap.has(el)) continue;
+    const parent = el.parentNode!;
+    while (el.firstChild) parent.insertBefore(el.firstChild, el);
     el.remove();
   }
-}
-
-function canHoist(h: Element, root: Element): boolean {
-  for (let p = h.parentElement; p && p !== root; p = p.parentElement) if (!UNWRAPPABLE.test(p.tagName)) return false;
-  return true;
 }
 
 function headingLabel(el: Element | null): string {
@@ -366,7 +408,8 @@ function tocFromHeadings(chapters: Chapter[]): TocItem[] {
       items.push({ label, level: Number(h.tagName[1]), chapter: i, fragment: fid });
     });
   });
-  const min = Math.min(...items.map((x) => x.level), 9);
+  // (boucle plutôt que Math.min(...tableau) : au-delà de ~130 000 titres, l'étalement dépasse la pile)
+  const min = items.reduce((m, x) => Math.min(m, x.level), 9);
   return items.map((x, k) => ({ id: `toc-${k}`, label: x.label, depth: x.level - min, target: { kind: 'html', chapter: x.chapter, fragment: x.fragment } }));
 }
 
@@ -432,11 +475,89 @@ export function stripFrontMatter(src: string): string {
   return src.replace(/^﻿?(---|\+\+\+)[ \t]*\r?\n[\s\S]*?\r?\n(---|\.\.\.|\+\+\+)[ \t]*(\r?\n|$)/, '');
 }
 
+/**
+ * Garde-fous du Markdown. `marked` (bibliothèque tierce) a des coûts quadratiques sur certaines formes
+ * (40 000 « * » d'affilée : 5 s ; 40 000 « ![a]( » : 7,7 s) et s'appelle récursivement pour chaque niveau
+ * de citation ou de liste (4 000 « > » sur une ligne : RangeError, pile dépassée). Ces formes n'existent
+ * pas dans un vrai texte ; on les refuse avant l'analyse, avec un message lisible :
+ *  - plus de MD_MAX_CHARS caractères (un essai, même long, en fait bien moins de 2 millions) ;
+ *  - plus de MD_MAX_NESTING marques de bloc (« > », « - », « 1. ») en tête d'une même ligne ;
+ *  - un coût estimé des contextes en ligne (paragraphe, titre, cellule) au-delà de MD_INLINE_BUDGET :
+ *    somme, sur chaque contexte, du carré du nombre de délimiteurs non échappés (* _ [ !). Un paragraphe
+ *    ordinaire en a quelques dizaines (quelques centaines au carré) ; le budget en admet ~3 000 dans
+ *    un seul paragraphe, et borne le pire cas à moins d'une seconde.
+ * Toute exception de marked devient elle aussi une ReaderError.
+ */
+const MD_MAX_CHARS = 2_000_000;
+const MD_MAX_NESTING = 100;
+const MD_INLINE_BUDGET = 1e7;
+const MD_TOO_COMPLEX = 'Ce fichier Markdown a une structure anormale (imbrications ou marques de mise en forme par milliers) : Marginalia ne peut pas l’ouvrir.';
+
+/** Plus grand nombre de marques de bloc (> - * + 1.) en tête d'une ligne. */
+function markdownNesting(src: string): number {
+  let max = 0;
+  for (let i = 0; i < src.length; ) {
+    let n = 0;
+    let j = i;
+    for (;;) {
+      while (src[j] === ' ' || src[j] === '\t') j++;
+      const c = src[j];
+      if (c === '>') j++;
+      else if ((c === '-' || c === '*' || c === '+') && (src[j + 1] === ' ' || src[j + 1] === '\t')) j += 2;
+      else if (c >= '0' && c <= '9') {
+        let k = j;
+        while (k - j < 9 && src[k] >= '0' && src[k] <= '9') k++;
+        if ((src[k] === '.' || src[k] === ')') && (src[k + 1] === ' ' || src[k + 1] === '\t')) j = k + 2;
+        else break;
+      } else break;
+      n++;
+    }
+    if (n > max) max = n;
+    const nl = src.indexOf('\n', j);
+    if (nl < 0) break;
+    i = nl + 1;
+  }
+  return max;
+}
+
+/** Coût estimé de l'analyse en ligne : somme des carrés des délimiteurs non échappés par contexte. */
+function markdownInlineCost(src: string, Lexer: typeof import('marked').Lexer): number {
+  const lexer = new Lexer({ gfm: true });
+  lexer.blockTokens(src, []);
+  // file des contextes en ligne remplie par l'analyse des blocs (interne à marked ; absente : pas d'estimation)
+  const queue = (lexer as unknown as { inlineQueue?: { src: string }[] }).inlineQueue;
+  if (!Array.isArray(queue)) return 0;
+  let cost = 0;
+  for (const { src: t } of queue) {
+    let c = 0;
+    for (let i = 0; i < t.length; i++) {
+      const ch = t[i];
+      if (ch === '\\') i++;
+      else if (ch === '*' || ch === '_' || ch === '[' || ch === '!') c++;
+    }
+    cost += c * c;
+    if (cost > MD_INLINE_BUDGET) break;
+  }
+  return cost;
+}
+
+/** Markdown → HTML (non assaini) par marked, avec les garde-fous ci-dessus ; erreurs en ReaderError. */
+export async function markdownToHtml(src: string): Promise<string> {
+  if (src.length > MD_MAX_CHARS) throw new ReaderError('Ce fichier Markdown est trop long pour être ouvert (plus de 2 millions de caractères).');
+  if (markdownNesting(src) > MD_MAX_NESTING) throw new ReaderError(MD_TOO_COMPLEX);
+  const { marked, Lexer } = await import('marked');
+  try {
+    if (markdownInlineCost(src, Lexer) > MD_INLINE_BUDGET) throw new ReaderError(MD_TOO_COMPLEX);
+    return (await marked.parse(src, { async: false, gfm: true })) as string;
+  } catch (e) {
+    if (e instanceof ReaderError) throw e;
+    throw new ReaderError(e instanceof RangeError ? MD_TOO_COMPLEX : 'Ce fichier Markdown est illisible.');
+  }
+}
+
 async function fromMarkdown(data: ArrayBuffer, book: Book): Promise<ParsedDoc> {
-  const { marked } = await import('marked');
   const src = stripFrontMatter(decodeText(data));
-  const html = (await marked.parse(src, { async: false, gfm: true })) as string;
-  return fromHtmlString(html, book);
+  return fromHtmlString(await markdownToHtml(src), book);
 }
 
 // ── DOCX ─────────────────────────────────────────────────────
@@ -491,7 +612,13 @@ async function fromEpub(data: ArrayBuffer, book: Book): Promise<ParsedDoc> {
   } catch {
     throw new ReaderError('Ce fichier EPUB est illisible (archive endommagée).');
   }
-  const file = (p: string) => zip.file(p) ?? zip.file(decodeURI(p)) ?? null;
+  // decodeURI lève une URIError sur « % » isolé (full-path="%", <img src="%25zz.png">) : chemin ignoré.
+  const file = (p: string) => {
+    const f = zip.file(p);
+    if (f) return f;
+    const d = safeDecodeURI(p);
+    return (d !== null && zip.file(d)) || null;
+  };
   const readText = async (p: string) => {
     const f = file(p);
     if (!f) return null;
@@ -644,7 +771,8 @@ async function fromEpub(data: ArrayBuffer, book: Book): Promise<ParsedDoc> {
     if (chapter === undefined) return;
     toc.push({ id: `toc-${toc.length}`, label: e.label, depth: e.depth, target: { kind: 'html', chapter, ...(e.frag ? { fragment: e.frag } : {}) } });
   });
-  const minDepth = Math.min(...toc.map((t) => t.depth), 0);
+  // (pas de Math.min(...toc) : un sommaire de 130 000 entrées dépassait la pile d'appels)
+  const minDepth = toc.reduce((m, t) => Math.min(m, t.depth), 0);
   toc.forEach((t) => (t.depth -= minDepth));
 
   // Libellés de chapitres : entrée du sommaire, sinon premier titre.

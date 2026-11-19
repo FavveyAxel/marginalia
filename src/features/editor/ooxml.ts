@@ -133,27 +133,295 @@ interface XNode {
   dirty: boolean;
   reorder: boolean;
 }
-const TOKEN_RE = /<!--[\s\S]*?-->|<!\[CDATA\[[\s\S]*?\]\]>|<\?[\s\S]*?\?>|<![^>]*>|<\/?[A-Za-z_][^\s/>]*(?:\s+[^\s=/>]+\s*=\s*(?:"[^"]*"|'[^']*'))*\s*\/?>/g;
+// ── Recherches en temps linéaire (documents reçus) ──
+// Les expressions de la forme /<tag\b[^>]*…[\s\S]*?<\/tag>/ retentent toute la suite du texte à chaque
+// début possible : sur un .docx reçu fait de « <w:style w:styleId="X" » répétés sans « > », le coût
+// devenait quadratique, voire cubique (32 k caractères : 5 s, onglet figé). Les fonctions ci-dessous
+// rendent exactement les mêmes correspondances que les anciennes expressions (même découpage, même
+// choix entre alternatives), mais à partir de listes de positions calculées une fois par indexOf et
+// interrogées par dichotomie : plus aucun parcours ne recommence depuis chaque début.
+
+const SPACE_RE = /\s/;
+/** Même ensemble que \s (ASCII d'abord, sans expression pour les cas courants). */
+const isSpace = (c: string) => c === ' ' || c === '\n' || c === '\t' || c === '\r' || ((c > '~' || c === '\v' || c === '\f') && SPACE_RE.test(c));
+const isWord = (c: string) => (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c === '_';
+const isLetter = (c: string) => (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z');
+
+/** Indice du premier élément ≥ x d'une liste croissante (list.length si aucun). */
+function lowerBound(list: readonly number[], x: number): number {
+  let lo = 0;
+  let hi = list.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (list[mid] < x) lo = mid + 1;
+    else hi = mid;
+  }
+  return lo;
+}
+/** Premier élément ≥ x, ou -1. */
+const nextIn = (list: readonly number[], x: number) => {
+  const k = lowerBound(list, x);
+  return k < list.length ? list[k] : -1;
+};
+
+interface TagMatch {
+  /** fin du nom (premier blanc, « / » ou « > » après lui) */
+  nameEnd: number;
+  /** fin de la suite d'attributs reconnus */
+  attrsEnd: number;
+  /** fin de la balise (après « > ») */
+  end: number;
+}
+
+/** Positions des motifs d'une chaîne XML, calculées à la demande puis réutilisées. */
+class XmlIndex {
+  private lists = new Map<string, number[]>();
+  private derived = new Map<string, unknown>();
+  /** Suites d'attributs déjà lues : position → fin de balise (null : pas de balise). */
+  readonly attrRuns = new Map<number, Omit<TagMatch, 'nameEnd'> | null>();
+  constructor(readonly s: string) {}
+
+  /** Positions croissantes de `needle`, chevauchements compris (comme des indexOf successifs). */
+  all(needle: string): number[] {
+    let l = this.lists.get(needle);
+    if (!l) {
+      l = [];
+      for (let i = this.s.indexOf(needle); i >= 0; i = this.s.indexOf(needle, i + 1)) l.push(i);
+      this.lists.set(needle, l);
+    }
+    return l;
+  }
+  /** Comme s.indexOf(needle, from). */
+  next(needle: string, from: number): number {
+    return nextIn(this.all(needle), from);
+  }
+  /** Valeur dérivée (liste filtrée…), calculée une fois. */
+  cached<T>(key: string, make: () => T): T {
+    if (!this.derived.has(key)) this.derived.set(key, make());
+    return this.derived.get(key) as T;
+  }
+  /** Débuts de `open` (« <w:style »…) suivis d'une limite de mot, comme /<w:style\b/. */
+  starts(open: string): number[] {
+    return this.cached(`starts:${open}`, () => this.all(open).filter((i) => !isWord(this.s.charAt(i + open.length))));
+  }
+  /** Débuts de `open` suivis d'un blanc, de « / » ou de « > », comme /<w:b(?=[\s/>])/. */
+  tagStarts(open: string): number[] {
+    return this.cached(`tag:${open}`, () =>
+      this.all(open).filter((i) => {
+        const c = this.s.charAt(i + open.length);
+        return c === '/' || c === '>' || isSpace(c);
+      }),
+    );
+  }
+  /** Occurrences de `needle` précédées d'un blanc (le \s des expressions « \sw:val= »). */
+  spaced(needle: string): number[] {
+    return this.cached(`sp:${needle}`, () => this.all(needle).filter((v) => isSpace(this.s.charAt(v - 1))));
+  }
+  /** Premier blanc, « / » ou « > » à partir de `from` (fin d'un nom de balise), ou -1. */
+  nameStop(from: number): number {
+    const l = this.cached('stops', () => {
+      const out: number[] = [];
+      for (let i = 0; i < this.s.length; i++) {
+        const c = this.s[i];
+        if (c === '/' || c === '>' || isSpace(c)) out.push(i);
+      }
+      return out;
+    });
+    return nextIn(l, from);
+  }
+  /**
+   * Première balise `open` (limite de mot, ou « [\s/>] » si `tagEnd`) entière dans [from, to) : même
+   * résultat que /<open\b[^>]*\/?>/ appliquée à s.slice(from, to).
+   */
+  firstTag(open: string, from = 0, to = this.s.length, tagEnd = false): [number, number] | null {
+    const st = tagEnd ? this.tagStarts(open) : this.starts(open);
+    const i = nextIn(st, from);
+    if (i < 0 || i + open.length > to) return null;
+    const g = this.next('>', i + open.length);
+    // la première balise déborde : les suivantes aussi (leur « > » est le même ou plus loin)
+    if (g < 0 || g + 1 > to) return null;
+    return [i, g + 1];
+  }
+  /** Premier bloc open…close (le plus court) dans [from, to) : /<open>[\s\S]*?<close>/ sur la tranche. */
+  block(open: string, close: string, from = 0, to = this.s.length): [number, number] | null {
+    const i = this.next(open, from);
+    if (i < 0 || i + open.length > to) return null;
+    const j = this.next(close, i + open.length);
+    if (j < 0 || j + close.length > to) return null;
+    return [i, j + close.length];
+  }
+  /** attrsOf de la balise [start, end), mémorisé. */
+  attrs(r: [number, number] | null): Record<string, string> {
+    if (!r) return {};
+    return this.cached(`attrs:${r[0]}:${r[1]}`, () => attrsOf(this.s.slice(r[0], r[1])));
+  }
+
+  /**
+   * Élément <w:style> dont w:styleId vaut `id` : même résultat que
+   * /<w:style\b[^>]*\sw:styleId="ID"[^>]*?(?:\/>|>[\s\S]*?<\/w:style>)/.
+   */
+  styleEl(id: string): [number, number] | null {
+    return this.cached(`style:${id}`, () => {
+      const needle = `w:styleId="${id}"`;
+      const vs = this.spaced(needle);
+      for (const i of this.starts('<w:style')) {
+        const v = nextIn(vs, i + 9);
+        if (v < 0) break; // plus aucun attribut après ce début, ni après les suivants
+        const g0 = this.next('>', i + 8);
+        if (g0 >= 0 && g0 < v) continue; // l'attribut n'est pas dans cette balise ouvrante
+        const g = this.next('>', v + needle.length);
+        if (g < 0) continue;
+        if (this.s.charAt(g - 1) === '/') return [i, g + 1] as [number, number];
+        const j = this.next('</w:style>', g + 1);
+        if (j >= 0) return [i, j + 10] as [number, number];
+      }
+      return null;
+    });
+  }
+  /** /<w:style\b[^>]*\sw:styleId="ID"/ (ou sans le blanc si `spaced` est faux) trouve-t-elle quelque chose ? */
+  hasStyleOpen(id: string, spaced: boolean): boolean {
+    const needle = `w:styleId="${id}"`;
+    const vs = spaced ? this.spaced(needle) : this.all(needle);
+    for (const i of this.starts('<w:style')) {
+      const v = nextIn(vs, i + (spaced ? 9 : 8));
+      if (v < 0) return false;
+      const g0 = this.next('>', i + 8);
+      if (g0 < 0 || g0 >= v) return true;
+    }
+    return false;
+  }
+  /** Premier /<w:basedOn\s+w:val="([^"]+)"/ dans [from, to) : la valeur, ou null. */
+  basedOn(from: number, to: number): string | null {
+    const cands = this.cached('basedOn', () => {
+      const out: { p: number; v: number; q: number }[] = [];
+      for (const p of this.all('<w:basedOn')) {
+        let i = p + 10;
+        if (!isSpace(this.s.charAt(i))) continue;
+        while (isSpace(this.s.charAt(i))) i++;
+        if (!this.s.startsWith('w:val="', i)) continue;
+        const q = this.next('"', i + 7);
+        if (q > i + 7) out.push({ p, v: i + 7, q });
+      }
+      return out;
+    });
+    const ps = this.cached('basedOnP', () => cands.map((c) => c.p));
+    const c = cands[lowerBound(ps, from)];
+    // les fins croissent avec les débuts : si la première déborde de l'élément, les suivantes aussi
+    return c && c.q + 1 <= to ? this.s.slice(c.v, c.q) : null;
+  }
+}
+
+/** Index de la dernière chaîne vue : les lectures de styles successives (dialogue, barre d'outils) le réutilisent. */
+let lastIndex: XmlIndex | null = null;
+function xmlIndex(s: string): XmlIndex {
+  if (!lastIndex || lastIndex.s !== s) lastIndex = new XmlIndex(s);
+  return lastIndex;
+}
+
+/**
+ * Balise ouvrante (ou fermante si `slash`) commençant en p, selon la grammaire
+ * <\/?[A-Za-z_][^\s/>]*(?:\s+[^\s=/>]+\s*=\s*(?:"[^"]*"|'[^']*'))*\s*\/?> — sans retour arrière : chaque
+ * étape est déterministe, et la suite d'attributs lue depuis une position est mémorisée (des débuts
+ * différents qui y retombent ne la relisent pas).
+ */
+function matchTag(x: XmlIndex, p: number, slash: boolean): TagMatch | null {
+  const s = x.s;
+  let q = p + 1;
+  if (slash && s.charAt(q) === '/') q++;
+  const c = s.charAt(q);
+  if (!(isLetter(c) || c === '_')) return null;
+  const nameEnd = x.nameStop(q + 1);
+  if (nameEnd < 0) return null;
+  const seen: number[] = [];
+  let pos = nameEnd;
+  let res: Omit<TagMatch, 'nameEnd'> | null | undefined;
+  for (;;) {
+    res = x.attrRuns.get(pos);
+    if (res !== undefined) break;
+    seen.push(pos);
+    const n = attrAt(x, pos);
+    if (n >= 0) {
+      pos = n;
+      continue;
+    }
+    // \s*\/?>
+    let i = pos;
+    while (isSpace(s.charAt(i))) i++;
+    if (s.charAt(i) === '/') i++;
+    res = s.charAt(i) === '>' ? { attrsEnd: pos, end: i + 1 } : null;
+    break;
+  }
+  for (const v of seen) x.attrRuns.set(v, res);
+  return res ? { nameEnd, ...res } : null;
+}
+/** Un attribut \s+[^\s=/>]+\s*=\s*(?:"[^"]*"|'[^']*') en `pos` : sa fin, ou -1. */
+function attrAt(x: XmlIndex, pos: number): number {
+  const s = x.s;
+  let i = pos;
+  if (!isSpace(s.charAt(i))) return -1;
+  while (isSpace(s.charAt(i))) i++;
+  const n0 = i;
+  for (let c = s.charAt(i); c !== '' && c !== '=' && c !== '/' && c !== '>' && !isSpace(c); c = s.charAt(++i));
+  if (i === n0) return -1;
+  while (isSpace(s.charAt(i))) i++;
+  if (s.charAt(i) !== '=') return -1;
+  i++;
+  while (isSpace(s.charAt(i))) i++;
+  const quote = s.charAt(i);
+  if (quote !== '"' && quote !== "'") return -1;
+  const k = x.next(quote, i + 1);
+  return k < 0 ? -1 : k + 1;
+}
+
+/**
+ * Jeton suivant (commentaire, CDATA, instruction, déclaration ou balise) à partir de `from` : même
+ * découpage que l'expression globale
+ * /<!--[\s\S]*?-->|<!\[CDATA\[[\s\S]*?\]\]>|<\?[\s\S]*?\?>|<![^>]*>|<\/?[A-Za-z_]…\/?>/g.
+ */
+function nextToken(x: XmlIndex, from: number): [number, number] | null {
+  const s = x.s;
+  for (let p = x.next('<', from); p >= 0; p = x.next('<', p + 1)) {
+    const c1 = s.charAt(p + 1);
+    let end = -1;
+    if (c1 === '!') {
+      let k = -1;
+      if (s.startsWith('<!--', p)) k = x.next('-->', p + 4);
+      else if (s.startsWith('<![CDATA[', p)) k = x.next(']]>', p + 9);
+      if (k >= 0) end = k + 3;
+      else {
+        // commentaire ou CDATA non fermé : l'alternative <![^>]*> le prend jusqu'au premier « > »
+        const g = x.next('>', p + 2);
+        if (g >= 0) end = g + 1;
+      }
+    } else if (c1 === '?') {
+      const k = x.next('?>', p + 2);
+      if (k >= 0) end = k + 2;
+    } else end = matchTag(x, p, true)?.end ?? -1;
+    if (end >= 0) return [p, end];
+  }
+  return null;
+}
 
 function parseTree(xml: string): XNode | null {
   const doc: XNode = { name: '#doc', start: 0, openEnd: 0, closeStart: xml.length, end: xml.length, children: [], parent: null, dirty: false, reorder: false };
   const stack: XNode[] = [doc];
-  TOKEN_RE.lastIndex = 0;
-  let m: RegExpExecArray | null;
-  while ((m = TOKEN_RE.exec(xml))) {
-    const t = m[0];
-    if (t[1] === '!' || t[1] === '?') continue;
-    if (t[1] === '/') {
+  const x = xmlIndex(xml);
+  for (let tk = nextToken(x, 0); tk; tk = nextToken(x, tk[1])) {
+    const [start, stop] = tk;
+    const c1 = xml.charAt(start + 1);
+    if (c1 === '!' || c1 === '?') continue;
+    const t = xml.slice(start, stop);
+    if (c1 === '/') {
       const name = t.slice(2, -1).trim();
       const top = stack.pop();
       if (!top || top.name !== name) return null; // XML incohérent : on ne touche à rien
-      top.closeStart = m.index;
-      top.end = m.index + t.length;
+      top.closeStart = start;
+      top.end = stop;
       continue;
     }
     const name = /^<([^\s/>]+)/.exec(t)![1];
     const parent = stack[stack.length - 1];
-    const node: XNode = { name, start: m.index, openEnd: m.index + t.length, closeStart: m.index + t.length, end: m.index + t.length, children: [], parent, dirty: false, reorder: false };
+    const node: XNode = { name, start, openEnd: stop, closeStart: stop, end: stop, children: [], parent, dirty: false, reorder: false };
     parent.children.push(node);
     if (!t.endsWith('/>')) stack.push(node);
   }
@@ -224,15 +492,24 @@ export function reorderXml(xml: string): string {
 }
 
 // ── Espaces de noms ──
-const TAG_RE = /<([A-Za-z_][^\s/>]*)((?:\s+[^\s=/>]+\s*=\s*(?:"[^"]*"|'[^']*'))*)\s*\/?>/g;
 const ATTR_RE = /\s([^\s=/>]+)\s*=\s*(?:"([^"]*)"|'([^']*)')/g;
 
 export function fixNamespaces(xml: string): string {
-  TAG_RE.lastIndex = 0;
-  const first = /<([A-Za-z_][^\s/>]*)((?:\s+[^\s=/>]+\s*=\s*(?:"[^"]*"|'[^']*'))*)\s*(\/?)>/.exec(xml.replace(/^(?:\s*<\?[\s\S]*?\?>|\s*<!--[\s\S]*?-->)*/, (s) => ' '.repeat(s.length)));
+  // Racine : première balise après les instructions et commentaires de tête (même grammaire que l'ancienne
+  // expression, parcourue par matchTag : linéaire même sur « <w:sectPr<w:sectPr… » sans fin).
+  const blank = xml.replace(/^(?:\s*<\?[\s\S]*?\?>|\s*<!--[\s\S]*?-->)*/, (s) => ' '.repeat(s.length));
+  const bx = blank === xml ? xmlIndex(xml) : new XmlIndex(blank);
+  let first: TagMatch | null = null;
+  let rootStart = -1;
+  for (const p of bx.all('<')) {
+    first = matchTag(bx, p, false);
+    if (first) {
+      rootStart = p;
+      break;
+    }
+  }
   if (!first) return xml;
-  const rootStart = first.index;
-  const rootTag = first[0];
+  const rootTag = blank.slice(rootStart, first.end);
   const declared = new Set<string>();
   let defaultNs = false;
   for (const a of rootTag.matchAll(ATTR_RE)) {
@@ -242,12 +519,18 @@ export function fixNamespaces(xml: string): string {
   void defaultNs;
   const used = new Set<string>();
   const localDecl = new Set<string>();
-  let m: RegExpExecArray | null;
-  TAG_RE.lastIndex = 0;
-  while ((m = TAG_RE.exec(xml))) {
-    const p = m[1].indexOf(':');
-    if (p > 0) used.add(m[1].slice(0, p));
-    for (const a of m[2].matchAll(ATTR_RE)) {
+  // Toutes les balises ouvrantes, dans l'ordre de l'ancienne expression globale (y compris celles des commentaires).
+  const x = xmlIndex(xml);
+  for (let p = x.next('<', 0); p >= 0; ) {
+    const m = matchTag(x, p, false);
+    if (!m) {
+      p = x.next('<', p + 1);
+      continue;
+    }
+    const name = xml.slice(p + 1, m.nameEnd);
+    const pi = name.indexOf(':');
+    if (pi > 0) used.add(name.slice(0, pi));
+    for (const a of xml.slice(m.nameEnd, m.attrsEnd).matchAll(ATTR_RE)) {
       const n = a[1];
       if (n.startsWith('xmlns:')) {
         localDecl.add(n.slice(6));
@@ -256,6 +539,7 @@ export function fixNamespaces(xml: string): string {
       const q = n.indexOf(':');
       if (q > 0 && n !== 'xmlns') used.add(n.slice(0, q));
     }
+    p = x.next('<', m.end);
   }
   used.delete('xml');
   used.delete('xmlns');
@@ -297,33 +581,136 @@ export function fixNamespaces(xml: string): string {
 }
 
 // ── Attributs ──
+/**
+ * Remplace chaque balise ouvrante `open` (limite de mot) jusqu'à son premier « > » : même résultat que
+ * s.replace(/<open\b([^>]*)>/g, fn), sans relire la suite du texte à chaque début quand « > » manque.
+ */
+function replaceOpenTags(s: string, open: string, fn: (all: string, attrs: string) => string): string {
+  const x = new XmlIndex(s);
+  let out = '';
+  let last = 0;
+  for (const i of x.starts(open)) {
+    if (i < last) continue;
+    const g = x.next('>', i + open.length);
+    if (g < 0) break; // plus aucun « > » : ni cette balise ni les suivantes ne se ferment
+    out += s.slice(last, i) + fn(s.slice(i, g + 1), s.slice(i + open.length, g));
+    last = g + 1;
+  }
+  return last ? out + s.slice(last) : s;
+}
+
+/** Fin du run de marque de commentaire en p (ancienne REF_RUN), ou -1. */
+function annotationRunEnd(x: XmlIndex, p: number): number {
+  const s = x.s;
+  if (!s.startsWith('<w:r>', p)) return -1;
+  let q = p + 5;
+  if (s.startsWith('<w:rPr>', q)) {
+    // (?:(?!<\/w:rPr>).)* : jusqu'au premier </w:rPr>, sans franchir de fin de ligne
+    const c = x.next('</w:rPr>', q + 7);
+    if (c < 0) return -1;
+    const nl = Math.min(...['\n', '\r', ' ', ' '].map((t) => x.next(t, q + 7)).filter((n) => n >= 0), Infinity);
+    if (nl < c) return -1;
+    q = c + 8;
+  }
+  if (!s.startsWith('<w:annotationRef', q)) return -1;
+  q += 16;
+  while (isSpace(s.charAt(q))) q++;
+  return s.startsWith('/></w:r>', q) ? q + 8 : -1;
+}
+
 const COMMENT_ATTRS = new Set(['w:id', 'w:author', 'w:date', 'w:initials']);
 export function fixAttributes(xml: string): string {
   let out = xml.replace(/\sw:authorEmail\s*=\s*"[^"]*"/g, '');
   // w:comment : uniquement les attributs du schéma (SuperDoc ajoute internalId, email, trackedChange…)
-  out = out.replace(/<w:comment\b([^>]*)>/g, (all, attrs: string) => {
+  out = replaceOpenTags(out, '<w:comment', (all, attrs) => {
     // (attributs internes parfois écrits sous un préfixe lié à l'espace w, ex. custom:internalId)
     const kept = [...attrs.matchAll(ATTR_RE)].filter((a) => COMMENT_ATTRS.has(a[1]) || a[1] === 'xmlns' || a[1].startsWith('xmlns:'));
     const selfClose = /\/\s*$/.test(attrs);
     return `<w:comment${kept.map((a) => a[0]).join('')}${selfClose ? '/' : ''}>`;
   });
   // w:annotationRef : un seul par paragraphe de commentaire (SuperDoc en rajoute un à chaque
-  // aller-retour : réimporté comme contenu, puis réécrit)
+  // aller-retour : réimporté comme contenu, puis réécrit). Même découpage que
+  // /(REF_RUN)(?:\s*REF_RUN)+/g, en une passe.
   if (out.includes('<w:annotationRef')) {
-    const REF_RUN = /<w:r>(?:<w:rPr>(?:(?!<\/w:rPr>).)*<\/w:rPr>)?<w:annotationRef\s*\/><\/w:r>/;
-    const dup = new RegExp(`(${REF_RUN.source})(?:\\s*${REF_RUN.source})+`, 'g');
-    out = out.replace(dup, '$1');
+    const x = new XmlIndex(out);
+    let res = '';
+    let last = 0;
+    for (const p of x.all('<w:r>')) {
+      if (p < last) continue;
+      const e1 = annotationRunEnd(x, p);
+      if (e1 < 0) continue;
+      let e = e1;
+      for (;;) {
+        let q = e;
+        while (isSpace(out.charAt(q))) q++;
+        const e2 = annotationRunEnd(x, q);
+        if (e2 < 0) break;
+        e = e2;
+      }
+      if (e === e1) continue;
+      res += out.slice(last, e1);
+      last = e;
+    }
+    if (last) out = res + out.slice(last);
   }
-  // w:shd exige w:val
-  out = out.replace(/<w:shd\b(?![^>]*\sw:val=)([^>]*?)(\/?)>/g, '<w:shd w:val="clear"$1$2>');
+  // w:shd exige w:val (ancienne /<w:shd\b(?![^>]*\sw:val=)([^>]*?)(\/?)>/g)
+  {
+    const x = new XmlIndex(out);
+    const vals = x.spaced('w:val=');
+    let res = '';
+    let last = 0;
+    for (const i of x.starts('<w:shd')) {
+      if (i < last) continue;
+      const g = x.next('>', i + 6);
+      if (g < 0) break;
+      const v = nextIn(vals, i + 7);
+      if (v >= 0 && v < g) continue; // w:val déjà présent dans la balise
+      res += out.slice(last, i) + '<w:shd w:val="clear"' + out.slice(i + 6, g) + '>';
+      last = g + 1;
+    }
+    if (last) out = res + out.slice(last);
+  }
   // Images flottantes (wp:anchor) : attributs obligatoires manquants, positions vides
-  out = out.replace(/<wp:anchor\b([^>]*)>/g, (all, attrs: string) => {
+  out = replaceOpenTags(out, '<wp:anchor', (all, attrs) => {
     const need: [string, string][] = [['simplePos', '0'], ['relativeHeight', '0'], ['behindDoc', '0'], ['locked', '0'], ['layoutInCell', '1'], ['allowOverlap', '1']];
     const add = need.filter(([k]) => !new RegExp(`\\s${k}\\s*=`).test(attrs)).map(([k, v]) => ` ${k}="${v}"`).join('');
     return add ? `<wp:anchor${add}${attrs}>` : all;
   });
-  out = out.replace(/<wp:(wrapSquare|wrapTight|wrapThrough)\b(?![^>]*\swrapText=)/g, '<wp:$1 wrapText="bothSides"');
-  out = out.replace(/<wp:(positionH|positionV)\b([^>]*?)\s*\/>/g, '<wp:$1$2><wp:posOffset>0</wp:posOffset></wp:$1>');
+  // wrapText manquant (ancienne /<wp:(wrapSquare|wrapTight|wrapThrough)\b(?![^>]*\swrapText=)/g)
+  {
+    const x = new XmlIndex(out);
+    const wt = x.spaced('wrapText=');
+    const hits = ['wrapSquare', 'wrapTight', 'wrapThrough'].flatMap((n) => x.starts(`<wp:${n}`).map((i) => [i, i + 4 + n.length] as const)).sort((a, b) => a[0] - b[0]);
+    let res = '';
+    let last = 0;
+    for (const [i, nameEnd] of hits) {
+      const g = x.next('>', nameEnd);
+      const v = nextIn(wt, nameEnd + 1);
+      if (v >= 0 && (g < 0 || v < g)) continue;
+      res += out.slice(last, nameEnd) + ' wrapText="bothSides"';
+      last = nameEnd;
+    }
+    if (last) out = res + out.slice(last);
+  }
+  // positions vides (ancienne /<wp:(positionH|positionV)\b([^>]*?)\s*\/>/g)
+  {
+    const x = new XmlIndex(out);
+    const hits = ['positionH', 'positionV'].flatMap((n) => x.starts(`<wp:${n}`).map((i) => [i, n] as const)).sort((a, b) => a[0] - b[0]);
+    let res = '';
+    let last = 0;
+    for (const [i, name] of hits) {
+      if (i < last) continue;
+      const nameEnd = i + 4 + name.length;
+      const g = x.next('>', nameEnd);
+      if (g < 0) break;
+      if (out.charAt(g - 1) !== '/' || g - 1 < nameEnd) continue;
+      let e = g - 1;
+      while (e > nameEnd && isSpace(out.charAt(e - 1))) e--;
+      res += out.slice(last, i) + `<wp:${name}${out.slice(nameEnd, e)}><wp:posOffset>0</wp:posOffset></wp:${name}>`;
+      last = g + 1;
+    }
+    if (last) out = res + out.slice(last);
+  }
   // w:nsid : 8 chiffres hexadécimaux
   out = out.replace(/(<w:nsid\s+w:val=")([0-9A-Fa-f]{1,7})(")/g, (_a, p: string, v: string, s: string) => p + v.toUpperCase().padStart(8, '0') + s);
   return out;
@@ -338,11 +725,13 @@ function fixIds(parts: Map<string, string>): void {
     const all = new Set<number>();
     for (const [n, x] of parts) if (!skip?.(n)) for (const m of x.matchAll(re)) all.add(parseInt(m[2], 16));
     const map = new Map<number, number>();
+    const taken = new Set<number>(); // valeurs déjà attribuées (un Set : pas de parcours de map à chaque essai)
     for (const v of all) {
       if (v < limit && v > 0) continue;
       let nv = (v & (limit - 1)) || 1;
-      while (all.has(nv) || [...map.values()].includes(nv)) nv = (nv + 1) % limit || 1;
+      while (all.has(nv) || taken.has(nv)) nv = (nv + 1) % limit || 1;
       map.set(v, nv);
+      taken.add(nv);
     }
     if (!map.size) return;
     for (const [n, x] of parts) {
@@ -384,7 +773,7 @@ export function addMissingStyles(stylesXml: string, docXml: string): string {
   for (const id of Object.keys(TOC_STYLES)) {
     const used = new RegExp(`<w:(?:pStyle|rStyle)\\s+w:val="${rx(id)}"`).test(docXml);
     if (!used) continue;
-    if (new RegExp(`<w:style\\b[^>]*w:styleId="${rx(id)}"`).test(out)) continue;
+    if (xmlIndex(out).hasStyleOpen(id, false)) continue;
     out = out.replace(/<\/w:styles>\s*$/, `${TOC_STYLES[id]}</w:styles>`);
   }
   return out;
@@ -419,9 +808,50 @@ export function textWidth(docXml: string): number | null {
 export function fixTocTabs(docXml: string): string {
   const tw = textWidth(docXml);
   if (!tw || !/<w:pStyle\s+w:val="TOC\d"/.test(docXml)) return docXml;
-  return docXml.replace(/<w:pPr>(?:(?!<\/w:pPr>)[\s\S])*?<w:pStyle\s+w:val="TOC\d"[\s\S]*?<\/w:pPr>/g, (ppr) =>
-    ppr.replace(/(<w:tab\b[^>]*\sw:pos=")(\d+)(")/g, (all, a: string, v: string, b: string) => (Number(v) > tw ? `${a}${tw}${b}` : all)),
-  );
+  // Blocs <w:pPr>…</w:pPr> dont le style est TOC1-9 : même découpage que
+  // /<w:pPr>(?:(?!<\/w:pPr>)[\s\S])*?<w:pStyle\s+w:val="TOC\d"[\s\S]*?<\/w:pPr>/g, sans retenter la
+  // suite du document depuis chaque <w:pPr> (cubique sur « <w:pPr><w:pStyle w:val="TOC1"/> » répété).
+  const x = new XmlIndex(docXml);
+  const tocs = [...docXml.matchAll(/<w:pStyle\s+w:val="TOC\d"/g)].map((m) => m.index);
+  let out = '';
+  let last = 0;
+  for (const i of x.all('<w:pPr>')) {
+    if (i < last) continue;
+    const c = x.next('</w:pPr>', i + 7);
+    const t = nextIn(tocs, i + 7);
+    if (c < 0 || t < 0) break;
+    if (t > c) continue; // le style TOC est après la fin de ce pPr
+    out += docXml.slice(last, i) + fixTabPositions(docXml.slice(i, c + 8), tw);
+    last = c + 8;
+  }
+  return out + docXml.slice(last);
+}
+
+/** Positions de tabulation > tw ramenées à tw : /(<w:tab\b[^>]*\sw:pos=")(\d+)(")/g, en une passe. */
+function fixTabPositions(ppr: string, tw: number): string {
+  const x = new XmlIndex(ppr);
+  // attributs w:pos="chiffres" valides (précédés d'un blanc), avec la fin de leurs chiffres
+  const cands: { v: number; d: number }[] = [];
+  for (const v of x.spaced('w:pos="')) {
+    let d = v + 7;
+    while (ppr.charAt(d) >= '0' && ppr.charAt(d) <= '9') d++;
+    if (d > v + 7 && ppr.charAt(d) === '"') cands.push({ v, d });
+  }
+  const vs = cands.map((c) => c.v);
+  let out = '';
+  let last = 0;
+  for (const i of x.starts('<w:tab')) {
+    if (i < last) continue;
+    const g = x.next('>', i + 6);
+    // [^>]* gourmand : le dernier attribut valide avant le premier « > »
+    const k = lowerBound(vs, g < 0 ? Infinity : g) - 1;
+    if (k < 0 || vs[k] < i + 7) continue;
+    const { v, d } = cands[k];
+    const n = ppr.slice(v + 7, d);
+    out += ppr.slice(last, v + 7) + (Number(n) > tw ? String(tw) : n);
+    last = d;
+  }
+  return out + ppr.slice(last);
 }
 
 // ── Table des polices ──
@@ -434,8 +864,41 @@ const FONT_ALT: Record<string, string> = { Literata: 'Georgia', 'Instrument Seri
 /** Polices nommées (w:ascii / w:hAnsi) dans des parties XML. */
 export function referencedFonts(xmls: string[]): string[] {
   const set = new Set<string>();
-  for (const x of xmls) for (const m of x.matchAll(/<w:rFonts\b[^>]*>/g)) for (const a of m[0].matchAll(/\sw:(?:ascii|hAnsi)="([^"]+)"/g)) set.add(a[1].replace(/&amp;/g, '&'));
+  for (const xml of xmls) {
+    // balises <w:rFonts …> (ancienne /<w:rFonts\b[^>]*>/g), sans relire la suite à chaque début
+    const x = new XmlIndex(xml);
+    let last = 0;
+    for (const i of x.starts('<w:rFonts')) {
+      if (i < last) continue;
+      const g = x.next('>', i + 9);
+      if (g < 0) break;
+      for (const a of xml.slice(i, g + 1).matchAll(/\sw:(?:ascii|hAnsi)="([^"]+)"/g)) set.add(a[1].replace(/&amp;/g, '&'));
+      last = g + 1;
+    }
+  }
   return [...set];
+}
+
+/** Valeurs de /<w:font\b[^>]*\sw:name="([^"]+)"/g, en une passe (même choix : dernier w:name de la balise). */
+function fontNames(fontXml: string): string[] {
+  const x = new XmlIndex(fontXml);
+  const cands: { v: number; q: number }[] = [];
+  for (const v of x.spaced('w:name="')) {
+    const q = x.next('"', v + 8);
+    if (q > v + 8) cands.push({ v, q });
+  }
+  const vs = cands.map((c) => c.v);
+  const out: string[] = [];
+  let last = 0;
+  for (const i of x.starts('<w:font')) {
+    if (i < last) continue;
+    const g = x.next('>', i + 7);
+    const k = lowerBound(vs, g < 0 ? Infinity : g) - 1;
+    if (k < 0 || vs[k] < i + 8) continue;
+    out.push(fontXml.slice(cands[k].v + 8, cands[k].q));
+    last = cands[k].q + 1;
+  }
+  return out;
 }
 
 /**
@@ -443,7 +906,7 @@ export function referencedFonts(xmls: string[]): string[] {
  * un Word où elles manquent les remplace alors par une police de même genre. Chaîne inchangée sinon.
  */
 export function completeFontTable(fontXml: string, fonts: string[]): string {
-  const have = new Set([...fontXml.matchAll(/<w:font\b[^>]*\sw:name="([^"]+)"/g)].map((m) => m[1].replace(/&amp;/g, '&')));
+  const have = new Set(fontNames(fontXml).map((n) => n.replace(/&amp;/g, '&')));
   const add = fonts.filter((f) => f && !have.has(f));
   if (!add.length || !/<\/w:fonts>\s*$/.test(fontXml)) return fontXml;
   const el = add
@@ -460,18 +923,83 @@ export function completeFontTable(fontXml: string, fonts: string[]): string {
 // Word met chaque fldChar / instrText dans son propre run ; certains générateurs (docx-js, outils
 // de conversion) les regroupent dans un seul run avec du texte. Le moteur d'édition ne reconnaît
 // alors pas le champ (« Page  / » au lieu de « Page 3 / 12 ») : on redécoupe ces runs à l'ouverture.
-const RUN_RE = /<w:r(\s[^>]*)?>((?:(?!<w:r[\s>])[\s\S])*?)<\/w:r>/g;
-const CHILD_RE = /<(w:[A-Za-z]+)\b[^>]*\/>|<(w:[A-Za-z]+)\b[^>]*>[\s\S]*?<\/\2>/g;
+// Découpage identique aux anciennes expressions
+//   RUN_RE   /<w:r(\s[^>]*)?>((?:(?!<w:r[\s>])[\s\S])*?)<\/w:r>/g
+//   CHILD_RE /<(w:[A-Za-z]+)\b[^>]*\/>|<(w:[A-Za-z]+)\b[^>]*>[\s\S]*?<\/\2>/g
+// mais en une passe (elles relisaient la suite du document à chaque « <w:r » sans fin).
+function childElements(rest: string): string[] {
+  const x = new XmlIndex(rest);
+  // balises fermantes </w:nom> par nom
+  const closes = new Map<string, number[]>();
+  for (const p of x.all('</w:')) {
+    let q = p + 4;
+    while (isLetter(rest.charAt(q))) q++;
+    if (q === p + 4 || rest.charAt(q) !== '>') continue;
+    const n = rest.slice(p + 4, q);
+    const l = closes.get(n);
+    if (l) l.push(p);
+    else closes.set(n, [p]);
+  }
+  const kids: string[] = [];
+  for (let p = x.next('<', 0); p >= 0; ) {
+    let end = -1;
+    if (rest.startsWith('<w:', p)) {
+      let q = p + 3;
+      while (isLetter(rest.charAt(q))) q++;
+      const g = q > p + 3 && !isWord(rest.charAt(q)) ? x.next('>', q) : -1;
+      if (g >= 0) {
+        if (rest.charAt(g - 1) === '/' && g - 1 >= q) end = g + 1;
+        else {
+          const name = rest.slice(p + 3, q);
+          const j = nextIn(closes.get(name) ?? [], g + 1);
+          if (j >= 0) end = j + name.length + 5;
+        }
+      }
+    }
+    if (end >= 0) {
+      kids.push(rest.slice(p, end));
+      p = x.next('<', end);
+    } else p = x.next('<', p + 1);
+  }
+  return kids;
+}
 export function splitFieldRuns(xml: string): string {
   if (!/<w:(fldChar|instrText)\b/.test(xml)) return xml;
-  return xml.replace(RUN_RE, (whole, attrs: string | undefined, inner: string) => {
-    if (!/<w:(fldChar|instrText)\b/.test(inner)) return whole;
-    const rPr = /^\s*(<w:rPr\s*\/>|<w:rPr\b[^>]*>[\s\S]*?<\/w:rPr>)/.exec(inner)?.[1] ?? '';
-    const rest = rPr ? inner.slice(inner.indexOf(rPr) + rPr.length) : inner;
-    const kids = rest.match(CHILD_RE) ?? [];
-    if (kids.length < 2 || kids.join('').replace(/\s+/g, '') !== rest.replace(/\s+/g, '')) return whole;
-    return kids.map((k) => `<w:r${attrs ?? ''}>${rPr}${k}</w:r>`).join('');
+  const x = new XmlIndex(xml);
+  // débuts <w:r suivis d'un blanc ou de « > » (le motif interdit à l'intérieur d'un run)
+  const runStarts = x.all('<w:r').filter((i) => {
+    const c = xml.charAt(i + 4);
+    return c === '>' || isSpace(c);
   });
+  let out = '';
+  let last = 0;
+  for (const i of runStarts) {
+    if (i < last) continue;
+    let attrs: string | undefined;
+    let openEnd = i + 5;
+    if (xml.charAt(i + 4) !== '>') {
+      const g = x.next('>', i + 4);
+      if (g < 0) break;
+      attrs = xml.slice(i + 4, g);
+      openEnd = g + 1;
+    }
+    const c = x.next('</w:r>', openEnd);
+    if (c < 0) break;
+    const b = nextIn(runStarts, openEnd);
+    if (b >= 0 && b < c) continue; // un autre run commence avant </w:r>
+    const whole = xml.slice(i, c + 6);
+    out += xml.slice(last, i) + splitRun(whole, attrs, xml.slice(openEnd, c));
+    last = c + 6;
+  }
+  return out + xml.slice(last);
+}
+function splitRun(whole: string, attrs: string | undefined, inner: string): string {
+  if (!/<w:(fldChar|instrText)\b/.test(inner)) return whole;
+  const rPr = /^\s*(<w:rPr\s*\/>|<w:rPr\b[^>]*>[\s\S]*?<\/w:rPr>)/.exec(inner)?.[1] ?? '';
+  const rest = rPr ? inner.slice(inner.indexOf(rPr) + rPr.length) : inner;
+  const kids = childElements(rest);
+  if (kids.length < 2 || kids.join('').replace(/\s+/g, '') !== rest.replace(/\s+/g, '')) return whole;
+  return kids.map((k) => `<w:r${attrs ?? ''}>${rPr}${k}</w:r>`).join('');
 }
 
 /** Prépare un .docx à l'ouverture dans l'éditeur. Renvoie les octets d'origine si rien n'est à faire. */
@@ -571,11 +1099,35 @@ const escAttr = (s: string) => s.replace(/&/g, '&amp;').replace(/"/g, '&quot;').
 
 /** Remplace (ou ajoute) l'élément `tag` dans le conteneur `inner` (contenu de pPr / rPr). */
 function setChild(inner: string, tag: string, el: string | null): string {
-  const re = new RegExp(`<${tag}\\b[^>]*?(?:/>|>[\\s\\S]*?</${tag}>)`, 'g');
-  const had = re.test(inner);
-  re.lastIndex = 0;
-  if (had) return inner.replace(re, () => el ?? '');
+  // occurrences de /<tag\b[^>]*?(?:\/>|>[\s\S]*?<\/tag>)/g, trouvées en une passe
+  const x = new XmlIndex(inner);
+  const open = `<${tag}`;
+  const close = `</${tag}>`;
+  let out = '';
+  let last = 0;
+  let had = false;
+  for (const i of x.starts(open)) {
+    if (i < last) continue;
+    const g = x.next('>', i + open.length);
+    if (g < 0) break;
+    let end = -1;
+    if (inner.charAt(g - 1) === '/' && g - 1 >= i + open.length) end = g + 1;
+    else {
+      const j = x.next(close, g + 1);
+      if (j >= 0) end = j + close.length;
+    }
+    if (end < 0) continue;
+    out += inner.slice(last, i) + (el ?? '');
+    last = end;
+    had = true;
+  }
+  if (had) return out + inner.slice(last);
   return el ? inner + el : inner;
+}
+/** Texte de /<open\b[^>]*\/?>/.exec(s)?.[0], en temps linéaire. */
+function firstTagText(s: string, open: string): string | undefined {
+  const r = new XmlIndex(s).firstTag(open);
+  return r ? s.slice(r[0], r[1]) : undefined;
 }
 function attrsOf(el: string | undefined): Record<string, string> {
   const out: Record<string, string> = {};
@@ -595,14 +1147,25 @@ function mkEl(tag: string, attrs: Record<string, string | number | undefined>): 
 export function patchStyleElement(styleXml: string, patch: StylePatch): string {
   const selfClosing = /^<w:style\b[^>]*\/>$/.test(styleXml);
   let s = selfClosing ? styleXml.replace(/\/>$/, '></w:style>') : styleXml;
-  const getBlock = (tag: string) => new RegExp(`<${tag}>([\\s\\S]*?)</${tag}>|<${tag}/>`).exec(s);
+  // /<tag>([\s\S]*?)<\/tag>|<tag\/>/ : le plus à gauche des deux, sans relire la suite à chaque <tag>
+  const getBlock = (tag: string): [string, string | undefined] | null => {
+    const x = new XmlIndex(s);
+    const o = `<${tag}>`;
+    const c = `</${tag}>`;
+    const e = `<${tag}/>`;
+    const i1 = x.next(o, 0);
+    const j1 = i1 >= 0 ? x.next(c, i1 + o.length) : -1;
+    const i2 = x.next(e, 0);
+    if (j1 >= 0 && (i2 < 0 || i1 < i2)) return [s.slice(i1, j1 + c.length), s.slice(i1 + o.length, j1)];
+    return i2 >= 0 ? [e, undefined] : null;
+  };
   // pPr
   const needP = patch.lineSpacing !== undefined || patch.align || patch.firstLine !== undefined || patch.before !== undefined || patch.after !== undefined;
   if (needP) {
     const b = getBlock('w:pPr');
     let inner = b?.[1] ?? '';
     if (patch.lineSpacing !== undefined || patch.before !== undefined || patch.after !== undefined) {
-      const cur = attrsOf(/<w:spacing\b[^>]*\/?>/.exec(inner)?.[0]);
+      const cur = attrsOf(firstTagText(inner, '<w:spacing'));
       if (patch.lineSpacing !== undefined) {
         cur['w:line'] = String(Math.round(patch.lineSpacing * 240));
         cur['w:lineRule'] = 'auto';
@@ -620,7 +1183,7 @@ export function patchStyleElement(styleXml: string, patch: StylePatch): string {
       inner = setChild(inner, 'w:spacing', mkEl('w:spacing', cur));
     }
     if (patch.firstLine !== undefined) {
-      const cur = attrsOf(/<w:ind\b[^>]*\/?>/.exec(inner)?.[0]);
+      const cur = attrsOf(firstTagText(inner, '<w:ind'));
       delete cur['w:hanging'];
       delete cur['w:hangingChars'];
       delete cur['w:firstLineChars'];
@@ -657,13 +1220,14 @@ export function patchStyleElement(styleXml: string, patch: StylePatch): string {
 export function patchStylesXml(stylesXml: string, ids: string[], patch: StylePatch, defs: Record<string, string> = {}): string {
   let out = stylesXml;
   for (const id of ids) {
-    const re = new RegExp(`<w:style\\b[^>]*\\sw:styleId="${rx(id)}"[^>]*?(?:/>|>[\\s\\S]*?</w:style>)`);
-    if (!re.test(out)) {
+    let el = xmlIndex(out).styleEl(id);
+    if (!el) {
       const def = defs[id];
       if (!def) continue;
       out = out.replace(/<\/w:styles>\s*$/, `${def}</w:styles>`);
+      el = xmlIndex(out).styleEl(id);
     }
-    out = out.replace(re, (st) => patchStyleElement(st, patch));
+    if (el) out = out.slice(0, el[0]) + patchStyleElement(out.slice(el[0], el[1]), patch) + out.slice(el[1]);
   }
   return reorderXml(out);
 }
@@ -672,7 +1236,7 @@ export function patchStylesXml(stylesXml: string, ids: string[], patch: StylePat
 export function ensureStylesXml(stylesXml: string, defs: Record<string, string>): string {
   let out = stylesXml;
   for (const [id, def] of Object.entries(defs)) {
-    if (new RegExp(`<w:style\\b[^>]*\\sw:styleId="${rx(id)}"`).test(out)) continue;
+    if (xmlIndex(out).hasStyleOpen(id, true)) continue;
     out = out.replace(/<\/w:styles>\s*$/, `${def}</w:styles>`);
   }
   return out;
@@ -692,13 +1256,17 @@ export async function transformStyles(data: ArrayBuffer, fn: (stylesXml: string)
 
 /** Lit les propriétés effectives (simples) d'un style, pour préremplir le dialogue « Modifier le style ». */
 export function readStyleProps(stylesXml: string, id: string): StylePatch & { exists: boolean } {
-  const st = new RegExp(`<w:style\\b[^>]*\\sw:styleId="${rx(id)}"[^>]*?(?:/>|>[\\s\\S]*?</w:style>)`).exec(stylesXml)?.[0];
+  // Tout est lu dans les bornes de l'élément, sur l'index de styles.xml (pas de tranche relue à chaque appel).
+  const x = xmlIndex(stylesXml);
+  const st = x.styleEl(id);
   if (!st) return { exists: false };
-  const rf = attrsOf(/<w:rFonts\b[^>]*\/?>/.exec(st)?.[0]);
-  const sz = attrsOf(/<w:sz\b[^>]*\/?>/.exec(st)?.[0])['w:val'];
-  const sp = attrsOf(/<w:spacing\b[^>]*\/?>/.exec(/<w:pPr>[\s\S]*?<\/w:pPr>/.exec(st)?.[0] ?? '')?.[0]);
-  const ind = attrsOf(/<w:ind\b[^>]*\/?>/.exec(st)?.[0]);
-  const jc = attrsOf(/<w:jc\b[^>]*\/?>/.exec(st)?.[0])['w:val'];
+  const [a, b] = st;
+  const rf = x.attrs(x.firstTag('<w:rFonts', a, b));
+  const sz = x.attrs(x.firstTag('<w:sz', a, b))['w:val'];
+  const ppr = x.block('<w:pPr>', '</w:pPr>', a, b);
+  const sp = ppr ? x.attrs(x.firstTag('<w:spacing', ppr[0], ppr[1])) : {};
+  const ind = x.attrs(x.firstTag('<w:ind', a, b));
+  const jc = x.attrs(x.firstTag('<w:jc', a, b))['w:val'];
   return {
     exists: true,
     fontFamily: rf['w:ascii'] || rf['w:hAnsi'] || undefined,
@@ -717,21 +1285,24 @@ export function effectiveStyleProps(stylesXml: string, id: string | null): Style
   const fill = (p: StylePatch) => {
     for (const k of Object.keys(p) as (keyof StylePatch)[]) if (out[k] === undefined && p[k] !== undefined) (out as Record<string, unknown>)[k] = p[k];
   };
+  const x = xmlIndex(stylesXml);
+  const def = defaultParagraphStyle(stylesXml);
   const seen = new Set<string>();
-  let cur: string | null = id ?? defaultParagraphStyle(stylesXml);
+  let cur: string | null = id ?? def;
   while (cur && !seen.has(cur)) {
     seen.add(cur);
     const p = readStyleProps(stylesXml, cur);
     if (!p.exists) break;
     fill(p);
-    const st = new RegExp(`<w:style\\b[^>]*\\sw:styleId="${rx(cur)}"[^>]*?(?:/>|>[\\s\\S]*?</w:style>)`).exec(stylesXml)?.[0] ?? '';
-    cur = /<w:basedOn\s+w:val="([^"]+)"/.exec(st)?.[1] ?? (cur !== defaultParagraphStyle(stylesXml) ? defaultParagraphStyle(stylesXml) : null);
+    const st = x.styleEl(cur)!;
+    cur = x.basedOn(st[0], st[1]) ?? (cur !== def ? def : null);
   }
-  const dd = /<w:docDefaults>[\s\S]*?<\/w:docDefaults>/.exec(stylesXml)?.[0];
+  const dd = x.block('<w:docDefaults>', '</w:docDefaults>');
   if (dd) {
-    const rf = attrsOf(/<w:rFonts\b[^>]*\/?>/.exec(dd)?.[0]);
-    const sz = attrsOf(/<w:sz\b[^>]*\/?>/.exec(dd)?.[0])['w:val'];
-    const sp = attrsOf(/<w:spacing\b[^>]*\/?>/.exec(/<w:pPrDefault>[\s\S]*?<\/w:pPrDefault>/.exec(dd)?.[0] ?? '')?.[0]);
+    const rf = x.attrs(x.firstTag('<w:rFonts', dd[0], dd[1]));
+    const sz = x.attrs(x.firstTag('<w:sz', dd[0], dd[1]))['w:val'];
+    const pd = x.block('<w:pPrDefault>', '</w:pPrDefault>', dd[0], dd[1]);
+    const sp = pd ? x.attrs(x.firstTag('<w:spacing', pd[0], pd[1])) : {};
     fill({
       fontFamily: rf['w:ascii'] || rf['w:hAnsi'] || undefined,
       fontSize: sz ? Number(sz) / 2 : undefined,
@@ -753,34 +1324,65 @@ export function styleRunProps(stylesXml: string, id: string | null): { bold?: bo
     const v = attrsOf(el)['w:val'];
     return !(v === '0' || v === 'false' || v === 'off');
   };
-  const read = (rPr: string) => {
-    out.bold ??= onOff(/<w:b(?=[\s/>])[^>]*\/?>/.exec(rPr)?.[0]);
-    out.italic ??= onOff(/<w:i(?=[\s/>])[^>]*\/?>/.exec(rPr)?.[0]);
-    const sz = attrsOf(/<w:sz\b[^>]*\/?>/.exec(rPr)?.[0])['w:val'];
+  const x = xmlIndex(stylesXml);
+  // lecture d'un bloc rPr [a, b) de styles.xml (bornes plutôt que tranche : rien n'est relu d'un style à l'autre)
+  const tagText = (r: [number, number] | null) => (r ? stylesXml.slice(r[0], r[1]) : undefined);
+  const read = (r: [number, number] | null) => {
+    // sans bloc : bornes vides, aucune balise trouvée (les clés restent créées comme avant, à undefined)
+    const [a, b] = r ?? [0, 0];
+    out.bold ??= onOff(tagText(x.firstTag('<w:b', a, b, true)));
+    out.italic ??= onOff(tagText(x.firstTag('<w:i', a, b, true)));
+    const sz = x.attrs(x.firstTag('<w:sz', a, b))['w:val'];
     if (out.fontSize === undefined && sz) out.fontSize = Number(sz) / 2;
-    const rf = attrsOf(/<w:rFonts\b[^>]*\/?>/.exec(rPr)?.[0]);
+    const rf = x.attrs(x.firstTag('<w:rFonts', a, b));
     out.fontFamily ??= rf['w:ascii'] || rf['w:hAnsi'] || undefined;
-    const c = attrsOf(/<w:color\b[^>]*\/?>/.exec(rPr)?.[0])['w:val'];
+    const c = x.attrs(x.firstTag('<w:color', a, b))['w:val'];
     if (out.color === undefined && c) out.color = c.toUpperCase();
   };
+  const def = defaultParagraphStyle(stylesXml);
   const seen = new Set<string>();
-  let cur: string | null = id ?? defaultParagraphStyle(stylesXml);
+  let cur: string | null = id ?? def;
   while (cur && !seen.has(cur)) {
     seen.add(cur);
-    const st = new RegExp(`<w:style\\b[^>]*\\sw:styleId="${rx(cur)}"[^>]*?(?:/>|>[\\s\\S]*?</w:style>)`).exec(stylesXml)?.[0];
+    const st = x.styleEl(cur);
     if (!st) break;
-    read(/<w:rPr>[\s\S]*?<\/w:rPr>/.exec(st)?.[0] ?? '');
-    cur = /<w:basedOn\s+w:val="([^"]+)"/.exec(st)?.[1] ?? (cur !== defaultParagraphStyle(stylesXml) ? defaultParagraphStyle(stylesXml) : null);
+    read(x.block('<w:rPr>', '</w:rPr>', st[0], st[1]));
+    cur = x.basedOn(st[0], st[1]) ?? (cur !== def ? def : null);
   }
-  const dd = /<w:rPrDefault>[\s\S]*?<\/w:rPrDefault>/.exec(stylesXml)?.[0];
+  const dd = x.block('<w:rPrDefault>', '</w:rPrDefault>');
   if (dd) read(dd);
   return out;
 }
 
 /** Identifiant du style de paragraphe par défaut (w:default="1"), « Normal » le plus souvent. */
 export function defaultParagraphStyle(stylesXml: string): string | null {
-  const m = /<w:style\b(?=[^>]*\sw:type="paragraph")(?=[^>]*\sw:default="(?:1|true|on)")[^>]*\sw:styleId="([^"]+)"/.exec(stylesXml);
-  return m?.[1] ?? (/w:styleId="Normal"/.test(stylesXml) ? 'Normal' : null);
+  // Même résultat que
+  // /<w:style\b(?=[^>]*\sw:type="paragraph")(?=[^>]*\sw:default="(?:1|true|on)")[^>]*\sw:styleId="([^"]+)"/,
+  // calculé une fois par chaîne à partir des positions des attributs.
+  const x = xmlIndex(stylesXml);
+  return x.cached('defaultStyle', () => {
+    const types = x.spaced('w:type="paragraph"');
+    const defs = ['1', 'true', 'on'].flatMap((v) => x.spaced(`w:default="${v}"`)).sort((a, b) => a - b);
+    const ids: { v: number; q: number }[] = [];
+    for (const v of x.spaced('w:styleId="')) {
+      const q = x.next('"', v + 11);
+      if (q > v + 11) ids.push({ v, q });
+    }
+    const vs = ids.map((c) => c.v);
+    for (const i of x.starts('<w:style')) {
+      const g = x.next('>', i + 8);
+      const lim = g < 0 ? Infinity : g;
+      const inTag = (list: number[]) => {
+        const v = nextIn(list, i + 9);
+        return v >= 0 && v < lim;
+      };
+      if (!inTag(types) || !inTag(defs)) continue;
+      // [^>]* gourmand : le dernier w:styleId valide de la balise
+      const k = lowerBound(vs, lim) - 1;
+      if (k >= 0 && vs[k] >= i + 9) return stylesXml.slice(ids[k].v + 11, ids[k].q);
+    }
+    return /w:styleId="Normal"/.test(stylesXml) ? 'Normal' : null;
+  });
 }
 
 /** Lit word/styles.xml d'un paquet. */
@@ -792,7 +1394,30 @@ export async function readStylesXml(data: ArrayBuffer): Promise<string> {
 /** Remplace toute police de thème (asciiTheme…) de styles.xml par `font` (styles et docDefaults). */
 export function replaceThemeFonts(stylesXml: string, font: string): string {
   const el = mkEl('w:rFonts', { 'w:ascii': font, 'w:hAnsi': font, 'w:eastAsia': font, 'w:cs': font });
-  return stylesXml.replace(/<w:rFonts\b[^>]*\b(?:asciiTheme|hAnsiTheme)\s*=[^>]*?\/?>(?:<\/w:rFonts>)?/g, el);
+  // Même découpage que /<w:rFonts\b[^>]*\b(?:asciiTheme|hAnsiTheme)\s*=[^>]*?\/?>(?:<\/w:rFonts>)?/g, en une passe.
+  const x = new XmlIndex(stylesXml);
+  // attributs de thème (précédés d'une limite de mot, suivis de \s*=) : position du « = »
+  const eqs: { v: number; e: number }[] = [];
+  for (const v of [...x.all('asciiTheme'), ...x.all('hAnsiTheme')].sort((a, b) => a - b)) {
+    if (isWord(stylesXml.charAt(v - 1))) continue;
+    let e = v + 10;
+    while (isSpace(stylesXml.charAt(e))) e++;
+    if (stylesXml.charAt(e) === '=') eqs.push({ v, e });
+  }
+  const vs = eqs.map((c) => c.v);
+  let out = '';
+  let last = 0;
+  for (const i of x.starts('<w:rFonts')) {
+    if (i < last) continue;
+    const g = x.next('>', i + 9);
+    if (g < 0) break;
+    const k = lowerBound(vs, i + 9);
+    if (k >= eqs.length || eqs[k].e >= g) continue; // pas d'attribut de thème dans cette balise
+    const end = stylesXml.startsWith('</w:rFonts>', g + 1) ? g + 12 : g + 1;
+    out += stylesXml.slice(last, i) + el;
+    last = end;
+  }
+  return out + stylesXml.slice(last);
 }
 
 /**

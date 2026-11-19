@@ -195,6 +195,29 @@ async function fetchBuffer(url, { limit = MAX_MANIFEST_SIZE, ...opts } = {}) {
   });
 }
 
+// ── Fichier momentanément tenu par un autre programme (Windows) ──
+// Un antivirus analyse le fichier qu'on vient d'écrire : pendant quelques secondes, le lire ou le
+// renommer échoue (EPERM, EBUSY, EACCES) alors que tout va bien. On réessaie, au lieu de déclarer la mise
+// à jour en échec. Ce n'est PAS un contournement : l'antivirus garde le dernier mot. S'il bloque ou
+// retire le fichier pour de bon, on le dit clairement et l'app renvoie vers le site.
+const BUSY_CODES = new Set(['EPERM', 'EBUSY', 'EACCES']);
+const BUSY_DELAYS = [150, 300, 600, 1200, 2500, 5000];
+const AV_HINT = 'Votre antivirus l’a sans doute bloqué : Marginalia n’étant pas signée, certains antivirus s’en méfient. Téléchargez la nouvelle version depuis le site, ou autorisez Marginalia dans l’antivirus.';
+async function retryBusy(fn, delays = BUSY_DELAYS) {
+  for (let i = 0; ; i++) {
+    try {
+      return await fn();
+    } catch (e) {
+      if (!e || !BUSY_CODES.has(e.code) || i >= delays.length) throw e;
+      await new Promise((r) => setTimeout(r, delays[i]));
+    }
+  }
+}
+/** Erreur lisible quand un fichier de mise à jour est refusé ou retiré par le système. */
+function blockedError(what, e) {
+  return new UpdateError(`${what} (${(e && e.code) || 'accès refusé'}). ${AV_HINT}`, 'antivirus');
+}
+
 async function sha256File(file) {
   const h = crypto.createHash('sha256');
   await new Promise((resolve, reject) => {
@@ -207,7 +230,12 @@ async function sha256File(file) {
 async function verifyFile(file, { size, sha256 }) {
   const st = await fsp.stat(file).catch(() => null);
   if (!st || !st.isFile() || st.size !== size) return false;
-  return (await sha256File(file)) === sha256;
+  try {
+    return (await retryBusy(() => sha256File(file))) === sha256;
+  } catch (e) {
+    if (e && BUSY_CODES.has(e.code)) return false; // illisible pour de bon : traité comme absent
+    throw e;
+  }
 }
 
 /**
@@ -289,7 +317,7 @@ async function downloadFile({ url, dest, size, sha256, signal, onProgress, allow
       });
       res.on('aborted', () => fail(signal && signal.aborted ? abortError() : new UpdateError('Connexion interrompue.', 'reseau')));
       res.on('error', (e) => fail(signal && signal.aborted ? abortError() : e));
-      out.on('error', (e) => fail(e));
+      out.on('error', (e) => fail(e && BUSY_CODES.has(e.code) ? blockedError('Le fichier de mise à jour ne peut pas être écrit', e) : e));
       out.on('close', () => (failed ? reject(failed) : resolve()));
       res.pipe(out);
     }).catch(async (e) => {
@@ -298,17 +326,31 @@ async function downloadFile({ url, dest, size, sha256, signal, onProgress, allow
     });
   }
   const st = await fsp.stat(part).catch(() => null);
+  // Tout a été reçu mais le fichier n'est plus là : il a été retiré pendant qu'on l'écrivait.
+  if (!st && start < size) throw new UpdateError(`Le fichier téléchargé a disparu aussitôt écrit. ${AV_HINT}`, 'antivirus');
   if (!st || st.size < size) throw new UpdateError('Téléchargement interrompu : il reprendra plus tard.', 'reseau');
   if (st.size !== size) {
     await fsp.rm(part, { force: true });
     throw new UpdateError('Taille du fichier de mise à jour incorrecte : mise à jour refusée.', 'taille');
   }
-  if ((await sha256File(part)) !== sha256) {
+  let digest;
+  try {
+    digest = await retryBusy(() => sha256File(part));
+  } catch (e) {
+    if (e && (BUSY_CODES.has(e.code) || e.code === 'ENOENT')) throw blockedError('Le fichier téléchargé ne peut pas être relu', e);
+    throw e;
+  }
+  if (digest !== sha256) {
     await fsp.rm(part, { force: true });
     await fsp.rm(metaFile, { force: true });
     throw new UpdateError('Empreinte du fichier de mise à jour incorrecte : mise à jour refusée.', 'empreinte');
   }
-  await fsp.rename(part, dest);
+  try {
+    await retryBusy(() => fsp.rename(part, dest));
+  } catch (e) {
+    if (e && (BUSY_CODES.has(e.code) || e.code === 'ENOENT')) throw blockedError('Le fichier téléchargé ne peut pas être mis en place', e);
+    throw e;
+  }
   await fsp.rm(metaFile, { force: true });
   return { file: dest, resumedFrom, reused: false };
 }
@@ -493,6 +535,8 @@ async function prepareMac({ dmg, appPath, version, workDir, pid, relaunch, run =
 }
 
 module.exports = {
+  retryBusy,
+  AV_HINT,
   MAX_UPDATE_SIZE,
   MAX_MANIFEST_SIZE,
   MANIFEST_NAME,

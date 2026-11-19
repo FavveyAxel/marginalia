@@ -3187,8 +3187,11 @@ async function prepareInstall(relaunch) {
   if (compareVersions(version, appVersion()) <= 0) throw new updater.UpdateError('Version pas plus récente : refusée.', 'version');
   // Le fichier a pu changer depuis le téléchargement : on le vérifie encore.
   if (!(await updater.verifyFile(upd.file, file))) {
-    await fsp.rm(upd.file, { force: true });
+    // Disparu (ou illisible) : retiré après coup, le plus souvent par un antivirus. Modifié : refusé.
+    const gone = !(await fsp.stat(upd.file).catch(() => null));
+    await fsp.rm(upd.file, { force: true }).catch(() => {});
     upd.status = 'error';
+    if (gone) throw new updater.UpdateError(`Le fichier de mise à jour a disparu depuis son téléchargement. ${updater.AV_HINT}`, 'antivirus');
     throw new updater.UpdateError('Le fichier de mise à jour a changé depuis sa vérification : mise à jour refusée.', 'empreinte');
   }
   if (updatePlatform() === 'darwin' && (!upd.prepared || upd.prepared.relaunch !== relaunch)) {
@@ -3216,6 +3219,16 @@ function launchInstaller(relaunch) {
   }
   if (E2E) return;
   const child = require('node:child_process').spawn(cmd, args, { detached: true, stdio: 'ignore', windowsHide: true, windowsVerbatimArguments: verbatim });
+  // Lancement refusé (antivirus, stratégie de l'entreprise) : sans cet écouteur, l'erreur faisait tomber
+  // l'app pendant sa fermeture. Elle est notée : au prochain lancement, l'app propose le site.
+  child.on('error', (e) => {
+    diag('maj', 'installateur refusé par le système', e && (e.code || e.message));
+    try {
+      fs.writeFileSync(failedFile(), JSON.stringify({ version, at: Date.now(), raison: 'lancement' }));
+    } catch {
+      /* dossier inaccessible : le prochain lancement constatera l'échec */
+    }
+  });
   child.unref();
 }
 

@@ -170,8 +170,25 @@ const RAW_TEXT_TAGS = new Set(['script', 'style', 'textarea', 'title', 'xmp', 'n
 const FORMATTING_TAGS = new Set(['a', 'b', 'big', 'code', 'em', 'font', 'i', 'nobr', 's', 'small', 'strike', 'strong', 'tt', 'u']);
 /** Balises de bloc qui ferment un <p> ouvert (et les mises en forme qu'il contient). */
 const P_CLOSERS = new Set(['address', 'article', 'aside', 'blockquote', 'center', 'details', 'dialog', 'dir', 'div', 'dl', 'fieldset', 'figcaption', 'figure', 'footer', 'header', 'hgroup', 'main', 'menu', 'nav', 'ol', 'p', 'section', 'summary', 'ul', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'pre', 'listing', 'form', 'table', 'hr', 'li', 'dd', 'dt']);
-/** Fins implicites : une nouvelle balise du même groupe ferme la précédente. */
-const SIBLING_CLOSE: Record<string, string[]> = { li: ['li'], dd: ['dd', 'dt'], dt: ['dd', 'dt'], td: ['td', 'th'], th: ['td', 'th'], tr: ['tr'], option: ['option'], tbody: ['tbody', 'thead', 'tfoot'], thead: ['tbody', 'thead', 'tfoot'], tfoot: ['tbody', 'thead', 'tfoot'] };
+/**
+ * Fins implicites : une nouvelle balise du même groupe ferme la précédente, mais seulement dans sa
+ * portée (un <li> d'une liste imbriquée ne ferme pas celui de la liste englobante, ni un <td> d'un
+ * tableau imbriqué celui du tableau englobant) : [balises fermées, limites de portée].
+ */
+const TABLE_SCOPE = ['table', 'template', 'html'];
+const BUTTON_SCOPE = ['table', 'td', 'th', 'caption', 'marquee', 'object', 'applet', 'template', 'button', 'html'];
+const SIBLING_CLOSE: Record<string, [string[], string[]]> = {
+  li: [['li'], ['ul', 'ol', ...BUTTON_SCOPE]],
+  dd: [['dd', 'dt'], ['dl', ...BUTTON_SCOPE]],
+  dt: [['dd', 'dt'], ['dl', ...BUTTON_SCOPE]],
+  td: [['td', 'th'], TABLE_SCOPE],
+  th: [['td', 'th'], TABLE_SCOPE],
+  tr: [['tr'], TABLE_SCOPE],
+  tbody: [['tbody', 'thead', 'tfoot'], TABLE_SCOPE],
+  thead: [['tbody', 'thead', 'tfoot'], TABLE_SCOPE],
+  tfoot: [['tbody', 'thead', 'tfoot'], TABLE_SCOPE],
+  option: [['option'], ['select', ...BUTTON_SCOPE]],
+};
 
 /**
  * Modèle simplifié, en une passe sur la source, de la pile d'éléments ouverts de l'analyseur HTML :
@@ -185,32 +202,71 @@ function sourceTooComplex(src: string, html: boolean): boolean {
   const stack: string[] = [];
   const open = new Map<string, number>();
   const has = (n: string) => (open.get(n) ?? 0) > 0;
-  const popThrough = (n: string) => {
-    if (!has(n)) return;
-    for (;;) {
-      const t = stack.pop()!;
-      open.set(t, open.get(t)! - 1);
-      if (t === n) return;
-    }
-  };
-  // Mises en forme actives : nombre d'entrées par balise complète (au plus 3 comptées par clé)
+  // Mises en forme actives (clé = balise complète ; au plus 3 entrées identiques comptées, comme l'analyseur)
   const afe = new Map<string, number>();
   const afeByName = new Map<string, string[]>();
   let afeSize = 0;
+  // mises en forme sorties de la pile par une fin implicite, rouvertes au prochain texte ou élément en ligne
+  let out: string[] = [];
+  let reopened = 0;
+  const push = (n: string) => {
+    stack.push(n);
+    open.set(n, (open.get(n) ?? 0) + 1);
+    return stack.length > MAX_OPEN_DEPTH;
+  };
+  /** Ferme jusqu'à `n` compris ; les mises en forme fermées au passage (sauf `keep`) seront rouvertes. */
+  const popThrough = (n: string, keep?: string) => {
+    if (!has(n)) return;
+    let kept = false;
+    for (;;) {
+      const t = stack.pop()!;
+      open.set(t, open.get(t)! - 1);
+      if (t === keep && !kept) kept = true;
+      else if (FORMATTING_TAGS.has(t) && afeByName.get(t)?.length) out.push(t);
+      if (t === n) break;
+    }
+    if (out.length > afeSize) out = out.slice(out.length - afeSize);
+  };
+  /** Ferme la plus proche des balises `targets` si elle est dans sa portée (recherche bornée à 64 niveaux). */
+  const closeInScope = (targets: string[], limits: string[]) => {
+    for (let d = stack.length - 1; d >= 0 && d >= stack.length - 64; d--) {
+      if (targets.includes(stack[d])) return popThrough(stack[d]);
+      if (limits.includes(stack[d])) return;
+    }
+  };
   const afeRemoveLast = (name: string) => {
     const key = afeByName.get(name)?.pop();
     if (key === undefined) return;
     const c = afe.get(key)!;
     afe.set(key, c - 1);
     if (c <= 3) afeSize--;
+    const at = out.lastIndexOf(name);
+    if (at >= 0) out.splice(at, 1);
+    if (out.length > afeSize) out = out.slice(out.length - afeSize);
   };
-  let reopened = 0;
+  const afeClear = () => {
+    afe.clear();
+    afeByName.clear();
+    afeSize = 0;
+    out = [];
+  };
+  /** Réouverture des mises en forme (vrai si la profondeur ou le total d'éléments rouverts dépasse les plafonds). */
+  const reopen = () => {
+    if (!out.length) return false;
+    reopened += out.length;
+    const names = out;
+    out = [];
+    for (const n of names) if (push(n)) return true;
+    return reopened > MAX_ELEMENTS;
+  };
   let textFrom = 0;
   for (let i = src.indexOf('<'); i >= 0; i = src.indexOf('<', i + 1)) {
     if (src.startsWith('<!--', i) || src.startsWith('<![CDATA[', i)) {
       const end = src.indexOf(src[i + 2] === '-' ? '-->' : ']]>', i + 4);
       if (end < 0) break;
+      if (/\S/.test(src.slice(textFrom, i)) && reopen()) return true;
       i = end + 2;
+      textFrom = end + 3;
       continue;
     }
     const closing = src[i + 1] === '/';
@@ -221,36 +277,32 @@ function sourceTooComplex(src: string, html: boolean): boolean {
     const gt = src.indexOf('>', k);
     if (gt < 0) break;
     // texte avant la balise : l'analyseur y rouvre les mises en forme fermées par un paragraphe
-    const text = /\S/.test(src.slice(textFrom, i));
+    if (/\S/.test(src.slice(textFrom, i)) && reopen()) return true;
     textFrom = gt + 1;
     const name = src.slice(j, k).toLowerCase();
     const local = name.slice(name.indexOf(':') + 1);
     i = gt;
     if (closing) {
-      if (local === 'td' || local === 'th' || local === 'caption' || local === 'table') {
-        afe.clear();
-        afeByName.clear();
-        afeSize = 0;
-      } else if (FORMATTING_TAGS.has(local)) afeRemoveLast(local);
-      popThrough(local);
+      if (local === 'td' || local === 'th' || local === 'caption' || local === 'table') afeClear();
+      if (FORMATTING_TAGS.has(local)) {
+        afeRemoveLast(local);
+        popThrough(local, local);
+      } else popThrough(local);
       continue;
     }
-    if (text && afeSize > 0 && (reopened += afeSize) > MAX_ELEMENTS) return true;
-    if (P_CLOSERS.has(local)) popThrough('p');
-    for (const sib of SIBLING_CLOSE[local] ?? []) popThrough(sib);
-    if (local === 'td' || local === 'th' || local === 'caption') {
-      afe.clear();
-      afeByName.clear();
-      afeSize = 0;
-    }
+    if (P_CLOSERS.has(local)) closeInScope(['p'], BUTTON_SCOPE);
+    const sib = SIBLING_CLOSE[local];
+    if (sib) closeInScope(sib[0], sib[1]);
+    if (local === 'td' || local === 'th' || local === 'caption') afeClear();
     if (local === 'a') {
       // un lien dans un lien ferme le premier (algorithme d'adoption)
-      popThrough('a');
       afeRemoveLast('a');
+      popThrough('a', 'a');
     }
+    // éléments en ligne : précédés de la réouverture des mises en forme
+    if (!P_CLOSERS.has(local) && !SIBLING_CLOSE[local] && local !== 'table' && local !== 'caption' && reopen()) return true;
     if (VOID_TAGS.has(local) || local === 'html' || local === 'head' || local === 'body') continue;
-    const selfClosed = src[gt - 1] === '/' && (!html || has('svg') || has('math') || local === 'svg' || local === 'math');
-    if (selfClosed) continue;
+    if (src[gt - 1] === '/' && (!html || has('svg') || has('math') || local === 'svg' || local === 'math')) continue;
     if (RAW_TEXT_TAGS.has(local)) {
       // contenu brut (« if (a<b) » d'un script) : sauté jusqu'après la balise fermante
       const re = new RegExp(`</${local}\\b[^>]*>`, 'ig');
@@ -261,9 +313,7 @@ function sourceTooComplex(src: string, html: boolean): boolean {
       textFrom = i + 1;
       continue;
     }
-    stack.push(local);
-    open.set(local, (open.get(local) ?? 0) + 1);
-    if (stack.length > MAX_OPEN_DEPTH) return true;
+    if (push(local)) return true;
     if (FORMATTING_TAGS.has(local)) {
       const key = src.slice(j, gt).replace(/\s+/g, ' ').toLowerCase();
       const c = afe.get(key) ?? 0;

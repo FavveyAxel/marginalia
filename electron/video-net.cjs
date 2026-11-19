@@ -153,7 +153,20 @@ function decodeEntities(s) {
   });
 }
 // Les sous-titres XML arrivent souvent doublement encodés (« &amp;#39; ») : deux passes.
-const clean = (t) => decodeEntities(decodeEntities(String(t || '').replace(/<[^>]*>/g, ''))).replace(/[​‎‏]/g, '').replace(/\s+/g, ' ').trim();
+/** Retire les balises, en temps linéaire (une suite de « < » sans « > » rendait l'expression régulière quadratique). */
+function stripTags(t) {
+  let out = '';
+  for (let i = 0; i < t.length; ) {
+    const lt = t.indexOf('<', i);
+    if (lt < 0) return out + t.slice(i);
+    const gt = t.indexOf('>', lt);
+    if (gt < 0) return out + t.slice(i); // pas de « > » : rien n'est une balise, comme avant
+    out += t.slice(i, lt);
+    i = gt + 1;
+  }
+  return out;
+}
+const clean = (t) => decodeEntities(decodeEntities(stripTags(String(t || '')))).replace(/[​‎‏]/g, '').replace(/\s+/g, ' ').trim();
 
 /**
  * Parcourt les balises « <tag …>contenu</tag> » d'un texte, dans l'ordre : fn(attributs, contenu), arrêt

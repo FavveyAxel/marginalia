@@ -21,6 +21,21 @@ export interface NewsEntry {
 
 export const NEWS: NewsEntry[] = [
   {
+    version: '3.60',
+    items: [
+      {
+        icon: 'lock',
+        title: 'Espaces chiffrés et partage renforcés',
+        text: 'Une perte de données possible avec deux espaces chiffrés ouverts est corrigée. Un partage reçu ne peut plus bloquer l’app ni faire sortir un livre d’un espace chiffré, et en travaillant à plusieurs, votre bibliothèque privée reste privée.',
+      },
+      {
+        icon: 'update',
+        title: 'Mise à jour sous Windows',
+        text: 'Si un antivirus analyse ou bloque le fichier téléchargé, Marginalia patiente, puis vous le dit clairement et propose le site.',
+      },
+    ],
+  },
+  {
     version: '3.59',
     items: [
       {

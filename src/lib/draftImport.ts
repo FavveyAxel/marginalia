@@ -14,8 +14,10 @@ export async function draftOptionsFromFile(name: string, data: ArrayBuffer): Pro
     return { title: r.title || base, html: r.html };
   }
   const text = new TextDecoder('utf-8').decode(data).replace(/^﻿/, '');
-  const [{ marked }, { default: DOMPurify }] = await Promise.all([import('marked'), import('dompurify')]);
-  const html = DOMPurify.sanitize(await marked.parse(text, { gfm: true }));
+  // Même conversion que le lecteur (markdownToHtml) : taille plafonnée, formes pathologiques refusées et
+  // erreurs de marked rendues lisibles (ReaderError) au lieu d'un blocage ou d'une RangeError brute.
+  const [{ markdownToHtml }, { default: DOMPurify }] = await Promise.all([import('../features/reader/html/parse'), import('dompurify')]);
+  const html = DOMPurify.sanitize(await markdownToHtml(text));
   const h1 = text.match(/^#\s+(.+)$/m)?.[1]?.trim();
   return { title: h1 || base, html };
 }

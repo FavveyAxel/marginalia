@@ -1621,6 +1621,16 @@ export function capsuleOf(s: State, wsId: string): Capsule | null {
 const DB_KEYS = ['books', 'highlights', 'concepts', 'maps', 'arguments', 'studies', 'plans', 'drafts', 'cards', 'groups', 'wsItems', 'bookmarks', 'trash', 'activity', 'mapVersions'] as const;
 const dbPatch = (db: Database): Partial<State> => Object.fromEntries(DB_KEYS.map((k) => [k, db[k]])) as Partial<State>;
 export const isSpaceOpen = (wsId: string) => openSpaces.has(wsId);
+/**
+ * Livres qui appartiennent à un espace chiffré ouvert. Un contenu reçu (paquet partagé, pair) ne doit
+ * jamais s'y rattacher : le ranger ailleurs le ferait sortir de l'espace, en clair, sans rien demander.
+ */
+export function sealedBookIds(s: State = useStore.getState()): Set<string> {
+  const db = pickDb(s);
+  const ids = openSpaceIds(db);
+  if (!ids.length) return new Set();
+  return new Set(Object.values(splitDb(db, ids, spaceMemory).capsules).flatMap((c) => c.books.map((b) => b.id)));
+}
 /** Espace chiffré dont le contenu n'est pas chargé. */
 export const isSpaceLocked = (s: State, wsId: string) => !!s.workspaces.find((w) => w.id === wsId)?.encrypted && !s.unlockedSpaces.includes(wsId);
 /**

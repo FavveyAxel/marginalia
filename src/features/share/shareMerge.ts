@@ -20,7 +20,7 @@
 //   de livre ni rien de cassé. readSharePackage(…).alreadyReceived permet à l'interface de prévenir avant.
 // - Chaque élément créé garde `shareOrigin` { shareId, srcId } (voir types.ts) pour une future synchronisation.
 import { host } from '../../lib/platform';
-import { EMPTY_EDITION, uid, useStore } from '../../lib/store';
+import { EMPTY_EDITION, sealedBookIds, uid, useStore } from '../../lib/store';
 import type {
   ArgumentMap,
   ArgumentReconstruction,
@@ -131,12 +131,15 @@ export async function importSharePackage(bytes: Uint8Array | ArrayBuffer, opts: 
   const missingBooks: ShareImportResult['missingBooks'] = [];
   const completedBooks: ShareImportResult['completedBooks'] = [];
   const titleOfBook = new Map<string, string>();
+  const sealedBooks = sealedBookIds(s0);
+  const openBooks = s0.books.filter((b) => !sealedBooks.has(b.id));
   for (const src of data.books) {
     const e = entryOf.get(src.id)!;
     // Livre papier : reconnu par son ISBN (ou titre, auteur, éditeur, année), jamais « sans fichier ».
     const paper = src.format === 'paper';
     const video = src.format === 'video';
-    const local = video ? findLocalVideoBook(src, [...s0.books, ...newBooks]) : paper ? findLocalPaperBook(src, [...s0.books, ...newBooks]) : await findLocalBook(e, s0.books);
+    // Jamais un livre d'un espace chiffré : s'y rattacher le rangerait aussi ailleurs, donc en clair.
+    const local = video ? findLocalVideoBook(src, [...openBooks, ...newBooks]) : paper ? findLocalPaperBook(src, [...openBooks, ...newBooks]) : await findLocalBook(e, openBooks);
     const fileNames = [...bookSourceFiles(src), ...bookExtraFiles(src)];
     if (local) {
       bookId.set(src.id, local.id);
@@ -401,8 +404,9 @@ export async function importSharePackage(bytes: Uint8Array | ArrayBuffer, opts: 
   if (srcWs && wsId) {
     const name = uniqueName(str(srcWs.name, 'Espace reçu').trim() || 'Espace reçu', new Set(s0.workspaces.map((w) => w.name.trim().toLowerCase())));
     if (name !== srcWs.name) renamed.push({ kind: 'workspace', from: srcWs.name, to: name });
+    // Champs connus seulement : un espace reçu ne peut pas se dire « chiffré » (il serait verrouillé à
+    // jamais, sans clé) ni apporter de champ inconnu.
     workspace = {
-      ...srcWs,
       id: wsId,
       name,
       tint: typeof srcWs.tint === 'string' && SAFE_VAR.test(srcWs.tint) ? srcWs.tint : '--cat-these',

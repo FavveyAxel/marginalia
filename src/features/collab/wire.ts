@@ -1,3 +1,4 @@
+import { jsonDepthOk } from '../../lib/safeJson';
 // Messages entre participants (dans le rendu) : enveloppe JSON + octets facultatifs. Le transport
 // (electron/collab-net.cjs) les chiffre et les relaie sans les lire.
 export interface Head {
@@ -23,7 +24,9 @@ export function unpack(bytes: Uint8Array): { head: Head; body: Uint8Array } | nu
     const u = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes as ArrayBuffer);
     const n = new DataView(u.buffer, u.byteOffset, u.byteLength).getUint32(0);
     if (n > u.length - 4 || n > 64 * 1024 * 1024) return null;
-    const head = JSON.parse(dec.decode(u.subarray(4, 4 + n)));
+    const text = dec.decode(u.subarray(4, 4 + n));
+    if (!jsonDepthOk(text)) return null; // imbrication démesurée : message refusé (voir safeJson.ts)
+    const head = JSON.parse(text);
     if (!head || typeof head !== 'object' || typeof head.t !== 'string') return null;
     return { head, body: u.subarray(4 + n) };
   } catch {

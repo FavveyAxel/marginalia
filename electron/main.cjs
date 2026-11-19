@@ -395,6 +395,17 @@ function countItems(db) {
   return n;
 }
 
+/** L'imbrication de `v` (objets et tableaux) reste sous `max` (parcours sans récursion). */
+function depthOk(v, max) {
+  const stack = [[v, 1]];
+  while (stack.length) {
+    const [x, d] = stack.pop();
+    if (x === null || typeof x !== 'object') continue;
+    if (d > max) return false;
+    for (const y of Array.isArray(x) ? x : Object.values(x)) if (y !== null && typeof y === 'object') stack.push([y, d + 1]);
+  }
+  return true;
+}
 async function readDbFile(file) {
   let buf;
   try {
@@ -412,6 +423,9 @@ async function readDbFile(file) {
   try {
     const data = JSON.parse(text);
     if (!isDbObject(data)) throw new Error('contenu inattendu');
+    // Imbrication démesurée : la base se lit, mais ne pourrait pas être transmise à l'interface (elle
+    // ne se chargerait plus, à chaque lancement). Traitée comme endommagée : une sauvegarde prend le relais.
+    if (!depthOk(data, 200)) throw new Error('imbrication démesurée');
     return { ok: true, data, text };
   } catch (e) {
     return { ok: false, missing: false, error: e };

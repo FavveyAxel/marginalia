@@ -18,6 +18,9 @@ import JSZip from 'jszip';
 const DOCX_MIME = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
 
 /** Espaces de noms connus (préfixes usuels de Word). */
+/** Texte d'un .docx (identifiant de style…) placé dans une expression régulière : rendu littéral. */
+const rx = (t: string) => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
 export const KNOWN_NS: Record<string, string> = {
   // docProps/core.xml
   cp: 'http://schemas.openxmlformats.org/package/2006/metadata/core-properties',
@@ -379,9 +382,9 @@ export function styleDefinition(id: string): string | null {
 export function addMissingStyles(stylesXml: string, docXml: string): string {
   let out = stylesXml;
   for (const id of Object.keys(TOC_STYLES)) {
-    const used = new RegExp(`<w:(?:pStyle|rStyle)\\s+w:val="${id}"`).test(docXml);
+    const used = new RegExp(`<w:(?:pStyle|rStyle)\\s+w:val="${rx(id)}"`).test(docXml);
     if (!used) continue;
-    if (new RegExp(`<w:style\\b[^>]*w:styleId="${id}"`).test(out)) continue;
+    if (new RegExp(`<w:style\\b[^>]*w:styleId="${rx(id)}"`).test(out)) continue;
     out = out.replace(/<\/w:styles>\s*$/, `${TOC_STYLES[id]}</w:styles>`);
   }
   return out;
@@ -654,7 +657,7 @@ export function patchStyleElement(styleXml: string, patch: StylePatch): string {
 export function patchStylesXml(stylesXml: string, ids: string[], patch: StylePatch, defs: Record<string, string> = {}): string {
   let out = stylesXml;
   for (const id of ids) {
-    const re = new RegExp(`<w:style\\b[^>]*\\sw:styleId="${id}"[^>]*?(?:/>|>[\\s\\S]*?</w:style>)`);
+    const re = new RegExp(`<w:style\\b[^>]*\\sw:styleId="${rx(id)}"[^>]*?(?:/>|>[\\s\\S]*?</w:style>)`);
     if (!re.test(out)) {
       const def = defs[id];
       if (!def) continue;
@@ -669,7 +672,7 @@ export function patchStylesXml(stylesXml: string, ids: string[], patch: StylePat
 export function ensureStylesXml(stylesXml: string, defs: Record<string, string>): string {
   let out = stylesXml;
   for (const [id, def] of Object.entries(defs)) {
-    if (new RegExp(`<w:style\\b[^>]*\\sw:styleId="${id}"`).test(out)) continue;
+    if (new RegExp(`<w:style\\b[^>]*\\sw:styleId="${rx(id)}"`).test(out)) continue;
     out = out.replace(/<\/w:styles>\s*$/, `${def}</w:styles>`);
   }
   return out;
@@ -689,7 +692,7 @@ export async function transformStyles(data: ArrayBuffer, fn: (stylesXml: string)
 
 /** Lit les propriétés effectives (simples) d'un style, pour préremplir le dialogue « Modifier le style ». */
 export function readStyleProps(stylesXml: string, id: string): StylePatch & { exists: boolean } {
-  const st = new RegExp(`<w:style\\b[^>]*\\sw:styleId="${id}"[^>]*?(?:/>|>[\\s\\S]*?</w:style>)`).exec(stylesXml)?.[0];
+  const st = new RegExp(`<w:style\\b[^>]*\\sw:styleId="${rx(id)}"[^>]*?(?:/>|>[\\s\\S]*?</w:style>)`).exec(stylesXml)?.[0];
   if (!st) return { exists: false };
   const rf = attrsOf(/<w:rFonts\b[^>]*\/?>/.exec(st)?.[0]);
   const sz = attrsOf(/<w:sz\b[^>]*\/?>/.exec(st)?.[0])['w:val'];
@@ -721,7 +724,7 @@ export function effectiveStyleProps(stylesXml: string, id: string | null): Style
     const p = readStyleProps(stylesXml, cur);
     if (!p.exists) break;
     fill(p);
-    const st = new RegExp(`<w:style\\b[^>]*\\sw:styleId="${cur}"[^>]*?(?:/>|>[\\s\\S]*?</w:style>)`).exec(stylesXml)?.[0] ?? '';
+    const st = new RegExp(`<w:style\\b[^>]*\\sw:styleId="${rx(cur)}"[^>]*?(?:/>|>[\\s\\S]*?</w:style>)`).exec(stylesXml)?.[0] ?? '';
     cur = /<w:basedOn\s+w:val="([^"]+)"/.exec(st)?.[1] ?? (cur !== defaultParagraphStyle(stylesXml) ? defaultParagraphStyle(stylesXml) : null);
   }
   const dd = /<w:docDefaults>[\s\S]*?<\/w:docDefaults>/.exec(stylesXml)?.[0];
@@ -764,7 +767,7 @@ export function styleRunProps(stylesXml: string, id: string | null): { bold?: bo
   let cur: string | null = id ?? defaultParagraphStyle(stylesXml);
   while (cur && !seen.has(cur)) {
     seen.add(cur);
-    const st = new RegExp(`<w:style\\b[^>]*\\sw:styleId="${cur}"[^>]*?(?:/>|>[\\s\\S]*?</w:style>)`).exec(stylesXml)?.[0];
+    const st = new RegExp(`<w:style\\b[^>]*\\sw:styleId="${rx(cur)}"[^>]*?(?:/>|>[\\s\\S]*?</w:style>)`).exec(stylesXml)?.[0];
     if (!st) break;
     read(/<w:rPr>[\s\S]*?<\/w:rPr>/.exec(st)?.[0] ?? '');
     cur = /<w:basedOn\s+w:val="([^"]+)"/.exec(st)?.[1] ?? (cur !== defaultParagraphStyle(stylesXml) ? defaultParagraphStyle(stylesXml) : null);

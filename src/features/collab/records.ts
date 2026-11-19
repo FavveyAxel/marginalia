@@ -16,6 +16,7 @@
 // - Vie privée : chez un invité, les extraits et cartes qu'il avait déjà dans un livre de l'espace (et
 //   qui ne viennent pas de la session) ne partent pas, sauf s'il les relie lui-même à un élément partagé.
 // ─────────────────────────────────────────────────────────────
+import { anchorOk, movementsOk } from '../share/sharePackage';
 import { uid, useStore, type State } from '../../lib/store';
 import type {
   ArgumentMap,
@@ -232,12 +233,10 @@ export class RecordSync {
   private rlocal(c: Col, g: string | null | undefined): string | null {
     const id = this.local(c, g);
     if (!id) return null;
-    if (this.shared(c, g!, id)) return id;
-    if (c === 'book') {
-      this.adoptBook(id);
-      return id;
-    }
-    return null;
+    // Les livres comme le reste : un livre de la bibliothèque qui n'est pas partagé n'est pas atteint
+    // par un identifiant reçu. (Il l'était, pour ne pas télécharger deux fois le même livre : un invité
+    // s'en servait pour savoir quels fichiers l'hôte possède, y écrire un extrait et se les faire envoyer.)
+    return this.shared(c, g!, id) ? id : null;
   }
   /**
    * Livre de la bibliothèque qui rejoint la session (même gid ou même empreinte qu'un livre du pair) :
@@ -723,7 +722,7 @@ export class RecordSync {
           return 'wait';
         }
         const a = d.anchor as Any;
-        if (!a || (a.kind !== 'html' && a.kind !== 'pdf')) return 'ok';
+        if (!anchorOk(a)) return 'ok'; // repère mal formé : extrait ignoré (il ferait planter le lecteur)
         const base = {
           bookId: bookId!,
           category: typeof d.category === 'string' && CATEGORIES.includes(d.category) ? d.category : null,
@@ -757,7 +756,7 @@ export class RecordSync {
       case 'study': {
         const bookId = this.inn('book', d.bookId, need);
         if (need.length) return 'wait';
-        const base = { bookId: bookId!, title: String(d.title ?? ''), probleme: String(d.probleme ?? ''), these: String(d.these ?? ''), enjeu: String(d.enjeu ?? ''), movements: Array.isArray(d.movements) ? d.movements : [], updatedAt: Date.now() };
+        const base = { bookId: bookId!, title: String(d.title ?? ''), probleme: String(d.probleme ?? ''), these: String(d.these ?? ''), enjeu: String(d.enjeu ?? ''), movements: movementsOk(d.movements) ? (d.movements as TextStudy['movements']) : [], updatedAt: Date.now() };
         const cur = this.rlocal('study', rec.g);
         if (cur) set({ studies: s.studies.map((x) => (x.id === cur ? { ...x, ...base } : x)) });
         else {

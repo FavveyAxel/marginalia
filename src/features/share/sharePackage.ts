@@ -21,6 +21,7 @@
 import { cleanChapters } from '../video/video';
 import JSZip from 'jszip';
 import { ZipTooBigError } from '../../lib/zipLimits';
+import { jsonDepthOk } from '../../lib/safeJson';
 import { host } from '../../lib/platform';
 import { useStore, type State } from '../../lib/store';
 import type {
@@ -231,8 +232,10 @@ export function bookExtraFiles(b: Book): string[] {
   return ['ocr.json', ...Array.from({ length: n - 1 }, (_, i) => `ocr-p${i + 2}.json`)];
 }
 
+const toArrayBuffer = (u: Uint8Array): ArrayBuffer => u.buffer.slice(u.byteOffset, u.byteOffset + u.byteLength) as ArrayBuffer;
+
 /** Empreinte d'un livre d'après le contenu de ses fichiers source (une page : son SHA-256 ; plusieurs : celui de la liste). */
-async function fingerprintOf(datas: ArrayBuffer[]): Promise<{ sha256: string; size: number }> {
+export async function fingerprintOf(datas: ArrayBuffer[]): Promise<{ sha256: string; size: number }> {
   const size = datas.reduce((n, d) => n + d.byteLength, 0);
   if (datas.length === 1) return { sha256: await sha256Hex(datas[0]), size };
   const each = await Promise.all(datas.map((d) => sha256Hex(d)));
@@ -737,6 +740,32 @@ const isStr = (x: unknown): x is string => typeof x === 'string';
 const isNum = (x: unknown): x is number => typeof x === 'number' && Number.isFinite(x);
 const isId = (x: unknown): x is string => isStr(x) && x.length > 0 && x.length <= 200 && !isReservedKey(x);
 const isOptId = (x: unknown) => x == null || isId(x);
+const isCount = (x: unknown): x is number => typeof x === 'number' && Number.isSafeInteger(x) && x >= 0 && x <= 1e9;
+const optStr = (x: unknown) => x === undefined || x === null || isStr(x);
+const optNum = (x: unknown) => x === undefined || x === null || isNum(x);
+/** Repère d'un extrait ou d'un mouvement : forme exacte (un repère mal formé faisait planter le lecteur). */
+export function anchorOk(a: unknown): boolean {
+  if (!isObj(a)) return false;
+  if (a.kind === 'html') return isCount(a.chapter) && isCount(a.start) && isCount(a.end) && isStr(a.prefix) && isStr(a.suffix);
+  if (a.kind === 'pdf') return isCount(a.page) && Array.isArray(a.rects) && a.rects.length <= 5000 && a.rects.every((r) => isObj(r) && isNum(r.x) && isNum(r.y) && isNum(r.w) && isNum(r.h));
+  return false;
+}
+/** Mouvements d'une fiche-texte : objets identifiés, repère bien formé. */
+export const movementsOk = (list: unknown): boolean => Array.isArray(list) && list.every((m) => isObj(m) && isId(m.id) && anchorOk(m.anchor) && optStr(m.title) && optStr(m.role) && optStr(m.startText));
+/** Carte : nœuds, liens et zones bien formés (coordonnées numériques, extrémités nommées). */
+function mapOk(m: Record<string, unknown>): boolean {
+  const nodes = m.nodes as unknown[];
+  const edges = m.edges as unknown[];
+  return (
+    nodes.every((n) => isObj(n) && isId(n.id) && isNum(n.x) && isNum(n.y) && optStr(n.text) && isOptId(n.highlightId) && isOptId(n.conceptId) && optNum(n.w) && optNum(n.h)) &&
+    edges.every((e) => isObj(e) && isId(e.id) && isStr(e.source) && isStr(e.target)) &&
+    (m.zones === undefined || m.zones === null || (Array.isArray(m.zones) && m.zones.every((z) => isObj(z) && isId(z.id) && isNum(z.x) && isNum(z.y) && isNum(z.w) && isNum(z.h) && optStr(z.title) && optStr(z.color)))) &&
+    (m.viewport === undefined || m.viewport === null || (isObj(m.viewport) && Object.values(m.viewport).every(isNum)))
+  );
+}
+const planNodesOk = (list: unknown): boolean =>
+  Array.isArray(list) && list.every((n) => isObj(n) && optStr(n.title) && optStr(n.note) && (n.items === undefined || (Array.isArray(n.items) && n.items.every((it) => isObj(it) && isObj(it.ref) && isStr(it.ref.kind)))) && (n.children === undefined || planNodesOk(n.children)));
+const editionOk = (e: unknown) => e === undefined || e === null || (isObj(e) && Object.values(e).every((v) => v === null || isStr(v) || isNum(v)));
 const FORMATS: BookFormat[] = ['epub', 'pdf', 'docx', 'md', 'txt', 'html', 'image', 'paper', 'video'];
 
 /** Nom d'entrée de l'archive acceptable : manifest.json, data.json ou files/<id>/<fichier>. */
@@ -763,16 +792,16 @@ function validateData(raw: unknown): ShareData | null {
   }
   const maps = raw.maps === undefined ? {} : raw.maps;
   if (!isObj(maps)) return null;
-  for (const [k, m] of Object.entries(maps)) if (!isId(k) || !isObj(m) || !Array.isArray(m.nodes) || !Array.isArray(m.edges) || !m.nodes.every((n) => isObj(n) && isId(n.id))) return null;
+  for (const [k, m] of Object.entries(maps)) if (!isId(k) || !isObj(m) || !Array.isArray(m.nodes) || !Array.isArray(m.edges) || !mapOk(m)) return null;
   const ok =
     (out.books as Record<string, unknown>[]).every(
-      (b) => isStr(b.title) && isStr(b.author) && FORMATS.includes(b.format as BookFormat) && (withoutFile(b.format) ? b.fileName === '' : isSafeSegment(b.fileName)) && (b.format !== 'video' || !!safeVideoInfo(b.video)) && isNum(b.size) && (b.pages === undefined || (Array.isArray(b.pages) && b.pages.every(isSafeSegment))),
+      (b) => isStr(b.title) && isStr(b.author) && FORMATS.includes(b.format as BookFormat) && (withoutFile(b.format) ? b.fileName === '' : isSafeSegment(b.fileName)) && (b.format !== 'video' || !!safeVideoInfo(b.video)) && isNum(b.size) && (b.pages === undefined || (Array.isArray(b.pages) && b.pages.every(isSafeSegment))) && editionOk(b.edition),
     ) &&
-    (out.highlights as Record<string, unknown>[]).every((h) => isId(h.bookId) && isStr(h.text) && isObj(h.anchor) && (h.anchor.kind === 'html' || h.anchor.kind === 'pdf') && Array.isArray(h.conceptIds)) &&
-    (out.concepts as Record<string, unknown>[]).every((c) => isStr(c.name) && Array.isArray(c.senses) && Array.isArray(c.links)) &&
-    (out.arguments as Record<string, unknown>[]).every((a) => Array.isArray(a.premises) && isObj(a.conclusion) && isOptId(a.bookId)) &&
-    (out.studies as Record<string, unknown>[]).every((x) => isId(x.bookId) && Array.isArray(x.movements)) &&
-    (out.plans as Record<string, unknown>[]).every((x) => Array.isArray(x.parts)) &&
+    (out.highlights as Record<string, unknown>[]).every((h) => isId(h.bookId) && isStr(h.text) && anchorOk(h.anchor) && Array.isArray(h.conceptIds) && h.conceptIds.every(isId) && optStr(h.note) && optStr(h.category) && optNum(h.createdAt) && optNum(h.updatedAt)) &&
+    (out.concepts as Record<string, unknown>[]).every((c) => isStr(c.name) && optStr(c.definition) && Array.isArray(c.senses) && c.senses.every((x) => isObj(x) && isOptId(x.bookId) && (x.highlightIds === undefined || (Array.isArray(x.highlightIds) && x.highlightIds.every(isId)))) && Array.isArray(c.links) && c.links.every((x) => isObj(x) && isId(x.conceptId))) &&
+    (out.arguments as Record<string, unknown>[]).every((a) => Array.isArray(a.premises) && a.premises.every((p) => isObj(p) && optStr(p.text) && isOptId(p.highlightId)) && isObj(a.conclusion) && optStr(a.conclusion.text) && isOptId(a.bookId)) &&
+    (out.studies as Record<string, unknown>[]).every((x) => isId(x.bookId) && movementsOk(x.movements)) &&
+    (out.plans as Record<string, unknown>[]).every((x) => planNodesOk(x.parts)) &&
     (out.drafts as Record<string, unknown>[]).every((d) => isStr(d.title) && isSafeSegment(d.fileName)) &&
     (out.cards as Record<string, unknown>[]).every((c) => isStr(c.front) && isStr(c.back) && isOptId(c.highlightId) && isOptId(c.conceptId) && isOptId(c.bookId)) &&
     (out.workspaces as Record<string, unknown>[]).every((w) => isStr(w.name)) &&
@@ -827,7 +856,9 @@ export async function openSharePackage(bytes: Uint8Array | ArrayBuffer): Promise
   if (!manifestFile) throw ERR.notShare();
   let raw: unknown;
   try {
-    raw = JSON.parse(await manifestFile.async('string'));
+    const text = await manifestFile.async('string');
+    if (!jsonDepthOk(text)) throw new Error('invalid');
+    raw = JSON.parse(text);
   } catch (e) {
     throw /crc|corrupt|invalid/i.test(String(e)) ? ERR.damaged() : ERR.notShare();
   }
@@ -848,7 +879,8 @@ export async function openSharePackage(bytes: Uint8Array | ArrayBuffer): Promise
   if ((await sha256Hex(dataBytes)) !== manifest.integrity.data) throw ERR.damaged();
   let data: ShareData | null;
   try {
-    data = validateData(JSON.parse(new TextDecoder().decode(dataBytes)));
+    const text = new TextDecoder().decode(dataBytes);
+    data = jsonDepthOk(text) ? validateData(JSON.parse(text)) : null;
   } catch {
     data = null;
   }
@@ -884,6 +916,17 @@ export async function openSharePackage(bytes: Uint8Array | ArrayBuffer): Promise
   for (const d of data.drafts) if (!files.has(`files/${d.id}/${d.fileName}`)) throw ERR.invalid();
   const owners = new Set([...data.books.filter((b) => entryOf.get(b.id)!.included).map((b) => b.id), ...data.drafts.map((d) => d.id)]);
   for (const path of files.keys()) if (!owners.has(path.split('/')[1])) throw ERR.invalid();
+  // L'empreinte annoncée d'un livre joint doit être celle de ses fichiers : c'est elle qui fait
+  // reconnaître « le même livre » chez le destinataire. Sans ce contrôle, un paquet pouvait remplir un
+  // livre « sans fichier » déjà là avec un autre texte, sous le titre et l'empreinte de confiance.
+  for (const b of data.books) {
+    const e = entryOf.get(b.id)!;
+    if (!e.included || withoutFile(b.format)) continue;
+    const datas = bookSourceFiles(b).map((f) => files.get(`files/${b.id}/${f}`));
+    if (datas.some((d) => !d)) throw ERR.invalid();
+    const fp = await fingerprintOf(datas.map((d) => toArrayBuffer(d!)));
+    if (e.sha256 && (fp.sha256 !== e.sha256 || (typeof e.size === 'number' && e.size !== fp.size))) throw ERR.damaged();
+  }
   if (!data.highlights.every((h) => bookIds.has(h.bookId)) || !data.studies.every((x) => bookIds.has(x.bookId))) throw ERR.invalid();
   return { manifest, data, files };
 }

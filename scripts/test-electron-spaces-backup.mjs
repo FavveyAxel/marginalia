@@ -136,8 +136,8 @@ try {
   const leaks = entries.filter((n) => { const b = unzip(n); return b.includes(Buffer.from(SECRET)) || b.includes(Buffer.from('Journal intime')); });
   ok(leaks.length === 0, `archive : aucune des ${entries.length} entrées ne contient le texte ou le titre de l’espace`, leaks);
   const libOf = (id) => entries.filter((n) => n.startsWith(`library/${id}/`));
-  ok(libOf(seed.dPrive).length > 0 && [...libOf(seed.dPrive), ...libOf(seed.book)].every((n) => unzip(n).subarray(0, 7).toString('latin1') === 'MGLSPC1'), 'archive : les fichiers de l’espace y sont, scellés avec sa clé', [...libOf(seed.dPrive), ...libOf(seed.book)]);
-  ok(libOf(seed.dCours).length > 0 && libOf(seed.dCours).every((n) => unzip(n).subarray(0, 7).toString('latin1') !== 'MGLSPC1'), 'archive : les autres fichiers sont inchangés');
+  ok(libOf(seed.dPrive).length > 0 && [...libOf(seed.dPrive), ...libOf(seed.book)].every((n) => unzip(n).subarray(0, 7).toString('latin1') === 'MGLSPC2'), 'archive : les fichiers de l’espace y sont, scellés avec sa clé', [...libOf(seed.dPrive), ...libOf(seed.book)]);
+  ok(libOf(seed.dCours).length > 0 && libOf(seed.dCours).every((n) => unzip(n).subarray(0, 7).toString('latin1') !== 'MGLSPC2'), 'archive : les autres fichiers sont inchangés');
 
   // ── 2. Modifier après l'export, puis restaurer sur la même installation ──
   await unlock(seed.prive);

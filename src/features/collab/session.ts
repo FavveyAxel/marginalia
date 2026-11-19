@@ -15,7 +15,7 @@
 import { host, type CollabEvent, type CollabMember } from '../../lib/platform';
 import { flushPendingSave, setWriteGuard, useStore, type State } from '../../lib/store';
 import type { Book, Draft, WorkspaceItem, WorkspaceItemKind } from '../../lib/types';
-import { bookExtraFiles, bookFingerprint, bookSourceFiles, buildSharePackage, findLocalBook, findLocalVideoBook, safeVideoInfo, shareableDocx } from '../share/sharePackage';
+import { bookExtraFiles, bookFingerprint, bookSourceFiles, buildSharePackage, fingerprintOf, findLocalBook, findLocalVideoBook, safeVideoInfo, shareableDocx } from '../share/sharePackage';
 import { importSharePackage } from '../share/shareMerge';
 import { errorMessage } from '../share/shareUi';
 import { ALL_PERMS, permText, samePerm, useCollab, type CollabPerm, type CollabProfile } from './collabState';
@@ -561,9 +561,8 @@ async function onFiles(head: Head, body: Uint8Array) {
   if (!s.asked.has(keyOf(c, g))) return;
   clearTimeout(s.fetchTimers.get(keyOf(c, g)));
   // Déjà là ET partagé (un écrit privé de même gid ne compte pas : une copie distincte est créée).
-  const here = c === 'book' ? s.records.local(c, g) : s.records.sharedLocal(c, g);
+  const here = s.records.sharedLocal(c, g);
   if (here) {
-    if (c === 'book') s.records.adoptBook(here);
     s.records.fetchDone(c, g);
     s.records.resume();
     serveWaiting(c, g);
@@ -581,8 +580,19 @@ async function onFiles(head: Head, body: Uint8Array) {
     // Déjà là (même empreinte) : alias, aucun doublon. Livre local « sans fichier » et fichier reçu : on le
     // complète (au lieu d'en créer un second).
     const sha = typeof meta.sha256 === 'string' ? meta.sha256 : null;
-    let local = video ? findLocalVideoBook({ video: meta.video }, st.books) : sha ? await findLocalBook({ sha256: sha, size: Number(meta.size) || 0 }, st.books) : null;
-    if (!local && sha) local = st.books.find((b) => b.missing && b.sourceSha256 === sha) ?? null;
+    // Seulement parmi les livres déjà partagés dans cette session (ou reçus par ce partage) : jamais le
+    // reste de la bibliothèque. Sinon l'empreinte annoncée par un pair (sans fichier) suffisait à lui
+    // faire adopter un livre privé, puis à se le faire envoyer.
+    const mine = st.books.filter((b) => s.records!.inScope('book', b.id) || b.shareOrigin?.shareId === s.shareId);
+    let local = video ? findLocalVideoBook({ video: meta.video }, mine) : sha ? await findLocalBook({ sha256: sha, size: Number(meta.size) || 0 }, mine) : null;
+    if (!local && sha) local = mine.find((b) => b.missing && b.sourceSha256 === sha) ?? null;
+    // Fichier reçu pour compléter un livre « sans fichier » : son empreinte doit être celle annoncée.
+    if (local && local.missing && !missing && sha) {
+      const names = bookSourceFiles({ format: meta.format, fileName: String(meta.fileName ?? files[0]?.name ?? ''), pages: meta.pages } as unknown as Book);
+      const datas = names.map((n) => files.find((f) => f.name === n)?.data);
+      const fp = datas.every(Boolean) ? await fingerprintOf(datas.map((d) => (d as Uint8Array).buffer.slice((d as Uint8Array).byteOffset, (d as Uint8Array).byteOffset + (d as Uint8Array).byteLength) as ArrayBuffer)) : null;
+      if (!fp || fp.sha256 !== sha) local = null;
+    }
     if (local && local.missing && !missing) {
       for (const f of files) await host.storeFile(local.id, f.name, f.data);
       const fileName = SAFE.test(String(meta.fileName)) ? String(meta.fileName) : files[0]?.name ?? local.fileName;

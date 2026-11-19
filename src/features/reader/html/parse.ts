@@ -169,9 +169,17 @@ function prepareSource(root: Element, ctx: PrepareCtx) {
     if ((epubType && /\bpagebreak\b/.test(epubType)) || /\bdoc-pagebreak\b/.test(el.getAttribute('role') ?? '')) el.setAttribute('data-pagebreak', pagebreakLabel(el, id));
     // Mise en page livre : poèmes et strophes repérés à la source (DOMPurify retire les classes).
     if (VERSE_RE.test(`${el.getAttribute('class') ?? ''} ${epubType ?? ''}`)) el.setAttribute('data-verse', '');
+    // Aucun lien cliquable ne survit, quel que soit l'élément : un <a> de SVG (xlink:href) étalé en
+    // transparent sur la page faisait ouvrir une adresse au premier clic sur le texte.
+    const htmlA = el.localName === 'a' && el.namespaceURI === 'http://www.w3.org/1999/xhtml';
+    for (const a of [...el.attributes]) {
+      const isHref = a.localName === 'href' || /^(xlink:)?href$/i.test(a.name);
+      if (a.name === 'ping' || (isHref && !(htmlA && a.name === 'href'))) el.removeAttributeNode(a);
+    }
     if (el.localName === 'a') {
       const href = el.getAttribute('href');
       el.removeAttribute('href');
+      el.removeAttribute('ping');
       if (href) {
         if (isExternal(href)) {
           if (!/^javascript:/i.test(href)) el.setAttribute('data-ext', href);
@@ -199,7 +207,7 @@ function prepareSource(root: Element, ctx: PrepareCtx) {
 const PURIFY_CFG = {
   RETURN_DOM_FRAGMENT: true as const,
   FORBID_TAGS: ['style', 'link', 'meta', 'base', 'form', 'input', 'button', 'select', 'textarea', 'iframe', 'object', 'embed', 'video', 'audio', 'source', 'track', 'canvas', 'noscript', 'template', 'font', 'center'],
-  FORBID_ATTR: ['style', 'class', 'id', 'name', 'width', 'height', 'align', 'valign', 'bgcolor', 'color', 'face', 'size', 'border', 'tabindex', 'target', 'srcset', 'background', 'contenteditable'],
+  FORBID_ATTR: ['style', 'class', 'id', 'name', 'width', 'height', 'align', 'valign', 'bgcolor', 'color', 'face', 'size', 'border', 'tabindex', 'target', 'srcset', 'background', 'contenteditable', 'href', 'xlink:href', 'ping', 'formaction', 'action'],
   ALLOW_DATA_ATTR: true,
 };
 

@@ -1624,81 +1624,92 @@ async function fuzzText() {
     worker.on('error', () => {});
   };
   /** Un appel dans le fil à part ; au-delà de `limit` ms, le fil est tué : { timeout: true }. */
-  const call = (job, limit = 10000) =>
+  const call = (job, limit = 8000) =>
     new Promise((resolve) => {
       if (!worker) spawn();
       const id = ++seq;
       const w = worker;
-      const timer = setTimeout(() => {
-        w.terminate();
-        worker = null;
-        resolve({ timeout: true, ms: limit });
-      }, limit);
-      const onMsg = (m) => {
-        if (m.id !== id) return;
+      const done = (v) => {
         clearTimeout(timer);
         w.off('message', onMsg);
-        resolve(m);
+        w.off('exit', onExit);
+        resolve(v);
+      };
+      const timer = setTimeout(() => {
+        w.off('exit', onExit);
+        w.terminate();
+        if (worker === w) worker = null;
+        done({ timeout: true, ms: limit });
+      }, limit);
+      const onMsg = (m) => m.id === id && done(m);
+      const onExit = () => {
+        if (worker === w) worker = null;
+        done({ timeout: true, ms: limit, died: true });
       };
       w.on('message', onMsg);
-      w.on('exit', () => {
-        clearTimeout(timer);
-        resolve({ timeout: true, ms: limit, died: true });
-      });
+      w.on('exit', onExit);
       w.postMessage({ ...job, id });
     });
-  const SIZES = [4000, 16000, 64000];
-  const fnNames = Object.keys(TEXT_FNS);
-  const worst = [];
-  for (const fn of fnNames) {
+  // Passe 1 (toutes les combinaisons, 4 k puis 16 k caractères) : on retient, par fonction, la
+  // combinaison dont le temps croît le plus vite. Passe 2 : elle seule est rejouée à 64 k, avec un délai.
+  const [S1, S2, S3] = [4000, 16000, 64000];
+  const LIMIT = 8000;
+  const describe = (fn, tname, frag, size) => `${fn} sur gabarit « ${tname} » + ${JSON.stringify(frag)} × ${Math.round(size / frag.length)} (${size} car.)`;
+  for (const fn of Object.keys(TEXT_FNS)) {
     const isXml = /ooxml|docx|privateNotes|video-net/.test(fn);
+    let best = null;
+    let suspects = 0;
+    let dead = false;
     for (const [tname, pre, post] of TEMPLATES) {
+      if (dead) break;
       if (!isXml && tname !== 'nu' && tname !== 'en-tête md') continue;
       if (isXml && tname === 'en-tête md') continue;
       for (const frag of FRAGMENTS) {
         const times = [];
-        let stop = null;
-        for (const size of SIZES) {
-          const r = await call({ fn, pre, post, frag, size });
+        for (const size of [S1, S2]) {
+          const r = await call({ fn, pre, post, frag, size }, LIMIT);
           R.iterations++;
-          const what = `${fn} sur gabarit « ${tname} » + ${JSON.stringify(frag)} × ${Math.round(size / frag.length)} (${size} car.)`;
           if (r.timeout) {
-            finding(R, 'hang', `${fn} : plus de 10 s`, `${what} — durées précédentes : ${times.map((t) => t.toFixed(0) + ' ms').join(', ') || 'aucune'}`);
-            stop = 'hang';
+            finding(R, 'hang', `${fn} : plus de ${LIMIT / 1000} s sur ${size / 1000} k caractères`, `${describe(fn, tname, frag, size)} — durée précédente : ${times.map((t) => t.toFixed(0) + ' ms').join(', ') || 'aucune'}`);
+            dead = true;
             break;
           }
           if (r.err) {
-            if (r.err.raw) finding(R, 'crash', `${fn} : ${r.err.head.split(' | ')[0]}`, `${what} — ${r.err.head}`);
+            if (r.err.raw) finding(R, 'crash', `${fn} : ${r.err.head.split(' | ')[0]}`, `${describe(fn, tname, frag, size)} — ${r.err.head}`);
             else R.rejects++;
-            stop = 'err';
             break;
           }
           R.accepts++;
           times.push(r.ms);
-          if (r.ms > R.slowest.ms) R.slowest = { ms: r.ms, what };
-          if (r.ms > 3000) break;
+          if (r.ms > R.slowest.ms) R.slowest = { ms: r.ms, what: describe(fn, tname, frag, size) };
         }
-        if (stop || times.length < 2) continue;
-        // Croissance : exposant mesuré entre les deux dernières tailles (×4 de taille).
-        const a = times[times.length - 2];
-        const b = times[times.length - 1];
-        const exp = Math.log(Math.max(b, 0.01) / Math.max(a, 0.01)) / Math.log(4);
-        if (b > 120 && exp > 1.6) {
-          const n = SIZES[times.length - 1];
-          const at1MB = (b * (MB / n) ** exp) / 1000;
-          worst.push({ fn, tname, frag, times, exp, at1MB });
+        if (dead) break;
+        if (times.length < 2) continue;
+        const ratio = times[1] / Math.max(times[0], 0.05);
+        if (times[1] > 6 && ratio > 9) {
+          suspects++;
+          const score = times[1] * ratio;
+          if (!best || score > best.score) best = { tname, pre, post, frag, times, score };
         }
+      }
+    }
+    if (!best || dead) continue;
+    const r = await call({ fn, pre: best.pre, post: best.post, frag: best.frag, size: S3 }, LIMIT);
+    R.iterations++;
+    const t12 = `${S1 / 1000} k car. → ${best.times[0].toFixed(0)} ms, ${S2 / 1000} k → ${best.times[1].toFixed(0)} ms`;
+    if (r.timeout) {
+      const exp = Math.log(best.times[1] / Math.max(best.times[0], 0.05)) / Math.log(4);
+      finding(R, 'hang', `${fn} : plus de ${LIMIT / 1000} s sur 64 k caractères (exposant ≈ ${exp.toFixed(1)})`, `gabarit « ${best.tname} » + ${JSON.stringify(best.frag)} répété : ${t12}, ${S3 / 1000} k → plus de ${LIMIT / 1000} s (fil tué) ; ${suspects} fragment(s) en cause`);
+    } else if (!r.err) {
+      if (r.ms > R.slowest.ms) R.slowest = { ms: r.ms, what: describe(fn, best.tname, best.frag, S3) };
+      const exp = Math.log(Math.max(r.ms, 0.05) / Math.max(best.times[1], 0.05)) / Math.log(4);
+      if (r.ms > 100 && exp > 1.6) {
+        const at1MB = (r.ms * (MB / S3) ** exp) / 1000;
+        finding(R, 'hang', `${fn} : coût sur-linéaire (exposant ≈ ${exp.toFixed(1)})`, `gabarit « ${best.tname} » + ${JSON.stringify(best.frag)} répété : ${t12}, ${S3 / 1000} k → ${r.ms.toFixed(0)} ms ; extrapolé à 1 Mo : ${at1MB > 3600 ? (at1MB / 3600).toFixed(1) + ' h' : at1MB.toFixed(0) + ' s'} ; ${suspects} fragment(s) en cause`);
       }
     }
   }
   if (worker) await worker.terminate();
-  // Une trouvaille par fonction (le pire fragment), les autres en note.
-  const byFn = new Map();
-  for (const w of worst) if (!byFn.has(w.fn) || byFn.get(w.fn).at1MB < w.at1MB) byFn.set(w.fn, w);
-  for (const w of byFn.values()) {
-    const n = worst.filter((x) => x.fn === w.fn).length;
-    finding(R, 'hang', `${w.fn} : coût sur-linéaire (exposant ≈ ${w.exp.toFixed(1)})`, `gabarit « ${w.tname} » + ${JSON.stringify(w.frag)} répété : ${w.times.map((t, i) => `${SIZES[i] / 1000} k car. → ${t.toFixed(0)} ms`).join(', ')} ; extrapolé à 1 Mo : ${w.at1MB > 3600 ? (w.at1MB / 3600).toFixed(1) + ' h' : w.at1MB.toFixed(0) + ' s'} (${n} fragment(s) en cause)`);
-  }
 
   // Identifiants de style lus dans le fichier puis injectés dans une expression régulière.
   const { effectiveStyleProps, styleRunProps, readStyleProps } = await import('../src/features/editor/ooxml.ts');

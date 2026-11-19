@@ -128,7 +128,10 @@ export const isLiveIn = (s: CollabState, workspaceId: string) => s.workspaceId =
 export const collabAvailable = () => typeof window !== 'undefined' && !!window.marginalia?.collabNet;
 
 /** Ouvre la fenêtre « Travailler à plusieurs » d'un espace (l'hôte y ouvre la session). */
-export const openCollabPanel = (workspaceId: string) => useCollab.setState({ panelFor: workspaceId, error: null });
+export const openCollabPanel = (workspaceId: string) => {
+  void import('../share/shareUi').then((m) => m.warnEncryptedSpace(workspaceId));
+  useCollab.setState({ panelFor: workspaceId, error: null });
+};
 /** Ouvre « Rejoindre un espace partagé ». */
 export const openJoinDialog = () => useCollab.setState({ joinOpen: true, error: null });
 /** « Arrêter le partage » (hôte) ou « Quitter » (invité). */

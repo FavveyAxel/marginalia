@@ -466,6 +466,35 @@ export interface SecurityApi {
   onAsk(cb: (req: { id: number; kind: string; title: string; message: string }) => Promise<string | null>): () => void;
 }
 
+export type SpaceResult = { ok: true } | { ok: false; error: string; waitMs?: number };
+export interface SpacesStatus {
+  /** Un mot de passe commun a été choisi. */
+  configured: boolean;
+  /** Espaces qui ont un contenu scellé dans la base. */
+  encrypted: string[];
+  unlocked: string[];
+  touchId: { available: boolean; enabled: boolean };
+  /** Attente imposée après des mots de passe faux (ms). */
+  waitMs: number;
+}
+/** Un seul mot de passe pour tous les espaces chiffrés ; chacun se verrouille séparément. */
+export interface SpacesApi {
+  status(): Promise<SpacesStatus>;
+  /** Choisit le mot de passe commun ; la clé de secours n'est rendue que cette fois. */
+  setup(password: string): Promise<{ ok: true; recoveryKey: string } | { ok: false; error: string }>;
+  /** Mot de passe ou clé de secours ; rend le contenu de l'espace (capsule JSON), null s'il est encore vide. */
+  unlock(wsId: string, secret: string): Promise<{ ok: true; capsule: string | null } | { ok: false; error: string; waitMs?: number }>;
+  unlockTouchId(wsId: string): Promise<{ ok: true; capsule: string | null } | { ok: false; error: string }>;
+  lock(wsId: string): Promise<SpaceResult>;
+  lockAll(): Promise<SpaceResult>;
+  /** Avant de chiffrer un espace : la clé doit être en mémoire, ou le mot de passe est donné. */
+  open(wsId: string, secret?: string): Promise<SpaceResult>;
+  verify(secret: string): Promise<SpaceResult>;
+  changePassword(current: string, password: string): Promise<SpaceResult>;
+  newRecoveryKey(secret: string): Promise<{ ok: true; recoveryKey: string } | { ok: false; error: string; waitMs?: number }>;
+  setTouchId(on: boolean, secret?: string): Promise<SpaceResult>;
+}
+
 export interface HostApi {
   /** Chiffrement et verrouillage des données (app de bureau uniquement ; absent en navigateur). */
   security?: SecurityApi;
@@ -477,7 +506,9 @@ export interface HostApi {
    * Même chose avec la base déjà sérialisée (app de bureau) ; `meta` sert aux sauvegardes de secours
    * (version de format : copie avant migration ; nombre d'éléments : copie avant un vidage complet).
    */
-  saveDbJson?(json: string, meta: { version: number; items: number }): Promise<void>;
+  saveDbJson?(json: string, meta: { version: number; items: number }, extra?: { spaces: Record<string, string>; drop: string[] }): Promise<void>;
+  /** Espaces chiffrés (app de bureau uniquement ; voir src/lib/spaces.ts). */
+  spaces?: SpacesApi;
   /** Avis du processus principal (base restaurée automatiquement, sauvegarde exportée…). */
   onNotice?(cb: (n: { message: string; tone: 'info' | 'error' | 'success' }) => void): () => void;
   /** Fermeture de la fenêtre, export ou restauration : écrire immédiatement ce qui attend. */

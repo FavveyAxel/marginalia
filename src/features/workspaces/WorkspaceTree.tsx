@@ -1,7 +1,7 @@
 // Section « Espaces » de la barre latérale : espaces, groupes, sous-groupes et éléments.
 import { createContext, useContext, useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react';
 import { useMultiSelect, type MultiSelect } from '../../lib/useMultiSelect';
-import { ChevronRight, Folder, FolderOpen, MoreHorizontal, Plus } from 'lucide-react';
+import { ChevronRight, Folder, FolderOpen, Lock, LockOpen, MoreHorizontal, Plus } from 'lucide-react';
 import { useStore } from '../../lib/store';
 import type { WorkspaceGroup } from '../../lib/types';
 import {
@@ -308,6 +308,7 @@ function WsNode({ id }: { id: string }) {
   const env = useContext(EnvCtx);
   const ws = useStore((s) => s.workspaces.find((w) => w.id === id));
   const items = useResolvedItems(id);
+  const spaceOpen = useStore((s) => s.unlockedSpaces.includes(id));
   const collab = useCollabMark(id);
   const open = !env.collapsedWs.has(id);
   const rowRef = useRef<HTMLDivElement>(null);
@@ -386,6 +387,7 @@ function WsNode({ id }: { id: string }) {
         ) : (
           <span className="ws-name truncate">{ws.name}</span>
         )}
+        {!editing && ws.encrypted && (spaceOpen ? <LockOpen size={12} className="ws-lock" aria-label="Espace chiffré, déverrouillé" /> : <Lock size={12} className="ws-lock" aria-label="Espace chiffré, verrouillé" data-testid="ws-lock-icon" />)}
         {!editing && collab && <CollabBadge mark={collab} />}
         {!editing && !collab && <span className="ws-count">{items.length || ''}</span>}
         {!editing && <MoreButton label={`Actions de l’espace ${ws.name}`} onOpen={(el) => env.menuFrom(el, entries(), `Menu de l’espace ${ws.name}`)} />}

@@ -1,0 +1,22 @@
+/* Espaces chiffrés — préfixe .sp- */
+.sp-open { display: flex; flex-direction: column; min-height: 0; height: 100%; }
+.sp-open > :last-child { flex: 1; min-height: 0; }
+.sp-bar { display: flex; align-items: center; gap: 8px; padding: 6px 16px; font-size: var(--fs-sm); color: var(--ink-2); background: color-mix(in srgb, var(--cat-argument) 9%, var(--bg-panel)); border-bottom: 1px solid var(--border); }
+.sp-bar > span { flex: 1; min-width: 0; }
+.sp-locked { display: flex; align-items: center; justify-content: center; height: 100%; padding: 24px; }
+.sp-locked-card { display: flex; flex-direction: column; gap: 12px; width: min(420px, 100%); padding: 28px; border: 1px solid var(--border); border-radius: var(--radius-lg, 14px); background: var(--bg-panel); box-shadow: var(--shadow-md); text-align: center; }
+.sp-locked-icon { align-self: center; display: grid; place-items: center; width: 48px; height: 48px; border-radius: 50%; background: var(--bg-inset); color: var(--ink-2); }
+.sp-locked-card h2 { margin: 0; font-family: var(--font-display); font-weight: 400; font-size: 24px; line-height: 1.2; }
+.sp-locked-card p { margin: 0; color: var(--ink-2); font-size: var(--fs-md); line-height: 1.5; }
+.sp-hint { color: var(--muted) !important; font-size: var(--fs-sm) !important; }
+.sp-error { color: var(--danger) !important; font-size: var(--fs-md); margin: 0; }
+.sp-dialog { display: flex; flex-direction: column; gap: 12px; padding: 22px 24px 20px; }
+.sp-dialog h3 { display: flex; align-items: center; gap: 8px; margin: 0; font-family: var(--font-display); font-weight: 400; font-size: 22px; line-height: 1.2; }
+.sp-dialog p { margin: 0; color: var(--ink-2); font-size: var(--fs-md); line-height: 1.55; }
+.sp-actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; margin-top: 6px; }
+.sp-actions-wrap { flex-wrap: wrap; }
+.sp-actions .spacer { flex: 1; }
+.sp-check { display: flex; align-items: center; gap: 8px; font-size: var(--fs-md); }
+.sp-keybox { display: flex; align-items: center; gap: 10px; }
+.sp-key { flex: 1; padding: 10px 12px; border-radius: var(--radius-sm); background: var(--bg-inset); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; letter-spacing: 0.04em; word-break: break-all; }
+.ws-lock { flex: none; color: var(--muted); }

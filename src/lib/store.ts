@@ -3,6 +3,7 @@
 // Pour sélectionner un tableau / objet dérivé : useStore(useShallow(sel)).
 // ─────────────────────────────────────────────────────────────
 import { create, type StateCreator } from 'zustand';
+import { mergeCapsule, spaceScope, splitDb, withoutCapsule, type Capsule } from './spaces';
 import type {
   ActivityEntry,
   ArgumentMap,
@@ -155,6 +156,8 @@ export interface State extends Database {
   importing: number;
   toasts: Toast[];
   commandOpen: boolean;
+  /** Espaces chiffrés déverrouillés pendant cette session (jamais enregistré ; voir src/lib/spaces.ts). */
+  unlockedSpaces: string[];
 
   init(): Promise<void>;
   navigate(route: Route): void;
@@ -680,6 +683,7 @@ export const useStore = create<State>()(tracked((set, get) => ({
   importing: 0,
   toasts: [],
   commandOpen: false,
+  unlockedSpaces: [],
 
   init() {
     // Une seule initialisation : React.StrictMode appelle l'effet deux fois en développement,
@@ -999,6 +1003,11 @@ export const useStore = create<State>()(tracked((set, get) => ({
     return ws;
   },
   removeWorkspace(id) {
+    // Espace chiffré : sa corbeille serait en clair dans la base commune. On retire d'abord le chiffrement.
+    if (get().workspaces.find((w) => w.id === id)?.encrypted) {
+      get().toast('Retirez d’abord le chiffrement de cet espace pour le supprimer.', 'info');
+      return;
+    }
     get().trashDelete('workspace', id);
   },
   createGroup(workspaceId, parentId, name) {
@@ -1288,7 +1297,7 @@ export const useStore = create<State>()(tracked((set, get) => ({
     redoStack = [];
     // Base non enregistrée (échec d'écriture) : on garde les fichiers. Un fichier orphelin ne gêne
     // rien ; un élément de la base sans son fichier serait perdu.
-    const saved = await writeDb(pickDb(get()));
+    const saved = await saveNow();
     // 2. Fichiers : jamais ceux d'un élément présent ou encore dans la corbeille.
     for (const t of saved ? list : [])
       for (const f of t.files) {
@@ -1499,12 +1508,19 @@ function itemCount(db: Database): number {
 }
 
 /** Écrit la base ; renvoie false si rien n'a été écrit (échec ou écriture suspendue). */
-async function writeDb(db: Database, json = serializeDb(db)): Promise<boolean> {
+async function writeDb(db: Database, json = serializeDb(db), extra?: { spaces: Record<string, string>; drop: string[] }): Promise<boolean> {
   if (persistBlocked) return false;
   try {
-    if (host.saveDbJson) await host.saveDbJson(json, { version: db.version, items: itemCount(db) });
+    if (host.saveDbJson) await host.saveDbJson(json, { version: db.version, items: itemCount(db) }, extra);
     else await host.saveDb(db);
     lastSaved = json;
+    if (extra) {
+      for (const [id, j] of Object.entries(extra.spaces)) lastCapsules.set(id, j);
+      for (const id of extra.drop) {
+        dropSpaces.delete(id);
+        lastCapsules.delete(id);
+      }
+    }
     return true;
   } catch (e) {
     lastSaved = '';
@@ -1562,12 +1578,78 @@ function serializeDb(db: Database): string {
   return out + '}';
 }
 
-async function saveIfChanged(): Promise<boolean> {
-  const db = pickDb(useStore.getState());
-  const json = serializeDb(db);
-  if (json === lastSaved) return true;
-  return writeDb(db, json);
+async function saveIfChanged(force = false): Promise<boolean> {
+  const full = pickDb(useStore.getState());
+  // Espaces chiffrés déverrouillés : leur contenu part dans leur capsule (scellée par le processus
+  // principal), pas dans la base commune. Verrouillés, ils ne sont pas dans le store : rien à faire.
+  const ids = full.workspaces.filter((w) => w.encrypted && openSpaces.has(w.id)).map((w) => w.id).sort();
+  if (!ids.length && !dropSpaces.size) {
+    const json = serializeDb(full);
+    if (json === lastSaved && !force) return true;
+    return writeDb(full, json);
+  }
+  const { main, capsules } = splitDb(full, ids);
+  const json = serializeDb(main);
+  const spaces: Record<string, string> = {};
+  for (const id of ids) {
+    const j = JSON.stringify(capsules[id]);
+    if (lastCapsules.get(id) !== j) spaces[id] = j;
+  }
+  const drop = [...dropSpaces];
+  if (json === lastSaved && !Object.keys(spaces).length && !drop.length && !force) return true;
+  return writeDb(main, json, { spaces, drop });
 }
+/** Écrit maintenant, sans attendre ; false si rien n'a pu être écrit. */
+const saveNow = () => saveIfChanged(true);
+
+// ── Espaces chiffrés (src/lib/spaces.ts ; clés et scellement : electron/spaces.cjs) ──
+const openSpaces = new Set<string>();
+/** Chiffrement retiré : la capsule est supprimée à la prochaine écriture. */
+const dropSpaces = new Set<string>();
+/** Dernière capsule écrite de chaque espace (seules celles qui changent sont renvoyées). */
+const lastCapsules = new Map<string, string>();
+const DB_KEYS = ['books', 'highlights', 'concepts', 'maps', 'arguments', 'studies', 'plans', 'drafts', 'cards', 'groups', 'wsItems', 'bookmarks', 'trash', 'activity', 'mapVersions'] as const;
+const dbPatch = (db: Database): Partial<State> => Object.fromEntries(DB_KEYS.map((k) => [k, db[k]])) as Partial<State>;
+export const isSpaceOpen = (wsId: string) => openSpaces.has(wsId);
+/** Espace chiffré dont le contenu n'est pas chargé. */
+export const isSpaceLocked = (s: State, wsId: string) => !!s.workspaces.find((w) => w.id === wsId)?.encrypted && !s.unlockedSpaces.includes(wsId);
+/**
+ * Espace déverrouillé : son contenu (capsule) rejoint le store, sans passer par le journal ni par
+ * « Annuler ». `capsule` null : espace qui vient d'être chiffré, son contenu est déjà là.
+ */
+export function spaceOpened(wsId: string, capsule: Capsule | null): void {
+  openSpaces.add(wsId);
+  const s = useStore.getState();
+  rawSet({ ...(capsule ? dbPatch(mergeCapsule(pickDb(s), capsule)) : {}), unlockedSpaces: [...openSpaces] });
+}
+/**
+ * Verrouille un espace : tout est d'abord écrit (et l'écriture vérifiée), puis son contenu quitte le
+ * store. Lève une erreur si l'écriture échoue : rien n'est alors retiré.
+ */
+export async function spaceClosing(wsId: string): Promise<void> {
+  await flushPendingSave();
+  if (!(await saveNow())) throw new Error('Enregistrement impossible : l’espace reste ouvert pour ne rien perdre.');
+  const db = pickDb(useStore.getState());
+  const main = withoutCapsule(db, spaceScope(db, wsId));
+  // « Annuler » ne doit pas pouvoir ramener en clair ce qui vient d'être verrouillé.
+  undoStack = [];
+  redoStack = [];
+  openSpaces.delete(wsId);
+  lastCapsules.delete(wsId);
+  rawSet({ ...dbPatch(main), unlockedSpaces: [...openSpaces] });
+  lastSaved = '';
+}
+/** Chiffrement retiré d'un espace déverrouillé : son contenu reste dans le store et rejoint la base commune. */
+export async function spaceUnsealed(wsId: string): Promise<boolean> {
+  dropSpaces.add(wsId);
+  const ok = await saveNow();
+  if (ok) {
+    openSpaces.delete(wsId);
+    rawSet({ unlockedSpaces: [...openSpaces] });
+  } else dropSpaces.delete(wsId);
+  return ok;
+}
+export { saveNow as saveDbNow };
 
 function scheduleSave() {
   const now = performance.now();

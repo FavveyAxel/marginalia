@@ -1,4 +1,5 @@
 // Vue d'un espace (ou d'un de ses groupes) : sous-groupes en tuiles, éléments en cartes.
+import { SpaceGate } from '../spaces/SpaceUi';
 import { useEffect, useMemo, useRef, useState, type DragEvent } from 'react';
 import { ShareButton } from '../collab/ShareButton';
 import { useCollab } from '../collab/collabState';
@@ -34,7 +35,15 @@ import { OS_TEXT, fmtKeys } from '../../lib/keys';
 
 const plural = (n: number, one: string, many: string) => `${n} ${n > 1 ? many : one}`;
 
-export function WorkspaceView({ workspaceId, groupId }: { workspaceId: string; groupId: string | null }) {
+export function WorkspaceView(props: { workspaceId: string; groupId: string | null }) {
+  return (
+    <SpaceGate workspaceId={props.workspaceId}>
+      <WorkspaceViewInner {...props} />
+    </SpaceGate>
+  );
+}
+
+function WorkspaceViewInner({ workspaceId, groupId }: { workspaceId: string; groupId: string | null }) {
   const ws = useStore((s) => s.workspaces.find((w) => w.id === workspaceId));
   const groups = useStore((s) => s.groups);
   const cards = useStore((s) => s.cards);

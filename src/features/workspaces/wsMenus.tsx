@@ -1,5 +1,5 @@
 // Contenu des menus contextuels (identique dans l'arbre et dans la vue).
-import { ArrowRightLeft, Copy, ExternalLink, GitCompareArrows, FolderPlus, FolderX, Palette, PackagePlus, Pencil, Trash2, Ungroup, Upload, FilePen, Network, Share2, Users, UserX } from 'lucide-react';
+import { ArrowRightLeft, Copy, ExternalLink, GitCompareArrows, FolderPlus, FolderX, Palette, PackagePlus, Pencil, Trash2, Ungroup, Upload, FilePen, Network, Share2, Users, UserX, Lock, LockOpen, ShieldCheck, KeyRound } from 'lucide-react';
 import { collabAvailable, isLiveIn, openCollabPanel, stopCollab, useCollab } from '../collab/collabState';
 import { useStore } from '../../lib/store';
 import type { WorkspaceGroup, WorkspaceItem } from '../../lib/types';
@@ -7,6 +7,7 @@ import { TINTS, TINT_LABEL, openItem, ungroup, type DragPayload } from './wsMode
 import type { MenuEntry } from './wsUi';
 import { openShareDialog } from '../share/shareUi';
 import { askRename, canRename } from './rename';
+import { lockSpace, openSpaceDialog, spacesAvailable } from '../spaces/spaceActions';
 
 export interface MenuCtx {
   newGroup(workspaceId: string, parentId: string | null): void;
@@ -22,8 +23,41 @@ export interface MenuCtx {
   compareWith?(bookId: string): void;
 }
 
+/** Chiffrement de l'espace : chiffrer, verrouiller, retirer le chiffrement, mot de passe. */
+function spaceEntries(workspaceId: string): MenuEntry[] {
+  if (!spacesAvailable()) return [];
+  const s = useStore.getState();
+  const ws = s.workspaces.find((w) => w.id === workspaceId);
+  if (!ws) return [];
+  if (!ws.encrypted) return [{ label: 'Chiffrer cet espace…', icon: <ShieldCheck size={14} />, onClick: () => openSpaceDialog({ t: 'encrypt', wsId: workspaceId }) }];
+  const pw: MenuEntry = { label: 'Mot de passe des espaces chiffrés…', icon: <KeyRound size={14} />, onClick: () => openSpaceDialog({ t: 'password' }) };
+  if (!s.unlockedSpaces.includes(workspaceId)) return [pw];
+  return [
+    {
+      label: 'Verrouiller l’espace',
+      icon: <Lock size={14} />,
+      onClick: () =>
+        void lockSpace(workspaceId).then((r) => {
+          if (!r.ok) useStore.getState().toast(r.error, 'error');
+        }),
+    },
+    { label: 'Retirer le chiffrement…', icon: <LockOpen size={14} />, onClick: () => openSpaceDialog({ t: 'decrypt', wsId: workspaceId }) },
+    pw,
+  ];
+}
+
 export function workspaceMenu(ctx: MenuCtx, workspaceId: string, tint: string): MenuEntry[] {
   const set = (t: string) => useStore.getState().patch('workspaces', workspaceId, { tint: t });
+  const st = useStore.getState();
+  const ws = st.workspaces.find((w) => w.id === workspaceId);
+  // Espace verrouillé : son contenu n'est pas là ; on ne peut que le renommer, le teinter ou le déverrouiller.
+  if (ws?.encrypted && !st.unlockedSpaces.includes(workspaceId))
+    return [
+      { label: 'Renommer', icon: <Pencil size={14} />, onClick: () => ctx.rename('ws', workspaceId) },
+      { label: 'Changer la teinte', icon: <Palette size={14} />, children: TINTS.map((t) => ({ label: TINT_LABEL[t], swatch: t, checked: t === tint, onClick: () => set(t) })) },
+      { sep: true },
+      ...spaceEntries(workspaceId),
+    ];
   return [
     { label: 'Nouveau groupe', icon: <FolderPlus size={14} />, onClick: () => ctx.newGroup(workspaceId, null) },
     { label: 'Ajouter un élément…', icon: <PackagePlus size={14} />, onClick: () => ctx.openAdd(workspaceId, null) },
@@ -38,8 +72,11 @@ export function workspaceMenu(ctx: MenuCtx, workspaceId: string, tint: string): 
       icon: <Palette size={14} />,
       children: TINTS.map((t) => ({ label: TINT_LABEL[t], swatch: t, checked: t === tint, onClick: () => set(t) })),
     },
+    ...(spaceEntries(workspaceId).length ? [{ sep: true } as MenuEntry, ...spaceEntries(workspaceId)] : []),
     { sep: true },
-    { label: 'Supprimer l’espace', icon: <Trash2 size={14} />, danger: true, onClick: () => ctx.askDeleteWs(workspaceId) },
+    ws?.encrypted
+      ? { label: 'Supprimer l’espace', icon: <Trash2 size={14} />, danger: true, onClick: () => useStore.getState().toast('Retirez d’abord le chiffrement de cet espace pour le supprimer.', 'info') }
+      : { label: 'Supprimer l’espace', icon: <Trash2 size={14} />, danger: true, onClick: () => ctx.askDeleteWs(workspaceId) },
   ];
 }
 

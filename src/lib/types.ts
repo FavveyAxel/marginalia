@@ -602,6 +602,11 @@ export interface Workspace {
   createdAt: number;
   /** Espace reçu par un partage (voir ShareOrigin). */
   shareOrigin?: ShareOrigin;
+  /**
+   * Espace chiffré (src/lib/spaces.ts) : son contenu propre n'est dans la base commune ni sur le disque
+   * ni en mémoire tant qu'il est verrouillé ; seuls ce nom et cette teinte restent visibles.
+   */
+  encrypted?: boolean;
 }
 
 export interface WorkspaceGroup {

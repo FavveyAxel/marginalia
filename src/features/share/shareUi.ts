@@ -33,7 +33,17 @@ export const useShareUi = create<ShareUiState>((set) => ({
 }));
 
 /** Ouvre la fenêtre « Partager » (espace entier, ou liste d'éléments). */
-export const openShareDialog = (sel: ShareSelection) => useShareUi.getState().openSend(sel);
+export const openShareDialog = (sel: ShareSelection) => {
+  warnEncryptedSpace((sel as { workspaceId?: string }).workspaceId);
+  useShareUi.getState().openSend(sel);
+};
+/** Espace chiffré partagé : la copie reçue par l'autre personne ne sera pas chiffrée chez elle. */
+export function warnEncryptedSpace(workspaceId: string | undefined) {
+  if (!workspaceId) return;
+  const s = useStore.getState();
+  if (s.workspaces.find((w) => w.id === workspaceId)?.encrypted)
+    s.toast('Cet espace est chiffré ici. Ce que vous partagez voyage chiffré, mais ne le sera pas sur l’ordinateur de l’autre personne.', 'info', { label: 'Compris', run: () => {} });
+}
 /** Ouvre la fenêtre « Recevoir » (avec un fichier .marginalia, ou pour saisir un code). */
 export const openReceiveDialog = (src?: ReceiveSource) => useShareUi.getState().openReceive(src);
 

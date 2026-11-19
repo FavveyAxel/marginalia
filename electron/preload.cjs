@@ -22,7 +22,9 @@ const api = {
   loadDb: () => ipcRenderer.invoke('marginalia:loadDb'),
   saveDb: (db) => ipcRenderer.invoke('marginalia:saveDb', db),
   /** Base déjà sérialisée (évite un second JSON.stringify et le clonage de tout l'objet). */
-  saveDbJson: (json, meta) => ipcRenderer.invoke('marginalia:saveDb', String(json), meta && typeof meta === 'object' ? { version: meta.version, items: meta.items } : undefined),
+  // `extra` : capsules en clair des espaces chiffrés déverrouillés qui ont changé ({ spaces, drop }).
+  saveDbJson: (json, meta, extra) =>
+    ipcRenderer.invoke('marginalia:saveDb', String(json), meta && typeof meta === 'object' ? { version: meta.version, items: meta.items } : undefined, extra && typeof extra === 'object' ? { spaces: extra.spaces || {}, drop: Array.isArray(extra.drop) ? extra.drop : [] } : undefined),
 
   /** Avis du processus principal (restauration automatique, sauvegarde exportée…) : affichés en toast. */
   onNotice: (cb) => {
@@ -99,6 +101,21 @@ const api = {
 
 // Confidentialité (chiffrement et verrouillage, options du processus principal).
 const secOp = (op, args) => ipcRenderer.invoke('marginalia:security', op, args || {});
+// Espaces chiffrés (voir electron/spaces.cjs) : mot de passe commun, verrouillage par espace.
+const spaceOp = (op, args) => ipcRenderer.invoke('marginalia:spaces', op, args || {});
+api.spaces = {
+  status: () => spaceOp('status'),
+  setup: (password) => spaceOp('setup', { password }),
+  unlock: (wsId, secret) => spaceOp('unlock', { wsId, secret }),
+  unlockTouchId: (wsId) => spaceOp('unlock', { wsId, touchId: true }),
+  lock: (wsId) => spaceOp('lock', { wsId }),
+  lockAll: () => spaceOp('lockAll'),
+  open: (wsId, secret) => spaceOp('open', secret === undefined ? { wsId } : { wsId, secret }),
+  verify: (secret) => spaceOp('verify', { secret }),
+  changePassword: (current, password) => spaceOp('changePassword', { current, password }),
+  newRecoveryKey: (secret) => spaceOp('newRecoveryKey', { secret }),
+  setTouchId: (on, secret) => spaceOp('setTouchId', { on, secret }),
+};
 api.security = {
   status: () => secOp('status'),
   unlockPassword: (password) => secOp('unlockPassword', { password: String(password) }),

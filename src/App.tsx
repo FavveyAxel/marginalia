@@ -31,6 +31,7 @@ import { SecurityAsk } from './features/security/SecurityAsk';
 import { ShareHost } from './features/share/ShareHost';
 import { RenameHost } from './features/workspaces/rename';
 import { CollabHost } from './features/collab/CollabHost';
+import { SpaceHost } from './features/spaces/SpaceUi';
 import { RailCollab } from './features/collab/SidebarCollab';
 import { refreshSecurity, useSecurity } from './features/security/state';
 import type { SecurityStatus } from './lib/platform';
@@ -683,6 +684,7 @@ export function App() {
       <ShareHost />
       <RenameHost />
       <CollabHost />
+      <SpaceHost />
       <SecurityAsk />
       <Toasts />
     </>

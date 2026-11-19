@@ -1,0 +1,152 @@
+// Espaces chiffrés : actions de l'interface (chiffrer, déverrouiller, verrouiller, retirer le
+// chiffrement). La logique des données est dans src/lib/spaces.ts ; les clés et le scellement dans le
+// processus principal (electron/spaces.cjs).
+import { create } from 'zustand';
+import { host } from '../../lib/platform';
+import { useStore, spaceOpened, spaceClosing, spaceUnsealed, saveDbNow, flushPendingSave } from '../../lib/store';
+import { parseCapsule, spaceScope } from '../../lib/spaces';
+import type { Route } from '../../lib/types';
+import { isLiveIn, stopCollab, useCollab } from '../collab/collabState';
+
+export const spacesAvailable = () => !!host.spaces;
+
+export type SpaceDialog =
+  | { t: 'encrypt'; wsId: string }
+  | { t: 'decrypt'; wsId: string }
+  | { t: 'password' }
+  | null;
+/** Fenêtre ouverte (une à la fois) ; `configured` / `touchId` : état lu au processus principal. */
+export const useSpaceUi = create<{ dialog: SpaceDialog; configured: boolean | null; touchId: { available: boolean; enabled: boolean } }>(() => ({
+  dialog: null,
+  configured: null,
+  touchId: { available: false, enabled: false },
+}));
+export async function refreshSpaceStatus() {
+  if (!host.spaces) return;
+  const st = await host.spaces.status();
+  useSpaceUi.setState({ configured: st.configured, touchId: st.touchId });
+}
+export const openSpaceDialog = (dialog: SpaceDialog) => {
+  void refreshSpaceStatus();
+  useSpaceUi.setState({ dialog });
+};
+
+type Result = { ok: true } | { ok: false; error: string; waitMs?: number };
+const fail = (e: unknown): Result => ({ ok: false, error: String((e as Error)?.message ?? e).replace(/^Error invoking remote method '[^']+': (Error: )?/, '') });
+
+/** Déverrouille un espace : mot de passe, clé de secours, ou Touch ID (`secret` null). */
+export async function unlockSpace(wsId: string, secret: string | null): Promise<Result> {
+  if (!host.spaces) return { ok: false, error: 'Indisponible ici.' };
+  try {
+    const r = secret === null ? await host.spaces.unlockTouchId(wsId) : await host.spaces.unlock(wsId, secret);
+    if (!r.ok) return r;
+    let capsule = null;
+    if (r.capsule !== null) {
+      capsule = parseCapsule(r.capsule, wsId);
+      if (!capsule) {
+        await host.spaces.lock(wsId);
+        return { ok: false, error: 'Le contenu de cet espace est illisible.' };
+      }
+    }
+    spaceOpened(wsId, capsule);
+    return { ok: true };
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+/** La route affiche-t-elle un élément qui appartient à l'espace ? (On la quitte avant de verrouiller.) */
+function routeInside(route: Route, wsId: string): boolean {
+  const s = useStore.getState();
+  const c = spaceScope(
+    { version: 2, books: s.books, highlights: s.highlights, concepts: s.concepts, maps: s.maps, arguments: s.arguments, studies: s.studies, plans: s.plans, drafts: s.drafts, cards: s.cards, workspaces: s.workspaces, groups: s.groups, wsItems: s.wsItems, bookmarks: s.bookmarks, settings: s.settings, trash: s.trash, activity: s.activity, mapVersions: s.mapVersions },
+    wsId,
+  );
+  const r = route as Record<string, unknown>;
+  const has = (list: { id: string }[], id: unknown) => typeof id === 'string' && list.some((x) => x.id === id);
+  return (
+    has(c.books, r.bookId) ||
+    has(c.books, r.splitBookId) ||
+    has(c.drafts, r.draftId) ||
+    has(c.plans, r.planId) ||
+    has(c.arguments, r.argumentId) ||
+    has(c.concepts, r.conceptId) ||
+    has(c.studies, r.studyId) ||
+    (typeof r.boardId === 'string' && r.boardId in c.maps) ||
+    (typeof r.mapKey === 'string' && r.mapKey in c.maps)
+  );
+}
+
+/** Verrouille un espace : tout est écrit, puis son contenu quitte la mémoire de l'interface. */
+export async function lockSpace(wsId: string): Promise<Result> {
+  if (!host.spaces) return { ok: false, error: 'Indisponible ici.' };
+  const s = useStore.getState();
+  if (!s.unlockedSpaces.includes(wsId)) return { ok: true };
+  try {
+    // Session « travailler à plusieurs » dans cet espace : arrêtée d'abord.
+    if (isLiveIn(useCollab.getState(), wsId)) await stopCollab();
+    // L'écran quitte ce qui va disparaître (l'éditeur enregistre en se fermant).
+    if (routeInside(s.route, wsId)) {
+      s.navigate({ name: 'workspace', workspaceId: wsId, groupId: null });
+      await new Promise((r) => setTimeout(r, 60));
+    }
+    await spaceClosing(wsId);
+    await host.spaces.lock(wsId);
+    return { ok: true };
+  } catch (e) {
+    return fail(e);
+  }
+}
+export async function lockAllSpaces(): Promise<void> {
+  for (const id of [...useStore.getState().unlockedSpaces]) await lockSpace(id);
+}
+
+/** Choisit le mot de passe commun (premier espace chiffré). Rend la clé de secours, affichée une fois. */
+export async function setupSpaces(password: string): Promise<{ ok: true; recoveryKey: string } | { ok: false; error: string }> {
+  if (!host.spaces) return { ok: false, error: 'Indisponible ici.' };
+  try {
+    const r = await host.spaces.setup(password);
+    if (r.ok) useSpaceUi.setState({ configured: true });
+    return r;
+  } catch (e) {
+    return fail(e) as { ok: false; error: string };
+  }
+}
+
+/** Chiffre un espace : son contenu propre quitte la base commune dès l'enregistrement qui suit. */
+export async function encryptSpace(wsId: string, secret?: string): Promise<Result> {
+  if (!host.spaces) return { ok: false, error: 'Indisponible ici.' };
+  try {
+    await flushPendingSave();
+    const r = await host.spaces.open(wsId, secret);
+    if (!r.ok) return r;
+    spaceOpened(wsId, null);
+    useStore.getState().applyExternal((s) => ({ workspaces: s.workspaces.map((w) => (w.id === wsId ? { ...w, encrypted: true } : w)) }));
+    if (!(await saveDbNow())) {
+      useStore.getState().applyExternal((s) => ({ workspaces: s.workspaces.map((w) => (w.id === wsId ? { ...w, encrypted: false } : w)) }));
+      return { ok: false, error: 'Enregistrement impossible : l’espace n’a pas été chiffré.' };
+    }
+    return { ok: true };
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+/** Retire le chiffrement d'un espace déverrouillé (mot de passe vérifié) : son contenu redevient commun. */
+export async function decryptSpace(wsId: string, secret: string): Promise<Result> {
+  if (!host.spaces) return { ok: false, error: 'Indisponible ici.' };
+  try {
+    if (!useStore.getState().unlockedSpaces.includes(wsId)) return { ok: false, error: 'Déverrouillez d’abord cet espace.' };
+    const v = await host.spaces.verify(secret);
+    if (!v.ok) return v;
+    await flushPendingSave();
+    useStore.getState().applyExternal((s) => ({ workspaces: s.workspaces.map((w) => (w.id === wsId ? { ...w, encrypted: false } : w)) }));
+    if (!(await spaceUnsealed(wsId))) {
+      useStore.getState().applyExternal((s) => ({ workspaces: s.workspaces.map((w) => (w.id === wsId ? { ...w, encrypted: true } : w)) }));
+      return { ok: false, error: 'Enregistrement impossible : l’espace reste chiffré.' };
+    }
+    return { ok: true };
+  } catch (e) {
+    return fail(e);
+  }
+}

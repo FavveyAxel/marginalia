@@ -114,7 +114,7 @@ function permitted(perm, bytes) {
 }
 
 // Messages que seul l'hôte envoie (src/features/collab/session.ts) : jamais relayés depuis un invité.
-const HOST_ONLY = new Set(['books', 'state', 'rooms', 'room-ok', 'resync-reply', 'stopping', 'docx-busy']);
+const HOST_ONLY = new Set(['books', 'state', 'rooms', 'room-ok', 'resync-reply', 'stopping', 'docx-busy', 'proof']);
 /** Type (enveloppe) d'un message de l'application, ou null s'il est illisible. */
 function typeOf(bytes) {
   try {

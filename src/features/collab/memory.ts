@@ -10,7 +10,7 @@
 import { host } from '../../lib/platform';
 import { useStore } from '../../lib/store';
 import { docxTexts } from './docxMerge';
-import { RecordSync } from './records';
+import { cleanAdopted, RecordSync, type AdoptedMeta } from './records';
 
 const OWNER = 'collab';
 const INDEX = 'index.json';
@@ -26,6 +26,13 @@ export interface Memory {
   /** Clé col:gid → enregistrement (JSON, gids) à la fin de la session. */
   records: Record<string, string>;
   aliases: [string, string][];
+  /**
+   * Livres de la bibliothèque reconnus comme ceux d'un pair (preuve de possession) : id local → fiche du
+   * pair. Gardée pour que la session suivante (ou l'observateur, après un redémarrage) continue de faire
+   * circuler la fiche du pair, jamais notre titre, notre nom de fichier ni notre couverture (records.ts,
+   * adopted). Absente des mémoires écrites avant la version 3.60.
+   */
+  adopted?: [string, AdoptedMeta][];
   privateKeys: string[];
   /** gid d'écrit → textes de ses paragraphes à la fin de la session. */
   drafts: Record<string, string[]>;
@@ -80,6 +87,7 @@ function startWatch(mem: Memory) {
     fetch: () => {},
   });
   for (const [g, l] of mem.aliases) w.rs.addAlias('book', g, l);
+  for (const [id, meta] of adoptedOf(mem)) w.rs.adopted.set(id, meta);
   for (const k of mem.privateKeys) w.rs.privateKeys.add(k);
   w.rs.start();
   watchers.set(mem.shareId, w);
@@ -104,6 +112,24 @@ export async function initMemory() {
     const m = await loadMemory(id);
     if (m) startWatch(m);
   }
+}
+
+/** Fiches de pairs gardées (relues prudemment : le fichier a pu être écrit par une autre version). */
+function adoptedOf(mem: Memory | null | undefined): [string, AdoptedMeta][] {
+  const out: [string, AdoptedMeta][] = [];
+  for (const e of Array.isArray(mem?.adopted) ? mem!.adopted : []) {
+    const meta = Array.isArray(e) && typeof e[0] === 'string' ? cleanAdopted(e[1]) : null;
+    if (meta) out.push([e[0], meta]);
+  }
+  return out;
+}
+/**
+ * Livres adoptés lors des sessions précédentes de cet espace (id local → fiche du pair) : remis dans la
+ * nouvelle session (hôte comme invité) avant qu'elle n'envoie quoi que ce soit.
+ */
+export async function rememberedAdopted(shareId: string): Promise<[string, AdoptedMeta][]> {
+  const w = watchers.get(shareId);
+  return adoptedOf(w ? w.mem : await loadMemory(shareId));
 }
 
 /** Heures de dernière modification connues (mémoire + observateur) d'un espace partagé. */
@@ -138,6 +164,8 @@ export async function rememberSession(shareId: string, workspaceId: string | nul
     peer,
     records: Object.fromEntries([...snap].map(([k, v]) => [k, v.json])),
     aliases: [...records.aliasToLocal].filter(([k]) => k.startsWith('book:')).map(([k, l]) => [k.slice(5), l]),
+    // Les livres encore là seulement ; ceux d'avant (restaurés au début de la session) y sont déjà.
+    adopted: [...records.adopted].filter(([id]) => st.books.some((b) => b.id === id)),
     privateKeys: [...records.privateKeys],
     drafts,
     mtimes: { ...(prev?.mtimes ?? {}), ...Object.fromEntries(records.mtimes) },

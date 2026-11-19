@@ -103,6 +103,24 @@ export interface AdoptedMeta {
   cover: string | null;
   edition: Record<string, unknown> | null;
 }
+/**
+ * Fiche d'un pair (liste de livres de l'hôte, paquet reçu, mémoire sur disque) réduite à des valeurs
+ * sûres : elle repart telle quelle dans nos enregistrements et nos réponses à « fetch ».
+ */
+export function cleanAdopted(raw: unknown): AdoptedMeta | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const r = raw as Any;
+  const str = (v: unknown, n: number) => (typeof v === 'string' ? v.slice(0, n) : '');
+  const ed = r.edition && typeof r.edition === 'object' ? pickKeys(r.edition, ['publisher', 'year', 'translator', 'place', 'pageOffset']) : null;
+  const edition = ed ? Object.fromEntries(Object.entries(ed).filter(([k, v]) => (k === 'pageOffset' ? typeof v === 'number' && Number.isFinite(v) : typeof v === 'string' && v.length <= 500))) : null;
+  return {
+    title: str(r.title, 500) || 'Sans titre',
+    author: str(r.author, 500),
+    originalName: str(r.originalName, 300),
+    cover: typeof r.cover === 'string' && r.cover.length < 4 * 1024 * 1024 && /^data:image\/(png|jpe?g|webp|gif|avif);base64,/.test(r.cover) ? r.cover : null,
+    edition,
+  };
+}
 
 export class RecordSync {
   clock = 0;

@@ -3,6 +3,10 @@
 // Marc écrit ses messages à la main en visant l'identifiant d'un écrit PRIVÉ de Léa (supposé deviné) :
 // modification, entrée dans l'espace par un élément ou un plan forgé, suppression, capture d'un groupe
 // d'un autre espace, demande de fichiers, salle d'édition. Rien ne doit changer ni sortir.
+// Arrivée (preuve de possession) : l'espace de Léa contient un livre « sans fichier » dont l'empreinte est
+// celle d'un livre PRIVÉ de Marc (hôte qui liste une empreinte sans avoir le fichier) : Marc ne doit ni le
+// reconnaître (alias), ni envoyer sa fiche privée, ni servir son fichier. Le livre que les deux ont vraiment
+// est reconnu sans doublon, et le titre personnel de Marc ne part pas.
 // Prérequis : npx vite build ; Xvfb. Lancer : xvfb-run -a node scripts/test-collab-scope.mjs
 import { _electron as electron } from 'playwright-core';
 import path from 'node:path';
@@ -71,6 +75,37 @@ try {
   }, EPUB);
   ok(!!seeded.secret && seeded.secret !== seeded.shared, 'Léa : un écrit privé hors de l’espace partagé', seeded.secretTitle);
 
+  // ── Arrivée : hôte qui annonce l'empreinte d'un livre privé de Marc sans en avoir le fichier ──
+  const HTMLBUF = fs.readFileSync(path.join(ROOT, 'fixtures/discours.html'));
+  const HTMLSHA = crypto.createHash('sha256').update(HTMLBUF).digest('hex');
+  const bait = await A.page.evaluate(({ ws, sha, size }) => {
+    const s = () => window.__store.getState();
+    const id = 'appat-lea';
+    s().applyExternal((cur) => ({ books: [{ id, title: 'Appât', author: '', format: 'html', fileName: 'source.html', originalName: 'appat.html', size, addedAt: Date.now(), lastOpenedAt: null, progress: 0, position: null, cover: null, edition: { publisher: '', year: '', translator: '', place: '', pageOffset: 0 }, missing: true, sourceSha256: sha }, ...cur.books] }));
+    s().addToWorkspace(ws, null, 'book', id);
+    return { id, sharedTitle: s().books.find((b) => b.id === s().wsItems.find((i) => i.workspaceId === ws && i.kind === 'book' && i.refId !== id).refId).title };
+  }, { ws: seeded.ws, sha: HTMLSHA, size: HTMLBUF.length });
+  const marc0 = await B.page.evaluate(async ({ html, epub }) => {
+    const s = () => window.__store.getState();
+    s().navigate({ name: 'home' });
+    const bin = (b) => Uint8Array.from(atob(b), (c) => c.charCodeAt(0)).buffer;
+    const [priv] = await s().importFiles([{ name: 'marc-secret.html', data: bin(html) }]);
+    s().patch('books', priv.id, { title: 'TITRE-PRIVE-DE-MARC' });
+    const [same] = await s().importFiles([{ name: 'mon-discours-perso.epub', data: bin(epub) }]);
+    s().patch('books', same.id, { title: 'TITRE-PERSO-MARC' });
+    return { priv: priv.id, same: same.id, count: s().books.length, privOriginal: s().books.find((b) => b.id === priv.id).originalName, inWs: s().wsItems.length };
+  }, { html: HTMLBUF.toString('base64'), epub: EPUB });
+  // Léa capte tout ce que les invités lui envoient.
+  await A.page.evaluate(() => {
+    window.__fromGuests = [];
+    window.marginalia.collabNet.onEvent((e) => {
+      if (e.type !== 'message') return;
+      const u = new Uint8Array(e.bytes);
+      const n = new DataView(u.buffer, u.byteOffset).getUint32(0);
+      try { window.__fromGuests.push({ from: e.from, head: JSON.parse(new TextDecoder().decode(u.subarray(4, 4 + n))), bodyLen: u.length - 4 - n }); } catch {}
+    });
+  });
+
   await A.page.click('[data-testid="ws-share"]');
   await A.page.click('[data-testid="ws-share-collab"]');
   await A.page.waitForSelector('[data-testid="collab-start"]');
@@ -87,6 +122,39 @@ try {
   await until(B.page, () => window.__collab.state.getState().phase === 'live', null, 60000);
   ok(JSON.stringify(await B.page.evaluate(() => window.__collab.state.getState().perm)) === JSON.stringify({ notes: true, drafts: true, maps: true, organize: true }), 'Marc : toutes les permissions (cas le plus favorable à l’attaquant)');
   ok(!(await B.page.evaluate((t) => window.__store.getState().drafts.some((d) => d.title === t), seeded.secretTitle)), 'Marc n’a pas reçu l’écrit privé');
+
+  // Arrivée : vérifications (preuve de possession).
+  await wait(1500);
+  const arr = await B.page.evaluate(({ priv, same }) => {
+    const s = window.__store.getState();
+    const ws = window.__collab.state.getState().workspaceId;
+    const items = s.wsItems.filter((i) => i.workspaceId === ws && i.kind === 'book').map((i) => i.refId);
+    const appat = s.books.filter((b) => b.title === 'Appât');
+    return { count: s.books.length, items, privInWs: items.includes(priv), sameInWs: items.includes(same), sameTitle: s.books.find((b) => b.id === same)?.title, appat: appat.map((b) => ({ id: b.id, missing: !!b.missing, inWs: items.includes(b.id) })) };
+  }, marc0);
+  const sent = await A.page.evaluate(() => window.__fromGuests);
+  const wantMsg = sent.find((m) => m.head.t === 'want');
+  const proveMsg = sent.find((m) => m.head.t === 'fetch' && m.head.c === 'prove');
+  ok(!!wantMsg && wantMsg.head.books.includes(bait.id), 'arrivée : le livre annoncé sans fichier par l’hôte est demandé (« want »), pas reconnu chez Marc', wantMsg?.head);
+  ok(!!proveMsg && proveMsg.head.items.some((i) => i.gid === bait.id) && proveMsg.head.items.length === 2, 'arrivée : défi de possession envoyé pour tous les livres de l’hôte (ce que Marc possède n’y paraît pas)', proveMsg?.head.items.map((i) => i.gid));
+  ok(!arr.privInWs && arr.appat.length === 1 && arr.appat[0].missing && arr.appat[0].inWs, 'arrivée : le livre privé de Marc reste hors de l’espace ; une copie distincte « sans fichier » y est rangée', arr);
+  ok(arr.sameInWs && arr.count === marc0.count + 1 && arr.sameTitle === 'TITRE-PERSO-MARC', 'arrivée : le livre que tous deux possèdent est reconnu (aucun doublon), Marc garde son titre', arr);
+  // Léa demande ensuite le fichier du livre « appât » à Marc.
+  const marcId = await A.page.evaluate(() => window.__collab.state.getState().members.find((m) => !m.host).id);
+  await A.page.evaluate(async ({ to, g }) => {
+    const enc = new TextEncoder().encode(JSON.stringify({ t: 'fetch', c: 'book', g }));
+    const out = new Uint8Array(4 + enc.length);
+    new DataView(out.buffer).setUint32(0, enc.length);
+    out.set(enc, 4);
+    await window.marginalia.collabNet.send(to, out);
+  }, { to: marcId, g: bait.id });
+  await wait(3000);
+  const sent2 = await A.page.evaluate(() => window.__fromGuests);
+  const baitFiles = sent2.filter((m) => m.head.t === 'files' && m.head.g === bait.id);
+  ok(baitFiles.every((m) => m.bodyLen === 0 && m.head.rec?.missing === true), 'arrivée : « fetch » du livre appât — Marc ne renvoie pas son fichier', baitFiles.map((m) => ({ len: m.bodyLen, title: m.head.rec?.title })));
+  const all2 = JSON.stringify(sent2.map((m) => m.head));
+  ok(!all2.includes('TITRE-PRIVE-DE-MARC') && !all2.includes(marc0.privOriginal) && !all2.includes('TITRE-PERSO-MARC') && !all2.includes('mon-discours-perso'), 'arrivée : ni la fiche du livre privé, ni le titre personnel du livre commun ne partent chez Léa', { privé: all2.includes('TITRE-PRIVE-DE-MARC'), perso: all2.includes('TITRE-PERSO-MARC') });
+  ok((await A.page.evaluate((t) => window.__store.getState().books.some((b) => b.title === t), bait.sharedTitle)) && !(await A.page.evaluate(() => window.__store.getState().books.some((b) => /MARC/.test(b.title)))), 'arrivée : chez Léa, le livre partagé garde son titre', bait.sharedTitle);
 
   // Marc, invité malveillant, connaît (on le suppose) les identifiants privés de Léa et écrit ses messages à la main.
   const raw = (head, to = 'all') =>

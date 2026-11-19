@@ -8,22 +8,25 @@
 //          puis tout part et arrive en direct ; coupé, il continue seul et se reconnecte.
 //
 // Messages (wire.ts), en plus de ceux de rooms.ts ('y', 'room-join', 'room-ok', 'room-leave', 'rooms', 'docx') :
-//  invité → hôte : 'hi' { haveWs }, 'want' { books }, 'resync' { tags }, 'flushed'
-//  hôte → invité : 'books' { list }, 'state' { tags, keys, recs, rooms, booksAlias } + paquet, 'resync-reply' { tags, recs }, 'stopping'
+//  invité → hôte : 'hi' { haveWs }, 'want' { books }, 'resync' { tags }, 'flushed',
+//                  'fetch' { c: 'prove', items: [{ gid, nonce }] } (défi de possession, voir plus bas)
+//  hôte → invité : 'books' { list, proofs }, 'proof' { items: [{ gid, mac }] }, 'state' { tags, keys, recs, rooms } + paquet,
+//                  'resync-reply' { tags, recs }, 'stopping'
 //  tous         : 'recs' { recs } (éléments de l'espace, records.ts), 'fetch' / 'files' (livre ou écrit inconnu)
 // ─────────────────────────────────────────────────────────────
 import { host, type CollabEvent, type CollabMember } from '../../lib/platform';
 import { flushPendingSave, sealedBookIds, setWriteGuard, useStore, type State } from '../../lib/store';
 import type { Book, Draft, WorkspaceItem, WorkspaceItemKind } from '../../lib/types';
-import { bookExtraFiles, bookFingerprint, bookSourceFiles, buildSharePackage, fingerprintOf, findLocalBook, findLocalVideoBook, safeVideoInfo, shareableDocx } from '../share/sharePackage';
+import JSZip from 'jszip';
+import { bookExtraFiles, bookFingerprint, bookSourceFiles, buildSharePackage, fingerprintOf, findLocalBook, findLocalVideoBook, openSharePackage, safeVideoInfo, sha256Hex, shareableDocx, withoutFile } from '../share/sharePackage';
 import { importSharePackage } from '../share/shareMerge';
 import { errorMessage } from '../share/shareUi';
 import { ALL_PERMS, permText, samePerm, useCollab, type CollabPerm, type CollabProfile } from './collabState';
-import { keyOf, newer, RecordSync, type Col, type Rec, type Tag } from './records';
+import { cleanAdopted, keyOf, newer, RecordSync, type AdoptedMeta, type Col, type Rec, type Tag } from './records';
 import { Rooms } from './rooms';
 import { joinFiles, pack, splitFiles, unpack, type Head } from './wire';
 import { reunite } from './reunion';
-import { knownMtimes, stopWatch } from './memory';
+import { knownMtimes, rememberedAdopted, stopWatch } from './memory';
 import { addVersionFromLibrary } from '../editor/versions';
 import { onCursorMessage, setCursorBridge } from './cursors';
 
@@ -50,6 +53,14 @@ interface Session {
   waitingFetch: Map<string, Set<string>>;
   /** Invité : ce qui était déjà dans la bibliothèque à l'arrivée (« kind:id »), gardé quoi qu'il arrive. */
   before?: Set<string>;
+  /** Invité : livres de l'hôte (son id → gid et fiche), d'après sa liste à l'arrivée. */
+  hostBooks?: Map<string, { gid: string; meta: AdoptedMeta | null }>;
+  /** Invité : livres de l'hôte reconnus ici avec preuve de possession (gid → id local). */
+  bookAlias?: [string, string][];
+  /** Invité : réponses attendues au défi de possession (voir askProofs). */
+  proofWait?: { nonces: Map<string, Uint8Array>; macs: Map<string, string>; left: number; done: () => void };
+  /** Hôte : défis de possession reçus de chaque invité pendant la session (limite, voir hostProve). */
+  proves?: Map<string, number>;
 }
 
 const KEEP_KINDS = ['book', 'draft', 'plan', 'argument', 'study'] as const;
@@ -257,6 +268,10 @@ export async function startHost(workspaceId: string, profile: CollabProfile, max
     stopWatch(shareId);
     s.records = makeRecords(s, workspaceId);
     for (const [k, t] of Object.entries(await knownMtimes(shareId))) s.records.mtimes.set(k, t);
+    // Livres adoptés grâce au fichier d'un invité (onFiles) lors d'une session précédente : c'est toujours
+    // la fiche de cet invité qui circule, jamais la nôtre (avant : gardée en mémoire seulement, perdue au
+    // redémarrage de la session).
+    for (const [id, meta] of await rememberedAdopted(shareId)) if (useStore.getState().books.some((b) => b.id === id)) s.records.adopted.set(id, meta);
     s.records.start();
     plugCursors(s);
     useCollab.setState({ phase: 'live', role: 'host', me: 'h', workspaceId, shareId, title: ws.name, members: info.members ?? [], requests: [], code: info.code ?? null, codeState: info.codeState ?? 'open', addresses: info.addresses ?? [], internet: !!info.internet, maxPeople: info.maxPeople ?? maxPeople, perm: info.perm ?? perm });
@@ -307,14 +322,139 @@ export async function newCode() {
 async function hostSendBooks(to: string) {
   const s = S!;
   const st = useStore.getState();
-  const ids = new Set(st.wsItems.filter((i) => i.workspaceId === s.workspaceId && i.kind === 'book').map((i) => i.refId));
-  const list: { id: string; gid: string; sha256: string | null; size: number; title: string }[] = [];
+  // Tous les livres du périmètre (rangés dans l'espace, ou cités par une carte, un argument, une fiche) :
+  // ce sont ceux du paquet ; chacun peut ainsi être reconnu chez l'invité avec preuve de possession.
+  const list: { id: string; gid: string; sha256: string | null; size: number; title: string; author: string; edition: Book['edition'] }[] = [];
   for (const b of st.books) {
-    if (!ids.has(b.id)) continue;
+    if (!s.records!.inScope('book', b.id)) continue;
     const fp = await bookFingerprint(b);
-    list.push({ id: b.id, gid: s.records!.gidOfBook(b.id) ?? b.id, sha256: fp?.sha256 ?? null, size: fp?.size ?? b.size, title: b.title });
+    // La fiche qui circule pour un livre adopté est celle du pair, pas la nôtre (records.ts, adopted).
+    const pub = s.records!.adopted.get(b.id);
+    list.push({ id: b.id, gid: s.records!.gidOfBook(b.id) ?? b.id, sha256: fp?.sha256 ?? null, size: fp?.size ?? b.size, title: pub ? pub.title : b.title, author: pub ? pub.author : b.author, edition: (pub ? pub.edition : b.edition) as Book['edition'] });
   }
-  send(to, { t: 'books', list });
+  // proofs : cet hôte répond au défi de possession (un hôte ≤ 3.59 ne l'annonce pas, voir guestOnBooks).
+  send(to, { t: 'books', list, proofs: 1 });
+}
+
+// ─────────────────────────────────────────────────────────────
+// Preuve de possession à l'arrivée (défi–réponse)
+//
+// Reconnaître « le même livre » chez l'invité d'après la seule empreinte annoncée par l'hôte permettait à
+// un hôte malveillant de lister des empreintes sans avoir les fichiers, d'apprendre par la réponse 'want'
+// lesquels l'invité possède, de recevoir leur fiche privée puis de se faire envoyer les fichiers. Désormais
+// l'invité envoie, pour chaque livre de la liste qui a une empreinte (qu'il l'ait ou non : la demande ne
+// dit rien de sa bibliothèque), un nombre aléatoire de 32 octets ; l'hôte répond SHA-256(nombre ‖ fichiers
+// source dans l'ordre de bookSourceFiles), calculé sur SON fichier. L'invité refait le calcul sur le sien :
+// seul celui qui a le fichier peut répondre, et la réponse ne sert qu'une fois (nombre neuf à chaque fois).
+//
+// Transport : le défi part dans un message 'fetch' { c: 'prove', items }. Le relais de l'hôte
+// (electron/collab-net.cjs, permitted) jette tout type de message d'invité qui n'est pas dans ALWAYS dès
+// que l'invité n'a pas toutes les permissions : un type 'prove' n'arriverait pas, et l'arrivée attendrait
+// pour rien. 'fetch' y est toujours permis, et un hôte ≤ 3.59 l'ignore sans rien faire (onFetch : c ni
+// 'book' ni 'draft'). La réponse 'proof' va de l'hôte à l'invité (jamais filtrée) ; un invité l'ignore si
+// elle vient d'un autre invité (HOST_ONLY).
+// ─────────────────────────────────────────────────────────────
+const PROVE_ITEMS = 500; // éléments par défi
+const PROVE_MSGS = 4; // défis envoyés par un invité à l'arrivée (2 000 livres)
+const PROVE_PER_PEER = 12; // défis acceptés de chaque invité par session (il peut revenir plusieurs fois)
+const PROOF_WAIT = 8000;
+const HEX64 = /^[0-9a-f]{64}$/;
+
+const toB64 = (u: Uint8Array) => btoa(String.fromCharCode(...u));
+function fromB64(v: unknown): Uint8Array | null {
+  if (typeof v !== 'string' || v.length > 64) return null;
+  try {
+    return Uint8Array.from(atob(v), (c) => c.charCodeAt(0));
+  } catch {
+    return null;
+  }
+}
+
+/** SHA-256 (hex) du nombre suivi des fichiers source du livre ; null si le livre n'a pas (ou plus) son fichier. */
+async function possessionMac(b: Book, nonce: Uint8Array): Promise<string | null> {
+  if (b.missing || withoutFile(b.format)) return null;
+  const names = bookSourceFiles(b);
+  if (!names.length || names.some((n) => !n)) return null;
+  let datas: ArrayBuffer[];
+  try {
+    datas = await Promise.all(names.map((n) => host.readFile(b.id, n)));
+  } catch {
+    return null;
+  }
+  const all = new Uint8Array(nonce.length + datas.reduce((n, d) => n + d.byteLength, 0));
+  all.set(nonce, 0);
+  let off = nonce.length;
+  for (const d of datas) {
+    all.set(new Uint8Array(d), off);
+    off += d.byteLength;
+  }
+  return sha256Hex(all);
+}
+
+/**
+ * Hôte : réponse à un défi. Seulement pour les livres atteignables par un message reçu (ceux du partage,
+ * comme onFetch) : rien n'est dit, pas même « inconnu », d'un autre livre de la bibliothèque. Un défi au-delà
+ * de la limite est ignoré (sans réponse : l'invité télécharge alors une copie, rien de plus).
+ */
+async function hostProve(from: string, head: Head) {
+  const s = S;
+  if (!s || s.role !== 'host' || !s.records || !Array.isArray(head.items)) return;
+  const proves = (s.proves ??= new Map());
+  const n = proves.get(from) ?? 0;
+  if (n >= PROVE_PER_PEER) return;
+  proves.set(from, n + 1);
+  const books = useStore.getState().books;
+  const items: { gid: string; mac: string }[] = [];
+  const done = new Set<string>();
+  for (const it of (head.items as Any[]).slice(0, PROVE_ITEMS)) {
+    const gid = it && typeof it.gid === 'string' ? it.gid : null;
+    const nonce = fromB64(it?.nonce);
+    if (!gid || done.has(gid) || !nonce || nonce.length !== 32) continue;
+    done.add(gid);
+    const id = s.records.sharedLocal('book', gid);
+    const b = id ? books.find((x) => x.id === id) : null;
+    const mac = b ? await possessionMac(b, nonce) : null;
+    if (S !== s) return;
+    if (mac) items.push({ gid, mac });
+  }
+  send(from, { t: 'proof', items });
+}
+
+/**
+ * Invité : défi pour ces livres de l'hôte, puis attente des réponses (PROOF_WAIT au plus, pour tous les
+ * défis). Rend les nombres envoyés et les réponses reçues (gid → mac), à vérifier par l'appelant.
+ */
+async function askProofs(s: Session, gids: string[]): Promise<{ nonces: Map<string, Uint8Array>; macs: Map<string, string> }> {
+  const nonces = new Map<string, Uint8Array>();
+  for (const g of gids) if (!nonces.has(g) && nonces.size < PROVE_ITEMS * PROVE_MSGS) nonces.set(g, crypto.getRandomValues(new Uint8Array(32)));
+  const macs = new Map<string, string>();
+  if (!nonces.size) return { nonces, macs };
+  const all = [...nonces];
+  const chunks: [string, Uint8Array][][] = [];
+  for (let i = 0; i < all.length; i += PROVE_ITEMS) chunks.push(all.slice(i, i + PROVE_ITEMS));
+  await new Promise<void>((resolve) => {
+    const w = { nonces, macs, left: chunks.length, done: () => {} };
+    const timer = setTimeout(() => w.done(), PROOF_WAIT);
+    w.done = () => {
+      clearTimeout(timer);
+      if (s.proofWait === w) s.proofWait = undefined;
+      resolve();
+    };
+    s.proofWait = w;
+    for (const c of chunks) send('h', { t: 'fetch', c: 'prove', items: c.map(([gid, n]) => ({ gid, nonce: toB64(n) })) });
+  });
+  return { nonces, macs };
+}
+
+/** Invité : une réponse de l'hôte au défi (une par défi envoyé). */
+function onProof(head: Head) {
+  const w = S?.proofWait;
+  if (!w) return;
+  for (const it of (Array.isArray(head.items) ? head.items : []).slice(0, PROVE_ITEMS) as Any[]) {
+    const gid = it && typeof it.gid === 'string' ? it.gid : null;
+    if (gid && w.nonces.has(gid) && !w.macs.has(gid) && typeof it.mac === 'string' && HEX64.test(it.mac)) w.macs.set(gid, it.mac);
+  }
+  if (--w.left <= 0) w.done();
 }
 async function hostSendState(to: string, want: string[]) {
   const s = S!;
@@ -377,19 +517,83 @@ export async function guestJoin(ticket: string, profile: CollabProfile, hostName
   }
 }
 
-/** Invité : liste des livres de l'hôte → ceux qui manquent ici. */
+/**
+ * Invité : liste des livres de l'hôte → ceux qui manquent ici. Un livre n'est reconnu dans la bibliothèque
+ * (alias, pas de téléchargement) que si l'hôte a prouvé qu'il en a le fichier (défi ci-dessus) ; jamais un
+ * livre d'un espace chiffré (il serait rangé aussi dans l'espace partagé, donc en clair). Sans preuve
+ * (hôte ≤ 3.59, pas de réponse à temps, réponse fausse) : demandé comme un livre inconnu, une copie
+ * distincte arrive.
+ */
 async function guestOnBooks(head: Head) {
   const s = S!;
-  const books = useStore.getState().books;
+  const entries = ((Array.isArray(head.list) ? head.list : []) as Any[]).filter((e) => e && typeof e === 'object').slice(0, 5000);
+  s.hostBooks = new Map(entries.map((e) => [String(e.id), { gid: String(e.gid), meta: cleanAdopted(e) }]));
+  const shaOf = (e: Any) => (typeof e.sha256 === 'string' && HEX64.test(e.sha256) ? (e.sha256 as string) : null);
+  // Défi pour TOUS les livres qui ont une empreinte (pas seulement ceux qu'on a), et attente identique dans
+  // tous les cas : ni la demande ni son délai ne disent ce que contient la bibliothèque.
+  const { nonces, macs } = head.proofs ? await askProofs(s, entries.filter(shaOf).map((e) => String(e.gid))) : { nonces: new Map<string, Uint8Array>(), macs: new Map<string, string>() };
+  if (S !== s) return;
+  const st = useStore.getState();
+  const sealed = sealedBookIds(st);
+  // Seulement des livres avec leur fichier (la réponse se vérifie sur le fichier), hors espaces chiffrés.
+  const open = st.books.filter((b) => !sealed.has(b.id) && !b.missing);
   const want: string[] = [];
   const alias: [string, string][] = [];
-  for (const e of (Array.isArray(head.list) ? head.list : []) as Any[]) {
-    const local = await findLocalBook({ sha256: typeof e.sha256 === 'string' ? e.sha256 : null, size: Number(e.size) || 0 }, books);
-    if (local && !local.missing) alias.push([String(e.gid), local.id]);
+  for (const e of entries) {
+    const g = String(e.gid);
+    const sha = shaOf(e);
+    const mac = macs.get(g);
+    const nonce = nonces.get(g);
+    let local: Book | null = null;
+    if (sha && mac && nonce) {
+      const cand = await findLocalBook({ sha256: sha, size: Number(e.size) || 0 }, open);
+      if (cand && (await possessionMac(cand, nonce)) === mac) local = cand;
+    }
+    if (local) alias.push([g, local.id]);
     else want.push(String(e.id));
   }
-  (s as Any).bookAlias = alias;
+  if (S !== s) return;
+  s.bookAlias = alias;
   send('h', { t: 'want', books: want });
+}
+
+/**
+ * Invité, premier arrivée : le paquet de l'hôte est importé (importSharePackage), qui rattache à un livre de
+ * la bibliothèque tout livre du paquet de même empreinte. Ce rattachement n'est permis que si l'hôte a
+ * prouvé qu'il a le fichier : par le défi (alias ci-dessus), ou en le joignant au paquet (son empreinte y
+ * est vérifiée, openSharePackage). Pour les autres (livre « sans fichier » chez l'hôte, empreinte inventée),
+ * l'empreinte est retirée du manifeste avant l'import : le livre arrive comme une copie distincte « sans
+ * fichier », et le nôtre reste hors de l'espace. Rend le paquet à importer, et les livres rattachés (gid
+ * de l'hôte → id local, fiche de l'hôte) : c'est sa fiche qui circulera pour eux, jamais la nôtre.
+ */
+async function guardPackage(s: Session, body: Uint8Array): Promise<{ bytes: Uint8Array; attached: Map<string, { gid: string; meta: AdoptedMeta | null }> }> {
+  const attached = new Map<string, { gid: string; meta: AdoptedMeta | null }>();
+  const pkg = await openSharePackage(body);
+  const st = useStore.getState();
+  const sealed = sealedBookIds(st);
+  const openBooks = st.books.filter((b) => !sealed.has(b.id)); // comme importSharePackage
+  const proven = new Map(s.bookAlias ?? []);
+  const srcOf = new Map(pkg.data.books.map((b) => [b.id, b]));
+  const manifest = JSON.parse(JSON.stringify(pkg.manifest)) as typeof pkg.manifest;
+  let changed = false;
+  for (const e of manifest.books) {
+    const src = srcOf.get(e.id) as Any;
+    if (!e.sha256 || !src || withoutFile(src.format)) continue;
+    const local = await findLocalBook(e, openBooks);
+    if (!local) continue;
+    const g = s.hostBooks?.get(e.id)?.gid ?? (typeof src.shareOrigin?.srcId === 'string' ? src.shareOrigin.srcId : e.id);
+    if (e.included || proven.get(g) === local.id) {
+      attached.set(local.id, { gid: g, meta: cleanAdopted(src) ?? s.hostBooks?.get(e.id)?.meta ?? null });
+    } else {
+      e.sha256 = null;
+      changed = true;
+    }
+  }
+  if (!changed) return { bytes: body, attached };
+  // Le manifeste n'est pas couvert par les empreintes du paquet (il les porte) : on le réécrit seul.
+  const zip = await JSZip.loadAsync(body);
+  zip.file('manifest.json', JSON.stringify(manifest), { createFolders: false });
+  return { bytes: await zip.generateAsync({ type: 'uint8array', compression: 'DEFLATE', compressionOptions: { level: 1 } }), attached };
 }
 
 /** Invité : état initial reçu (paquet + éléments). */
@@ -398,29 +602,49 @@ async function guestOnState(head: Head, body: Uint8Array) {
   const st0 = useStore.getState();
   s.before = libraryKeys(s.shareId);
   let wsId = workspaceForShare(s.shareId);
-  const alias: [string, string][] = (s as Any).bookAlias ?? [];
+  const alias: [string, string][] = s.bookAlias ?? [];
   useCollab.setState({ progress: 'Ajout à votre bibliothèque…' });
   const had = !!wsId;
+  // Livres de la bibliothèque rattachés par l'import du paquet (voir guardPackage).
+  let attached = new Map<string, { gid: string; meta: AdoptedMeta | null }>();
   if (!wsId && head.empty) {
     // Espace partagé encore vide : on le crée ici, relié à la session.
     const ws = useStore.getState().createWorkspace(String(head.title ?? s.title ?? 'Espace partagé').slice(0, 120));
     useStore.getState().patch('workspaces', ws.id, { shareOrigin: { shareId: s.shareId, srcId: s.shareId.replace(/^ws-/, '') } });
     wsId = ws.id;
   } else if (!wsId) {
-    const res = await importSharePackage(body);
+    const guarded = await guardPackage(s, body);
+    attached = guarded.attached;
+    const res = await importSharePackage(guarded.bytes);
     wsId = res.workspace?.id ?? null;
   }
   if (!wsId) throw new Error('L’espace partagé n’a pas pu être créé ici.');
   s.workspaceId = wsId;
   const rec = makeRecords(s, wsId);
-  for (const [g, l] of alias) rec.addAlias('book', g, l);
+  // Livres adoptés lors d'une session précédente : leur fiche reste celle du pair (memory.ts).
+  stopWatch(s.shareId);
+  for (const [id, meta] of await rememberedAdopted(s.shareId)) if (useStore.getState().books.some((b) => b.id === id)) rec.adopted.set(id, meta);
+  for (const [g, l] of alias) {
+    rec.addAlias('book', g, l);
+    // Livre de la bibliothèque reconnu avec preuve, encore hors de l'espace (espace déjà là) : il rejoint la
+    // session avec la fiche de l'hôte, ce qu'on y avait fait reste privé (adoptBook). Déjà dans l'espace :
+    // c'est déjà le livre partagé, rien ne change.
+    if (!attached.has(l) && !rec.inScope('book', l)) {
+      const meta = [...(s.hostBooks?.values() ?? [])].find((h) => h.gid === g)?.meta;
+      rec.adoptBook(l, meta ?? undefined);
+    }
+  }
+  // Rattachés par l'import : ils n'étaient dans aucun espace partagé, c'étaient des livres privés.
+  for (const [l, a] of attached) {
+    rec.addAlias('book', a.gid, l);
+    if (a.meta) rec.adopted.set(l, a.meta);
+  }
   const hostKeys = new Set<string>(Array.isArray(head.keys) ? (head.keys as string[]) : []);
   // Vie privée : ce qui était déjà ici dans les livres de l'espace (et qui ne vient pas de l'hôte) reste ici.
   const mine = rec.snapshot();
   for (const [k, v] of mine) if (!hostKeys.has(k) && (v.c === 'highlight' || v.c === 'map')) rec.privateKeys.add(k);
   for (const [k, t] of (Array.isArray(head.tags) ? head.tags : []) as [string, Tag][]) rec.tags.set(k, t);
   rec.clock = Math.max(0, ...[...rec.tags.values()].map((t) => t[0]));
-  stopWatch(s.shareId);
   for (const [k, t] of Object.entries(await knownMtimes(s.shareId))) rec.mtimes.set(k, t);
   s.records = rec;
   rec.start();
@@ -708,7 +932,7 @@ async function onMergedDocx(from: string, head: Head, body: Uint8Array) {
 // ─────────────────────────────────────────────────────────────
 // Messages et événements
 // ─────────────────────────────────────────────────────────────
-const HOST_ONLY = new Set(['books', 'state', 'rooms', 'room-ok', 'resync-reply', 'stopping', 'docx-busy']);
+const HOST_ONLY = new Set(['books', 'proof', 'state', 'rooms', 'room-ok', 'resync-reply', 'stopping', 'docx-busy']);
 async function onMessage(from: string, head: Head, body: Uint8Array) {
   const s = S;
   if (!s) return;
@@ -721,7 +945,7 @@ async function onMessage(from: string, head: Head, body: Uint8Array) {
   // invité (le relais de l'hôte transmet les messages d'un invité à un autre), ou si l'on est l'hôte.
   if (HOST_ONLY.has(head.t) && !(s.role === 'guest' && from === 'h')) return;
   // Invité : tant que l'espace n'est pas prêt, seuls les messages d'arrivée passent ; le reste attend.
-  if (!s.ready && !['books', 'state', 'stopping', 'rooms', 'room-ok'].includes(head.t)) {
+  if (!s.ready && !['books', 'proof', 'state', 'stopping', 'rooms', 'room-ok'].includes(head.t)) {
     s.queue.push({ from, head, body: body.slice() });
     return;
   }
@@ -755,7 +979,16 @@ async function onMessage(from: string, head: Head, body: Uint8Array) {
         toast(`« ${String(head.title ?? 'Un écrit')} » est ouvert chez quelqu’un : votre version réunie est gardée dans ses versions ici.`, 'info');
         break;
       case 'fetch':
-        await onFetch(from, head);
+        // Défi de possession (voir hostProve) : porté par 'fetch', toujours permis par le relais.
+        if (head.c === 'prove') await hostProve(from, head);
+        else await onFetch(from, head);
+        break;
+      case 'prove':
+        // Même défi sous son propre nom (relais qui le laisserait passer) : traité de la même façon.
+        await hostProve(from, head);
+        break;
+      case 'proof':
+        onProof(head);
         break;
       case 'files':
         await onFiles(head, body);

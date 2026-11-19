@@ -96,6 +96,14 @@ export interface RecordSyncOptions {
 }
 
 /** Réplication des éléments d'un espace partagé. */
+export interface AdoptedMeta {
+  title: string;
+  author: string;
+  originalName: string;
+  cover: string | null;
+  edition: Record<string, unknown> | null;
+}
+
 export class RecordSync {
   clock = 0;
   tags = new Map<string, Tag>();
@@ -113,6 +121,12 @@ export class RecordSync {
    * ici que s'il est dans le périmètre (ou l'a été) : le reste de la bibliothèque n'est pas atteignable.
    */
   private seen = new Set<string>();
+  /**
+   * Livres de la bibliothèque reconnus grâce au fichier envoyé par un pair (même empreinte) : la fiche
+   * qui circule est celle du pair. Notre titre, notre nom de fichier et notre couverture restent ici,
+   * et un changement de titre reçu ne renomme pas notre livre.
+   */
+  adopted = new Map<string, AdoptedMeta>();
   private scopeCache: { s: State; ids: Map<Col, Set<string>> } | null = null;
   private pending: { rec: Rec; from: string }[] = [];
   private fetching = new Set<string>();
@@ -242,9 +256,10 @@ export class RecordSync {
    * Livre de la bibliothèque qui rejoint la session (même gid ou même empreinte qu'un livre du pair) :
    * ses extraits et sa carte d'avant restent privés. Sans effet sur un livre déjà partagé.
    */
-  adoptBook(bookId: string): void {
+  adoptBook(bookId: string, theirs?: AdoptedMeta): void {
     const g = this.gidOfBook(bookId);
     if (!g || this.shared('book', g, bookId)) return;
+    if (theirs) this.adopted.set(bookId, theirs);
     const s = useStore.getState();
     for (const h of s.highlights) if (h.bookId === bookId) this.privateKeys.add(keyOf('highlight', this.gidLocal('highlight', h.id, h)));
     const m = s.maps[bookId];
@@ -389,7 +404,10 @@ export class RecordSync {
     if (ws) put('ws', ws.id, this.o.shareId, { name: ws.name, tint: ws.tint });
     for (const g of sc.groups) put('group', g.id, this.gidLocal('group', g.id, g), { name: g.name, order: g.order, parentId: this.refOut('group', g.parentId) });
     for (const it of sc.items) put('item', it.id, this.gidLocal('item', it.id, it), { kind: it.kind, refId: this.refOut(this.itemRefCol(it.kind), it.refId), groupId: this.refOut('group', it.groupId), order: it.order });
-    for (const b of sc.books) put('book', b.id, this.gidLocal('book', b.id, b), { ...pickKeys(b, ['title', 'author', 'edition']) });
+    for (const b of sc.books) {
+      const pub = this.adopted.get(b.id);
+      put('book', b.id, this.gidLocal('book', b.id, b), pub ? { title: pub.title, author: pub.author, ...(pub.edition ? { edition: pub.edition } : {}) } : { ...pickKeys(b, ['title', 'author', 'edition']) });
+    }
     for (const d of sc.drafts) put('draft', d.id, this.gidLocal('draft', d.id, d), pickKeys(d, ['title', 'wordGoal', 'template']));
     for (const c of sc.concepts)
       put('concept', c.id, this.gidLocal('concept', c.id, c), {
@@ -664,6 +682,13 @@ export class RecordSync {
         if (!cur) {
           this.askFetch('book', rec.g, from);
           return 'wait';
+        }
+        const pub = this.adopted.get(cur);
+        if (pub) {
+          // Notre livre garde sa fiche : seule la fiche qui circule suit le changement.
+          if (typeof d.title === 'string') pub.title = d.title.slice(0, 500);
+          if (typeof d.author === 'string') pub.author = d.author.slice(0, 500);
+          return 'ok';
         }
         const patch: Partial<Book> = {};
         if (typeof d.title === 'string') patch.title = d.title.slice(0, 500);

@@ -13,7 +13,7 @@
 //  tous         : 'recs' { recs } (éléments de l'espace, records.ts), 'fetch' / 'files' (livre ou écrit inconnu)
 // ─────────────────────────────────────────────────────────────
 import { host, type CollabEvent, type CollabMember } from '../../lib/platform';
-import { flushPendingSave, setWriteGuard, useStore, type State } from '../../lib/store';
+import { flushPendingSave, sealedBookIds, setWriteGuard, useStore, type State } from '../../lib/store';
 import type { Book, Draft, WorkspaceItem, WorkspaceItemKind } from '../../lib/types';
 import { bookExtraFiles, bookFingerprint, bookSourceFiles, buildSharePackage, fingerprintOf, findLocalBook, findLocalVideoBook, safeVideoInfo, shareableDocx } from '../share/sharePackage';
 import { importSharePackage } from '../share/shareMerge';
@@ -524,7 +524,10 @@ async function onFetch(from: string, head: Head) {
     const sha256 = fp?.sha256 ?? b.sourceSha256 ?? null;
     const { list, body } = joinFiles(missing ? [] : files);
     // Livre papier : aucun fichier, seulement ses métadonnées et sa couverture.
-    const meta = { title: b.title, author: b.author, format: b.format, fileName: b.fileName, originalName: b.originalName, size: b.size, edition: b.edition, cover: b.cover, pages: missing ? undefined : b.pages, sha256, ...(missing ? { missing: true } : {}), ...(b.format === 'paper' ? { paper: true, isbn: b.isbn ?? '' } : {}), ...(b.format === 'video' && b.video ? { video: { provider: b.video.provider, id: b.video.id, url: b.video.url, duration: b.video.duration, chapters: b.video.chapters } } : {}) };
+    // Livre de la bibliothèque reconnu grâce au fichier d'un pair : c'est SA fiche qui circule (titre,
+    // nom de fichier, couverture), jamais la nôtre.
+    const pub = s.records.adopted.get(b.id);
+    const meta = { title: pub ? pub.title : b.title, author: pub ? pub.author : b.author, format: b.format, fileName: b.fileName, originalName: pub ? pub.originalName || b.fileName : b.originalName, size: b.size, edition: pub ? (pub.edition ?? { publisher: '', year: '', translator: '', place: '', pageOffset: 0 }) : b.edition, cover: pub ? pub.cover : b.cover, pages: missing ? undefined : b.pages, sha256, ...(missing ? { missing: true } : {}), ...(b.format === 'paper' ? { paper: true, isbn: b.isbn ?? '' } : {}), ...(b.format === 'video' && b.video ? { video: { provider: b.video.provider, id: b.video.id, url: b.video.url, duration: b.video.duration, chapters: b.video.chapters } } : {}) };
     send(from, { t: 'files', c, g, rec: meta, list }, body);
   } else {
     const d = st.drafts.find((x) => x.id === id);
@@ -580,19 +583,32 @@ async function onFiles(head: Head, body: Uint8Array) {
     // Déjà là (même empreinte) : alias, aucun doublon. Livre local « sans fichier » et fichier reçu : on le
     // complète (au lieu d'en créer un second).
     const sha = typeof meta.sha256 === 'string' ? meta.sha256 : null;
-    // Seulement parmi les livres déjà partagés dans cette session (ou reçus par ce partage) : jamais le
-    // reste de la bibliothèque. Sinon l'empreinte annoncée par un pair (sans fichier) suffisait à lui
-    // faire adopter un livre privé, puis à se le faire envoyer.
-    const mine = st.books.filter((b) => s.records!.inScope('book', b.id) || b.shareOrigin?.shareId === s.shareId);
-    let local = video ? findLocalVideoBook({ video: meta.video }, mine) : sha ? await findLocalBook({ sha256: sha, size: Number(meta.size) || 0 }, mine) : null;
-    if (!local && sha) local = mine.find((b) => b.missing && b.sourceSha256 === sha) ?? null;
-    // Fichier reçu pour compléter un livre « sans fichier » : son empreinte doit être celle annoncée.
-    if (local && local.missing && !missing && sha) {
+    // Preuve de possession : le pair a envoyé le fichier, et son empreinte est bien celle annoncée.
+    let proven = false;
+    if (!missing && sha) {
       const names = bookSourceFiles({ format: meta.format, fileName: String(meta.fileName ?? files[0]?.name ?? ''), pages: meta.pages } as unknown as Book);
       const datas = names.map((n) => files.find((f) => f.name === n)?.data);
       const fp = datas.every(Boolean) ? await fingerprintOf(datas.map((d) => (d as Uint8Array).buffer.slice((d as Uint8Array).byteOffset, (d as Uint8Array).byteOffset + (d as Uint8Array).byteLength) as ArrayBuffer)) : null;
-      if (!fp || fp.sha256 !== sha) local = null;
+      proven = !!fp && fp.sha256 === sha;
     }
+    // 1. Parmi les livres déjà partagés dans cette session (ou reçus par ce partage).
+    const mine = st.books.filter((b) => s.records!.inScope('book', b.id) || b.shareOrigin?.shareId === s.shareId);
+    let local = video ? findLocalVideoBook({ video: meta.video }, mine) : sha ? await findLocalBook({ sha256: sha, size: Number(meta.size) || 0 }, mine) : null;
+    if (!local && sha) local = mine.find((b) => b.missing && b.sourceSha256 === sha) ?? null;
+    // 2. Dans le reste de la bibliothèque, seulement si le pair PROUVE qu'il a le fichier : annoncer une
+    //    empreinte ne suffit pas (elle servait à savoir ce que l'autre possède, puis à se le faire
+    //    envoyer). Jamais un livre d'un espace chiffré. Ce que l'on avait fait sur ce livre reste privé,
+    //    et son titre, son nom de fichier et sa couverture ne repartent pas (voir adoptBook).
+    let adoptedNow = false;
+    if (!local && proven) {
+      const sealed = sealedBookIds(st);
+      const others = st.books.filter((b) => !sealed.has(b.id) && !mine.includes(b));
+      local = (await findLocalBook({ sha256: sha!, size: Number(meta.size) || 0 }, others)) ?? others.find((b) => b.missing && b.sourceSha256 === sha) ?? null;
+      adoptedNow = !!local;
+    }
+    // Fichier reçu pour compléter un livre « sans fichier » : son empreinte doit être celle annoncée.
+    if (local && local.missing && !missing && !proven) local = null;
+    const theirs = { title: String(meta.title ?? 'Sans titre').slice(0, 500), author: String(meta.author ?? '').slice(0, 500), originalName: String(meta.originalName ?? '').slice(0, 300), cover: typeof meta.cover === 'string' && /^data:image\/(png|jpe?g|webp|gif|avif);base64,/.test(meta.cover) ? meta.cover : null, edition: meta.edition && typeof meta.edition === 'object' ? meta.edition : null };
     if (local && local.missing && !missing) {
       for (const f of files) await host.storeFile(local.id, f.name, f.data);
       const fileName = SAFE.test(String(meta.fileName)) ? String(meta.fileName) : files[0]?.name ?? local.fileName;
@@ -604,11 +620,11 @@ async function onFiles(head: Head, body: Uint8Array) {
           return { ...rest, fileName, ...(Array.isArray(meta.pages) && meta.pages.every((p: unknown) => typeof p === 'string' && SAFE.test(p)) ? { pages: meta.pages } : {}), ...(!b.cover && typeof meta.cover === 'string' && /^data:image\/(png|jpe?g|webp|gif|avif);base64,/.test(meta.cover) ? { cover: meta.cover } : {}) };
         }),
       }));
-      s.records.adoptBook(target);
+      s.records.adoptBook(target, adoptedNow ? theirs : undefined);
       s.records.addAlias('book', g, target);
       keepAsMine(s, local);
     } else if (local) {
-      s.records.adoptBook(local.id);
+      s.records.adoptBook(local.id, adoptedNow ? theirs : undefined);
       s.records.addAlias('book', g, local.id);
       keepAsMine(s, local);
     } else {

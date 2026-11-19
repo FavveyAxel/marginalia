@@ -144,28 +144,68 @@ async function readZipEntries(zipFile) {
     let eocd = -1;
     for (let i = tail - 22; i >= 0; i--) if (buf.readUInt32LE(i) === 0x06054b50) { eocd = i; break; }
     if (eocd < 0) throw new Error('Archive .zip invalide (fin introuvable)');
-    const count = buf.readUInt16LE(eocd + 10);
-    const cdSize = buf.readUInt32LE(eocd + 12);
-    const cdOff = buf.readUInt32LE(eocd + 16);
-    if (count === 0xffff || cdSize === LIMIT || cdOff === LIMIT) throw new Error('Archive ZIP64 non prise en charge ici');
+    let count = buf.readUInt16LE(eocd + 10);
+    let cdSize = buf.readUInt32LE(eocd + 12);
+    let cdOff = buf.readUInt32LE(eocd + 16);
+    if (count === 0xffff || cdSize === LIMIT || cdOff === LIMIT) {
+      // ZIP64 (grosses sauvegardes faites par l'outil système) : localisateur juste avant la fin, puis
+      // la fin ZIP64 qui donne les vraies valeurs. Ne jamais renoncer à lire la table : c'est elle qui
+      // permet de refuser les chemins dangereux et les liens avant toute extraction.
+      if (eocd < 20 || buf.readUInt32LE(eocd - 20) !== 0x07064b50) throw new Error('Archive ZIP64 invalide (localisateur introuvable)');
+      const z64Off = Number(buf.readBigUInt64LE(eocd - 20 + 8));
+      if (!Number.isSafeInteger(z64Off) || z64Off + 56 > size) throw new Error('Archive ZIP64 invalide');
+      const z = Buffer.alloc(56);
+      await fh.read(z, 0, 56, z64Off);
+      if (z.readUInt32LE(0) !== 0x06064b50) throw new Error('Archive ZIP64 invalide (fin ZIP64 introuvable)');
+      count = Number(z.readBigUInt64LE(32));
+      cdSize = Number(z.readBigUInt64LE(40));
+      cdOff = Number(z.readBigUInt64LE(48));
+      if (![count, cdSize, cdOff].every(Number.isSafeInteger)) throw new Error('Archive ZIP64 invalide');
+    }
     if (cdOff + cdSize > size) throw new Error('Archive .zip tronquée');
+    // Garde-fous : la table tient en mémoire, chaque entrée occupe au moins 46 octets.
+    if (cdSize > 512 * 1024 * 1024 || count * 46 > cdSize) throw new Error('Archive .zip invalide (répertoire central)');
     const cd = Buffer.alloc(cdSize);
     await fh.read(cd, 0, cdSize, cdOff);
     const out = [];
     let p = 0;
     for (let i = 0; i < count; i++) {
-      if (cd.readUInt32LE(p) !== 0x02014b50) throw new Error('Archive .zip invalide (répertoire central)');
+      if (p + 46 > cd.length || cd.readUInt32LE(p) !== 0x02014b50) throw new Error('Archive .zip invalide (répertoire central)');
       const flags = cd.readUInt16LE(p + 8);
       const method = cd.readUInt16LE(p + 10);
       const crc = cd.readUInt32LE(p + 16);
-      const csize = cd.readUInt32LE(p + 20);
-      const usize = cd.readUInt32LE(p + 24);
+      let csize = cd.readUInt32LE(p + 20);
+      let usize = cd.readUInt32LE(p + 24);
       const nLen = cd.readUInt16LE(p + 28);
       const xLen = cd.readUInt16LE(p + 30);
       const cLen = cd.readUInt16LE(p + 32);
       const ext = cd.readUInt32LE(p + 38);
-      const at = cd.readUInt32LE(p + 42);
+      let at = cd.readUInt32LE(p + 42);
+      if (p + 46 + nLen + xLen + cLen > cd.length) throw new Error('Archive .zip invalide (répertoire central)');
       const name = cd.slice(p + 46, p + 46 + nLen).toString(flags & 0x0800 ? 'utf8' : 'latin1');
+      // Champ supplémentaire ZIP64 (0x0001) : tailles et position réelles, dans cet ordre, pour les
+      // seules valeurs marquées 0xFFFFFFFF.
+      if (usize === LIMIT || csize === LIMIT || at === LIMIT) {
+        const x = cd.slice(p + 46 + nLen, p + 46 + nLen + xLen);
+        for (let q = 0; q + 4 <= x.length; ) {
+          const id = x.readUInt16LE(q);
+          const len = x.readUInt16LE(q + 2);
+          if (id === 0x0001) {
+            let r = q + 4;
+            const next = () => {
+              if (r + 8 > q + 4 + len || r + 8 > x.length) throw new Error('Archive ZIP64 invalide (champ supplémentaire)');
+              const v = Number(x.readBigUInt64LE(r));
+              r += 8;
+              return v;
+            };
+            if (usize === LIMIT) usize = next();
+            if (csize === LIMIT) csize = next();
+            if (at === LIMIT) at = next();
+            break;
+          }
+          q += 4 + len;
+        }
+      }
       const mode = (ext >>> 16) & 0o170000;
       out.push({ name, method, crc, csize, usize, at, flags, isDir: name.endsWith('/'), isLink: mode === 0o120000 });
       p += 46 + nLen + xLen + cLen;

@@ -43,6 +43,8 @@ Toutes les versions sont sur la page [Releases](https://github.com/FavveyAxel/ma
 Les fichiers ne sont signés ni par Apple ni par Microsoft (pas de certificat payant) : chaque système
 demande donc une confirmation au premier lancement.
 
+Configuration : macOS 12 (Monterey) ou plus récent ; Windows 10 ou 11.
+
 **Mac.** Ouvrez le .dmg et glissez Marginalia dans Applications. Au premier lancement, faites
 clic droit (ou ctrl-clic) sur Marginalia › **Ouvrir**, puis **Ouvrir** dans la fenêtre d'avertissement.
 Sur macOS 15 et suivants, si seul « Placer dans la corbeille » est proposé : Réglages Système ›

@@ -314,7 +314,7 @@ async function processItem(name: string) {
       }
       case 'web': {
         const t = decodeText((await read(name)).data);
-        const title = t.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1]?.replace(/\s+/g, ' ').trim();
+        const title = htmlTitle(t);
         patch(name, { status: 'ready', title: title ? decodeEntities(title) : baseName(name) });
         return;
       }
@@ -684,4 +684,17 @@ export const needsDecision = (i: InboxItem) => i.status === 'error' || (i.kind =
 /** Nombre d'éléments qui attendent une décision (dossier synchronisé et envois par le Wi-Fi). */
 export function useInboxCount(): number {
   return useInbox((s) => s.items.reduce((k, i) => k + (needsDecision(i) ? 1 : 0), 0));
+}
+
+/** Titre d'une page HTML, sans expression régulière à retour arrière (fichier reçu : peut être piégé). */
+function htmlTitle(t: string): string | undefined {
+  const head = t.slice(0, 256 * 1024);
+  const lower = head.toLowerCase();
+  const open = lower.indexOf('<title');
+  if (open < 0) return undefined;
+  const gt = lower.indexOf('>', open);
+  if (gt < 0) return undefined;
+  const close = lower.indexOf('</title>', gt);
+  if (close < 0) return undefined;
+  return head.slice(gt + 1, close).replace(/\s+/g, ' ').trim() || undefined;
 }

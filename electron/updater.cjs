@@ -102,7 +102,13 @@ function verifyManifest(manifestBytes, signatureText, publicKeyPem, { current, e
   const version = m.version.replace(/^v/i, '');
   if (current != null && compareVersions(version, current) <= 0) return fail('version', `La version ${version} n’est pas plus récente que la ${current} : refusée.`);
   if (expectedVersion != null && compareVersions(version, expectedVersion) !== 0) return fail('version', 'Le manifeste ne correspond pas à la version publiée.');
-  return { ok: true, manifest: { version, files } };
+  // Version minimale de macOS exigée par cette version (champ facultatif, ajouté en 3.57).
+  let minMacOS = null;
+  if (m.minMacOS != null) {
+    if (typeof m.minMacOS !== 'string' || !/^\d+(\.\d+){0,2}$/.test(m.minMacOS)) return fail('manifeste', 'Manifeste de mise à jour illisible.');
+    minMacOS = m.minMacOS;
+  }
+  return { ok: true, manifest: { version, files, minMacOS } };
 }
 
 /** Entrée du manifeste pour ce système (.dmg sur Mac, installateur -setup.exe sous Windows). */

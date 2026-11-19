@@ -20,6 +20,7 @@
 // les notes privées des écrits (retirées du .docx comme à tout export).
 import { cleanChapters } from '../video/video';
 import JSZip from 'jszip';
+import { ZipTooBigError } from '../../lib/zipLimits';
 import { host } from '../../lib/platform';
 import { useStore, type State } from '../../lib/store';
 import type {
@@ -840,8 +841,8 @@ export async function openSharePackage(bytes: Uint8Array | ArrayBuffer): Promise
   let dataBytes: Uint8Array;
   try {
     dataBytes = await dataFile.async('uint8array');
-  } catch {
-    throw ERR.damaged();
+  } catch (e) {
+    throw e instanceof ZipTooBigError ? ERR.tooBig() : ERR.damaged();
   }
   if (dataBytes.byteLength > MAX_DATA_BYTES) throw ERR.tooBig();
   if ((await sha256Hex(dataBytes)) !== manifest.integrity.data) throw ERR.damaged();
@@ -856,15 +857,19 @@ export async function openSharePackage(bytes: Uint8Array | ArrayBuffer): Promise
   // Fichiers joints : exactement ceux du manifeste, chacun avec son empreinte, chacun rattaché à un livre joint ou à un écrit.
   const listed = new Set(Object.keys(manifest.integrity.files));
   const files = new Map<string, Uint8Array>();
+  // Total réellement décompressé (les tailles annoncées par l'archive peuvent mentir).
+  let inflated = dataBytes.byteLength;
   for (const e of entries) {
     if (e.dir || !e.name.startsWith('files/')) continue;
     if (!listed.has(e.name)) throw ERR.damaged();
     let b: Uint8Array;
     try {
       b = await e.async('uint8array');
-    } catch {
-      throw ERR.damaged();
+    } catch (err) {
+      throw err instanceof ZipTooBigError ? ERR.tooBig() : ERR.damaged();
     }
+    inflated += b.byteLength;
+    if (inflated > MAX_UNPACKED_BYTES) throw ERR.tooBig();
     if ((await sha256Hex(b)) !== manifest.integrity.files[e.name]) throw ERR.damaged();
     files.set(e.name, b);
   }

@@ -57,6 +57,16 @@ function isLocalAddress(addr) {
   return a === '::1' || /^f[cd][0-9a-f]{2}:/.test(a) || /^fe[89ab][0-9a-f]:/.test(a);
 }
 
+/**
+ * En-tête Host admis par les serveurs locaux : une adresse IP littérale (IPv4, ou IPv6 entre crochets),
+ * avec port facultatif. Un nom de domaine signale une page web qui se fait passer pour le réseau
+ * local (« DNS rebinding ») : refusé.
+ */
+function hostHeaderOk(host) {
+  const h = String(host || '').toLowerCase();
+  return /^(\d{1,3}\.){3}\d{1,3}(:\d{1,5})?$/.test(h) || /^\[[0-9a-f:.%a-z]+\](:\d{1,5})?$/.test(h);
+}
+
 // Interfaces virtuelles (machines virtuelles, conteneurs, VPN, AirDrop) : jamais proposées.
 const VIRTUAL_IFACE = /^(vEthernet|VirtualBox|VMware|vmnet|vboxnet|docker|br-|veth|virbr|utun|tun|tap|awdl|llw|bridge|ham|zt|tailscale|wg)/i;
 // Interfaces habituelles du Wi-Fi ou de l'Ethernet : proposées en premier.
@@ -399,7 +409,7 @@ function createReceiver(o) {
   function handler(req, res) {
     if (!s) return send(res, 503, 'Fermé.');
     // Réseau local uniquement.
-    if (!isLocalAddress(req.socket.remoteAddress)) {
+    if (!isLocalAddress(req.socket.remoteAddress) || !hostHeaderOk(req.headers.host)) {
       req.resume();
       return send(res, 403, 'Interdit.');
     }
@@ -613,7 +623,7 @@ function createSender(o) {
 
   function handler(req, res) {
     if (!s) return text(res, 503, 'Fermé.');
-    if (!isLocalAddress(req.socket.remoteAddress)) {
+    if (!isLocalAddress(req.socket.remoteAddress) || !hostHeaderOk(req.headers.host)) {
       req.resume();
       return text(res, 403, 'Interdit.');
     }
@@ -743,4 +753,4 @@ function createSender(o) {
   return { start, stop, info, isOpen: () => !!s };
 }
 
-module.exports = { createReceiver, createSender, isLocalAddress, lanAddresses, cleanName, ACCEPT_EXT };
+module.exports = { createReceiver, createSender, isLocalAddress, hostHeaderOk, lanAddresses, cleanName, ACCEPT_EXT };

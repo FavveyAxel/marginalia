@@ -31,8 +31,11 @@
 //  3. Ouverture. POST /open { id, n } → { hs, challenge, eph, hint } : défi aléatoire de 32 octets, clé
 //     publique X25519 éphémère de l'émetteur, et un indice de 4 bits (HMAC(clé d'indice, n)). L'indice
 //     sert à ne pas présenter de preuve à un AUTRE envoi du même réseau (sinon un destinataire
-//     consommerait les essais d'un voisin) ; il ne fait gagner que 4 bits à qui a déjà payé les 10^6
-//     scrypt (62 500 codes restent possibles pour 5 essais).
+//     consommerait les essais d'un voisin). Depuis la 3.57, le destinataire envoie le « n » canonique
+//     de l'envoi (canonicalN) : l'indice est fixe et ne livre que 4 bits en tout à qui a déjà payé les
+//     10^6 scrypt. Chaque autre « n » livrerait 4 bits de plus (oracle hors ligne) : 3 au plus par
+//     envoi (anciens destinataires), puis l'envoi est fermé comme après 5 preuves fausses.
+//     Les requêtes dont l'en-tête Host n'est pas une adresse IP sont refusées (DNS rebinding).
 //  4. Preuve. POST /prove { hs, eph, proof, dev } : clé X25519 éphémère du destinataire,
 //     proof = HMAC(clé de preuve, transcription : id, sel, défi, deux clés publiques), nom d'appareil
 //     chiffré. Comparaison à temps constant ; 5 preuves fausses ferment la session. Preuve juste : la
@@ -75,7 +78,7 @@ const http = require('node:http');
 const dgram = require('node:dgram');
 const os = require('node:os');
 const crypto = require('node:crypto');
-const { isLocalAddress, lanAddresses } = require('./wifi.cjs');
+const { isLocalAddress, lanAddresses, hostHeaderOk } = require('./wifi.cjs');
 
 const HTTP_PORT = 47802;
 const UDP_PORT = 47803;
@@ -160,6 +163,13 @@ function codeKeys(code, salt, cost = SCRYPT) {
   });
 }
 const hintOf = (keys, id, n) => hmac(keys.hint, 'hint', id, n)[0] & 0x0f;
+// Valeur « n » canonique de l'envoi (depuis la 3.57) : l'indice est alors toujours le même pour un envoi
+// et ne livre que 4 bits en tout. Un autre « n » (destinataire d'avant la 3.57) reste accepté, mais
+// chacun livrerait 4 bits de plus : leur nombre est limité (OPEN_FREE_N), au-delà l'envoi est fermé.
+const canonicalN = (id) => crypto.createHash('sha256').update('mg-share v1 n').update(id).digest().subarray(0, 16);
+const OPEN_FREE_N = 3;
+// Offres de découverte retenues (chacune coûte un scrypt de 128 Mo au destinataire).
+const MAX_OFFERS = 8;
 
 function x25519() {
   const { publicKey, privateKey } = crypto.generateKeyPairSync('x25519');
@@ -370,6 +380,17 @@ function createShareSender(o) {
     const q = await readJson(req);
     const n = unb64(q && q.n, 16);
     if (!q || q.id !== b64(cur.id) || !n) return json(res, 400, { error: 'request' });
+    if (!n.equals(canonicalN(cur.id))) {
+      const k = b64(n);
+      if (!cur.freeN.has(k)) {
+        if (cur.freeN.size >= OPEN_FREE_N) {
+          json(res, 429, { error: 'tries' });
+          if (cur.state === 'open') end(cur, 'tries');
+          return;
+        }
+        cur.freeN.add(k);
+      }
+    }
     const hint = hintOf(cur.keys, cur.id, n);
     if (cur.state !== 'open' || cur.expiredPending) return json(res, 200, { state: cur.state !== 'open' ? cur.state : 'expired', hint });
     // Poignées de main en attente : 32 au plus, 60 secondes chacune.
@@ -508,7 +529,7 @@ function createShareSender(o) {
     const cur = s;
     if (!cur) return json(res, 503, { error: 'closed' });
     // Réseau local, ou flux iroh (Internet, pair à pair).
-    if (!req.socket.mgInternet && !isLocal(req.socket.remoteAddress)) {
+    if (!req.socket.mgInternet && (!isLocal(req.socket.remoteAddress) || !hostHeaderOk(req.headers.host))) {
       req.resume();
       return json(res, 403, { error: 'not-local' });
     }
@@ -601,6 +622,7 @@ function createShareSender(o) {
       meta: cleanMeta,
       expiresAt: Date.now() + ttlMs,
       tries: 0,
+      freeN: new Set(),
       state: 'open',
       server,
       sockets,
@@ -823,7 +845,11 @@ function createShareReceiver(o = {}) {
         const id = unb64(r && r.id, 12);
         const salt = unb64(r && r.salt, 16);
         if (!r || r.mg !== 'share!' || r.v !== 1 || !id || !salt || !Number.isInteger(r.port) || r.port <= 0 || r.port > 65535) return;
-        found.set(`${rinfo.address}|${r.id}`, { address: rinfo.address, port: r.port, id, salt });
+        const key = `${rinfo.address}|${r.id}`;
+        if (found.has(key)) return;
+        // Quelques offres au plus, une seule par adresse : chaque offre coûte un scrypt de 128 Mo.
+        if (found.size >= MAX_OFFERS || [...found.values()].some((f) => f.address === rinfo.address)) return;
+        found.set(key, { address: rinfo.address, port: r.port, id, salt });
       });
       sock.bind(0, () => {
         try {
@@ -885,10 +911,17 @@ function createShareReceiver(o = {}) {
     if (gen !== generation) throw shareError('cancelled', MSG.cancelled);
     if (!offers.length) throw shareError('not-found', viaInternet ? MSG.notFoundAnywhere : MSG.notFound);
 
+    offers = offers.slice(0, MAX_OFFERS);
+    // Une dérivation scrypt à la fois (128 Mo chacune) : pas de rafale qui sature la mémoire.
     const keyCache = new Map();
+    let keyChain = Promise.resolve();
     const keysFor = (salt) => {
       const k = b64(salt);
-      if (!keyCache.has(k)) keyCache.set(k, codeKeys(code, salt, o.scrypt || SCRYPT));
+      if (!keyCache.has(k)) {
+        const p = keyChain.then(() => codeKeys(code, salt, o.scrypt || SCRYPT));
+        keyChain = p.catch(() => {});
+        keyCache.set(k, p);
+      }
       return keyCache.get(k);
     };
     // Ouverture auprès de chaque offre ; l'indice écarte les envois d'autres personnes sans y user d'essai.
@@ -896,7 +929,7 @@ function createShareReceiver(o = {}) {
       offers.map(async (of) => {
         try {
           const keys = await keysFor(of.salt);
-          const n = crypto.randomBytes(16);
+          const n = canonicalN(of.id);
           const r = await call('POST', of, 'open', { body: { id: b64(of.id), n: b64(n) } });
           if (r.status === 423) return { of, error: shareError('locked', MSG.locked) };
           if (r.status !== 200 || !r.json) return null;
@@ -1159,5 +1192,5 @@ module.exports = {
   SCRYPT,
   MSG,
   // Briques de la poignée de main, reprises telles quelles par le travail à plusieurs (collab-net.cjs).
-  handshake: { b64, unb64, hkdf, hmac, u32, u64, transcript, codeKeys, hintOf, x25519, x25519Shared, sessionKeys, seal, unseal, cleanDevice, hostName, json, readJson },
+  handshake: { b64, unb64, hkdf, hmac, u32, u64, transcript, codeKeys, hintOf, canonicalN, x25519, x25519Shared, sessionKeys, seal, unseal, cleanDevice, hostName, json, readJson },
 };

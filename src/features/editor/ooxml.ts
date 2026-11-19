@@ -389,8 +389,21 @@ export function addMissingStyles(stylesXml: string, docXml: string): string {
 
 /** Largeur du texte (twips) d'après le dernier sectPr du corps. */
 export function textWidth(docXml: string): number | null {
-  const all = docXml.match(/<w:sectPr\b[\s\S]*?<\/w:sectPr>/g);
-  const s = all?.[all.length - 1];
+  // Dernier sectPr, trouvé par indexOf (même découpage que /<w:sectPr\b[\s\S]*?<\/w:sectPr>/g, mais
+  // en temps linéaire : pas d'expression à retour arrière sur un document reçu).
+  let s: string | undefined;
+  for (let pos = 0; ; ) {
+    const i = docXml.indexOf('<w:sectPr', pos);
+    if (i < 0) break;
+    if (/\w/.test(docXml.charAt(i + 9))) {
+      pos = i + 9;
+      continue;
+    }
+    const j = docXml.indexOf('</w:sectPr>', i);
+    if (j < 0) break;
+    s = docXml.slice(i, j + 11);
+    pos = j + 11;
+  }
   if (!s) return null;
   const w = Number(/<w:pgSz\b[^>]*\sw:w="(\d+)"/.exec(s)?.[1]);
   const l = Number(/<w:pgMar\b[^>]*\sw:left="(-?\d+)"/.exec(s)?.[1] ?? 0);

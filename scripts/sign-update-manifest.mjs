@@ -65,7 +65,15 @@ for (const [k, name] of Object.entries(FILES)) {
   const buf = fs.readFileSync(f);
   files[k] = { name, sha256: crypto.createHash('sha256').update(buf).digest('hex'), size: buf.length };
 }
-const manifest = Buffer.from(JSON.stringify({ version, files }, null, 2) + '\n', 'utf8');
+// Version minimale de macOS (package.json › build.mac.minimumSystemVersion) : les versions installées
+// sur un macOS plus ancien ne s'installent pas cette mise à jour (elle ne s'y lancerait pas).
+let minMacOS = null;
+try {
+  const pkg = JSON.parse(fs.readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
+  const v = pkg.build && pkg.build.mac && pkg.build.mac.minimumSystemVersion;
+  if (typeof v === 'string' && /^\d+(\.\d+){0,2}$/.test(v)) minMacOS = v;
+} catch {}
+const manifest = Buffer.from(JSON.stringify(minMacOS ? { version, minMacOS, files } : { version, files }, null, 2) + '\n', 'utf8');
 const sig = crypto.sign(null, manifest, key).toString('base64');
 // Contrôle : la signature se vérifie avec la clé publique.
 if (!crypto.verify(null, manifest, crypto.createPublicKey(pub), Buffer.from(sig, 'base64'))) {

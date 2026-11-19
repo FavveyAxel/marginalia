@@ -1,3 +1,5 @@
+// En premier : limite de décompression des archives (EPUB, DOCX, paquets) avant tout autre module.
+import './lib/zipLimits';
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import './styles/tokens.css';

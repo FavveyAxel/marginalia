@@ -51,6 +51,10 @@ const APPLE_BOOKS = IS_MAC || process.env.MARGINALIA_APPLE_BOOKS === '1';
 const TITLEBAR_H = 52;
 
 app.setName('Marginalia');
+// Confidentialité : WebRTC n'ouvre aucune connexion UDP directe (STUN/TURN échappent au filtre des
+// requêtes), et pas de préchargement DNS des liens d'un document.
+app.commandLine.appendSwitch('force-webrtc-ip-handling-policy', 'disable_non_proxied_udp');
+app.commandLine.appendSwitch('disable-features', 'DnsPrefetch,NetworkPrediction,Prerender2');
 if (IS_WIN) app.setAppUserModelId('com.axelbierne.marginalia');
 
 protocol.registerSchemesAsPrivileged([
@@ -1313,7 +1317,27 @@ const securityOps = {
   async setOptions(o) {
     requireUnlocked();
     if (!sec.ks || !sec.ks.lock.enabled) throw new Error('Le verrouillage n’est pas activé.');
-    if (o.autoLockMinutes !== undefined) sec.ks.lock.autoLockMinutes = validDelay(o.autoLockMinutes, sec.ks.lock.autoLockMinutes);
+    // Assouplir le verrouillage (délai plus long ou supprimé, plus de verrouillage à la veille, Touch ID)
+    // se confirme dans une fenêtre du système : une page piégée ne peut pas le faire en silence.
+    const cur = sec.ks.lock;
+    const delay = o.autoLockMinutes !== undefined ? validDelay(o.autoLockMinutes, cur.autoLockMinutes) : cur.autoLockMinutes;
+    const weaker =
+      (o.autoLockMinutes !== undefined && cur.autoLockMinutes > 0 && (delay === 0 || delay > cur.autoLockMinutes)) ||
+      (o.lockOnSleep !== undefined && !o.lockOnSleep && cur.lockOnSleep) ||
+      (o.touchId !== undefined && !!o.touchId && !cur.touchId);
+    if (weaker && !(E2E && process.env.MARGINALIA_E2E_SKIP_CONFIRM === '1')) {
+      const r = await dialog.showMessageBox(parentWindow(), {
+        type: 'warning',
+        message: 'Assouplir le verrouillage de Marginalia ?',
+        detail: 'Ce réglage rend le verrouillage moins strict. Confirmez seulement si vous venez de le changer vous-même.',
+        buttons: ['Confirmer', 'Annuler'],
+        defaultId: 1,
+        cancelId: 1,
+        noLink: true,
+      });
+      if (r.response !== 0) return fail('Changement annulé.');
+    }
+    if (o.autoLockMinutes !== undefined) sec.ks.lock.autoLockMinutes = delay;
     if (o.lockOnSleep !== undefined) sec.ks.lock.lockOnSleep = !!o.lockOnSleep;
     if (o.touchId !== undefined) {
       if (o.touchId) {
@@ -2444,6 +2468,11 @@ async function evaluateAutoUpdate(r, latest, current) {
     diag('maj', 'manifeste refusé', v.code);
     return { ok: false, reason: v.reason };
   }
+  if (updatePlatform() === 'darwin' && v.manifest.minMacOS) {
+    const osv = String((E2E && process.env.MARGINALIA_E2E_MACOS_VERSION) || (process.getSystemVersion ? process.getSystemVersion() : '') || '');
+    if (/^\d+(\.\d+)*$/.test(osv) && compareVersions(osv, v.manifest.minMacOS) < 0)
+      return { ok: false, reason: `Cette version demande macOS ${v.manifest.minMacOS} ou plus récent.` };
+  }
   const key = updater.platformKey(updatePlatform(), updateArch(), !(E2E && process.env.MARGINALIA_E2E_UPDATE_PLATFORM) && app.runningUnderARM64Translation);
   const f = updater.selectFile(v.manifest, key);
   const fUrl = f && url(f.name);
@@ -2739,9 +2768,13 @@ const hostOf = (u) => {
 function videoRequestAllowed(details) {
   if (!videoOnline || (E2E && !videoTestBase)) return false;
   if (!/^(https|wss):/i.test(details.url)) return false;
+  if (details.resourceType === 'mainFrame') return false;
   if (details.resourceType === 'subFrame' && VIDEO_EMBED_HOSTS.has(hostOf(details.url))) return true;
   // Requête faite par le lecteur (ou un cadre qu'il contient) : jamais par la page de l'app.
+  // Navigation d'un cadre : c'est son PARENT qui compte (le cadre affiche encore son ancienne adresse,
+  // celle du lecteur : sinon la page de l'app pourrait l'envoyer vers n'importe quel site).
   let f = details.frame || null;
+  if (details.resourceType === 'subFrame') f = f && f.parent;
   try {
     while (f && f.parent) {
       if (VIDEO_EMBED_HOSTS.has(hostOf(f.url))) return true;
@@ -2975,8 +3008,10 @@ function withPrintCsp(html) {
  * page, mêmes marges). `offscreen` pour le PDF ; une vraie fenêtre (cachée) pour le dialogue d'impression.
  */
 async function withPrintWindow(html, { offscreen }, fn) {
-  const tmpFile = path.join(os.tmpdir(), `marginalia-print-${crypto.randomBytes(8).toString('hex')}.html`);
-  await fsp.writeFile(tmpFile, withPrintCsp(html), 'utf8');
+  // Dossier privé (0700) et fichier lisible par le seul utilisateur : le dossier temporaire est partagé.
+  const tmpDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'marginalia-print-'));
+  const tmpFile = path.join(tmpDir, 'document.html');
+  await fsp.writeFile(tmpFile, withPrintCsp(html), { encoding: 'utf8', mode: 0o600 });
   const partition = `print-${crypto.randomBytes(6).toString('hex')}`; // session éphémère (en mémoire)
   const ses = session.fromPartition(partition);
   const fileUrl = pathToFileURL(tmpFile).toString();
@@ -3013,7 +3048,7 @@ async function withPrintWindow(html, { offscreen }, fn) {
     return await fn(win, fullBleed);
   } finally {
     if (!win.isDestroyed()) win.destroy();
-    fsp.rm(tmpFile, { force: true }).catch(() => {});
+    fsp.rm(tmpDir, { recursive: true, force: true }).catch(() => {});
     ses.clearStorageData().catch(() => {});
   }
 }
@@ -3102,8 +3137,35 @@ app.on('second-instance', (_e, argv) => {
 });
 
 // ── Fenêtre ──────────────────────────────────────────────────
-function isExternal(url) {
-  return /^(https?|mailto):/i.test(url);
+/**
+ * Adresse à confier au navigateur ou à la messagerie, nettoyée ; null si refusée. Seuls http(s) et
+ * mailto passent. Pour mailto, seuls to, cc, bcc, subject et body sont gardés : certains logiciels de
+ * messagerie joignent un fichier local demandé par « attach= » (lien piégé dans un document).
+ */
+function safeExternalUrl(url) {
+  let u;
+  try {
+    u = new URL(String(url || ''));
+  } catch {
+    return null;
+  }
+  if (u.protocol === 'http:' || u.protocol === 'https:') return u.username || u.password ? null : u.toString();
+  if (u.protocol !== 'mailto:') return null;
+  const keep = new URLSearchParams();
+  for (const [k, v] of u.searchParams) if (['to', 'cc', 'bcc', 'subject', 'body'].includes(k.toLowerCase())) keep.append(k.toLowerCase(), v);
+  const q = keep.toString();
+  return `mailto:${u.pathname}${q ? `?${q}` : ''}`;
+}
+// Ouvertures externes : quelques-unes à la suite au plus (une page piégée ne lance pas le navigateur en boucle).
+const externalOpens = [];
+function openExternalSafe(url) {
+  const safe = safeExternalUrl(url);
+  if (!safe) return;
+  const now = Date.now();
+  while (externalOpens.length && now - externalOpens[0] > 10000) externalOpens.shift();
+  if (externalOpens.length >= 5) return diag('lien', 'ouverture externe ignorée (trop rapprochée)');
+  externalOpens.push(now);
+  shell.openExternal(safe).catch(() => {});
 }
 
 // Diagnostic du redimensionnement : chaque changement de taille ou d'état de la fenêtre est consigné
@@ -3283,12 +3345,18 @@ function createWindow() {
   win.webContents.on('will-navigate', (event, url) => {
     if (url === win.webContents.getURL()) return;
     event.preventDefault();
-    if (isExternal(url)) shell.openExternal(url);
+    openExternalSafe(url);
   });
   win.webContents.setWindowOpenHandler(({ url }) => {
-    if (isExternal(url)) shell.openExternal(url);
+    openExternalSafe(url);
     return { action: 'deny' };
   });
+  // Pas d'échappée réseau par WebRTC (STUN/TURN), que le filtre des requêtes ne voit pas.
+  try {
+    win.webContents.setWebRTCIPHandlingPolicy('disable_non_proxied_udp');
+  } catch {
+    /* API absente */
+  }
 
   if (DEV_URL) win.loadURL(DEV_URL);
   // Tests de bout en bout (MARGINALIA_E2E=1) : le rendu expose son store (window.__store).
@@ -3556,9 +3624,9 @@ async function restoreFullBackup() {
     } else {
       await fsp.mkdir(staging, { recursive: true });
       if (SYSTEM_ZIP) {
-        // Outils système : les noms et les liens sont d'abord vérifiés sur la table de l'archive
-        // (sauf ZIP64, que seul l'outil système lit ; l'arbre extrait est de toute façon revérifié).
-        const entries = await zipkit.readZipEntries(src).catch((e) => (/ZIP64/.test(e.message) ? [] : Promise.reject(e)));
+        // Outils système : les noms et les liens sont d'abord vérifiés sur la table de l'archive (ZIP64
+        // compris). Table illisible : archive refusée, jamais extraite sans vérification.
+        const entries = await zipkit.readZipEntries(src);
         for (const en of entries) {
           if (!zipkit.safeEntryName(en.name) || en.isLink) throw new Error(`Archive refusée : chemin interdit (${en.name})`);
         }

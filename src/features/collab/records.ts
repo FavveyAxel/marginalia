@@ -106,6 +106,13 @@ export class RecordSync {
   /** Clés (col:gid) que cet ordinateur garde pour lui (invité : extraits et cartes d'avant la session). */
   privateKeys = new Set<string>();
   base = new Map<string, Snap>();
+  /**
+   * Clés (col:gid) qui ont fait partie de l'espace partagé pendant cette session (instantanés de base,
+   * éléments créés par un message reçu). Un message reçu ne peut modifier ou supprimer un élément existant
+   * ici que s'il est dans le périmètre (ou l'a été) : le reste de la bibliothèque n'est pas atteignable.
+   */
+  private seen = new Set<string>();
+  private scopeCache: { s: State; ids: Map<Col, Set<string>> } | null = null;
   private pending: { rec: Rec; from: string }[] = [];
   private fetching = new Set<string>();
   private applying = 0;
@@ -166,6 +173,51 @@ export class RecordSync {
     this.aliasToGid.set(`${c}:${localId}`, g);
     this.idx.delete(c);
     if (c === 'book') this.idx.delete('map');
+  }
+
+  private setBase(b: Map<string, Snap>) {
+    this.base = b;
+    for (const k of b.keys()) this.seen.add(k);
+  }
+  /** Ids locaux du périmètre, par collection (cartes : leur clé ; espace : son id). */
+  private scopeIds(s: State = useStore.getState()): Map<Col, Set<string>> {
+    if (this.scopeCache?.s === s) return this.scopeCache.ids;
+    const ids = this.idsOf(this.scope(s));
+    this.scopeCache = { s, ids };
+    return ids;
+  }
+  private idsOf(sc: ReturnType<RecordSync['scope']>): Map<Col, Set<string>> {
+    return new Map<Col, Set<string>>([
+      ['ws', new Set([this.o.workspaceId])],
+      ['group', new Set(sc.groups.map((x) => x.id))],
+      ['item', new Set(sc.items.map((x) => x.id))],
+      ['book', new Set(sc.books.map((x) => x.id))],
+      ['draft', new Set(sc.drafts.map((x) => x.id))],
+      ['concept', new Set(sc.concepts.map((x) => x.id))],
+      ['highlight', new Set(sc.highlights.map((x) => x.id))],
+      ['study', new Set(sc.studies.map((x) => x.id))],
+      ['argument', new Set(sc.arguments.map((x) => x.id))],
+      ['plan', new Set(sc.plans.map((x) => x.id))],
+      ['map', new Set(sc.maps)],
+    ]);
+  }
+  /** Élément local (id ; carte : sa clé) dans le périmètre de l'espace partagé, maintenant. */
+  inScope(c: Col, localId: string | null | undefined, s?: State): boolean {
+    if (!localId) return false;
+    return this.scopeIds(s).get(c === 'node' || c === 'edge' ? 'map' : c)?.has(localId) ?? false;
+  }
+  /**
+   * Élément local atteignable par un message reçu (demande de fichier, modification, suppression) : dans le
+   * périmètre maintenant, ou déjà partagé pendant cette session. Jamais le reste de la bibliothèque.
+   */
+  shared(c: Col, g: string, localId: string | null | undefined, s?: State): boolean {
+    if (!localId) return false;
+    return this.seen.has(keyOf(c, g)) || this.inScope(c, localId, s);
+  }
+  /** gid → id local, seulement s'il est atteignable par un message reçu (voir shared). */
+  sharedLocal(c: Col, g: string | null | undefined, s?: State): string | null {
+    const id = this.local(c, g, s);
+    return id && this.shared(c, g!, id, s) ? id : null;
   }
 
   // ── Périmètre : ce qui appartient à l'espace partagé ──
@@ -277,11 +329,16 @@ export class RecordSync {
       children: this.planOut(n.children),
     }));
   }
-  private nodeOut(n: MapNode): Any {
+  private nodeOut(n: MapNode, ids: Map<Col, Set<string>>): Any {
     const out: Any = { ...n, highlightId: this.refOut('highlight', n.highlightId) };
     if (n.conceptId) out.conceptId = this.refOut('concept', n.conceptId);
     if (n.portal) out.portal = this.refOut('map', n.portal);
-    if (n.from) out.from = { mapKey: this.refOut('map', n.from.mapKey), nodeId: n.from.nodeId };
+    // Carte copiée d'une autre carte, carte-document : traduites en gids si elles mènent dans l'espace
+    // partagé ; sinon elles ne partent pas (l'id local d'un élément hors de l'espace n'est jamais livré).
+    if (n.from && ids.get('map')?.has(n.from.mapKey)) out.from = { mapKey: this.refOut('map', n.from.mapKey), nodeId: n.from.nodeId };
+    else delete out.from;
+    if (n.doc && ids.get(n.doc.kind)?.has(n.doc.id)) out.doc = { kind: n.doc.kind, id: this.refOut(n.doc.kind, n.doc.id) };
+    else delete out.doc;
     return out;
   }
   private itemRefCol(kind: WorkspaceItemKind): Col {
@@ -292,6 +349,9 @@ export class RecordSync {
   snapshot(s: State = useStore.getState()): Map<string, Snap> {
     const out = new Map<string, Snap>();
     const sc = this.scope(s);
+    const ids = this.idsOf(sc);
+    this.scopeCache = { s, ids };
+    const inIds = (c: Col, id: string | null | undefined) => !!id && !!ids.get(c)?.has(id);
     const put = (c: Col, id: string, g: string, d: Any) => out.set(keyOf(c, g), { c, g, id, d, json: JSON.stringify(d) });
     const ws = s.workspaces.find((w) => w.id === this.o.workspaceId);
     if (ws) put('ws', ws.id, this.o.shareId, { name: ws.name, tint: ws.tint });
@@ -302,8 +362,9 @@ export class RecordSync {
     for (const c of sc.concepts)
       put('concept', c.id, this.gidLocal('concept', c.id, c), {
         ...pickKeys(c, ['name', 'definition', 'programme', 'createdAt']),
-        senses: c.senses.map((se) => ({ ...se, bookId: this.refOut('book', se.bookId), highlightIds: se.highlightIds.map((h) => this.refOut('highlight', h)) })),
-        links: c.links.map((l) => ({ ...l, conceptId: this.refOut('concept', l.conceptId) })),
+        // Hors de l'espace partagé (livre, extrait, concept lié) : rien ne part (gardé ici, voir applyPut).
+        senses: c.senses.map((se) => ({ ...se, bookId: inIds('book', se.bookId) ? this.refOut('book', se.bookId) : null, highlightIds: se.highlightIds.filter((h) => inIds('highlight', h)).map((h) => this.refOut('highlight', h)) })),
+        links: c.links.filter((l) => inIds('concept', l.conceptId)).map((l) => ({ ...l, conceptId: this.refOut('concept', l.conceptId) })),
       });
     for (const h of sc.highlights)
       put('highlight', h.id, this.gidLocal('highlight', h.id, h), {
@@ -326,7 +387,7 @@ export class RecordSync {
         bookIds: (m.bookIds ?? []).map((b) => this.refOut('book', b)),
         studyId: m.studyId ? this.refOut('study', m.studyId) : undefined,
       });
-      for (const n of m.nodes) put('node', `${k}${SEP}${n.id}`, `${g}${SEP}${n.id}`, this.nodeOut(n));
+      for (const n of m.nodes) put('node', `${k}${SEP}${n.id}`, `${g}${SEP}${n.id}`, this.nodeOut(n, ids));
       for (const e of m.edges) put('edge', `${k}${SEP}${e.id}`, `${g}${SEP}${e.id}`, { ...e });
     }
     return out;
@@ -334,7 +395,7 @@ export class RecordSync {
 
   // ── Démarrage, arrêt, différences locales ──
   start() {
-    this.base = this.snapshot();
+    this.setBase(this.snapshot());
     this.unsub = useStore.subscribe((s, prev) => {
       if (this.stopped || this.applying) return;
       if (s.wsItems === prev.wsItems && s.groups === prev.groups && s.workspaces === prev.workspaces && s.highlights === prev.highlights && s.maps === prev.maps && s.concepts === prev.concepts && s.drafts === prev.drafts && s.plans === prev.plans && s.arguments === prev.arguments && s.studies === prev.studies && s.books === prev.books)
@@ -379,7 +440,7 @@ export class RecordSync {
       if (v.c === 'group') r.mode = (s.trash.find((t) => t.kind === 'group' && t.refId === v.id)?.mode as 'lift' | 'tree') ?? 'lift';
       recs.push(r);
     }
-    this.base = next;
+    this.setBase(next);
     if (recs.length) this.o.send(sortRecs(recs));
   }
   /**
@@ -444,7 +505,7 @@ export class RecordSync {
     } finally {
       this.applying--;
     }
-    this.base = this.snapshot();
+    this.setBase(this.snapshot());
   }
   retryPending() {
     for (let progress = true; progress && this.pending.length; ) {
@@ -462,13 +523,15 @@ export class RecordSync {
     } finally {
       this.applying--;
     }
-    this.base = this.snapshot();
+    this.setBase(this.snapshot());
   }
 
   private applyOne(rec: Rec, from: string): boolean {
     const k = keyOf(rec.c, rec.g);
     if (!ORDER.includes(rec.c) || !isStr(rec.g) || !Array.isArray(rec.tag)) return true;
     if (!newer(rec.tag, this.tags.get(k))) return true;
+    // Élément existant ici mais hors de l'espace partagé : aucun message reçu ne le modifie ni ne le supprime.
+    if (!this.reachable(rec)) return true;
     const st = rec.del ? this.applyDel(rec, from) : this.applyPut(rec, from);
     if (st === 'wait') {
       if (!this.pending.some((p) => p.rec === rec)) this.pending.push({ rec, from });
@@ -476,7 +539,23 @@ export class RecordSync {
     }
     this.tags.set(k, rec.tag);
     this.mtimes.set(k, Date.now());
+    // Créé (ou modifié) par ce message : il fait désormais partie de la session.
+    if (!rec.del && rec.c !== 'node' && rec.c !== 'edge' && this.local(rec.c, rec.g)) this.seen.add(k);
     return true;
+  }
+
+  /** Message reçu : l'élément qu'il vise (s'il existe ici) est-il atteignable (voir shared) ? */
+  private reachable(rec: Rec): boolean {
+    if (rec.c === 'ws') return true; // toujours l'espace partagé lui-même (this.o.workspaceId)
+    if (rec.c === 'node' || rec.c === 'edge') {
+      const at = rec.g.lastIndexOf(SEP);
+      if (at <= 0) return true;
+      const mapG = rec.g.slice(0, at);
+      const key = this.local('map', mapG);
+      return !key || this.shared('map', mapG, key);
+    }
+    const cur = this.local(rec.c, rec.g);
+    return !cur || this.shared(rec.c, rec.g, cur);
   }
 
   /** gid → id local ; `need` reçoit ce qui manque. */
@@ -575,6 +654,17 @@ export class RecordSync {
         const links = (Array.isArray(d.links) ? d.links : []).map((l: Any) => ({ ...l, conceptId: this.local('concept', l.conceptId) })).filter((l: Any) => l.conceptId) as Concept['links'];
         const base = { name: String(d.name ?? 'Concept').slice(0, 300), definition: String(d.definition ?? ''), programme: d.programme === 'notion' || d.programme === 'repere' ? d.programme : null, senses, links, updatedAt: Date.now() };
         const cur = this.local('concept', rec.g);
+        const old = cur ? s.concepts.find((x) => x.id === cur) : null;
+        if (old) {
+          // Ce qui mène hors de l'espace partagé n'est pas parti (snapshot) : on le garde tel quel ici.
+          for (const se of senses) {
+            const o = old.senses.find((x) => x.id === se.id);
+            if (!o) continue;
+            if (!se.bookId && o.bookId && !this.inScope('book', o.bookId)) se.bookId = o.bookId;
+            for (const h of o.highlightIds) if (!this.inScope('highlight', h) && !se.highlightIds.includes(h)) se.highlightIds.push(h);
+          }
+          for (const l of old.links) if (!this.inScope('concept', l.conceptId) && !links.some((x) => x.conceptId === l.conceptId)) links.push(l);
+        }
         if (cur) set({ concepts: s.concepts.map((x) => (x.id === cur ? { ...x, ...base } : x)) });
         else {
           const id = newId('concept', rec.g, (x) => s.concepts.some((y) => y.id === x));
@@ -741,9 +831,16 @@ export class RecordSync {
           const portal = d.portal ? this.local('map', d.portal as string) : null;
           if (portal) node.portal = portal;
           else delete node.portal;
+          const prevNode = s.maps[key!]?.nodes.find((n) => n.id === subId);
           const fromKey = d.from && typeof d.from === 'object' ? this.local('map', (d.from as Any).mapKey) : null;
           if (fromKey) node.from = { mapKey: fromKey, nodeId: String((d.from as Any).nodeId ?? '') };
+          else if (!d.from && prevNode?.from && !this.inScope('map', prevNode.from.mapKey)) node.from = prevNode.from; // hors de l'espace : gardé ici
           else delete node.from;
+          // Carte-document : gid → id local (une ancienne version envoie l'id de l'expéditeur : gardé tel quel).
+          const doc = d.doc as Any;
+          if (doc && typeof doc === 'object' && (doc.kind === 'draft' || doc.kind === 'book' || doc.kind === 'plan') && isStr(doc.id)) node.doc = { kind: doc.kind, id: this.local(doc.kind, doc.id) ?? doc.id };
+          else if (!doc && prevNode?.doc && !this.inScope(prevNode.doc.kind, prevNode.doc.id)) node.doc = prevNode.doc; // hors de l'espace : gardé ici
+          else delete node.doc;
           if (node.color !== undefined && !(typeof node.color === 'string' && SAFE_COLOR.test(node.color))) delete node.color;
           if (node.kind !== undefined && node.kind !== 'question' && node.kind !== 'subject') delete node.kind;
           const exists = m.nodes.some((n) => n.id === subId);

@@ -113,9 +113,24 @@ function permitted(perm, bytes) {
   return null;
 }
 
+// Messages que seul l'hôte envoie (src/features/collab/session.ts) : jamais relayés depuis un invité.
+const HOST_ONLY = new Set(['books', 'state', 'rooms', 'room-ok', 'resync-reply', 'stopping', 'docx-busy']);
+/** Type (enveloppe) d'un message de l'application, ou null s'il est illisible. */
+function typeOf(bytes) {
+  try {
+    const n = bytes.readUInt32BE(0);
+    if (n > bytes.length - 4 || n > 64 * 1024 * 1024) return null;
+    const head = JSON.parse(bytes.subarray(4, 4 + n).toString('utf8'));
+    return head && typeof head.t === 'string' ? head.t : null;
+  } catch {
+    return null;
+  }
+}
+
 /** Nombre de places choisi par l'hôte (2 à 6, hôte compris). */
 const clampPeople = (n) => Math.min(MAX_PEOPLE, Math.max(MIN_PEOPLE, Math.round(Number(n)) || MAX_PEOPLE));
 const MAX_TRIES = 5;
+const OPEN_FREE_N = 3; // « n » non canoniques acceptés par code (invités d'avant la 3.57, voir onOpen)
 const RETRY_WAIT_MS = 10 * 1000; // après un code faux ou introuvable : 10 s avant d'en essayer un autre
 const REQUEST_TTL_MS = 2 * 60 * 1000;
 const AWAY_GRACE_MS = 10 * 60 * 1000; // un invité coupé garde sa place 10 minutes
@@ -125,6 +140,7 @@ const DEAD_MS = 15000;
 const FRAME = 1024 * 1024;
 const PAD = 256;
 const MAX_MESSAGE = 1024 * 1024 * 1024; // 1 Go : de l'hôte vers un invité (paquet initial avec les livres)
+const MAX_BACKLOG = 64 * 1024 * 1024; // 64 Mo en attente d'envoi vers un pair (en plus d'un gros message), voir send
 const MAX_GUEST_MESSAGE = 256 * 1024 * 1024; // 256 Mo : d'un invité vers l'hôte (un livre ajouté), gardé en mémoire puis relayé
 const COLORS = ['#c2410c', '#1d4ed8', '#15803d', '#7e22ce', '#be123c', '#0f766e', '#a16207', '#4338ca'];
 
@@ -194,6 +210,7 @@ function makeChannel(sock, keys, role, h, head0) {
   let closed = false;
   let lastSeen = Date.now();
   let lastSent = Date.now();
+  let allowance = 0; // taille du plus gros message encore en attente d'envoi (voir send)
   sock.setNoDelay(true);
   sock.setKeepAlive(true, 5000);
   sock.setTimeout(0);
@@ -228,6 +245,17 @@ function makeChannel(sock, keys, role, h, head0) {
     const hl = Buffer.alloc(4);
     hl.writeUInt32BE(hj.length);
     const all = Buffer.concat([hl, hj, b]);
+    // Contre-pression : un pair qui ne lit plus ferait grossir sans fin ce qui attend d'être envoyé.
+    // Un gros message (paquet initial, livre) peut dépasser MAX_BACKLOG à lui seul : il est permis
+    // (« allowance »), mais ce qui attend encore ne doit pas dépasser MAX_BACKLOG + ce gros message ;
+    // au-delà, le canal est fermé (« slow » ; l'invité peut se reconnecter et resynchroniser).
+    const backlog = sock.writableLength;
+    if (backlog < MAX_BACKLOG) allowance = 0;
+    else if (backlog > MAX_BACKLOG + allowance) {
+      close('slow');
+      return false;
+    }
+    allowance = Math.max(allowance, all.length);
     for (let off = 0; off < all.length || off === 0; off += FRAME) {
       const end = Math.min(off + FRAME, all.length);
       writeFrame(end < all.length, all.subarray(off, end));
@@ -385,6 +413,23 @@ function createCollabHost(o) {
     const q = await H.readJson(req);
     const n = H.unb64(q && q.n, 16);
     if (!q || q.id !== H.b64(cur.id) || !n) return H.json(res, 400, { error: 'request' });
+    // Même règle que le partage par code (share-net.cjs) : les invités récents envoient le « n » canonique
+    // (indice toujours le même pour un code : 4 bits en tout). Un autre « n » (invité d'avant) reste
+    // accepté, mais chacun livrerait 4 bits de plus sur le code : OPEN_FREE_N au plus, puis code fermé.
+    if (!n.equals(H.canonicalN(cur.id))) {
+      const k = H.b64(n);
+      if (!cur.freeN.has(k)) {
+        if (cur.freeN.size >= OPEN_FREE_N) {
+          if (cur.codeState === 'open') {
+            cur.codeState = 'tries';
+            diag('collab', 'trop de « n » différents : code fermé');
+            o.emit({ type: 'code-closed', reason: 'tries' });
+          }
+          return H.json(res, 429, { error: 'tries' });
+        }
+        cur.freeN.add(k);
+      }
+    }
     const hint = H.hintOf(cur.keys, cur.id, n);
     if (cur.codeState !== 'open') return H.json(res, 200, { state: cur.codeState, hint });
     const now = Date.now();
@@ -516,11 +561,44 @@ function createCollabHost(o) {
     const auth = H.unb64(String(req.headers['x-mg-auth'] || ''), 32);
     if (!r) return rawReply(sock, 404, { error: 'ticket' });
     if (!auth || !crypto.timingSafeEqual(auth, H.hmac(r.k.mac, 'link', Buffer.from(hs)))) return rawReply(sock, 403, { error: 'auth' });
-    const verdict = r.state === 'pending' ? await new Promise((resolve) => r.waiters.push(resolve)) : r.state;
+    // Une demande ne donne qu'UN canal : x-mg-auth est fixe pour une demande ; une requête « /link »
+    // copiée sur le réseau et rejouée sur une autre connexion donnerait sinon deux membres avec les mêmes
+    // clés et des compteurs à 0 (nonces AES-GCM réutilisés). Si la connexion tombe avant la décision,
+    // la demande est close (l'invité ne relance pas « /link » : il refait une demande avec le code).
+    if (r.linking) return rawReply(sock, 409, { error: 'ticket' });
+    r.linking = true;
+    let verdict = r.state;
+    if (r.state === 'pending') {
+      verdict = await new Promise((resolve) => {
+        const onGone = () => {
+          const i = r.waiters.indexOf(waiter);
+          if (i >= 0) r.waiters.splice(i, 1);
+          if (s === cur && r.state === 'pending') {
+            closeRequest(cur, r, 'closed');
+            o.emit({ type: 'request-closed', reqId: r.id, reason: 'closed' });
+          }
+          resolve(null);
+        };
+        const waiter = (v) => {
+          sock.off('close', onGone);
+          resolve(v);
+        };
+        r.waiters.push(waiter);
+        sock.once('close', onGone);
+      });
+      if (verdict === null) return; // connexion fermée pendant l'attente
+    }
     if (s !== cur) return rawReply(sock, 410, { error: 'closed' });
     if (verdict !== 'accepted') {
       const codeOf = { rejected: 403, 'no-answer': 408, full: 409, closed: 410 };
       return rawReply(sock, codeOf[verdict] || 410, { error: verdict });
+    }
+    // Encore là après la décision : la demande n'a pas déjà servi, et la connexion est toujours ouverte.
+    if (cur.requests.get(r.id) !== r) return rawReply(sock, 409, { error: 'ticket' });
+    if (sock.destroyed) {
+      cur.requests.delete(r.id);
+      clearTimeout(r.timer);
+      return;
     }
     cur.requests.delete(r.id);
     clearTimeout(r.timer);
@@ -575,6 +653,7 @@ function createCollabHost(o) {
   /** Aiguillage : `to` = 'all' (tous sauf l'expéditeur), 'h' (l'hôte) ou l'id d'un invité. */
   function route(cur, from, to, body) {
     if (from !== 'h') {
+      if (HOST_ONLY.has(typeOf(body))) return;
       body = permitted(cur.perm, body);
       if (!body) return;
     }
@@ -697,6 +776,7 @@ function createCollabHost(o) {
       keys,
       codeState: 'open',
       tries: 0,
+      freeN: new Set(), // « n » non canoniques déjà vus pour ce code
       max: clampPeople(maxPeople ?? MAX_PEOPLE),
       perm: cleanPerm(perm),
       meta: cleanMeta,
@@ -778,6 +858,7 @@ function createCollabHost(o) {
     cur.keys = keys;
     cur.id = crypto.randomBytes(12);
     cur.tries = 0;
+    cur.freeN = new Set();
     cur.codeState = 'open';
     cur.handshakes.clear();
     cur.waits.clear();
@@ -1147,7 +1228,7 @@ function createCollabGuest(o) {
       offers.map(async (of) => {
         try {
           const keys = await keysFor(of.salt);
-          const n = crypto.randomBytes(16);
+          const n = H.canonicalN(of.id); // « n » canonique : l'indice ne livre que 4 bits par code
           const r = await call('POST', of, 'open', { body: { id: H.b64(of.id), n: H.b64(n) } });
           if (r.status === 423) return { of, error: err('locked', MSG.locked) };
           if (r.status !== 200 || !r.json) return null;

@@ -21,6 +21,16 @@ export interface NewsEntry {
 
 export const NEWS: NewsEntry[] = [
   {
+    version: '3.57',
+    items: [
+      {
+        icon: 'lock',
+        title: 'Mise à jour de sécurité',
+        text: 'Un audit complet a corrigé plusieurs failles : moteur de l’app à jour (Electron 45), sauvegardes et fichiers piégés refusés, partage par code et collaboration renforcés, liens des documents nettoyés. Marginalia demande désormais macOS 12 ou plus récent.',
+      },
+    ],
+  },
+  {
     version: '3.56',
     items: [
       {

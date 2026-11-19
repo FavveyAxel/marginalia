@@ -193,7 +193,8 @@ function makeRooms(role: 'host' | 'guest'): Rooms {
     send,
     user: () => S!.profile,
     hostName: () => S?.hostName ?? 'l’hôte',
-    draftLocal: (g) => S?.records?.local('draft', g) ?? null,
+    // Écrit reçu (.docx) : seulement un écrit de l'espace partagé, jamais le reste de la bibliothèque.
+    draftLocal: (g) => S?.records?.sharedLocal('draft', g) ?? null,
     draftGid: (id) => {
       const d = useStore.getState().drafts.find((x) => x.id === id);
       return d?.shareOrigin?.srcId ?? id;
@@ -495,7 +496,10 @@ async function onFetch(from: string, head: Head) {
   const c = head.c === 'draft' ? 'draft' : head.c === 'book' ? 'book' : null;
   const g = String(head.g ?? '');
   if (!s?.records || !c || !g) return;
-  const id = s.records.local(c, g);
+  // Seulement ce qui fait partie de l'espace partagé (records.ts, shared) : un livre ou un écrit du reste
+  // de la bibliothèque n'est jamais envoyé, même demandé par son identifiant.
+  if (s.records.local(c, g) && !s.records.sharedLocal(c, g)) return;
+  const id = s.records.sharedLocal(c, g);
   const st = useStore.getState();
   if (c === 'book') {
     const b = st.books.find((x) => x.id === id);
@@ -648,7 +652,7 @@ function serveWaiting(c: 'book' | 'draft', g: string) {
 async function onMergedDocx(from: string, head: Head, body: Uint8Array) {
   const s = S!;
   const g = String(head.g ?? '');
-  const id = s.records?.local('draft', g);
+  const id = s.records?.sharedLocal('draft', g);
   const d = id ? useStore.getState().drafts.find((x) => x.id === id) : null;
   if (!d) return;
   if (s.role === 'host' && (s.rooms.view[g]?.length ?? 0) > 0) {
@@ -667,6 +671,7 @@ async function onMergedDocx(from: string, head: Head, body: Uint8Array) {
 // ─────────────────────────────────────────────────────────────
 // Messages et événements
 // ─────────────────────────────────────────────────────────────
+const HOST_ONLY = new Set(['books', 'state', 'rooms', 'room-ok', 'resync-reply', 'stopping', 'docx-busy']);
 async function onMessage(from: string, head: Head, body: Uint8Array) {
   const s = S;
   if (!s) return;
@@ -675,6 +680,9 @@ async function onMessage(from: string, head: Head, body: Uint8Array) {
     if (s.ready) onCursorMessage(from, head);
     return;
   }
+  // Messages que seul l'hôte envoie (état, livres, salles, arrêt…) : ignorés s'ils viennent d'un autre
+  // invité (le relais de l'hôte transmet les messages d'un invité à un autre), ou si l'on est l'hôte.
+  if (HOST_ONLY.has(head.t) && !(s.role === 'guest' && from === 'h')) return;
   // Invité : tant que l'espace n'est pas prêt, seuls les messages d'arrivée passent ; le reste attend.
   if (!s.ready && !['books', 'state', 'stopping', 'rooms', 'room-ok'].includes(head.t)) {
     s.queue.push({ from, head, body: body.slice() });
@@ -690,13 +698,17 @@ async function onMessage(from: string, head: Head, body: Uint8Array) {
         break;
       case 'room-join':
       case 'room-leave':
-        if (s.role === 'host') await s.rooms.hostHandle(from, head);
+        if (s.role !== 'host') break;
+        // Salle d'un écrit qui est ici mais hors de l'espace partagé : refusée (un écrit encore inconnu ici,
+        // tout juste créé par un invité, reste permis : la salle ne contient que ce que les invités y mettent).
+        if (head.t === 'room-join' && typeof head.r === 'string' && s.records?.local('draft', head.r) && !s.records.sharedLocal('draft', head.r)) break;
+        await s.rooms.hostHandle(from, head);
         break;
       case 'room-ok':
         s.rooms.onRoomOk(head);
         break;
       case 'rooms':
-        if (s.role === 'guest') s.rooms.setView(head.rooms as Record<string, string[]>);
+        s.rooms.setView(head.rooms as Record<string, string[]>);
         break;
       case 'docx':
         if (head.merged) await onMergedDocx(from, head, body);

@@ -45,7 +45,7 @@
 const http = require('node:http');
 const dgram = require('node:dgram');
 const crypto = require('node:crypto');
-const { isLocalAddress, lanAddresses } = require('./wifi.cjs');
+const { isLocalAddress, lanAddresses, trackConnections } = require('./wifi.cjs');
 const share = require('./share-net.cjs');
 
 const H = share.handshake;
@@ -740,11 +740,7 @@ function createCollabHost(o) {
     server.headersTimeout = 20000;
     server.requestTimeout = 0; // les connexions « Upgrade » durent
     server.keepAliveTimeout = 5000;
-    const sockets = new Set();
-    server.on('connection', (sock) => {
-      sockets.add(sock);
-      sock.on('close', () => sockets.delete(sock));
-    });
+    const sockets = trackConnections(server);
     server.on('upgrade', onUpgrade);
     const listen = (port) =>
       new Promise((resolve, reject) => {

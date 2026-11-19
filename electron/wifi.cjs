@@ -67,6 +67,35 @@ function hostHeaderOk(host) {
   return /^(\d{1,3}\.){3}\d{1,3}(:\d{1,5})?$/.test(h) || /^\[[0-9a-f:.%a-z]+\](:\d{1,5})?$/.test(h);
 }
 
+/**
+ * Suit les connexions d'un serveur local et en limite le nombre : par appareil et au total. Sans limite,
+ * un appareil du réseau qui ouvre des milliers de connexions sans rien envoyer épuise les descripteurs de
+ * fichiers du processus principal (plus aucun fichier ne s'ouvre : la base ne s'enregistre plus).
+ * Renvoie l'ensemble des connexions ouvertes (pour les fermer à l'arrêt).
+ */
+function trackConnections(server, { perAddress = 24, total = 96 } = {}) {
+  const sockets = new Set();
+  const byAddr = new Map();
+  server.on('connection', (sock) => {
+    // Flux iroh (Internet, pair à pair) : compté par pair distant, il n'a pas d'adresse IP.
+    const a = sock.mgInternet ? `iroh:${sock.mgInternet}` : String(sock.remoteAddress || '');
+    const n = byAddr.get(a) || 0;
+    if (sockets.size >= total || n >= perAddress) {
+      sock.destroy();
+      return;
+    }
+    byAddr.set(a, n + 1);
+    sockets.add(sock);
+    sock.on('close', () => {
+      sockets.delete(sock);
+      const k = (byAddr.get(a) || 1) - 1;
+      if (k > 0) byAddr.set(a, k);
+      else byAddr.delete(a);
+    });
+  });
+  return sockets;
+}
+
 // Interfaces virtuelles (machines virtuelles, conteneurs, VPN, AirDrop) : jamais proposées.
 const VIRTUAL_IFACE = /^(vEthernet|VirtualBox|VMware|vmnet|vboxnet|docker|br-|veth|virbr|utun|tun|tap|awdl|llw|bridge|ham|zt|tailscale|wg)/i;
 // Interfaces habituelles du Wi-Fi ou de l'Ethernet : proposées en premier.
@@ -486,11 +515,7 @@ function createReceiver(o) {
     server.requestTimeout = 30 * 60 * 1000; // gros fichier sur un Wi-Fi lent
     server.headersTimeout = 20000;
     server.keepAliveTimeout = 5000;
-    const sockets = new Set();
-    server.on('connection', (sock) => {
-      sockets.add(sock);
-      sock.on('close', () => sockets.delete(sock));
-    });
+    const sockets = trackConnections(server);
     const listen = (port) =>
       new Promise((resolve, reject) => {
         const onErr = (e) => {
@@ -701,11 +726,7 @@ function createSender(o) {
     const server = http.createServer(handler);
     server.headersTimeout = 20000;
     server.keepAliveTimeout = 5000;
-    const sockets = new Set();
-    server.on('connection', (sock) => {
-      sockets.add(sock);
-      sock.on('close', () => sockets.delete(sock));
-    });
+    const sockets = trackConnections(server);
     const listen = (port) =>
       new Promise((resolve, reject) => {
         const onErr = (e) => {
@@ -753,4 +774,4 @@ function createSender(o) {
   return { start, stop, info, isOpen: () => !!s };
 }
 
-module.exports = { createReceiver, createSender, isLocalAddress, hostHeaderOk, lanAddresses, cleanName, ACCEPT_EXT };
+module.exports = { createReceiver, createSender, isLocalAddress, hostHeaderOk, trackConnections, lanAddresses, cleanName, ACCEPT_EXT };

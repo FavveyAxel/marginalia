@@ -75,9 +75,14 @@ const TITLEBAR_H = 52;
 
 app.setName('Marginalia');
 // Confidentialité : WebRTC n'ouvre aucune connexion UDP directe (STUN/TURN échappent au filtre des
-// requêtes), et pas de préchargement DNS des liens d'un document.
+// requêtes).
 app.commandLine.appendSwitch('force-webrtc-ip-handling-policy', 'disable_non_proxied_udp');
-app.commandLine.appendSwitch('disable-features', 'DnsPrefetch,NetworkPrediction,Prerender2');
+// Pas de préchargement DNS : une balise <link rel="dns-prefetch"> glissée dans la page faisait partir de
+// vraies requêtes DNS (le nom de domaine peut porter des données), que le filtre des requêtes ne voit pas.
+// Seul ce réglage de Blink les coupe (mesuré avec strace, scripts/test-network-hardening.mjs) : ni
+// --dns-prefetch-disable, ni --disable-features=DnsPrefetch, ni l'en-tête X-DNS-Prefetch-Control, ni un
+// proxy n'y changent rien dans Electron.
+app.commandLine.appendSwitch('blink-settings', 'dnsPrefetchingEnabled=false');
 if (IS_WIN) app.setAppUserModelId('com.axelbierne.marginalia');
 
 protocol.registerSchemesAsPrivileged([
@@ -3416,6 +3421,12 @@ const MIME = {
   '.ftl': 'text/plain; charset=utf-8',
 };
 
+// Même politique que la balise <meta> de index.html, plus ce qu'une balise ne sait pas dire.
+const APP_CSP =
+  "default-src 'self' blob: data:; img-src 'self' blob: data:; style-src 'self' 'unsafe-inline' blob:; font-src 'self' data: blob:; " +
+  "script-src 'self' 'wasm-unsafe-eval'; worker-src 'self' blob:; " +
+  'frame-src \'self\' https://www.youtube-nocookie.com https://player.vimeo.com https://www.dailymotion.com https://geo.dailymotion.com; ' +
+  "object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
 function registerAppProtocol() {
   protocol.handle('app', async (request) => {
     try {
@@ -3432,6 +3443,13 @@ function registerAppProtocol() {
       const headers = new Headers(res.headers);
       const type = MIME[path.extname(file).toLowerCase()];
       if (type) headers.set('Content-Type', type);
+      // Pas de préchargement DNS des liens de la page (les balises dns-prefetch sont coupées par le
+      // réglage de Blink posé au démarrage).
+      headers.set('X-DNS-Prefetch-Control', 'off');
+      headers.set('X-Content-Type-Options', 'nosniff');
+      // La politique de sécurité de la page, en en-tête aussi (celle de index.html reste) : une balise
+      // <meta> ne peut pas tout exprimer, et l'en-tête s'applique avant toute lecture du document.
+      if (/\.html?$/i.test(file)) headers.set('Content-Security-Policy', APP_CSP);
       return new Response(res.body, { status: res.status, headers });
     } catch (e) {
       console.error('app://', request.url, e);

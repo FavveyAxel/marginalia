@@ -78,7 +78,7 @@ const http = require('node:http');
 const dgram = require('node:dgram');
 const os = require('node:os');
 const crypto = require('node:crypto');
-const { isLocalAddress, lanAddresses, hostHeaderOk } = require('./wifi.cjs');
+const { isLocalAddress, lanAddresses, hostHeaderOk, trackConnections } = require('./wifi.cjs');
 
 const HTTP_PORT = 47802;
 const UDP_PORT = 47803;
@@ -588,11 +588,7 @@ function createShareSender(o) {
     server.headersTimeout = 20000;
     server.requestTimeout = 30000;
     server.keepAliveTimeout = 5000;
-    const sockets = new Set();
-    server.on('connection', (sock) => {
-      sockets.add(sock);
-      sock.on('close', () => sockets.delete(sock));
-    });
+    const sockets = trackConnections(server);
     const listen = (port) =>
       new Promise((resolve, reject) => {
         const onErr = (e) => {

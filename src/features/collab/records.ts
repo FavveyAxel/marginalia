@@ -219,6 +219,10 @@ export class RecordSync {
     const id = this.local(c, g, s);
     return id && this.shared(c, g!, id, s) ? id : null;
   }
+  /** Élément reçu d'un pair à notre demande (livre, écrit) : il fait désormais partie de la session. */
+  markShared(c: Col, g: string): void {
+    this.seen.add(keyOf(c, g));
+  }
   /**
    * gid reçu d'un pair → id local. Un élément privé (hors de l'espace, jamais partagé) n'est jamais
    * atteint : la référence reste « à recevoir », et l'élément du pair arrive ici comme une copie

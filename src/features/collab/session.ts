@@ -639,6 +639,8 @@ async function onFiles(head: Head, body: Uint8Array) {
     useStore.getState().applyExternal((cur) => ({ drafts: [...cur.drafts, d] }));
     if (id !== g) s.records.addAlias('draft', g, id);
   }
+  // Reçu à notre demande : atteignable par les messages suivants (référence d'un élément d'espace, d'un plan…).
+  s.records.markShared(c, g);
   s.records.fetchDone(c, g);
   s.records.resume();
   serveWaiting(c, g);

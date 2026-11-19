@@ -54,12 +54,18 @@ try {
     const shared = s().drafts.find((d) => /parjure|Dissertation/i.test(d.title)).id;
     s().addToWorkspace(ws, null, 'draft', shared);
     // Privé : un écrit hors de tout espace, et un autre espace avec un groupe.
+    // Importé hors de la vue de l'espace (sinon l'import le rangerait dans l'espace ouvert).
+    s().navigate({ name: 'home' });
+    await new Promise((r) => setTimeout(r, 300));
+    s().updateSettings({ activeWorkspaceId: null });
     await s().importFiles([{ name: 'Journal.md', data: new TextEncoder().encode('# Journal intime\n\nSECRET-DE-LEA\n').buffer }]);
     const secret = s().drafts.find((d) => d.id !== shared).id;
+    if (s().wsItems.some((i) => i.refId === secret)) throw new Error('préparation : l’écrit privé est dans un espace');
     const other = s().createWorkspace('Privé').id;
     const before = new Set(s().groups.map((g) => g.id));
     s().createGroup(other, null, 'Groupe privé');
     const grp = s().groups.find((g) => !before.has(g.id))?.id ?? null;
+    s().navigate({ name: 'workspace', workspaceId: ws, groupId: null });
     return { ws, book: book.id, shared, secret, secretTitle: s().drafts.find((d) => d.id === secret).title, other, grp };
   }, EPUB);
   ok(!!seeded.secret && seeded.secret !== seeded.shared, 'Léa : un écrit privé hors de l’espace partagé', seeded.secretTitle);

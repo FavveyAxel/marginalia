@@ -204,8 +204,19 @@ function encodeOut(buf) {
   if (!sec.dek) throw new vault.LockedError();
   return vault.seal(sec.dek, buf);
 }
+// Chiffrement activé et conversion terminée : tout fichier de données est chiffré. Un fichier en clair
+// à cet endroit n'a pas été écrit par Marginalia (remplacé par quelqu'un qui a accès au disque, pour y
+// glisser de fausses données sans connaître la clé) : refusé, comme un fichier chiffré altéré.
+const strictSealed = () => !!sec.ks && !!sec.ks.enabled && !sec.ks.migration && !(sec.migration && sec.migration.running);
 function decodeIn(buf) {
-  if (!vault.isSealed(buf)) return buf;
+  if (!vault.isSealed(buf)) {
+    if (strictSealed()) {
+      const e = new Error('Fichier en clair là où un fichier chiffré est attendu : refusé.');
+      e.code = 'MG_PLAIN';
+      throw e;
+    }
+    return buf;
+  }
   if (!sec.dek) throw new vault.LockedError();
   return vault.open(sec.dek, buf);
 }

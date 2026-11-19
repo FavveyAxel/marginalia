@@ -365,6 +365,14 @@ try {
   await waitReady();
   ok((await storeMarker()) === SECRET + '-2', 'bon mot de passe : déverrouillé, données chargées');
 
+  // ── 8 bis. Fichier en clair glissé sur le disque (quelqu'un y a accès, sans la clé) : refusé ──
+  fs.writeFileSync(path.join(UD, 'library', epubId, 'glisse.txt'), 'FAUX CONTENU en clair');
+  const planted = await page.evaluate(async (id) => window.marginalia.readFile(id, 'glisse.txt').then(() => 'accepté', (e) => String(e.message || e)), epubId);
+  ok(/en clair|refus/i.test(planted), 'fichier en clair glissé dans la bibliothèque chiffrée : refusé', planted);
+  const real = await page.evaluate(async (id) => window.marginalia.readFile(id, 'source.epub').then((b) => (b.byteLength || b.length) > 1000, () => false), epubId);
+  ok(real, 'le vrai fichier (chiffré) se lit toujours');
+  fs.rmSync(path.join(UD, 'library', epubId, 'glisse.txt'), { force: true });
+
   // ── 9. « Verrouiller maintenant » : la modification en attente est enregistrée ──
   await setMarker('avant-verrou');
   ok(await clickMenu('Verrouiller maintenant'), 'menu Fichier › Verrouiller maintenant');

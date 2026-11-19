@@ -48,7 +48,7 @@ function open(key, buf) {
   if (!isSealed(buf)) throw new Error('Fichier chiffré invalide');
   const iv = buf.subarray(MAGIC.length, HEAD_LEN);
   const tag = buf.subarray(buf.length - TAG_LEN);
-  const d = crypto.createDecipheriv('aes-256-gcm', key, iv);
+  const d = crypto.createDecipheriv('aes-256-gcm', key, iv, { authTagLength: TAG_LEN });
   d.setAAD(MAGIC);
   d.setAuthTag(tag);
   try {
@@ -71,7 +71,9 @@ function wrapKey(kek, dek, extra = {}) {
   return { ...extra, iv: b64(iv), ct: b64(ct), tag: b64(c.getAuthTag()) };
 }
 function unwrapKey(kek, w) {
-  const d = crypto.createDecipheriv('aes-256-gcm', kek, unb64(w.iv));
+  // Étiquette entière exigée : GCM accepterait une étiquette tronquée, bien plus facile à forger.
+  if (unb64(w.tag).length !== TAG_LEN || unb64(w.iv).length !== IV_LEN) throw new Error('enveloppe invalide');
+  const d = crypto.createDecipheriv('aes-256-gcm', kek, unb64(w.iv), { authTagLength: TAG_LEN });
   d.setAuthTag(unb64(w.tag));
   return Buffer.concat([d.update(unb64(w.ct)), d.final()]); // lève si la clé est fausse
 }
@@ -98,6 +100,11 @@ async function wrapWithPassword(password, dek) {
 /** DEK protégée par le mot de passe, ou null si le mot de passe est faux. */
 async function unwrapWithPassword(password, w) {
   if (!w || w.kdf !== 'scrypt') return null;
+  // Paramètres lus dans keystore.json : jamais plus faibles que ceux de cette version, ni démesurés (un
+  // fichier modifié ne doit ni affaiblir la dérivation, ni faire tomber l'app en demandant des Go).
+  const pow2 = Number.isInteger(w.N) && w.N >= SCRYPT.N && w.N <= 2 ** 20 && (w.N & (w.N - 1)) === 0;
+  if (!pow2 || w.r !== SCRYPT.r || !Number.isInteger(w.p) || w.p < 1 || w.p > 4) return null;
+  if (unb64(w.salt).length < 16 || unb64(w.iv).length !== IV_LEN || unb64(w.tag).length !== TAG_LEN || unb64(w.ct).length !== 32) return null;
   const kek = await scryptAsync(password, unb64(w.salt), { N: w.N, r: w.r, p: w.p });
   try {
     return unwrapKey(kek, w);

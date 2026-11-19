@@ -15,6 +15,7 @@ import { useStore, uid } from '../../lib/store';
 import { extOf, host, IMAGE_EXTENSIONS, type InboxFile, type InboxInfo, type PickedFile } from '../../lib/platform';
 import type { PassageMatch } from './match';
 import { createDraftFromFile } from '../../lib/draftImport';
+import { diagError } from '../../lib/diagScrub';
 import { displayableBlob, ORIENT } from '../reader/image/decode';
 import type { PhotoSource } from '../library/photoDoc';
 import type { Book } from '../../lib/types';
@@ -193,7 +194,7 @@ export function scanInbox(): Promise<void> {
     try {
       files = await host.inbox!.list();
     } catch (e) {
-      void host.diag?.('boite', 'lecture du dossier', String((e as Error)?.message ?? e));
+      void host.diag?.('boite', 'lecture du dossier', diagError(e));
       return;
     }
     const names = new Set(files.map((f) => f.name));
@@ -655,7 +656,7 @@ export function useInboxSync() {
           await api.disable();
         }
       } catch (e) {
-        void host.diag?.('boite', on ? 'activation' : 'désactivation', String((e as Error)?.message ?? e));
+        void host.diag?.('boite', on ? 'activation' : 'désactivation', diagError(e));
       }
       if (alive) void scanInbox();
     })();

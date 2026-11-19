@@ -1,10 +1,12 @@
 // Limite d'erreur par grande vue (lecteur, éditeur, carte, espaces…) : une erreur de rendu n'affiche
 // plus un écran blanc mais un message, avec « Recharger la vue » et « Revenir à l'accueil ».
-// L'erreur est consignée dans le journal de diagnostic local (host.diag). Les données ne sont pas
+// L'erreur est consignée dans le journal de diagnostic local (host.diag), sans les fragments cités du
+// message (scrubDiag : il peut contenir du texte de l'utilisateur). Les données ne sont pas
 // touchées : elles sont dans le store et sur le disque.
 import { Component, type ErrorInfo, type ReactNode } from 'react';
 import { AlertTriangle } from 'lucide-react';
 import { host } from '../lib/platform';
+import { scrubDiag } from '../lib/diagScrub';
 
 interface Props {
   /** Nom de la vue, pour le journal (« lecteur », « éditeur »…). */
@@ -35,7 +37,7 @@ export class ErrorBoundary extends Component<Props, State> {
 
   componentDidCatch(error: Error, info: ErrorInfo) {
     console.error(`Vue « ${this.props.view} » :`, error);
-    void host.diag?.('erreur-vue', this.props.view, String(error?.stack || error), String(info.componentStack || '').slice(0, 4000));
+    void host.diag?.('erreur-vue', this.props.view, scrubDiag(error, 4000), scrubDiag(info.componentStack ?? '', 4000));
   }
 
   private reload = () => this.setState((s) => ({ error: null, attempt: s.attempt + 1 }));

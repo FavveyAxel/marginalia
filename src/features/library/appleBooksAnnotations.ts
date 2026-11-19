@@ -9,6 +9,7 @@
 // ─────────────────────────────────────────────────────────────
 import { useStore, uid, type State } from '../../lib/store';
 import { host, type AppleBooksAnnotation, type AppleBooksAsset } from '../../lib/platform';
+import { diagError } from '../../lib/diagScrub';
 import type { AppleBooksColor, AppleBooksColorTarget, AppleBooksSyncReport, Book, Bookmark, CategoryId, Highlight, ReaderPosition, Settings } from '../../lib/types';
 // parse.ts (DOMPurify…) et le résolveur de CFI ne sont chargés qu'au moment d'une synchro.
 import type { ParsedDoc } from '../reader/html/parse';
@@ -64,6 +65,12 @@ function colorOf(a: AppleBooksAnnotation): AppleBooksColor {
   if (a.underline || a.style === 0) return 'souligne';
   return APPLE_COLORS.find((c) => c.style === a.style)?.id ?? 'jaune'; // valeur inconnue : couleur par défaut de Livres
 }
+
+/**
+ * CFI consignable dans le journal de diagnostic : le chemin numérique seulement. Les crochets (identifiants
+ * d'éléments, assertions de texte « [;s=…] ») peuvent reprendre des mots du livre : vidés.
+ */
+const cfiShape = (cfi: string) => String(cfi ?? '').replace(/\[[^\]]*\]/g, '[]').slice(0, 200);
 
 // ── Rattachement des livres ──────────────────────────────────
 
@@ -184,7 +191,7 @@ export function syncAppleBooksAnnotations(opts: { manual?: boolean } = {}): Prom
   running = run(opts)
     .catch((e) => {
       console.error('Livres (annotations) :', e);
-      void host.diag?.('livres', 'synchro des annotations', String(e?.message ?? e));
+      void host.diag?.('livres', 'synchro des annotations', diagError(e));
       return null;
     })
     .finally(() => {
@@ -309,7 +316,7 @@ async function run(opts: { manual?: boolean }): Promise<AppleBooksSyncReport | n
       data = await host.readFile(book.id, book.fileName);
       parsed = await parseBook(book, data);
     } catch (e) {
-      void host.diag?.('livres', 'livre illisible', book.title, String((e as Error)?.message ?? e));
+      void host.diag?.('livres', 'livre illisible', book.id, diagError(e));
       notFound += todoH.length + todoB.length;
       continue;
     }
@@ -329,7 +336,7 @@ async function run(opts: { manual?: boolean }): Promise<AppleBooksSyncReport | n
       const cur = hBy.get(a.uuid);
       if (!span) {
         notFound++;
-        void host.diag?.('livres', 'passage introuvable', book.title, a.cfi, a.text.slice(0, 60));
+        void host.diag?.('livres', 'passage introuvable', book.id, cfiShape(a.cfi), { longueur: a.text.length });
         if (!cur) unresolved.set(a.uuid, a.modified ?? 0);
         // Modifié dans Livres mais introuvable : on garde l'extrait tel quel (pas de nouvel essai à chaque synchro).
         if (cur) ops.push({ kind: 'patchH', id: cur.id, patch: { source: { ...cur.source!, modified: a.modified ?? 0 } } });
@@ -409,7 +416,7 @@ async function run(opts: { manual?: boolean }): Promise<AppleBooksSyncReport | n
       const cur = bBy.get(a.uuid);
       if (!pt) {
         notFound++;
-        void host.diag?.('livres', 'signet introuvable', book.title, a.cfi);
+        void host.diag?.('livres', 'signet introuvable', book.id, cfiShape(a.cfi));
         if (!cur) unresolved.set(a.uuid, a.modified ?? 0);
         if (cur) ops.push({ kind: 'patchB', id: cur.id, patch: { source: { ...cur.source!, modified: a.modified ?? 0 } } });
         continue;

@@ -7,6 +7,7 @@
 import { useEffect } from 'react';
 import { host } from './platform';
 import { useStore } from './store';
+import { scrubDiag } from './diagScrub';
 
 type Ev = [number, string, unknown?];
 const ring: Ev[] = [];
@@ -101,6 +102,8 @@ export function useResizeDiagnostics() {
 /**
  * Erreurs JavaScript non rattrapées du rendu (window.onerror, promesses rejetées) : consignées dans
  * le journal local, au plus 20 par minute et sans répéter la même erreur plus d'une fois par 30 s.
+ * Message et pile passent par scrubDiag : un message peut citer du texte de l'utilisateur (titre, passage)
+ * et le journal reste en clair hors chiffrement de toute l'app.
  */
 export function installErrorReporting() {
   if (!host.diag || (window as unknown as { __mgErrors?: boolean }).__mgErrors) return;
@@ -120,7 +123,7 @@ export function installErrorReporting() {
       count = 0;
     }
     if (++count > 20) return;
-    void host.diag!(kind, message.slice(0, 2000), (stack ?? '').slice(0, 4000), { route: useStore.getState().route.name }).catch(() => undefined);
+    void host.diag!(kind, scrubDiag(message, 1000), scrubDiag(stack ?? '', 4000), { route: useStore.getState().route.name }).catch(() => undefined);
   };
   window.addEventListener('error', (e) => {
     const err = e.error as Error | undefined;
@@ -128,6 +131,6 @@ export function installErrorReporting() {
   });
   window.addEventListener('unhandledrejection', (e) => {
     const r = e.reason as Error | undefined;
-    report('promesse-rejetee', String(r?.message ?? r), r?.stack);
+    report('promesse-rejetee', typeof r?.message === 'string' ? r.message : scrubDiag(r, 1000), r?.stack);
   });
 }

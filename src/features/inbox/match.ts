@@ -25,6 +25,7 @@
 import type { Anchor, Book, NormRect } from '../../lib/types';
 import { useStore } from '../../lib/store';
 import { host } from '../../lib/platform';
+import { diagError } from '../../lib/diagScrub';
 import { makeAnchor } from '../reader/html/anchoring';
 import { buildIndex, mergeLineRects, toNorm, type Px } from '../reader/pdf/textindex';
 import type { PageMark } from '../reader/html/parse';
@@ -401,7 +402,7 @@ async function build(book: Book, signal?: AbortSignal): Promise<Built | null> {
   } catch (e) {
     if ((e as Error)?.name === 'AbortError') throw e;
     // Livre illisible (DRM, fichier absent ou endommagé) : ignoré sans bruit.
-    void host.diag?.('boite', 'livre ignoré pour la recherche de passage', book.title, String((e as Error)?.message ?? e));
+    void host.diag?.('boite', 'livre ignoré pour la recherche de passage', book.id, diagError(e));
     return null;
   }
 }

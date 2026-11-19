@@ -1,6 +1,7 @@
 // Vue « Réglages » : confidentialité et sécurité (chiffrement local, verrouillage, clé de secours).
 // Tout est optionnel et désactivé par défaut ; rien ne quitte l'ordinateur.
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { SecretInput } from '../../components/SecretInput';
 import {
   Check,
   Copy,
@@ -601,14 +602,14 @@ function SecurityDialog({ kind, st, where, onClose }: { kind: DialogKind; st: Se
               {!st.encrypted && ' Vos données seront chiffrées en même temps.'}
             </p>
             <div className="sec-fields">
-              <input className="input" type="password" autoFocus autoComplete="new-password" placeholder="Mot de passe" aria-label="Mot de passe" value={pw} onChange={(e) => (setPw(e.target.value), setError(''))} />
+              <SecretInput className="input" autoFocus autoComplete="new-password" placeholder="Mot de passe" aria-label="Mot de passe" value={pw} onValueChange={(v) => (setPw(v), setError(''))} />
               <div className={`sec-strength l${strength.level}`} aria-live="polite">
                 <span />
                 <span />
                 <span />
                 <em>{strength.label}</em>
               </div>
-              <input className="input" type="password" autoComplete="new-password" placeholder="Confirmer le mot de passe" aria-label="Confirmer le mot de passe" value={pw2} onChange={(e) => (setPw2(e.target.value), setError(''))} />
+              <SecretInput className="input" autoComplete="new-password" placeholder="Confirmer le mot de passe" aria-label="Confirmer le mot de passe" value={pw2} onValueChange={(v) => (setPw2(v), setError(''))} />
             </div>
             <ul className="sec-options">
               {st.touchIdAvailable && st.system.ok && (
@@ -741,7 +742,7 @@ function SecurityDialog({ kind, st, where, onClose }: { kind: DialogKind; st: Se
             </p>
             {st.lock && (
               <div className="sec-fields">
-                <input className="input" type="password" autoFocus autoComplete="current-password" placeholder="Mot de passe actuel" aria-label="Mot de passe actuel" value={oldPw} onChange={(e) => (setOldPw(e.target.value), setError(''))} />
+                <SecretInput className="input" autoFocus autoComplete="current-password" placeholder="Mot de passe actuel" aria-label="Mot de passe actuel" value={oldPw} onValueChange={(v) => (setOldPw(v), setError(''))} />
               </div>
             )}
             {error && (
@@ -768,15 +769,15 @@ function SecurityDialog({ kind, st, where, onClose }: { kind: DialogKind; st: Se
             }}
           >
             <div className="sec-fields">
-              <input className="input" type="password" autoFocus autoComplete="current-password" placeholder="Mot de passe actuel" aria-label="Mot de passe actuel" value={oldPw} onChange={(e) => (setOldPw(e.target.value), setError(''))} />
-              <input className="input" type="password" autoComplete="new-password" placeholder="Nouveau mot de passe" aria-label="Nouveau mot de passe" value={pw} onChange={(e) => (setPw(e.target.value), setError(''))} />
+              <SecretInput className="input" autoFocus autoComplete="current-password" placeholder="Mot de passe actuel" aria-label="Mot de passe actuel" value={oldPw} onValueChange={(v) => (setOldPw(v), setError(''))} />
+              <SecretInput className="input" autoComplete="new-password" placeholder="Nouveau mot de passe" aria-label="Nouveau mot de passe" value={pw} onValueChange={(v) => (setPw(v), setError(''))} />
               <div className={`sec-strength l${strength.level}`} aria-live="polite">
                 <span />
                 <span />
                 <span />
                 <em>{strength.label}</em>
               </div>
-              <input className="input" type="password" autoComplete="new-password" placeholder="Confirmer le nouveau mot de passe" aria-label="Confirmer le nouveau mot de passe" value={pw2} onChange={(e) => (setPw2(e.target.value), setError(''))} />
+              <SecretInput className="input" autoComplete="new-password" placeholder="Confirmer le nouveau mot de passe" aria-label="Confirmer le nouveau mot de passe" value={pw2} onValueChange={(v) => (setPw2(v), setError(''))} />
             </div>
             <p className="sec-hint">Votre clé de secours ne change pas.</p>
             {error && (

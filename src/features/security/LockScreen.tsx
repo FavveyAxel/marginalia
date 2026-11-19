@@ -5,6 +5,7 @@ import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { ArrowLeft, Fingerprint, KeyRound, Lock, TriangleAlert } from 'lucide-react';
 import { host, type SecurityStatus } from '../../lib/platform';
 import { formatKeyInput } from './state';
+import { SecretInput } from '../../components/SecretInput';
 import { fmtKeys } from '../../lib/keys';
 import './security.css';
 
@@ -111,16 +112,15 @@ export function LockScreen({ status, onUnlocked }: { status: SecurityStatus; onU
             <label className="sr-only" htmlFor="lock-password">
               Mot de passe
             </label>
-            <input
+            <SecretInput
               id="lock-password"
               ref={pwRef}
               className={`input lock-input ${error ? 'invalid' : ''} ${shake ? 'lock-shake' : ''}`}
-              type="password"
               autoComplete="current-password"
               placeholder="Mot de passe"
               value={password}
-              onChange={(e) => {
-                setPassword(e.target.value);
+              onValueChange={(v) => {
+                setPassword(v);
                 setError('');
               }}
               disabled={busy}
@@ -152,40 +152,38 @@ export function LockScreen({ status, onUnlocked }: { status: SecurityStatus; onU
             <label className="sr-only" htmlFor="lock-key">
               Clé de secours
             </label>
-            <input
+            <SecretInput
               id="lock-key"
               ref={keyRef}
               className={`input lock-input lock-key ${error ? 'invalid' : ''} ${shake ? 'lock-shake' : ''}`}
               placeholder="XXXX-XXXX-XXXX-XXXX-XXXX-XXXX-XXXX-XXXX"
-              spellCheck={false}
               autoComplete="off"
+              reveal={(v) => v}
               value={key}
-              onChange={(e) => {
-                setKey(formatKeyInput(e.target.value));
+              onValueChange={(v) => {
+                setKey(formatKeyInput(v));
                 setError('');
               }}
               disabled={busy}
             />
             {needNewPassword && (
               <>
-                <input
+                <SecretInput
                   className="input lock-input"
-                  type="password"
                   autoComplete="new-password"
                   placeholder="Nouveau mot de passe (8 caractères au moins)"
                   aria-label="Nouveau mot de passe"
                   value={newPw}
-                  onChange={(e) => (setNewPw(e.target.value), setError(''))}
+                  onValueChange={(v) => (setNewPw(v), setError(''))}
                   disabled={busy}
                 />
-                <input
+                <SecretInput
                   className="input lock-input"
-                  type="password"
                   autoComplete="new-password"
                   placeholder="Confirmer le nouveau mot de passe"
                   aria-label="Confirmer le nouveau mot de passe"
                   value={newPw2}
-                  onChange={(e) => (setNewPw2(e.target.value), setError(''))}
+                  onValueChange={(v) => (setNewPw2(v), setError(''))}
                   disabled={busy}
                 />
               </>

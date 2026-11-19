@@ -487,8 +487,15 @@ export interface SpacesApi {
   /** Mot de passe ou clé de secours ; rend le contenu de l'espace (capsule JSON), null s'il est encore vide. */
   unlock(wsId: string, secret: string): Promise<{ ok: true; capsule: string | null } | { ok: false; error: string; waitMs?: number }>;
   unlockTouchId(wsId: string): Promise<{ ok: true; capsule: string | null } | { ok: false; error: string }>;
-  lock(wsId: string): Promise<SpaceResult>;
-  lockAll(): Promise<SpaceResult>;
+  /** Rendu neuf : contenu d'un espace resté déverrouillé pendant le verrouillage d'un autre. */
+  reopen?(wsId: string): Promise<{ ok: true; capsule: string | null } | { ok: false; error: string }>;
+  /**
+   * Verrouille ; le rendu est ensuite remplacé par un processus neuf (sa mémoire, qui a tenu le contenu,
+   * disparaît), qui reprend à `route`.
+   */
+  lock(wsId: string, route?: unknown): Promise<SpaceResult>;
+  /** `only` : ces espaces seulement (les autres restent ouverts). */
+  lockAll(route?: unknown, only?: string[]): Promise<SpaceResult>;
   /** Avant de chiffrer un espace : la clé doit être en mémoire, ou le mot de passe est donné. */
   open(wsId: string, secret?: string): Promise<SpaceResult>;
   verify(secret: string): Promise<SpaceResult>;

@@ -5,6 +5,7 @@ import { Check, Copy, Fingerprint, KeyRound, Lock, LockOpen, ShieldCheck } from 
 import { useStore } from '../../lib/store';
 import { host } from '../../lib/platform';
 import { Modal } from '../workspaces/wsUi';
+import { SecretInput } from '../../components/SecretInput';
 import { decryptSpace, encryptSpace, lockSpace, openSpaceDialog, refreshSpaceStatus, setupSpaces, unlockSpace, useSpaceUi } from './spaceActions';
 import './spaces.css';
 
@@ -79,16 +80,14 @@ function SpaceLockPanel({ workspaceId, name }: { workspaceId: string; name: stri
         </div>
         <h2>« {name} » est verrouillé</h2>
         <p>Cet espace est chiffré. Son contenu n’apparaît ni dans la recherche, ni dans la révision, ni dans le journal tant qu’il est verrouillé.</p>
-        <input
+        <SecretInput
           ref={input}
           className="input"
-          type="password"
           autoComplete="off"
-          spellCheck={false}
           placeholder="Mot de passe des espaces chiffrés"
           aria-label="Mot de passe des espaces chiffrés"
           value={secret}
-          onChange={(e) => setSecret(e.target.value)}
+          onValueChange={setSecret}
           disabled={busy}
           data-testid="space-password"
         />
@@ -216,11 +215,11 @@ function EncryptDialog({ wsId, onClose }: { wsId: string; onClose: () => void })
                 <p>
                   Choisissez le <strong>mot de passe des espaces chiffrés</strong> : le même pour tous, chaque espace se verrouillant séparément.
                 </p>
-                <input className="input" type="password" autoComplete="new-password" placeholder="Mot de passe (8 caractères au moins)" value={pw} onChange={(e) => setPw(e.target.value)} autoFocus data-testid="space-new-password" />
-                <input className="input" type="password" autoComplete="new-password" placeholder="Le même, une seconde fois" value={pw2} onChange={(e) => setPw2(e.target.value)} data-testid="space-new-password2" />
+                <SecretInput className="input" autoComplete="new-password" placeholder="Mot de passe (8 caractères au moins)" value={pw} onValueChange={setPw} autoFocus data-testid="space-new-password" />
+                <SecretInput className="input" autoComplete="new-password" placeholder="Le même, une seconde fois" value={pw2} onValueChange={setPw2} data-testid="space-new-password2" />
               </>
             )}
-            {needSecret && <input className="input" type="password" autoComplete="off" placeholder="Mot de passe des espaces chiffrés" value={pw} onChange={(e) => setPw(e.target.value)} autoFocus data-testid="space-password" />}
+            {needSecret && <SecretInput className="input" autoComplete="off" placeholder="Mot de passe des espaces chiffrés" value={pw} onValueChange={setPw} autoFocus data-testid="space-password" />}
           </>
         )}
         {error && (
@@ -268,7 +267,7 @@ function DecryptDialog({ wsId, onClose }: { wsId: string; onClose: () => void })
           <LockOpen size={20} /> Retirer le chiffrement de « {ws.name} »
         </h3>
         <p>Son contenu rejoindra le reste de la bibliothèque : il redeviendra visible partout, et ne sera plus protégé par le mot de passe des espaces chiffrés.</p>
-        <input className="input" type="password" autoComplete="off" placeholder="Mot de passe des espaces chiffrés" value={pw} onChange={(e) => setPw(e.target.value)} autoFocus data-testid="space-password" />
+        <SecretInput className="input" autoComplete="off" placeholder="Mot de passe des espaces chiffrés" value={pw} onValueChange={setPw} autoFocus data-testid="space-password" />
         {error && (
           <p className="sp-error" role="alert" data-testid="space-error">
             {error}
@@ -319,7 +318,7 @@ function PasswordDialog({ onClose }: { onClose: () => void }) {
         <h3>
           <KeyRound size={20} /> Mot de passe des espaces chiffrés
         </h3>
-        <input className="input" type="password" autoComplete="off" placeholder="Mot de passe actuel" value={cur} onChange={(e) => setCur(e.target.value)} autoFocus data-testid="space-current" />
+        <SecretInput className="input" autoComplete="off" placeholder="Mot de passe actuel" value={cur} onValueChange={setCur} autoFocus data-testid="space-current" />
         {recovery ? (
           <>
             <p>
@@ -329,8 +328,8 @@ function PasswordDialog({ onClose }: { onClose: () => void }) {
           </>
         ) : (
           <>
-            <input className="input" type="password" autoComplete="new-password" placeholder="Nouveau mot de passe" value={pw} onChange={(e) => setPw(e.target.value)} data-testid="space-new-password" />
-            <input className="input" type="password" autoComplete="new-password" placeholder="Le même, une seconde fois" value={pw2} onChange={(e) => setPw2(e.target.value)} data-testid="space-new-password2" />
+            <SecretInput className="input" autoComplete="new-password" placeholder="Nouveau mot de passe" value={pw} onValueChange={setPw} data-testid="space-new-password" />
+            <SecretInput className="input" autoComplete="new-password" placeholder="Le même, une seconde fois" value={pw2} onValueChange={setPw2} data-testid="space-new-password2" />
           </>
         )}
         {error && (

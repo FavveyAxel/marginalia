@@ -9,6 +9,102 @@ function toArrayBuffer(view) {
 }
 const toFile = (f) => ({ name: f.name, data: toArrayBuffer(f.data) });
 
+// ── Canal direct avec le processus des secrets (electron/secrets-worker.cjs) ──
+// Mots de passe, clés de secours et contenu en clair des espaces chiffrés ne passent PAS par le processus
+// principal (qui vit aussi longtemps que l'app, et où une chaîne ne s'efface pas) : ils sont déposés ici,
+// sur un MessagePort relié au processus des secrets, qui rend une poignée opaque ; c'est elle qu'on envoie
+// au processus principal. Dans l'autre sens, le processus principal rend une poignée de retrait, et le
+// contenu est retiré ici, par le même canal. Le monde de la page ne voit ni le canal ni les poignées.
+let secPort = null;
+let secGen = 0;
+let secSeq = 0;
+const secWait = new Map();
+let portWaiter = null;
+ipcRenderer.on('marginalia:secrets-port', (e, gen) => {
+  const port = e.ports && e.ports[0];
+  if (!port) return;
+  if (secPort) {
+    try {
+      secPort.close();
+    } catch {
+      /* déjà fermé */
+    }
+    for (const w of secWait.values()) w.reject(new Error('Saisie expirée : recommencez.'));
+    secWait.clear();
+  }
+  secPort = port;
+  secGen = gen;
+  port.onmessage = (m) => {
+    const d = m.data || {};
+    const w = secWait.get(d.id);
+    if (!w) return;
+    secWait.delete(d.id);
+    if (d.ok) w.resolve(d.v);
+    else w.reject(new Error(String(d.error || 'Saisie expirée : recommencez.')));
+  };
+  if (portWaiter && portWaiter.gen === gen) portWaiter.resolve();
+});
+let portChain = Promise.resolve();
+function ensurePort() {
+  const run = portChain
+    .catch(() => {})
+    .then(async () => {
+      const gen = await ipcRenderer.invoke('marginalia:secrets-port', secPort ? secGen : 0);
+      if (secPort && secGen === gen) return;
+      await new Promise((resolve, reject) => {
+        const t = setTimeout(() => reject(new Error('Canal des secrets indisponible.')), 10000);
+        portWaiter = {
+          gen,
+          resolve: () => {
+            clearTimeout(t);
+            portWaiter = null;
+            resolve();
+          },
+        };
+        if (secPort && secGen === gen) portWaiter.resolve();
+      });
+    });
+  portChain = run;
+  return run;
+}
+function portCall(op, payload) {
+  return new Promise((resolve, reject) => {
+    const id = ++secSeq;
+    const t = setTimeout(() => {
+      if (secWait.delete(id)) reject(new Error('Saisie expirée : recommencez.'));
+    }, 60000);
+    secWait.set(id, {
+      resolve: (v) => (clearTimeout(t), resolve(v)),
+      reject: (e) => (clearTimeout(t), reject(e)),
+    });
+    secPort.postMessage({ id, op, ...payload });
+  });
+}
+/** Dépose un secret (ou un contenu) dans le processus des secrets ; rend la poignée à envoyer au processus principal. */
+async function deposit(v) {
+  if (v === undefined || v === null) return undefined;
+  await ensurePort();
+  const payload = typeof v === 'string' ? v : v instanceof ArrayBuffer ? new Uint8Array(v) : ArrayBuffer.isView(v) ? new Uint8Array(v.buffer, v.byteOffset, v.byteLength) : String(v);
+  return { h: await portCall('deposit', { v: payload }) };
+}
+const isRef = (r) => !!r && typeof r === 'object' && !ArrayBuffer.isView(r) && !(r instanceof ArrayBuffer) && typeof r.h === 'string';
+/** Retire ce que le processus principal a fait préparer (poignée de retrait). */
+async function reveal(ref) {
+  if (!secPort || secGen !== ref.gen) await ensurePort();
+  if (secGen !== ref.gen) throw new Error('Saisie expirée : recommencez.');
+  return portCall('reveal', { h: ref.h });
+}
+const textOf = (v) => (typeof v === 'string' ? v : new TextDecoder().decode(v));
+async function withCapsule(r) {
+  if (r && r.ok && isRef(r.capsule)) r.capsule = textOf(await reveal(r.capsule));
+  return r;
+}
+async function withRecovery(r) {
+  if (r && r.ok && isRef(r.recoveryKey)) r.recoveryKey = textOf(await reveal(r.recoveryKey));
+  return r;
+}
+const depositText = (v) => (typeof v === 'string' ? deposit(v) : Promise.resolve(undefined));
+
 // Fonctions propres à macOS (app Livres, conversion d'images par `sips`) : le processus principal
 // passe `--mg-apple-books=1` quand elles sont disponibles (macOS, ou drapeau de test explicite).
 const argFlag = (name) => process.argv.some((a) => a === `--${name}=1`);
@@ -23,8 +119,17 @@ const api = {
   saveDb: (db) => ipcRenderer.invoke('marginalia:saveDb', db),
   /** Base déjà sérialisée (évite un second JSON.stringify et le clonage de tout l'objet). */
   // `extra` : capsules en clair des espaces chiffrés déverrouillés qui ont changé ({ spaces, drop }).
-  saveDbJson: (json, meta, extra) =>
-    ipcRenderer.invoke('marginalia:saveDb', String(json), meta && typeof meta === 'object' ? { version: meta.version, items: meta.items } : undefined, extra && typeof extra === 'object' ? { spaces: extra.spaces || {}, drop: Array.isArray(extra.drop) ? extra.drop : [] } : undefined),
+  // Les capsules en clair sont déposées dans le processus des secrets (scellées là-bas) : le processus
+  // principal ne reçoit que leurs poignées.
+  saveDbJson: async (json, meta, extra) => {
+    let ex;
+    if (extra && typeof extra === 'object') {
+      const spaces = {};
+      for (const [id, capsule] of Object.entries(extra.spaces || {})) spaces[id] = await deposit(String(capsule));
+      ex = { spaces, drop: Array.isArray(extra.drop) ? extra.drop : [] };
+    }
+    return ipcRenderer.invoke('marginalia:saveDb', String(json), meta && typeof meta === 'object' ? { version: meta.version, items: meta.items } : undefined, ex);
+  },
 
   /** Avis du processus principal (restauration automatique, sauvegarde exportée…) : affichés en toast. */
   onNotice: (cb) => {
@@ -54,8 +159,15 @@ const api = {
     return r ? { folder: r.folder, files: r.files.map(toFile), skipped: r.skipped, truncated: r.truncated } : null;
   },
 
-  storeFile: (bookId, fileName, data) => ipcRenderer.invoke('marginalia:storeFile', bookId, fileName, data),
-  readFile: async (bookId, fileName) => toArrayBuffer(await ipcRenderer.invoke('marginalia:readFile', bookId, fileName)),
+  // Fichier d'un espace chiffré ouvert : contenu déposé dans (ou retiré du) processus des secrets.
+  storeFile: async (bookId, fileName, data) => {
+    const sealed = await ipcRenderer.invoke('marginalia:fileSealed', bookId);
+    return ipcRenderer.invoke('marginalia:storeFile', bookId, fileName, sealed ? await deposit(data) : data);
+  },
+  readFile: async (bookId, fileName) => {
+    const r = await ipcRenderer.invoke('marginalia:readFile', bookId, fileName);
+    return toArrayBuffer(isRef(r) ? await reveal(r) : r);
+  },
   deleteFile: (bookId, fileName) => ipcRenderer.invoke('marginalia:deleteFile', bookId, fileName),
 
   saveText: (defaultName, content) => ipcRenderer.invoke('marginalia:saveText', defaultName, content),
@@ -103,32 +215,36 @@ const api = {
 const secOp = (op, args) => ipcRenderer.invoke('marginalia:security', op, args || {});
 // Espaces chiffrés (voir electron/spaces.cjs) : mot de passe commun, verrouillage par espace.
 const spaceOp = (op, args) => ipcRenderer.invoke('marginalia:spaces', op, args || {});
+// Les secrets ne vont pas au processus principal : déposés dans le processus des secrets (voir plus haut).
 api.spaces = {
   status: () => spaceOp('status'),
-  setup: (password) => spaceOp('setup', { password }),
-  unlock: (wsId, secret) => spaceOp('unlock', { wsId, secret }),
-  unlockTouchId: (wsId) => spaceOp('unlock', { wsId, touchId: true }),
-  lock: (wsId) => spaceOp('lock', { wsId }),
-  lockAll: () => spaceOp('lockAll'),
-  open: (wsId, secret) => spaceOp('open', secret === undefined ? { wsId } : { wsId, secret }),
-  verify: (secret) => spaceOp('verify', { secret }),
-  changePassword: (current, password) => spaceOp('changePassword', { current, password }),
-  newRecoveryKey: (secret) => spaceOp('newRecoveryKey', { secret }),
-  setTouchId: (on, secret) => spaceOp('setTouchId', { on, secret }),
+  setup: async (password) => withRecovery(await spaceOp('setup', { password: await deposit(String(password)) })),
+  unlock: async (wsId, secret) => withCapsule(await spaceOp('unlock', { wsId, secret: await deposit(String(secret)) })),
+  unlockTouchId: async (wsId) => withCapsule(await spaceOp('unlock', { wsId, touchId: true })),
+  /** Rendu neuf : reprend le contenu d'un espace resté ouvert pendant le verrouillage d'un autre. */
+  reopen: async (wsId) => withCapsule(await spaceOp('reopen', { wsId })),
+  // `route` : où reprendre dans le rendu neuf qui remplace celui-ci après le verrouillage.
+  lock: (wsId, route) => spaceOp('lock', { wsId, route: route && typeof route === 'object' ? route : undefined }),
+  lockAll: (route, only) => spaceOp('lockAll', { route: route && typeof route === 'object' ? route : undefined, only: Array.isArray(only) ? only.map(String) : undefined }),
+  open: async (wsId, secret) => spaceOp('open', secret === undefined ? { wsId } : { wsId, secret: await deposit(String(secret)) }),
+  verify: async (secret) => spaceOp('verify', { secret: await deposit(String(secret)) }),
+  changePassword: async (current, password) => spaceOp('changePassword', { current: await deposit(String(current)), password: await deposit(String(password)) }),
+  newRecoveryKey: async (secret) => withRecovery(await spaceOp('newRecoveryKey', { secret: await deposit(String(secret)) })),
+  setTouchId: async (on, secret) => spaceOp('setTouchId', { on, secret: await depositText(secret) }),
 };
 api.security = {
   status: () => secOp('status'),
-  unlockPassword: (password) => secOp('unlockPassword', { password: String(password) }),
-  unlockRecovery: (recoveryKey, newPassword) => secOp('unlockRecovery', { recoveryKey: String(recoveryKey), newPassword: newPassword == null ? undefined : String(newPassword) }),
+  unlockPassword: async (password) => secOp('unlockPassword', { password: await deposit(String(password)) }),
+  unlockRecovery: async (recoveryKey, newPassword) => secOp('unlockRecovery', { recoveryKey: await deposit(String(recoveryKey)), newPassword: newPassword == null ? undefined : await deposit(String(newPassword)) }),
   unlockTouchId: () => secOp('unlockTouchId'),
   prepare: () => secOp('prepare'),
-  enable: (token, lock) => secOp('enable', { token, lock: lock || undefined }),
-  enableLock: (opts) => secOp('enableLock', opts),
-  disableLock: (password) => secOp('disableLock', { password }),
-  disable: (password) => secOp('disable', { password }),
+  enable: async (token, lock) => secOp('enable', { token, lock: lock ? { ...lock, password: await depositText(lock.password) } : undefined }),
+  enableLock: async (opts) => secOp('enableLock', { ...(opts || {}), password: await depositText(opts && opts.password) }),
+  disableLock: async (password) => secOp('disableLock', { password: await depositText(password) }),
+  disable: async (password) => secOp('disable', { password: await depositText(password) }),
   resume: () => secOp('resume'),
-  changePassword: (oldPassword, newPassword) => secOp('changePassword', { oldPassword, newPassword }),
-  prepareRecovery: (password) => secOp('prepareRecovery', { password }),
+  changePassword: async (oldPassword, newPassword) => secOp('changePassword', { oldPassword: await depositText(oldPassword), newPassword: await depositText(newPassword) }),
+  prepareRecovery: async (password) => secOp('prepareRecovery', { password: await depositText(password) }),
   commitRecovery: (token) => secOp('commitRecovery', { token }),
   cancelPending: () => secOp('cancelPending'),
   setOptions: (opts) => secOp('setOptions', opts),

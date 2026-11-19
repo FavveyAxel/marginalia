@@ -1037,8 +1037,12 @@ async function lockNow(reason) {
     sec.lockedBy = reason;
     diag('securite', 'verrouillage', reason);
     buildMenu();
-    // La page repart de zéro : plus aucune donnée dans la mémoire du rendu.
-    for (const w of BrowserWindow.getAllWindows()) if (!w.isDestroyed()) w.webContents.reload();
+    // La page repart de zéro dans un processus neuf : l'ancien rendu (données, mot de passe saisi) meurt.
+    for (const w of BrowserWindow.getAllWindows()) {
+      if (w.isDestroyed()) continue;
+      if (w === mainWindow) freshRenderer(w, 'verrouillage').catch((e) => diag('fenetre', 'remplacement du rendu', e && e.message));
+      else w.webContents.reload();
+    }
     return true;
   } finally {
     sec.locking = false;
@@ -1099,20 +1103,43 @@ function noteFailure() {
   if (sec.failures >= 3) sec.nextTryAt = Date.now() + Math.min(30000, 1000 * 2 ** (sec.failures - 3));
   diag('securite', 'déverrouillage refusé', { essais: sec.failures });
 }
-/** Vérifie le mot de passe actuel (sans changer l'état). */
+/**
+ * Vérifie le mot de passe actuel (sans changer l'état). `pw` : poignée d'un secret déposé par le rendu
+ * dans le processus des secrets (voir secretsStart) ; ce processus-ci ne voit que l'empreinte de la clé.
+ */
 async function passwordOk(pw) {
   if (!sec.ks || !sec.ks.password) return false;
   const wait = attemptWait();
   if (wait) await sleep(wait);
-  const dek = await vault.unwrapWithPassword(String(pw || ''), sec.ks.password);
-  const good = !!dek && vault.keyId(dek) === sec.ks.keyId;
-  vault.wipe(dek);
+  const h = handleOf(pw);
+  let good = false;
+  if (h) {
+    try {
+      const r = await secretsCall('vUnwrap', { h, w: sec.ks.password, idOnly: true });
+      good = !!r.ok && r.keyId === sec.ks.keyId;
+    } catch (e) {
+      diag('securite', 'vérification', e && e.message);
+    }
+  }
   if (!good) noteFailure();
   else {
     sec.failures = 0;
     sec.nextTryAt = 0;
   }
   return good;
+}
+/** Nouveau mot de passe déposé : refusé (message) ou accepté (null), sans le voir. */
+async function lockPasswordError(ref) {
+  const h = handleOf(ref);
+  if (!h) throw new Error(`Le mot de passe doit compter au moins ${vault.PASSWORD_MIN} caractères.`);
+  const r = await secretsCall('checkNew', { h });
+  return r.ok ? null : r.error;
+}
+/** Enveloppe de `dek` par le nouveau mot de passe déposé (calculée dans le processus des secrets). */
+async function wrapLockPassword(ref, dek) {
+  const r = await secretsCall('vWrap', { h: handleOf(ref), key: dek });
+  if (!r.ok) throw new Error(r.error);
+  return r.envelope;
 }
 function takePending(token, kind) {
   const p = sec.pending;
@@ -1170,7 +1197,11 @@ const securityOps = {
     if (!sec.ks || !sec.ks.password || !isLocked()) return fail('Rien à déverrouiller.');
     const wait = attemptWait();
     if (wait) await sleep(wait);
-    const dek = await vault.unwrapWithPassword(String(password || ''), sec.ks.password);
+    // Le mot de passe est resté dans le processus des secrets (déposé par le rendu) : seule la clé revient.
+    const h = handleOf(password);
+    const r = h ? await secretsCall('vUnwrap', { h, w: sec.ks.password }).catch(() => null) : null;
+    const dek = r && r.ok ? Buffer.from(bufOf(r.key)) : null;
+    if (r && r.key) r.key.fill(0);
     if (!dek || vault.keyId(dek) !== sec.ks.keyId) {
       vault.wipe(dek);
       noteFailure();
@@ -1186,8 +1217,11 @@ const securityOps = {
     if (!sec.ks || !isLocked()) return fail('Rien à déverrouiller.');
     const wait = attemptWait();
     if (wait) await sleep(wait);
-    if (!vault.looksLikeRecoveryKey(recoveryKey)) return fail('Ce n’est pas une clé de secours : 32 caractères, en 8 groupes de 4.');
-    const dek = vault.unwrapWithRecovery(recoveryKey, sec.ks.recovery);
+    const h = handleOf(recoveryKey);
+    const r = h ? await secretsCall('vUnwrap', { h, w: sec.ks.recovery, recovery: true }).catch(() => null) : null;
+    if (!r || r.notRecovery) return fail('Ce n’est pas une clé de secours : 32 caractères, en 8 groupes de 4.');
+    const dek = r.ok ? Buffer.from(bufOf(r.key)) : null;
+    if (r.key) r.key.fill(0);
     if (!dek || vault.keyId(dek) !== sec.ks.keyId) {
       vault.wipe(dek);
       noteFailure();
@@ -1195,12 +1229,13 @@ const securityOps = {
     }
     if (sec.ks.lock.enabled) {
       try {
-        checkNewPassword(newPassword);
+        const err = await lockPasswordError(newPassword);
+        if (err) throw new Error(err);
+        sec.ks.password = await wrapLockPassword(newPassword, dek);
       } catch (e) {
         vault.wipe(dek);
         return fail(e.message);
       }
-      sec.ks.password = await vault.wrapWithPassword(newPassword, dek);
     }
     // Le trousseau n'avait pas rendu la clé (mise à jour de l'app…) : on l'y range de nouveau.
     if ((!sec.ks.lock.enabled || sec.ks.lock.touchId) && systemStore().ok) {
@@ -1250,7 +1285,10 @@ const securityOps = {
     if (isLocked()) throw new vault.LockedError();
     const sys = systemStore();
     if (!lock && !sys.ok) throw new Error(sys.reason);
-    if (lock) checkNewPassword(lock.password);
+    if (lock) {
+      const err = await lockPasswordError(lock.password);
+      if (err) throw new Error(err);
+    }
     const p = takePending(token, 'enable');
     const lk = lock ? lockOptions(lock) : { enabled: false, touchId: false, autoLockMinutes: 15, lockOnSleep: true };
     const now = new Date().toISOString();
@@ -1261,7 +1299,7 @@ const securityOps = {
       migration: { to: 'encrypted', startedAt: now },
       system: !lock || lk.touchId ? systemWrap(p.dek) : null,
       recovery: { ...vault.wrapWithRecovery(p.recoveryKey, p.dek), createdAt: now },
-      password: lock ? await vault.wrapWithPassword(lock.password, p.dek) : null,
+      password: lock ? await wrapLockPassword(lock.password, p.dek) : null,
       lock: lk,
       createdAt: now,
     };
@@ -1286,8 +1324,9 @@ const securityOps = {
     requireUnlocked();
     if (!sec.ks || !sec.ks.enabled) throw new Error('Activez d’abord le chiffrement.');
     if (sec.ks.lock.enabled) throw new Error('Le verrouillage est déjà activé.');
-    checkNewPassword(o.password);
-    sec.ks.password = await vault.wrapWithPassword(o.password, sec.dek);
+    const err = await lockPasswordError(o.password);
+    if (err) throw new Error(err);
+    sec.ks.password = await wrapLockPassword(o.password, sec.dek);
     sec.ks.lock = lockOptions(o, sec.ks.lock);
     // Sans Touch ID, la copie du trousseau disparaît : le mot de passe devient indispensable.
     sec.ks.system = sec.ks.lock.touchId ? sec.ks.system || systemWrap(sec.dek) : null;
@@ -1344,9 +1383,10 @@ const securityOps = {
   async changePassword({ oldPassword, newPassword }) {
     requireUnlocked();
     if (!sec.ks || !sec.ks.password) throw new Error('Aucun mot de passe à changer.');
-    checkNewPassword(newPassword);
+    const err = await lockPasswordError(newPassword);
+    if (err) throw new Error(err);
     if (!(await passwordOk(oldPassword))) return fail('Mot de passe actuel incorrect.');
-    sec.ks.password = await vault.wrapWithPassword(newPassword, sec.dek);
+    sec.ks.password = await wrapLockPassword(newPassword, sec.dek);
     await saveKeystore(sec.ks);
     diag('securite', 'mot de passe changé');
     return { ok: true };
@@ -1455,7 +1495,7 @@ const securityOps = {
 handle('marginalia:security', async (_e, op, args) => {
   const fn = Object.prototype.hasOwnProperty.call(securityOps, op) ? securityOps[op] : null;
   if (!fn) throw new Error('Opération inconnue');
-  const r = await fn(args && typeof args === 'object' ? args : {});
+  const r = await secretsOp(() => fn(args && typeof args === 'object' ? args : {}));
   if (op !== 'status' && op !== 'answer') setImmediate(broadcastSecurity);
   return r;
 });
@@ -1510,7 +1550,7 @@ function secretsStart() {
   proc.on('message', (m) => {
     if (!m || typeof m !== 'object') return;
     if (typeof m.reveals === 'number') w.reveals = m.reveals;
-    if (m.evt === 'reveals') return secretsIdleSoon();
+    if (m.evt === 'reveals') return void setImmediate(secretsIdleCheck); // tout retiré : plus rien à garder
     const c = w.calls.get(m.id);
     if (!c) return;
     w.calls.delete(m.id);
@@ -1591,7 +1631,6 @@ function secretsIdleSoon() {
     if (w && !sp.skLoaded && !secrets.busy && !w.calls.size) secretsStop();
   }, SECRETS_IDLE_MS);
   secrets.idleTimer.unref?.();
-  setImmediate(secretsIdleCheck);
 }
 /** Une opération qui enchaîne plusieurs appels : le processus n'est pas terminé au milieu. */
 async function secretsOp(fn) {
@@ -1756,10 +1795,14 @@ async function filesOf(id) {
   return (await zipkit.listFiles(path.join(libraryRoot(), id)).catch(() => [])).filter((f) => !f.rel.endsWith('.tmp'));
 }
 const fileCtx = (id, rel) => `${id}/${String(rel).split(/[\\/]+/).filter(Boolean).join('/')}`;
+/** Octets rendus par le processus des secrets (Uint8Array) vus comme un Buffer, sans copie. */
+const bufOf = (u) => (Buffer.isBuffer(u) ? u : Buffer.from(u.buffer, u.byteOffset, u.byteLength));
 /**
  * Scelle avec la clé de l'espace les fichiers de `ids` qui attendent de l'être (sp.pending : entrés dans
  * l'espace à l'instant, ou coupure avant la fin). Un fichier en clair qui n'est PAS attendu n'est pas
  * scellé : il n'a pas été écrit par Marginalia (remplacé sur le disque), et sa lecture est refusée.
+ * Le contenu qui entre dans l'espace était commun jusque-là ; il est scellé par le processus des
+ * secrets, et la copie en clair lue ici est effacée.
  */
 async function sealSpaceFiles(wsId, ids) {
   for (const id of ids) {
@@ -1768,45 +1811,87 @@ async function sealSpaceFiles(wsId, ids) {
       await withFileLock(f.full, async () => {
         const buf = await fsp.readFile(f.full).catch(() => null);
         if (!buf || spacesKit.isSealed(buf)) return;
-        await writeAtomic(f.full, spacesKit.seal(sp.sk, wsId, decodeIn(buf), fileCtx(id, f.rel)));
+        const plain = decodeIn(buf);
+        try {
+          await writeAtomic(f.full, await secretsCall('spSealFile', { wsId, buf: plain, ctx: fileCtx(id, f.rel) }));
+        } finally {
+          plain.fill(0);
+          buf.fill(0);
+        }
       });
     }
     sp.pending.delete(id);
   }
 }
-/** Rend au format courant de l'app (en clair, ou chiffrement global) les fichiers de `ids` scellés par l'espace. */
+/**
+ * Rend au format courant de l'app (en clair, ou chiffrement global) les fichiers de `ids` scellés par
+ * l'espace : ils QUITTENT l'espace et redeviennent communs (la copie en clair d'ici est effacée).
+ */
 async function releaseSpaceFiles(wsId, ids) {
   for (const id of ids) {
     for (const f of await filesOf(id)) {
       await withFileLock(f.full, async () => {
         const buf = await fsp.readFile(f.full).catch(() => null);
         if (!buf || !spacesKit.isSealed(buf)) return;
-        await writeAtomic(f.full, encodeOut(spacesKit.open(sp.sk, wsId, buf, fileCtx(id, f.rel))));
+        const plain = bufOf(await secretsCall('spOpenFile', { wsId, buf, ctx: fileCtx(id, f.rel), toMain: true }));
+        try {
+          const out = encodeOut(plain);
+          await writeAtomic(f.full, out);
+          if (out !== plain) out.fill(0);
+        } finally {
+          plain.fill(0);
+        }
       });
     }
     sp.pending.delete(id);
   }
 }
-/** Fichiers de `id` qui passent de l'espace `from` à l'espace `to`, sans jamais être en clair sur le disque. */
+/** Fichiers de `id` qui passent de l'espace `from` à l'espace `to`, sans jamais être en clair sur le disque (ni ici). */
 async function transferSpaceFiles(id, from, to) {
   for (const f of await filesOf(id)) {
     await withFileLock(f.full, async () => {
       const buf = await fsp.readFile(f.full).catch(() => null);
       if (!buf) return;
-      const plain = spacesKit.isSealed(buf) ? spacesKit.open(sp.sk, from, buf, fileCtx(id, f.rel)) : decodeIn(buf);
-      await writeAtomic(f.full, spacesKit.seal(sp.sk, to, plain, fileCtx(id, f.rel)));
+      const ctx = fileCtx(id, f.rel);
+      if (spacesKit.isSealed(buf)) return writeAtomic(f.full, await secretsCall('spTransferFile', { from, to, buf, ctx }));
+      const plain = decodeIn(buf);
+      try {
+        await writeAtomic(f.full, await secretsCall('spSealFile', { wsId: to, buf: plain, ctx }));
+      } finally {
+        plain.fill(0);
+        buf.fill(0);
+      }
     });
   }
   sp.pending.delete(id);
 }
-const spaceReady = (ws) => !!sp.sk && sp.unlocked.has(ws);
-function encodeFileFor(id, fileName, buf) {
+const spaceReady = (ws) => sp.skLoaded && sp.unlocked.has(ws);
+/**
+ * Fichier à écrire : `data` = octets (fichier commun) ou poignée d'un contenu déposé par le rendu dans le
+ * processus des secrets (fichier d'un espace : scellé là-bas, ce processus ne reçoit que le chiffré).
+ */
+async function encodeFileFor(id, fileName, data) {
   const ws = sp.owners.get(id);
-  if (!ws) return encodeOut(buf);
-  if (!spaceReady(ws)) throw new SpaceLockedError();
-  return spacesKit.seal(sp.sk, ws, buf, fileCtx(id, fileName));
+  const h = handleOf(data);
+  if (ws) {
+    if (!spaceReady(ws)) throw new SpaceLockedError();
+    return secretsCall('spSealFile', h ? { wsId: ws, h, ctx: fileCtx(id, fileName) } : { wsId: ws, buf: toBuffer(data), ctx: fileCtx(id, fileName) });
+  }
+  // Fichier commun : le contenu déposé (le fichier appartenait à un espace quand le rendu l'a envoyé) est repris.
+  if (h) {
+    const plain = bufOf(await secretsCall('spTake', { h }));
+    const out = encodeOut(plain);
+    if (out !== plain) plain.fill(0);
+    return out;
+  }
+  return encodeOut(toBuffer(data));
 }
-function decodeFile(id, fileName, buf) {
+/**
+ * Fichier lu : octets (fichier commun, ou fichier d'un espace pas encore scellé), ou poignée de retrait
+ * (fichier scellé d'un espace ouvert : ouvert par le processus des secrets, que le rendu interroge
+ * directement). Mêmes refus qu'avant : espace verrouillé, fichier en clair inattendu, autre espace.
+ */
+async function decodeFile(id, fileName, buf) {
   const owner = sp.owners.get(id);
   if (!spacesKit.isSealed(buf)) {
     // Fichier d'un espace chiffré trouvé en clair : accepté seulement s'il attend d'être scellé.
@@ -1816,12 +1901,13 @@ function decodeFile(id, fileName, buf) {
       e.code = 'MG_PLAIN';
       throw e;
     }
-    return decodeIn(buf);
+    return { buf: decodeIn(buf) };
   }
-  if (!sp.sk) throw new SpaceLockedError();
-  const ws = owner || spacesKit.ownerOf(sp.sk, buf, new Set([...sp.blobs.keys(), ...sp.unlocked]));
+  if (!sp.skLoaded) throw new SpaceLockedError();
+  const ws = owner || (await secretsCall('spOwnerOf', { head: buf.subarray(0, 64), wsIds: [...new Set([...sp.blobs.keys(), ...sp.unlocked])] }));
   if (!ws || !sp.unlocked.has(ws)) throw new SpaceLockedError();
-  return spacesKit.open(sp.sk, ws, buf, fileCtx(id, fileName));
+  const r = await secretsCall('spOpenFile', { wsId: ws, buf, ctx: fileCtx(id, fileName) });
+  return { ref: revealRef(r.rh) };
 }
 /** Un fichier d'un espace verrouillé ne se lit, ne s'écrit ni ne se supprime. */
 function assertFileReachable(id) {
@@ -1829,16 +1915,17 @@ function assertFileReachable(id) {
   if (ws && !spaceReady(ws)) throw new SpaceLockedError();
 }
 /**
- * Enregistrement : `extra.spaces` = capsules en clair des espaces déverrouillés qui ont changé,
- * `extra.drop` = espaces qui ne sont plus chiffrés. Ordre des écritures : les fichiers qui quittent un
- * espace sont rendus lisibles AVANT la base (ou passent directement à leur nouvel espace, sans jamais
- * être en clair), ceux qui y entrent sont scellés APRÈS — une coupure laisse au pire un fichier pas
- * encore scellé (noté dans la base, repris au déverrouillage), jamais un fichier illisible.
+ * Enregistrement : `extra.spaces` = poignées des capsules en clair (déposées par le rendu dans le
+ * processus des secrets) des espaces déverrouillés qui ont changé, `extra.drop` = espaces qui ne sont
+ * plus chiffrés. Ordre des écritures : les fichiers qui quittent un espace sont rendus lisibles AVANT la
+ * base (ou passent directement à leur nouvel espace, sans jamais être en clair), ceux qui y entrent sont
+ * scellés APRÈS — une coupure laisse au pire un fichier pas encore scellé (noté dans la base, repris au
+ * déverrouillage), jamais un fichier illisible.
  * Un enregistrement à la fois : deux ne se croisent pas.
  */
 let spaceSaveChain = Promise.resolve();
 function saveWithSpaces(json, meta, extra) {
-  const run = spaceSaveChain.catch(() => {}).then(() => saveWithSpacesNow(json, meta, extra));
+  const run = spaceSaveChain.catch(() => {}).then(() => secretsOp(() => saveWithSpacesNow(json, meta, extra)));
   spaceSaveChain = run;
   return run;
 }
@@ -1867,17 +1954,17 @@ async function saveWithSpacesNow(json, meta, extra) {
   if (main.maps && typeof main.maps === 'object') for (const k of Object.keys(main.maps)) inMain.add(`maps:${k}`);
   const fileInMain = (id) => inMain.has(`books:${id}`) || inMain.has(`drafts:${id}`);
 
-  // 1. Lecture de toutes les capsules reçues.
-  const got = new Map(); // wsId → { capsuleJson, hash, capsule, now }
-  for (const [wsId, capsuleJson] of Object.entries(spaces)) {
-    if (!spacesKit.isSpaceId(wsId) || typeof capsuleJson !== 'string') throw new Error('Espace invalide');
+  // 1. Capsules reçues : scellées par le processus des secrets, qui n'en rend que le chiffré, l'empreinte
+  // et les identifiants cités (jamais le contenu).
+  const got = new Map(); // wsId → { hash, blob, ids, now }
+  for (const [wsId, ref] of Object.entries(spaces)) {
+    const h = handleOf(ref);
+    if (!spacesKit.isSpaceId(wsId) || !h) throw new Error('Espace invalide');
     if (!spaceReady(wsId)) throw new SpaceLockedError();
-    const hash = crypto.createHash('sha256').update(capsuleJson).digest('hex');
-    if (sp.hashes.get(wsId) === hash && sp.blobs.has(wsId)) continue;
-    const capsule = JSON.parse(capsuleJson);
-    if (!capsule || typeof capsule !== 'object' || Array.isArray(capsule)) throw new Error('Espace invalide');
-    const now = new Set([...capsuleFileOwners(capsule)].filter((id) => !fileInMain(id)));
-    got.set(wsId, { capsuleJson, hash, capsule, now });
+    const r = await secretsCall('spSealCapsule', { wsId, h });
+    if (sp.hashes.get(wsId) === r.hash && sp.blobs.has(wsId)) continue;
+    const now = new Set(r.fileIds.filter((id) => spacesKit.isSpaceId(id) && !fileInMain(id)));
+    got.set(wsId, { hash: r.hash, blob: r.blob, ids: new Set(r.ids), now });
   }
   for (const wsId of drop) if ((sp.blobs.has(wsId) || ownedBy(wsId).length) && !spaceReady(wsId)) throw new SpaceLockedError();
 
@@ -1907,13 +1994,12 @@ async function saveWithSpacesNow(json, meta, extra) {
       sp.owners.set(id, wsId);
       sp.pending.add(id);
     }
-    sp.blobs.set(wsId, spacesKit.sealCapsule(sp.sk, wsId, g.capsuleJson));
+    sp.blobs.set(wsId, g.blob);
     sp.hashes.set(wsId, g.hash);
     toSeal.push([wsId, [...g.now].filter((id) => sp.owners.get(id) === wsId)]);
-    const idsNow = capsuleIds(g.capsule);
     const known = sp.ids.get(wsId) || new Set();
-    for (const k of idsNow) if (!known.has(k) && !inMain.has(k)) entered.add(k);
-    sp.ids.set(wsId, idsNow);
+    for (const k of g.ids) if (!known.has(k) && !inMain.has(k)) entered.add(k);
+    sp.ids.set(wsId, g.ids);
   }
   for (const wsId of drop) {
     if (!sp.blobs.has(wsId) && !ownedBy(wsId).length) continue;
@@ -1952,12 +2038,13 @@ function spaceWait() {
   return Math.max(0, sp.nextTryAt - Date.now());
 }
 /**
- * Clé maîtresse rendue par le mot de passe ou la clé de secours. Délai croissant après trois échecs, et
- * UN essai à la fois : des appels lancés ensemble attendaient tous le même délai une seule fois.
+ * Opération du processus des secrets qui exige le mot de passe (ou la clé de secours) déposé sous la
+ * poignée `h` : `op` rend { ok } (faux : mauvais secret). Délai croissant après trois échecs, et UN essai
+ * à la fois : des appels lancés ensemble attendaient tous le même délai une seule fois.
  */
 let spaceTry = Promise.resolve();
 let spaceTryQueue = 0;
-function spaceSecret(secret) {
+function spaceSecret(secret, op = 'spVerify', extra = {}) {
   if (spaceTryQueue >= 2) return Promise.resolve(null); // essais en rafale : refusés sans être évalués
   spaceTryQueue++;
   const run = spaceTry
@@ -1966,8 +2053,16 @@ function spaceSecret(secret) {
       if (!sp.ks) return null;
       const wait = spaceWait();
       if (wait) await sleep(wait);
-      const sk = await spacesKit.unlock(sp.ks, String(secret || ''));
-      if (!sk) {
+      const h = handleOf(secret);
+      let r = null;
+      if (h) {
+        try {
+          r = await secretsCall(op, { h, ks: sp.ks, ...extra });
+        } catch (e) {
+          diag('espaces', 'essai', e && e.message);
+        }
+      }
+      if (!r || !r.ok) {
         sp.failures++;
         if (sp.failures >= 3) sp.nextTryAt = Date.now() + Math.min(30000, 1000 * 2 ** (sp.failures - 3));
         diag('espaces', 'déverrouillage refusé', { essais: sp.failures });
@@ -1975,7 +2070,7 @@ function spaceSecret(secret) {
       }
       sp.failures = 0;
       sp.nextTryAt = 0;
-      return sk;
+      return r;
     })
     .finally(() => {
       spaceTryQueue--;
@@ -1983,9 +2078,13 @@ function spaceSecret(secret) {
   spaceTry = run;
   return run;
 }
-function keepSk(sk) {
-  if (sp.sk && sp.sk !== sk) vault.wipe(sp.sk);
-  sp.sk = sk;
+const badSecret = () => ({ ok: false, error: 'Mot de passe incorrect.', waitMs: spaceWait() });
+/** Nouveau mot de passe déposé : vérifié (longueur) dans le processus des secrets ; message d'erreur ou null. */
+async function newPasswordError(ref) {
+  const h = handleOf(ref);
+  if (!h) return `Le mot de passe doit compter au moins ${vault.PASSWORD_MIN} caractères.`;
+  const r = await secretsCall('checkNew', { h });
+  return r.ok ? null : r.error;
 }
 const spacesStatus = () => ({
   configured: !!sp.ks,
@@ -1995,6 +2094,69 @@ const spacesStatus = () => ({
   touchId: { available: touchIdAvailable() && systemStore(false).ok, enabled: !!(sp.ks && sp.ks.system) },
   waitMs: spaceWait(),
 });
+/**
+ * Contenu d'un espace (clé maîtresse déjà dans le processus des secrets) : la capsule est ouverte là-bas,
+ * le rendu la retire directement (poignée) ; ce processus-ci n'en reçoit que l'empreinte et les
+ * identifiants cités, pour tenir la liste des fichiers de l'espace.
+ */
+async function openSpaceContent(wsId) {
+  if (!sp.blobs.has(wsId)) {
+    // Un espace chiffré a toujours une capsule : absente, elle a été retirée de la base. Ouvrir un
+    // espace « vide » ferait croire que tout va bien, puis écrirait du vide par-dessus.
+    if (!sp.unlocked.size) lockAllSpaces();
+    return fail('Le contenu chiffré de cet espace est absent de la base. Restaurez une sauvegarde.');
+  }
+  let c;
+  try {
+    c = await secretsCall('spOpenCapsule', { wsId, blob: sp.blobs.get(wsId) });
+  } catch (e) {
+    if (!sp.unlocked.size) lockAllSpaces();
+    diag('espaces', 'capsule illisible', e && e.message);
+    return fail('Le contenu de cet espace est illisible (base endommagée ou autre clé).');
+  }
+  const capsule = revealRef(c.rh);
+  sp.hashes.set(wsId, c.hash);
+  sp.ids.set(wsId, new Set(c.ids));
+  sp.unlocked.add(wsId);
+  // La liste des fichiers de l'espace est refaite d'après la capsule (authentifiée) : celle de la base
+  // est en clair, donc modifiable. Un fichier que la capsule cite et qui n'était plus noté est repris
+  // (et scellé s'il était resté en clair) ; un fichier noté que la capsule ne cite pas est relâché.
+  const cited = new Set(c.fileIds.filter(spacesKit.isSpaceId));
+  for (const id of ownedBy(wsId)) if (!cited.has(id)) sp.owners.delete(id);
+  for (const id of cited) {
+    const cur = sp.owners.get(id);
+    if (cur === wsId) continue;
+    if (cur && sp.blobs.has(cur)) continue; // à un autre espace
+    sp.owners.set(id, wsId);
+    sp.pending.add(id);
+  }
+  // Reprise : des fichiers de l'espace pas encore scellés (coupure pendant un enregistrement).
+  await sealSpaceFiles(wsId, ownedBy(wsId)).catch((e) => diag('espaces', 'scellement des fichiers', e && e.message));
+  if (sp.base != null) await queueSave(composeDb(sp.base), sp.meta).catch((e) => diag('espaces', 'enregistrement', e && e.message));
+  return { ok: true, capsule };
+}
+/** Itinéraire où le rendu neuf reprend (identifiants seulement), après un verrouillage. */
+function routeParam(route) {
+  if (!route || typeof route !== 'object' || Array.isArray(route) || typeof route.name !== 'string') return null;
+  try {
+    const j = JSON.stringify(route);
+    return j.length <= 2000 ? j : null;
+  } catch {
+    return null;
+  }
+}
+/**
+ * Après le verrouillage d'un espace : le rendu, qui a tenu son contenu (et peut-être le mot de passe
+ * saisi), est remplacé par un processus neuf, une fois la réponse partie.
+ */
+function renewAfterLock(event, why, route) {
+  const win = (event && BrowserWindow.fromWebContents(event.sender)) || mainWindow;
+  if (!win || win.isDestroyed()) return;
+  sp.carryOver = sp.unlocked.size > 0;
+  setTimeout(() => {
+    freshRenderer(win, why, { route: routeParam(route) }).catch((e) => diag('fenetre', 'remplacement du rendu', e && e.message));
+  }, 30);
+}
 const spaceOps = {
   status: async () => spacesStatus(),
   /** Premier espace chiffré : choix du mot de passe commun ; la clé de secours est rendue une seule fois. */
@@ -2002,25 +2164,25 @@ const spaceOps = {
     if (sp.ks) return fail('Les espaces chiffrés ont déjà un mot de passe.');
     if (sp.keysLost || sp.blobs.size || sp.owners.size)
       return fail('Des espaces chiffrés existent mais leurs clés sont introuvables. Restaurez une sauvegarde : choisir un nouveau mot de passe rendrait leur contenu définitivement illisible.');
-    try {
-      checkNewPassword(password);
-    } catch (e) {
-      return fail(e.message);
-    }
-    const made = await spacesKit.createKeystore(String(password));
+    const h = handleOf(password);
+    if (!h) return fail(`Le mot de passe doit compter au moins ${vault.PASSWORD_MIN} caractères.`);
+    const made = await secretsCall('spSetup', { h });
+    if (!made.ok) return fail(made.error);
     sp.ks = made.ks;
-    keepSk(made.sk);
+    sp.skLoaded = true;
     await saveSpaceKeys();
     diag('espaces', 'mot de passe créé');
-    return { ok: true, recoveryKey: made.recoveryKey };
+    return { ok: true, recoveryKey: revealRef(made.rh) };
   },
-  /** Déverrouille un espace (mot de passe, clé de secours ou Touch ID) et rend sa capsule en clair. */
+  /** Déverrouille un espace (mot de passe, clé de secours ou Touch ID) ; le rendu retire sa capsule en clair. */
   async unlock({ wsId, secret, touchId }) {
     if (!spacesKit.isSpaceId(wsId)) return fail('Espace inconnu.');
     if (!sp.ks) return fail('Aucun espace chiffré sur cet ordinateur.');
-    let sk = null;
     if (touchId) {
       if (!sp.ks.system || !touchIdAvailable()) return fail('Touch ID n’est pas activé pour les espaces chiffrés.');
+      // Touch ID : la clé est rendue par le trousseau du système, que seul ce processus atteint ; elle ne
+      // fait qu'y passer (effacée aussitôt confiée au processus des secrets).
+      let sk = null;
       try {
         if (!FAKE_TOUCH) await systemPreferences.promptTouchID('déverrouiller un espace de Marginalia');
         sk = systemUnwrap(sp.ks.system);
@@ -2032,58 +2194,41 @@ const spaceOps = {
         return fail('Touch ID n’a pas abouti : saisissez le mot de passe.');
       }
       if (!sk) return fail('Touch ID ne rend plus la clé : saisissez le mot de passe.');
-    } else {
-      sk = await spaceSecret(secret);
-      if (!sk) return { ok: false, error: 'Mot de passe incorrect.', waitMs: spaceWait() };
-    }
-    keepSk(sk);
-    if (!sp.blobs.has(wsId)) {
-      // Un espace chiffré a toujours une capsule : absente, elle a été retirée de la base. Ouvrir un
-      // espace « vide » ferait croire que tout va bien, puis écrirait du vide par-dessus.
-      if (!sp.unlocked.size) lockAllSpaces();
-      return fail('Le contenu chiffré de cet espace est absent de la base. Restaurez une sauvegarde.');
-    }
-    let capsule = null;
-    let parsed = null;
-    try {
-      capsule = spacesKit.openCapsule(sp.sk, wsId, sp.blobs.get(wsId));
-      parsed = JSON.parse(capsule);
-    } catch (e) {
-      if (!sp.unlocked.size) lockAllSpaces();
-      diag('espaces', 'capsule illisible', e && e.message);
-      return fail('Le contenu de cet espace est illisible (base endommagée ou autre clé).');
-    }
-    sp.hashes.set(wsId, crypto.createHash('sha256').update(capsule).digest('hex'));
-    sp.ids.set(wsId, capsuleIds(parsed));
-    sp.unlocked.add(wsId);
-    // La liste des fichiers de l'espace est refaite d'après la capsule (authentifiée) : celle de la base
-    // est en clair, donc modifiable. Un fichier que la capsule cite et qui n'était plus noté est repris
-    // (et scellé s'il était resté en clair) ; un fichier noté que la capsule ne cite pas est relâché.
-    const cited = capsuleFileOwners(parsed);
-    for (const id of ownedBy(wsId)) if (!cited.has(id)) sp.owners.delete(id);
-    for (const id of cited) {
-      const cur = sp.owners.get(id);
-      if (cur === wsId) continue;
-      if (cur && sp.blobs.has(cur)) continue; // à un autre espace
-      sp.owners.set(id, wsId);
-      sp.pending.add(id);
-    }
-    // Reprise : des fichiers de l'espace pas encore scellés (coupure pendant un enregistrement).
-    await sealSpaceFiles(wsId, ownedBy(wsId)).catch((e) => diag('espaces', 'scellement des fichiers', e && e.message));
-    if (sp.base != null) await queueSave(composeDb(sp.base), sp.meta).catch((e) => diag('espaces', 'enregistrement', e && e.message));
-    diag('espaces', 'déverrouillé');
-    return { ok: true, capsule };
+      try {
+        await secretsCall('spAdopt', { sk }, { spawn: true });
+      } finally {
+        vault.wipe(sk);
+      }
+    } else if (!(await spaceSecret(secret, 'spUnlock'))) return badSecret();
+    sp.skLoaded = true;
+    const r = await openSpaceContent(wsId);
+    if (r.ok) diag('espaces', 'déverrouillé');
+    return r;
+  },
+  /** Rendu neuf après le verrouillage d'un autre espace : il reprend le contenu des espaces restés ouverts. */
+  async reopen({ wsId }) {
+    if (!spacesKit.isSpaceId(wsId) || !spaceReady(wsId)) return fail('Cet espace est verrouillé.');
+    return openSpaceContent(wsId);
   },
   /** Verrouille un espace : l'interface a déjà enregistré puis retiré son contenu. */
-  async lock({ wsId }) {
+  async lock({ wsId, route }, event) {
+    await spaceSaveChain.catch(() => {});
     await waitSaves();
     sp.unlocked.delete(wsId);
-    if (!sp.unlocked.size) lockAllSpaces();
+    // Le processus des secrets a vu le contenu de cet espace : il meurt. D'autres espaces restent
+    // ouverts : un processus neuf reprend la clé (sans elle, ils seraient verrouillés aussi).
+    if (!sp.unlocked.size || !(await secretsRespawn())) lockAllSpaces();
+    renewAfterLock(event, 'verrouillage-espace', route);
     return { ok: true };
   },
-  async lockAll() {
+  /** `only` : ces espaces seulement (un espace qui n'a pas pu être enregistré reste ouvert). */
+  async lockAll({ route, only }, event) {
+    await spaceSaveChain.catch(() => {});
     await waitSaves();
-    lockAllSpaces();
+    if (Array.isArray(only)) for (const id of only) sp.unlocked.delete(id);
+    else sp.unlocked.clear();
+    if (!sp.unlocked.size || !(await secretsRespawn())) lockAllSpaces();
+    renewAfterLock(event, 'verrouillage-espaces', route);
     return { ok: true };
   },
   /**
@@ -2096,59 +2241,48 @@ const spaceOps = {
     if (!sp.ks) return fail('Choisissez d’abord le mot de passe des espaces chiffrés.');
     if (sp.blobs.has(wsId) && !sp.unlocked.has(wsId)) return fail('Cet espace est verrouillé.');
     if (secret !== undefined) {
-      const sk = await spaceSecret(secret);
-      if (!sk) return { ok: false, error: 'Mot de passe incorrect.', waitMs: spaceWait() };
-      keepSk(sk);
-    } else if (!sp.sk) return fail('Mot de passe requis.');
+      if (!(await spaceSecret(secret, 'spUnlock'))) return badSecret();
+      sp.skLoaded = true;
+    } else if (!sp.skLoaded || !secrets.cur) return fail('Mot de passe requis.');
     sp.unlocked.add(wsId);
     return { ok: true };
   },
   /** Vérifie le mot de passe (avant de retirer le chiffrement d'un espace). */
   async verify({ secret }) {
-    const sk = await spaceSecret(secret);
-    if (!sk) return { ok: false, error: 'Mot de passe incorrect.', waitMs: spaceWait() };
-    vault.wipe(sk);
+    if (!(await spaceSecret(secret, 'spVerify'))) return badSecret();
     return { ok: true };
   },
   async changePassword({ current, password }) {
-    try {
-      checkNewPassword(password);
-    } catch (e) {
-      return fail(e.message);
-    }
-    const sk = await spaceSecret(current);
-    if (!sk) return { ok: false, error: 'Mot de passe actuel incorrect.', waitMs: spaceWait() };
-    sp.ks = await spacesKit.rewrapPassword(sp.ks, sk, String(password));
-    vault.wipe(sk);
+    const err = await newPasswordError(password).catch((e) => e.message);
+    if (err) return fail(err);
+    const r = await spaceSecret(current, 'spChangePassword', { hNew: handleOf(password) });
+    if (!r) return { ok: false, error: 'Mot de passe actuel incorrect.', waitMs: spaceWait() };
+    sp.ks = r.ks;
     await saveSpaceKeys();
     diag('espaces', 'mot de passe changé');
     return { ok: true };
   },
   async newRecoveryKey({ secret }) {
-    const sk = await spaceSecret(secret);
-    if (!sk) return { ok: false, error: 'Mot de passe incorrect.', waitMs: spaceWait() };
-    const r = spacesKit.rewrapRecovery(sp.ks, sk);
-    vault.wipe(sk);
+    const r = await spaceSecret(secret, 'spNewRecovery');
+    if (!r) return badSecret();
     sp.ks = r.ks;
     await saveSpaceKeys();
-    return { ok: true, recoveryKey: r.recoveryKey };
+    return { ok: true, recoveryKey: revealRef(r.rh) };
   },
   async setTouchId({ on, secret }) {
     if (!sp.ks) return fail('Aucun espace chiffré sur cet ordinateur.');
     if (!on) {
       // Retirer Touch ID se fait avec le mot de passe, ou pendant qu'un espace est ouvert.
-      if (!sp.sk) {
-        const sk = await spaceSecret(secret);
-        if (!sk) return { ok: false, error: 'Mot de passe incorrect.', waitMs: spaceWait() };
-        vault.wipe(sk);
-      }
+      if (!sp.skLoaded && !(await spaceSecret(secret, 'spVerify'))) return badSecret();
       sp.ks = { ...sp.ks, system: null };
       await saveSpaceKeys();
       return { ok: true };
     }
     if (!touchIdAvailable() || !systemStore().ok) return fail('Touch ID n’est pas disponible sur cet ordinateur.');
-    const sk = await spaceSecret(secret);
-    if (!sk) return { ok: false, error: 'Mot de passe incorrect.', waitMs: spaceWait() };
+    // La clé doit être confiée au trousseau du système, que seul ce processus atteint : elle y passe.
+    const r = await spaceSecret(secret, 'spExport');
+    if (!r) return badSecret();
+    const sk = bufOf(r.sk);
     try {
       sp.ks = { ...sp.ks, system: systemWrap(sk) };
     } finally {
@@ -2158,20 +2292,29 @@ const spaceOps = {
     return { ok: true };
   },
 };
-dataHandle('marginalia:spaces', async (_e, op, args) => {
+dataHandle('marginalia:spaces', async (event, op, args) => {
   const fn = Object.prototype.hasOwnProperty.call(spaceOps, op) ? spaceOps[op] : null;
   if (!fn) throw new Error('Opération inconnue');
-  return fn(args && typeof args === 'object' ? args : {});
+  return secretsOp(() => fn(args && typeof args === 'object' ? args : {}, event));
 });
 
 // ── Bibliothèque de fichiers ─────────────────────────────────
+// Fichiers d'un espace chiffré : le contenu en clair va du rendu au processus des secrets (et retour)
+// par leur canal direct ; ce processus-ci ne lit et n'écrit que le chiffré, et garde toutes les
+// vérifications (chemin, espace propriétaire, espace verrouillé).
+dataHandle('marginalia:fileSealed', async (_e, id) => {
+  libraryPath(id, 'x'); // identifiant vérifié
+  const ws = sp.owners.get(id);
+  return !!ws && spaceReady(ws);
+});
 dataHandle('marginalia:storeFile', async (_e, id, fileName, data) => {
   const file = libraryPath(id, fileName);
-  await withFileLock(file, () => writeAtomic(file, encodeFileFor(id, fileName, toBuffer(data))));
+  await secretsOp(() => withFileLock(file, async () => writeAtomic(file, await encodeFileFor(id, fileName, data))));
 });
 dataHandle('marginalia:readFile', async (_e, id, fileName) => {
-  const buf = decodeFile(id, fileName, await fsp.readFile(libraryPath(id, fileName)));
-  return new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength);
+  const r = await secretsOp(async () => decodeFile(id, fileName, await fsp.readFile(libraryPath(id, fileName))));
+  if (r.ref) return r.ref;
+  return new Uint8Array(r.buf.buffer, r.buf.byteOffset, r.buf.byteLength);
 });
 dataHandle('marginalia:deleteFile', async (_e, id, fileName) => {
   const file = libraryPath(id, fileName);
@@ -4061,6 +4204,11 @@ function createWindow() {
     flushReady.delete(wcId);
     noticesReady = false;
     if (win.isDestroyed() || appQuitting || details.reason === 'clean-exit') return;
+    // Rendu terminé exprès (verrouillage, voir freshRenderer) : rien à signaler.
+    if (win.__mgFreshKill) {
+      win.__mgFreshKill = false;
+      return;
+    }
     if (win.__mgReloadAfterKill) {
       win.__mgReloadAfterKill = false;
       diag('fenetre', 'rechargement apres blocage');
@@ -4135,10 +4283,76 @@ function createWindow() {
     /* API absente */
   }
 
-  if (DEV_URL) win.loadURL(DEV_URL);
-  // Tests de bout en bout (MARGINALIA_E2E=1) : le rendu expose son store (window.__store).
-  else win.loadURL(`${APP_ORIGIN}/index.html${process.env.MARGINALIA_E2E === '1' ? '?e2e=1' : ''}`);
+  win.loadURL(appPageUrl());
   return win;
+}
+
+/** Adresse de l'interface ; `route` : itinéraire où reprendre (JSON, identifiants seulement). */
+function appPageUrl(route) {
+  // Tests de bout en bout (MARGINALIA_E2E=1) : le rendu expose son store (window.__store).
+  const q = new URLSearchParams();
+  if (process.env.MARGINALIA_E2E === '1') q.set('e2e', '1');
+  if (route) q.set('route', route);
+  const qs = q.toString();
+  if (DEV_URL) return qs ? `${DEV_URL}${DEV_URL.includes('?') ? '&' : '?'}${qs}` : DEV_URL;
+  return `${APP_ORIGIN}/index.html${qs ? '?' + qs : ''}`;
+}
+
+/**
+ * Verrouillage : le rendu repart dans un PROCESSUS NEUF, et l'ancien se termine. Une chaîne JavaScript ne
+ * s'efface pas ; seul un processus qui meurt rend sa mémoire. Un simple rechargement garderait le même
+ * processus (et ce qu'il a tenu : contenu des espaces, mot de passe saisi).
+ * Moyen : deux navigations — vers une page vide d'un autre site (data:), puis vers l'interface. Chromium
+ * isole chaque site dans son processus : l'ancien processus du rendu, qui n'héberge plus rien, se termine.
+ * Même fenêtre (taille, position, plein écran conservés). Vérifié : si le processus n'a pas changé, le
+ * rendu est terminé de force puis rechargé (ce qui, d'après la documentation d'Electron, ouvre un
+ * processus neuf) ; si l'ancien processus survit, il est tué (il n'héberge plus aucune page).
+ */
+async function freshRenderer(win, why, { route = null } = {}) {
+  if (!win || win.isDestroyed()) return;
+  const wc = win.webContents;
+  const before = wc.getOSProcessId();
+  const bg = nativeTheme.shouldUseDarkColors ? '#121110' : '#efebe3';
+  diag('fenetre', 'rendu neuf', why);
+  try {
+    await wc.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(`<!doctype html><html style="background:${bg}"><head><title>Marginalia</title></head></html>`));
+  } catch (e) {
+    diag('fenetre', 'page intermédiaire', e && e.message);
+  }
+  if (win.isDestroyed()) return;
+  const url = appPageUrl(route);
+  try {
+    await wc.loadURL(url);
+  } catch (e) {
+    diag('fenetre', 'rechargement de l’interface', e && e.message);
+  }
+  if (win.isDestroyed()) return;
+  if (before > 0 && wc.getOSProcessId() === before) {
+    diag('fenetre', 'rendu neuf : même processus, arrêt forcé');
+    win.__mgFreshKill = true;
+    wc.forcefullyCrashRenderer();
+    wc.reload();
+  }
+  try {
+    wc.navigationHistory.clear();
+  } catch {
+    /* API absente */
+  }
+  // L'ancien processus doit disparaître : attendu un instant, puis terminé s'il n'héberge plus rien.
+  if (before > 0) {
+    for (let i = 0; i < 30; i++) {
+      if (!app.getAppMetrics().some((m) => m.pid === before)) return;
+      await sleep(100);
+    }
+    if (!webContents.getAllWebContents().some((w) => !w.isDestroyed() && w.getOSProcessId() === before)) {
+      diag('fenetre', 'ancien rendu encore là : terminé');
+      try {
+        process.kill(before, 'SIGKILL');
+      } catch {
+        /* déjà parti */
+      }
+    }
+  }
 }
 
 // ── Protocole app:// (sert dist/) ────────────────────────────
@@ -4865,6 +5079,8 @@ app.on('before-quit', (event) => {
     .catch((e) => diag('maj', 'fermeture', e && e.message))
     .finally(() => {
       diag('app', 'fermeture');
+      // Après le dernier enregistrement (qui a pu sceller une capsule) : la clé meurt avec le processus.
+      lockAllSpaces();
       quitReady = true;
       app.quit();
     });

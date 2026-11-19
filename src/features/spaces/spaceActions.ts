@@ -94,14 +94,42 @@ export async function lockSpace(wsId: string): Promise<Result> {
       await new Promise((r) => setTimeout(r, 60));
     }
     await spaceClosing(wsId);
-    await host.spaces.lock(wsId);
+    // Le processus principal remplace ensuite ce rendu par un processus neuf, qui reprend ici.
+    await host.spaces.lock(wsId, useStore.getState().route);
     return { ok: true };
   } catch (e) {
     return fail(e);
   }
 }
-export async function lockAllSpaces(): Promise<void> {
-  for (const id of [...useStore.getState().unlockedSpaces]) await lockSpace(id);
+/**
+ * Verrouille tous les espaces ouverts (verrouillage automatique : veille, écran verrouillé, inactivité) :
+ * chacun est d'abord enregistré et retiré, comme un verrouillage à la main. Un espace qui ne peut pas
+ * être enregistré reste ouvert (rien n'est perdu) ; rend false dans ce cas.
+ */
+export async function lockAllSpaces(): Promise<boolean> {
+  if (!host.spaces) return true;
+  const s = useStore.getState();
+  const ids = [...s.unlockedSpaces];
+  if (!ids.length) return true;
+  let all = true;
+  for (const wsId of ids) {
+    try {
+      if (isLiveIn(useCollab.getState(), wsId)) await stopCollab();
+      if (routeInside(useStore.getState().route, wsId)) {
+        useStore.getState().navigate({ name: 'workspace', workspaceId: wsId, groupId: null });
+        await new Promise((r) => setTimeout(r, 60));
+      }
+      await spaceClosing(wsId);
+    } catch (e) {
+      all = false;
+      console.warn('verrouillage', e);
+    }
+  }
+  // Un espace qui n'a pas pu être enregistré reste ouvert ; les autres sont verrouillés d'un coup.
+  const left = useStore.getState().unlockedSpaces;
+  const closed = ids.filter((id) => !left.includes(id));
+  if (closed.length) await host.spaces.lockAll(useStore.getState().route, left.length ? closed : undefined);
+  return all && !left.length;
 }
 
 /** Choisit le mot de passe commun (premier espace chiffré). Rend la clé de secours, affichée une fois. */

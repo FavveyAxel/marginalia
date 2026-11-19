@@ -3,7 +3,8 @@
 // Pour sélectionner un tableau / objet dérivé : useStore(useShallow(sel)).
 // ─────────────────────────────────────────────────────────────
 import { create, type StateCreator } from 'zustand';
-import { mergeCapsule, rememberCapsule, splitDb, withoutCapsule, type Capsule, type SpaceMemory } from './spaces';
+import { mergeCapsule, parseCapsule, rememberCapsule, splitDb, withoutCapsule, type Capsule, type SpaceMemory } from './spaces';
+import { diagError } from './diagScrub';
 import type {
   ActivityEntry,
   ArgumentMap,
@@ -703,6 +704,11 @@ export const useStore = create<State>()(tracked((set, get) => ({
       host.onNotice?.((n) => get().toast(n.message, n.tone, n.tone === 'success' ? undefined : { label: 'OK', run: () => {} }));
       host.onFlushRequest?.(flushPendingSave);
       set({ ...migrate(db), ready: true });
+      // Rendu neuf après le verrouillage d'un espace : les autres espaces restés ouverts sont repris, puis
+      // l'écran revient où il était (itinéraire passé par le processus principal, identifiants seulement).
+      await reopenSpaces();
+      const back = startRoute(get());
+      if (back) get().navigate(back);
       if (loadError)
         get().toast('Impossible de lire vos données : rien ne sera enregistré pendant cette session. Quittez puis relancez Marginalia.', 'error', {
           label: 'OK',
@@ -1530,7 +1536,7 @@ async function writeDb(db: Database, json = serializeDb(db), extra?: { spaces: R
   } catch (e) {
     lastSaved = '';
     console.error('saveDb', e);
-    void host.diag?.('enregistrement-echoue', String((e as Error)?.message ?? e));
+    void host.diag?.('enregistrement-echoue', diagError(e));
     if (Date.now() - lastSaveErrorToast > 60_000) {
       lastSaveErrorToast = Date.now();
       useStore.getState().toast('Enregistrement impossible pour l’instant : vos modifications restent affichées, Marginalia réessaie.', 'error');
@@ -1609,6 +1615,49 @@ async function saveIfChanged(force = false): Promise<boolean> {
 const saveNow = () => saveIfChanged(true);
 
 // ── Espaces chiffrés (src/lib/spaces.ts ; clés et scellement : electron/spaces.cjs) ──
+/** Au démarrage : espaces encore déverrouillés côté processus principal (verrouillage d'un AUTRE espace). */
+async function reopenSpaces(): Promise<void> {
+  if (!host.spaces?.reopen) return;
+  try {
+    const st = await host.spaces.status();
+    const s = useStore.getState();
+    for (const id of st.unlocked) {
+      if (!s.workspaces.some((w) => w.id === id && w.encrypted) || openSpaces.has(id)) continue;
+      const r = await host.spaces.reopen(id);
+      if (!r.ok) continue;
+      const capsule = r.capsule === null ? null : parseCapsule(r.capsule, id);
+      if (r.capsule !== null && !capsule) continue;
+      spaceOpened(id, capsule);
+    }
+  } catch (e) {
+    console.warn('espaces', e);
+  }
+}
+const ROUTES = new Set(['home', 'library', 'workspace', 'reader', 'concepts', 'extracts', 'arguments', 'revision', 'plans', 'board', 'write', 'maps', 'trash', 'inbox', 'import', 'history', 'help', 'settings']);
+/** Itinéraire où reprendre après un verrouillage (?route=…), s'il désigne encore quelque chose d'ici. */
+function startRoute(s: State): Route | null {
+  let r: Record<string, unknown> | null = null;
+  try {
+    const raw = new URLSearchParams(location.search).get('route');
+    r = raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+  if (!r || typeof r !== 'object' || typeof r.name !== 'string' || !ROUTES.has(r.name)) return null;
+  const has = (list: { id: string }[], id: unknown) => typeof id !== 'string' || list.some((x) => x.id === id);
+  const ok =
+    (r.workspaceId === undefined || has(s.workspaces, r.workspaceId)) &&
+    has(s.books, r.bookId) &&
+    (r.splitBookId == null || has(s.books, r.splitBookId)) &&
+    has(s.drafts, r.draftId) &&
+    has(s.plans, r.planId) &&
+    (r.argumentId == null || has(s.arguments, r.argumentId)) &&
+    (r.conceptId == null || has(s.concepts, r.conceptId)) &&
+    has(s.studies, r.studyId) &&
+    (typeof r.boardId !== 'string' || r.boardId in s.maps) &&
+    (typeof r.mapKey !== 'string' || r.mapKey in s.maps);
+  return ok ? (r as unknown as Route) : null;
+}
 const openSpaces = new Set<string>();
 /** Chiffrement retiré : la capsule est supprimée à la prochaine écriture. */
 const dropSpaces = new Set<string>();

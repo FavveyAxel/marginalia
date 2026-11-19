@@ -219,6 +219,35 @@ export class RecordSync {
     const id = this.local(c, g, s);
     return id && this.shared(c, g!, id, s) ? id : null;
   }
+  /**
+   * gid reçu d'un pair → id local. Un élément privé (hors de l'espace, jamais partagé) n'est jamais
+   * atteint : la référence reste « à recevoir », et l'élément du pair arrive ici comme une copie
+   * distincte (alias gid → nouvel id). Seule exception, les livres : le même livre n'est pas téléchargé
+   * deux fois, mais il rejoint la session sans rien de ce qu'on y avait fait (extraits, carte : privés).
+   */
+  private rlocal(c: Col, g: string | null | undefined): string | null {
+    const id = this.local(c, g);
+    if (!id) return null;
+    if (this.shared(c, g!, id)) return id;
+    if (c === 'book') {
+      this.adoptBook(id);
+      return id;
+    }
+    return null;
+  }
+  /**
+   * Livre de la bibliothèque qui rejoint la session (même gid ou même empreinte qu'un livre du pair) :
+   * ses extraits et sa carte d'avant restent privés. Sans effet sur un livre déjà partagé.
+   */
+  adoptBook(bookId: string): void {
+    const g = this.gidOfBook(bookId);
+    if (!g || this.shared('book', g, bookId)) return;
+    const s = useStore.getState();
+    for (const h of s.highlights) if (h.bookId === bookId) this.privateKeys.add(keyOf('highlight', this.gidLocal('highlight', h.id, h)));
+    const m = s.maps[bookId];
+    if (m) this.privateKeys.add(keyOf('map', this.mapGid(bookId, m)));
+    this.seen.add(keyOf('book', g));
+  }
 
   // ── Périmètre : ce qui appartient à l'espace partagé ──
   private scope(s: State) {
@@ -554,6 +583,9 @@ export class RecordSync {
       const key = this.local('map', mapG);
       return !key || this.shared('map', mapG, key);
     }
+    // Création ou modification : un élément privé de même gid n'est jamais touché (rlocal ne le résout
+    // pas, une copie distincte est créée). Suppression : seulement un élément partagé.
+    if (!rec.del) return true;
     const cur = this.local(rec.c, rec.g);
     return !cur || this.shared(rec.c, rec.g, cur);
   }
@@ -562,7 +594,7 @@ export class RecordSync {
   private inn(c: Col, g: unknown, need: string[]): string | null {
     if (g == null || g === '') return null;
     if (!isStr(g)) return null;
-    const l = this.local(c, g);
+    const l = this.rlocal(c, g);
     if (!l) need.push(keyOf(c, g));
     return l;
   }
@@ -573,7 +605,13 @@ export class RecordSync {
     const need: string[] = [];
     const set = (patch: Partial<State>) => s.applyExternal(() => patch);
     const W = this.o.workspaceId;
-    const newId = (c: Col, g: string, taken: (id: string) => boolean) => (taken(g) ? uid() : g);
+    // gid déjà pris ici (élément privé, ou autre) : nouvel id, et le gid du pair désigne désormais la copie.
+    const newId = (c: Col, g: string, taken: (id: string) => boolean) => {
+      if (!taken(g)) return g;
+      const id = uid();
+      this.addAlias(c, g, id);
+      return id;
+    };
     const originIf = (id: string, g: string) => (id === g ? {} : { shareOrigin: { shareId: this.o.shareId, srcId: g } });
     switch (rec.c) {
       case 'ws': {
@@ -586,7 +624,7 @@ export class RecordSync {
       case 'group': {
         const parentId = d.parentId ? this.inn('group', d.parentId, need) : null;
         if (need.length) return 'wait';
-        const cur = this.local('group', rec.g);
+        const cur = this.rlocal('group', rec.g);
         const base = { name: String(d.name ?? 'Groupe').slice(0, 200), order: Number(d.order) || 0, parentId, workspaceId: W };
         if (cur) set({ groups: s.groups.map((x) => (x.id === cur ? { ...x, ...base } : x)) });
         else {
@@ -606,7 +644,7 @@ export class RecordSync {
           if (refCol === 'book' || refCol === 'draft') this.askFetch(refCol, String(d.refId), from);
           return 'wait';
         }
-        const cur = this.local('item', rec.g);
+        const cur = this.rlocal('item', rec.g);
         const base = { workspaceId: W, kind, refId: refId!, groupId, order: Number(d.order) || 0 };
         if (cur) set({ wsItems: s.wsItems.map((x) => (x.id === cur ? { ...x, ...base } : x)) });
         else {
@@ -619,7 +657,7 @@ export class RecordSync {
         return 'ok';
       }
       case 'book': {
-        const cur = this.local('book', rec.g);
+        const cur = this.rlocal('book', rec.g);
         if (!cur) {
           this.askFetch('book', rec.g, from);
           return 'wait';
@@ -632,7 +670,7 @@ export class RecordSync {
         return 'ok';
       }
       case 'draft': {
-        const cur = this.local('draft', rec.g);
+        const cur = this.rlocal('draft', rec.g);
         if (!cur) {
           this.askFetch('draft', rec.g, from);
           return 'wait';
@@ -648,12 +686,12 @@ export class RecordSync {
           id: String(se.id ?? uid()),
           author: String(se.author ?? ''),
           definition: String(se.definition ?? ''),
-          bookId: se.bookId ? this.local('book', se.bookId) : null,
-          highlightIds: (Array.isArray(se.highlightIds) ? se.highlightIds : []).map((h: unknown) => this.local('highlight', h as string)).filter(Boolean) as string[],
+          bookId: se.bookId ? this.rlocal('book', se.bookId) : null,
+          highlightIds: (Array.isArray(se.highlightIds) ? se.highlightIds : []).map((h: unknown) => this.rlocal('highlight', h as string)).filter(Boolean) as string[],
         }));
-        const links = (Array.isArray(d.links) ? d.links : []).map((l: Any) => ({ ...l, conceptId: this.local('concept', l.conceptId) })).filter((l: Any) => l.conceptId) as Concept['links'];
+        const links = (Array.isArray(d.links) ? d.links : []).map((l: Any) => ({ ...l, conceptId: this.rlocal('concept', l.conceptId) })).filter((l: Any) => l.conceptId) as Concept['links'];
         const base = { name: String(d.name ?? 'Concept').slice(0, 300), definition: String(d.definition ?? ''), programme: d.programme === 'notion' || d.programme === 'repere' ? d.programme : null, senses, links, updatedAt: Date.now() };
-        const cur = this.local('concept', rec.g);
+        const cur = this.rlocal('concept', rec.g);
         const old = cur ? s.concepts.find((x) => x.id === cur) : null;
         if (old) {
           // Ce qui mène hors de l'espace partagé n'est pas parti (snapshot) : on le garde tel quel ici.
@@ -694,7 +732,7 @@ export class RecordSync {
           printedPage: String(d.printedPage ?? ''),
           updatedAt: Date.now(),
         } as Partial<Highlight>;
-        const cur = this.local('highlight', rec.g);
+        const cur = this.rlocal('highlight', rec.g);
         if (cur)
           set({
             highlights: s.highlights.map((x) => {
@@ -716,7 +754,7 @@ export class RecordSync {
         const bookId = this.inn('book', d.bookId, need);
         if (need.length) return 'wait';
         const base = { bookId: bookId!, title: String(d.title ?? ''), probleme: String(d.probleme ?? ''), these: String(d.these ?? ''), enjeu: String(d.enjeu ?? ''), movements: Array.isArray(d.movements) ? d.movements : [], updatedAt: Date.now() };
-        const cur = this.local('study', rec.g);
+        const cur = this.rlocal('study', rec.g);
         if (cur) set({ studies: s.studies.map((x) => (x.id === cur ? { ...x, ...base } : x)) });
         else {
           const id = newId('study', rec.g, (x) => s.studies.some((y) => y.id === x));
@@ -731,7 +769,7 @@ export class RecordSync {
         const conclusion = step(d.conclusion);
         if (need.length) return 'wait';
         const base = { title: String(d.title ?? ''), comment: String(d.comment ?? ''), bookId, premises, conclusion, updatedAt: Date.now() };
-        const cur = this.local('argument', rec.g);
+        const cur = this.rlocal('argument', rec.g);
         if (cur) set({ arguments: s.arguments.map((x) => (x.id === cur ? { ...x, ...base } : x)) });
         else {
           const id = newId('argument', rec.g, (x) => s.arguments.some((y) => y.id === x));
@@ -756,10 +794,10 @@ export class RecordSync {
             children: nodes(n.children),
           }));
         const parts = nodes(d.parts);
-        const draftId = d.draftId ? this.local('draft', d.draftId) : null;
+        const draftId = d.draftId ? this.rlocal('draft', d.draftId) : null;
         if (need.length) return 'wait';
         const base = { title: String(d.title ?? ''), sujet: String(d.sujet ?? ''), definitions: String(d.definitions ?? ''), problematique: String(d.problematique ?? ''), conclusion: String(d.conclusion ?? ''), parts, draftId, updatedAt: Date.now() };
-        const cur = this.local('plan', rec.g);
+        const cur = this.rlocal('plan', rec.g);
         if (cur) set({ plans: s.plans.map((x) => (x.id === cur ? { ...x, ...base } : x)) });
         else {
           const id = newId('plan', rec.g, (x) => s.plans.some((y) => y.id === x));
@@ -769,9 +807,9 @@ export class RecordSync {
       }
       case 'map': {
         const kind = d.kind === 'board' || d.kind === 'movement' ? d.kind : 'book';
-        const bookIds = (Array.isArray(d.bookIds) ? d.bookIds : []).map((b: unknown) => this.local('book', b as string)).filter(Boolean) as string[];
+        const bookIds = (Array.isArray(d.bookIds) ? d.bookIds : []).map((b: unknown) => this.rlocal('book', b as string)).filter(Boolean) as string[];
         const zones: MapZone[] | undefined = Array.isArray(d.zones) ? d.zones.filter((z: Any) => z && typeof z === 'object').map((z: Any) => ({ ...z, color: typeof z.color === 'string' && /^(--[a-z0-9-]{1,40}|#[0-9a-f]{3,8})$/i.test(z.color) ? z.color : '--cat-these' }) as MapZone) : undefined;
-        const cur = this.local('map', rec.g);
+        const cur = this.rlocal('map', rec.g);
         if (cur) {
           const m = s.maps[cur];
           set({ maps: { ...s.maps, [cur]: { ...m, ...(typeof d.title === 'string' && m.kind === 'board' ? { title: d.title } : {}), ...(zones ? { zones } : {}), ...(typeof d.centralId === 'string' ? { centralId: d.centralId } : {}), bookIds: m.kind === 'board' ? bookIds : m.bookIds, updatedAt: Date.now() } } });
@@ -794,7 +832,10 @@ export class RecordSync {
           bookId = this.inn('book', d.bookId, need) ?? '';
           if (need.length) return 'wait';
           key = `mv-${studyId}-${String(d.movementId ?? uid())}`;
-        } else key = s.maps[rec.g] ? `board-${uid()}` : rec.g;
+        } else {
+          key = s.maps[rec.g] ? `board-${uid()}` : rec.g;
+          if (key !== rec.g) this.addAlias('map', rec.g, key);
+        }
         const now = Date.now();
         const m: ArgumentMap = {
           ...(kind === 'book' ? {} : { id: key, kind }),
@@ -828,17 +869,17 @@ export class RecordSync {
           const node: MapNode = { ...(d as unknown as MapNode), id: subId, highlightId: hl, text: String(d.text ?? ''), x: Number(d.x) || 0, y: Number(d.y) || 0 };
           if (co) node.conceptId = co;
           else delete node.conceptId;
-          const portal = d.portal ? this.local('map', d.portal as string) : null;
+          const portal = d.portal ? this.rlocal('map', d.portal as string) : null;
           if (portal) node.portal = portal;
           else delete node.portal;
           const prevNode = s.maps[key!]?.nodes.find((n) => n.id === subId);
-          const fromKey = d.from && typeof d.from === 'object' ? this.local('map', (d.from as Any).mapKey) : null;
+          const fromKey = d.from && typeof d.from === 'object' ? this.rlocal('map', (d.from as Any).mapKey) : null;
           if (fromKey) node.from = { mapKey: fromKey, nodeId: String((d.from as Any).nodeId ?? '') };
           else if (!d.from && prevNode?.from && !this.inScope('map', prevNode.from.mapKey)) node.from = prevNode.from; // hors de l'espace : gardé ici
           else delete node.from;
           // Carte-document : gid → id local (une ancienne version envoie l'id de l'expéditeur : gardé tel quel).
           const doc = d.doc as Any;
-          if (doc && typeof doc === 'object' && (doc.kind === 'draft' || doc.kind === 'book' || doc.kind === 'plan') && isStr(doc.id)) node.doc = { kind: doc.kind, id: this.local(doc.kind, doc.id) ?? doc.id };
+          if (doc && typeof doc === 'object' && (doc.kind === 'draft' || doc.kind === 'book' || doc.kind === 'plan') && isStr(doc.id)) node.doc = { kind: doc.kind, id: this.rlocal(doc.kind, doc.id) ?? doc.id };
           else if (!doc && prevNode?.doc && !this.inScope(prevNode.doc.kind, prevNode.doc.id)) node.doc = prevNode.doc; // hors de l'espace : gardé ici
           else delete node.doc;
           if (node.color !== undefined && !(typeof node.color === 'string' && SAFE_COLOR.test(node.color))) delete node.color;

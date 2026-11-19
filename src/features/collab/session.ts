@@ -464,13 +464,13 @@ function askFetch(c: 'book' | 'draft', g: string, from: string) {
       s.fetchTimers.set(
         k,
         setTimeout(() => {
-          if (S !== s || !s.records || s.records.local(c, g)) return;
+          if (S !== s || !s.records || s.records.sharedLocal(c, g)) return;
           send('all', { t: 'fetch', c, g });
           s.records.fetchDone(c, g);
           s.fetchTimers.set(
             k,
             setTimeout(() => {
-              if (S !== s || !s.records || s.records.local(c, g)) return;
+              if (S !== s || !s.records || s.records.sharedLocal(c, g)) return;
               s.records.fetchDone(c, g);
               s.records.resume(); // refait les demandes de ce qui attend encore
             }, 20000),
@@ -560,7 +560,10 @@ async function onFiles(head: Head, body: Uint8Array) {
   // Seulement ce qu'on a demandé : personne ne peut glisser un livre ou un écrit dans la bibliothèque.
   if (!s.asked.has(keyOf(c, g))) return;
   clearTimeout(s.fetchTimers.get(keyOf(c, g)));
-  if (s.records.local(c, g)) {
+  // Déjà là ET partagé (un écrit privé de même gid ne compte pas : une copie distincte est créée).
+  const here = c === 'book' ? s.records.local(c, g) : s.records.sharedLocal(c, g);
+  if (here) {
+    if (c === 'book') s.records.adoptBook(here);
     s.records.fetchDone(c, g);
     s.records.resume();
     serveWaiting(c, g);
@@ -591,9 +594,11 @@ async function onFiles(head: Head, body: Uint8Array) {
           return { ...rest, fileName, ...(Array.isArray(meta.pages) && meta.pages.every((p: unknown) => typeof p === 'string' && SAFE.test(p)) ? { pages: meta.pages } : {}), ...(!b.cover && typeof meta.cover === 'string' && /^data:image\/(png|jpe?g|webp|gif|avif);base64,/.test(meta.cover) ? { cover: meta.cover } : {}) };
         }),
       }));
+      s.records.adoptBook(target);
       s.records.addAlias('book', g, target);
       keepAsMine(s, local);
     } else if (local) {
+      s.records.adoptBook(local.id);
       s.records.addAlias('book', g, local.id);
       keepAsMine(s, local);
     } else {
@@ -622,6 +627,7 @@ async function onFiles(head: Head, body: Uint8Array) {
         ...origin,
       };
       useStore.getState().applyExternal((cur) => ({ books: [book, ...cur.books] }));
+      if (id !== g) s.records.addAlias('book', g, id);
     }
   } else {
     const f = files[0];
@@ -631,6 +637,7 @@ async function onFiles(head: Head, body: Uint8Array) {
     const now = Date.now();
     const d: Draft = { id, title: String(meta.title ?? 'Sans titre').slice(0, 300), fileName, externalPath: null, wordCount: Number(meta.wordCount) || 0, template: null, createdAt: now, updatedAt: now, ...(typeof meta.wordGoal === 'number' ? { wordGoal: meta.wordGoal } : {}), ...origin };
     useStore.getState().applyExternal((cur) => ({ drafts: [...cur.drafts, d] }));
+    if (id !== g) s.records.addAlias('draft', g, id);
   }
   s.records.fetchDone(c, g);
   s.records.resume();

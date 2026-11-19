@@ -54,8 +54,30 @@ const mentions = (changes: unknown, wsId: string): boolean =>
   Array.isArray(changes) &&
   changes.some((c) => [c?.before, c?.after].some((x) => x && typeof x === 'object' && ((x as { workspaceId?: unknown }).workspaceId === wsId || (x as { id?: unknown }).id === wsId)));
 
-/** Ce qui appartient en propre à l'espace `wsId` (voir l'en-tête). */
-export function spaceScope(db: Database, wsId: string): Capsule {
+/**
+ * Mémoire d'un espace ouvert : ce qui a été dans sa capsule (`ids`), et ses traces (`entries` : corbeille,
+ * journal, versions de cartes). Une trace suit ce dont elle parle ; or un élément supprimé n'existe plus,
+ * et sans cette mémoire sa trace (titre, contenu d'avant) repartirait en clair dans la base commune.
+ */
+export interface SpaceMemory {
+  ids: Set<string>;
+  entries: Set<string>;
+}
+export function rememberCapsule(c: Capsule, into: SpaceMemory = { ids: new Set(), entries: new Set() }): SpaceMemory {
+  for (const k of ['books', 'highlights', 'concepts', 'arguments', 'studies', 'plans', 'drafts', 'cards', 'groups', 'wsItems'] as const) for (const x of c[k] as { id: string }[]) into.ids.add(x.id);
+  for (const k of Object.keys(c.maps)) into.ids.add(k);
+  for (const e of [...c.trash, ...c.activity] as { id: string; refId?: string | null; refIds?: string[]; changes?: { id?: string }[] }[]) {
+    into.entries.add(e.id);
+    if (e.refId) into.ids.add(e.refId);
+    for (const r of e.refIds ?? []) into.ids.add(r);
+    for (const ch of Array.isArray(e.changes) ? e.changes : []) if (ch && typeof ch.id === 'string') into.ids.add(ch.id);
+  }
+  for (const v of c.mapVersions) into.entries.add(v.id);
+  return into;
+}
+
+/** Ce qui appartient en propre à l'espace `wsId` (voir l'en-tête). `memory` : voir SpaceMemory. */
+export function spaceScope(db: Database, wsId: string, memory?: SpaceMemory): Capsule {
   const wsItems = db.wsItems.filter((i) => i.workspaceId === wsId);
   const groups = db.groups.filter((g) => g.workspaceId === wsId);
   // « Ailleurs » = dans un espace NON chiffré. Les rangements d'un autre espace chiffré ne comptent pas :
@@ -120,8 +142,15 @@ export function spaceScope(db: Database, wsId: string): Capsule {
 
   const cards = new Set(db.cards.filter((c) => (c.bookId && books.has(c.bookId)) || (c.highlightId && highlights.has(c.highlightId)) || (c.conceptId && concepts.has(c.conceptId))).map((c) => c.id));
   const owned = new Set<string>([...plans, ...drafts, ...args, ...studies, ...maps, ...books, ...highlights, ...concepts, ...cards, ...wsItems.map((i) => i.id), ...groups.map((g) => g.id)]);
-  const about = (e: { refId?: string | null; refIds?: string[]; bookId?: string | null; changes?: unknown }) =>
-    (!!e.refId && owned.has(e.refId)) || (e.refIds ?? []).some((r) => owned.has(r)) || (!!e.bookId && books.has(e.bookId)) || mentions(e.changes, wsId);
+  // Pour les traces seulement : ce qui a été dans l'espace compte encore, même supprimé depuis.
+  const was = memory ? new Set<string>([...owned, ...memory.ids]) : owned;
+  const about = (e: { id: string; refId?: string | null; refIds?: string[]; bookId?: string | null; changes?: unknown }) =>
+    (!!memory && memory.entries.has(e.id)) ||
+    (!!e.refId && was.has(e.refId)) ||
+    (e.refIds ?? []).some((r) => was.has(r)) ||
+    (!!e.bookId && (books.has(e.bookId) || was.has(e.bookId))) ||
+    mentions(e.changes, wsId) ||
+    (Array.isArray(e.changes) && e.changes.some((c) => c && typeof c.id === 'string' && was.has(c.id)));
 
   const mapsOut: Database['maps'] = {};
   for (const k of maps) if (db.maps[k]) mapsOut[k] = db.maps[k];
@@ -142,7 +171,7 @@ export function spaceScope(db: Database, wsId: string): Capsule {
     bookmarks: db.bookmarks.filter((b) => books.has(b.bookId)),
     trash: db.trash.filter(about),
     activity: db.activity.filter(about),
-    mapVersions: (db.mapVersions ?? []).filter((v) => maps.has(v.mapKey)),
+    mapVersions: (db.mapVersions ?? []).filter((v) => maps.has(v.mapKey) || (!!memory && (memory.entries.has(v.id) || memory.ids.has(v.mapKey)))),
   };
 }
 
@@ -171,11 +200,11 @@ export function withoutCapsule(db: Database, c: Capsule): Database {
  * Base à écrire : `main` (sans le contenu des espaces chiffrés déverrouillés) et une capsule par espace.
  * Les espaces sont traités dans l'ordre : un élément n'entre que dans une capsule.
  */
-export function splitDb(db: Database, wsIds: string[]): { main: Database; capsules: Record<string, Capsule> } {
+export function splitDb(db: Database, wsIds: string[], memory?: Map<string, SpaceMemory>): { main: Database; capsules: Record<string, Capsule> } {
   let main = db;
   const capsules: Record<string, Capsule> = {};
   for (const id of wsIds) {
-    const c = spaceScope(main, id);
+    const c = spaceScope(main, id, memory?.get(id));
     capsules[id] = c;
     main = withoutCapsule(main, c);
   }

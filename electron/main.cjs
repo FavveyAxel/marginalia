@@ -1466,6 +1466,8 @@ const sp = {
   hashes: new Map(), // id d'espace → empreinte de la dernière capsule scellée (évite de resceller)
   owners: new Map(), // id de fichier (livre, écrit) → id d'espace
   ids: new Map(), // id d'espace → éléments de sa capsule (« collection:id »), pour repérer ce qui y entre
+  pending: new Set(), // fichiers entrés dans un espace, pas encore scellés (écrit dans la base : reprise après coupure)
+  keysLost: false, // des capsules sans clés (base modifiée, ou restauration partielle) : aucun nouveau mot de passe
   base: null, // dernière base reçue de l'interface (sans les champs ci-dessus)
   meta: { version: null, items: null },
   failures: 0,
@@ -1489,6 +1491,8 @@ function absorbSpaces(data) {
   sp.hashes.clear();
   sp.owners.clear();
   sp.ids.clear();
+  sp.pending.clear();
+  sp.keysLost = false;
   sp.ks = null;
   sp.base = null;
   if (!data || typeof data !== 'object') return data;
@@ -1500,9 +1504,15 @@ function absorbSpaces(data) {
   if (owners && typeof owners === 'object' && !Array.isArray(owners)) {
     for (const [id, ws] of Object.entries(owners)) if (spacesKit.isSpaceId(id) && spacesKit.isSpaceId(ws)) sp.owners.set(id, ws);
   }
+  if (Array.isArray(data.spacePending)) for (const id of data.spacePending) if (spacesKit.isSpaceId(id) && sp.owners.has(id)) sp.pending.add(id);
   if (spacesKit.validKeystore(data.spaceKeys)) sp.ks = data.spaceKeys;
+  // Des espaces scellés mais pas (ou plus) de clés valables : surtout ne pas en créer de nouvelles
+  // par-dessus, ce contenu deviendrait définitivement illisible.
+  sp.keysLost = !sp.ks && (sp.blobs.size > 0 || sp.owners.size > 0);
+  if (sp.keysLost) diag('espaces', 'capsules sans clés');
   delete data.sealedSpaces;
   delete data.spaceOwners;
+  delete data.spacePending;
   delete data.spaceKeys;
   sp.base = JSON.stringify(data);
   sp.meta = { version: data.version ?? null, items: countItems(data) };
@@ -1514,7 +1524,12 @@ function composeDb(json) {
   const t = json.trimEnd();
   if (t[t.length - 1] !== '}') throw new Error('Base invalide');
   const extra =
-    '"sealedSpaces":' + JSON.stringify(Object.fromEntries(sp.blobs)) + ',"spaceOwners":' + JSON.stringify(Object.fromEntries(sp.owners)) + (sp.ks ? ',"spaceKeys":' + JSON.stringify(sp.ks) : '');
+    '"sealedSpaces":' +
+    JSON.stringify(Object.fromEntries(sp.blobs)) +
+    ',"spaceOwners":' +
+    JSON.stringify(Object.fromEntries(sp.owners)) +
+    (sp.pending.size ? ',"spacePending":' + JSON.stringify([...sp.pending]) : '') +
+    (sp.ks ? ',"spaceKeys":' + JSON.stringify(sp.ks) : '');
   return t.slice(0, -1) + (/^\{\s*$/.test(t.slice(0, -1)) ? '' : ',') + extra + '}';
 }
 /** Fichiers (livres, écrits, corbeille) cités par une capsule. */
@@ -1576,16 +1591,23 @@ const ownedBy = (wsId) => [...sp.owners].filter(([, ws]) => ws === wsId).map(([i
 async function filesOf(id) {
   return (await zipkit.listFiles(path.join(libraryRoot(), id)).catch(() => [])).filter((f) => !f.rel.endsWith('.tmp'));
 }
-/** Scelle avec la clé de l'espace les fichiers de `ids` qui ne le sont pas encore (reprise possible). */
+const fileCtx = (id, rel) => `${id}/${String(rel).split(/[\\/]+/).filter(Boolean).join('/')}`;
+/**
+ * Scelle avec la clé de l'espace les fichiers de `ids` qui attendent de l'être (sp.pending : entrés dans
+ * l'espace à l'instant, ou coupure avant la fin). Un fichier en clair qui n'est PAS attendu n'est pas
+ * scellé : il n'a pas été écrit par Marginalia (remplacé sur le disque), et sa lecture est refusée.
+ */
 async function sealSpaceFiles(wsId, ids) {
   for (const id of ids) {
+    if (!sp.pending.has(id)) continue;
     for (const f of await filesOf(id)) {
       await withFileLock(f.full, async () => {
         const buf = await fsp.readFile(f.full).catch(() => null);
         if (!buf || spacesKit.isSealed(buf)) return;
-        await writeAtomic(f.full, spacesKit.seal(sp.sk, wsId, decodeIn(buf)));
+        await writeAtomic(f.full, spacesKit.seal(sp.sk, wsId, decodeIn(buf), fileCtx(id, f.rel)));
       });
     }
+    sp.pending.delete(id);
   }
 }
 /** Rend au format courant de l'app (en clair, ou chiffrement global) les fichiers de `ids` scellés par l'espace. */
@@ -1595,63 +1617,142 @@ async function releaseSpaceFiles(wsId, ids) {
       await withFileLock(f.full, async () => {
         const buf = await fsp.readFile(f.full).catch(() => null);
         if (!buf || !spacesKit.isSealed(buf)) return;
-        await writeAtomic(f.full, encodeOut(spacesKit.open(sp.sk, wsId, buf)));
+        await writeAtomic(f.full, encodeOut(spacesKit.open(sp.sk, wsId, buf, fileCtx(id, f.rel))));
       });
     }
+    sp.pending.delete(id);
   }
 }
-function encodeFileFor(id, buf) {
+/** Fichiers de `id` qui passent de l'espace `from` à l'espace `to`, sans jamais être en clair sur le disque. */
+async function transferSpaceFiles(id, from, to) {
+  for (const f of await filesOf(id)) {
+    await withFileLock(f.full, async () => {
+      const buf = await fsp.readFile(f.full).catch(() => null);
+      if (!buf) return;
+      const plain = spacesKit.isSealed(buf) ? spacesKit.open(sp.sk, from, buf, fileCtx(id, f.rel)) : decodeIn(buf);
+      await writeAtomic(f.full, spacesKit.seal(sp.sk, to, plain, fileCtx(id, f.rel)));
+    });
+  }
+  sp.pending.delete(id);
+}
+const spaceReady = (ws) => !!sp.sk && sp.unlocked.has(ws);
+function encodeFileFor(id, fileName, buf) {
   const ws = sp.owners.get(id);
   if (!ws) return encodeOut(buf);
-  if (!sp.sk || !sp.unlocked.has(ws)) throw new SpaceLockedError();
-  return spacesKit.seal(sp.sk, ws, buf);
+  if (!spaceReady(ws)) throw new SpaceLockedError();
+  return spacesKit.seal(sp.sk, ws, buf, fileCtx(id, fileName));
 }
-function decodeFile(buf) {
-  if (!spacesKit.isSealed(buf)) return decodeIn(buf);
+function decodeFile(id, fileName, buf) {
+  const owner = sp.owners.get(id);
+  if (!spacesKit.isSealed(buf)) {
+    // Fichier d'un espace chiffré trouvé en clair : accepté seulement s'il attend d'être scellé.
+    if (owner && !sp.pending.has(id)) {
+      if (!spaceReady(owner)) throw new SpaceLockedError();
+      const e = new Error('Fichier en clair là où un fichier de l’espace chiffré est attendu : refusé.');
+      e.code = 'MG_PLAIN';
+      throw e;
+    }
+    return decodeIn(buf);
+  }
   if (!sp.sk) throw new SpaceLockedError();
-  const ws = spacesKit.ownerOf(sp.sk, buf, new Set([...sp.blobs.keys(), ...sp.unlocked]));
+  const ws = owner || spacesKit.ownerOf(sp.sk, buf, new Set([...sp.blobs.keys(), ...sp.unlocked]));
   if (!ws || !sp.unlocked.has(ws)) throw new SpaceLockedError();
-  return spacesKit.open(sp.sk, ws, buf);
+  return spacesKit.open(sp.sk, ws, buf, fileCtx(id, fileName));
+}
+/** Un fichier d'un espace verrouillé ne se lit, ne s'écrit ni ne se supprime. */
+function assertFileReachable(id) {
+  const ws = sp.owners.get(id);
+  if (ws && !spaceReady(ws)) throw new SpaceLockedError();
 }
 /**
  * Enregistrement : `extra.spaces` = capsules en clair des espaces déverrouillés qui ont changé,
- * `extra.drop` = espaces qui ne sont plus chiffrés (ou supprimés). Ordre des écritures : les fichiers
- * qui quittent un espace sont rendus lisibles AVANT la base, ceux qui y entrent sont scellés APRÈS —
- * une coupure laisse au pire un fichier pas encore scellé, jamais un fichier illisible.
+ * `extra.drop` = espaces qui ne sont plus chiffrés. Ordre des écritures : les fichiers qui quittent un
+ * espace sont rendus lisibles AVANT la base (ou passent directement à leur nouvel espace, sans jamais
+ * être en clair), ceux qui y entrent sont scellés APRÈS — une coupure laisse au pire un fichier pas
+ * encore scellé (noté dans la base, repris au déverrouillage), jamais un fichier illisible.
+ * Un enregistrement à la fois : deux ne se croisent pas.
  */
-async function saveWithSpaces(json, meta, extra) {
+let spaceSaveChain = Promise.resolve();
+function saveWithSpaces(json, meta, extra) {
+  const run = spaceSaveChain.catch(() => {}).then(() => saveWithSpacesNow(json, meta, extra));
+  spaceSaveChain = run;
+  return run;
+}
+async function saveWithSpacesNow(json, meta, extra) {
   const spaces = extra && typeof extra === 'object' && extra.spaces && typeof extra.spaces === 'object' ? extra.spaces : {};
   const drop = extra && typeof extra === 'object' && Array.isArray(extra.drop) ? extra.drop.filter(spacesKit.isSpaceId) : [];
-  const toSeal = [];
-  const entered = new Set();
+  const active = !!sp.ks || sp.blobs.size > 0 || Object.keys(spaces).length > 0 || drop.length > 0;
+  if (!active) {
+    sp.base = json;
+    sp.meta = meta;
+    await queueSave(json, meta);
+    return undefined;
+  }
+  // La base commune est relue : jamais un texte invalide sur le disque (il ferait retomber sur une
+  // ancienne copie, capsules comprises), et les éléments qu'elle contient ne peuvent pas être réclamés
+  // par une capsule.
+  let main;
+  try {
+    main = JSON.parse(json);
+  } catch {
+    throw new Error('Base invalide');
+  }
+  if (!isDbObject(main)) throw new Error('Base invalide');
+  const inMain = new Set();
+  for (const k of CAPSULE_LISTS) for (const x of Array.isArray(main[k]) ? main[k] : []) if (x && typeof x.id === 'string') inMain.add(`${k}:${x.id}`);
+  if (main.maps && typeof main.maps === 'object') for (const k of Object.keys(main.maps)) inMain.add(`maps:${k}`);
+  const fileInMain = (id) => inMain.has(`books:${id}`) || inMain.has(`drafts:${id}`);
+
+  // 1. Lecture de toutes les capsules reçues.
+  const got = new Map(); // wsId → { capsuleJson, hash, capsule, now }
   for (const [wsId, capsuleJson] of Object.entries(spaces)) {
     if (!spacesKit.isSpaceId(wsId) || typeof capsuleJson !== 'string') throw new Error('Espace invalide');
-    if (!sp.sk || !sp.unlocked.has(wsId)) throw new SpaceLockedError();
+    if (!spaceReady(wsId)) throw new SpaceLockedError();
     const hash = crypto.createHash('sha256').update(capsuleJson).digest('hex');
     if (sp.hashes.get(wsId) === hash && sp.blobs.has(wsId)) continue;
     const capsule = JSON.parse(capsuleJson);
     if (!capsule || typeof capsule !== 'object' || Array.isArray(capsule)) throw new Error('Espace invalide');
-    const now = capsuleFileOwners(capsule);
-    const before = ownedBy(wsId);
-    const leaving = before.filter((id) => !now.has(id));
-    await releaseSpaceFiles(wsId, leaving);
-    for (const id of leaving) sp.owners.delete(id);
-    for (const id of now) {
-      // Un fichier n'appartient qu'à un espace : le premier qui le cite le garde.
-      const cur = sp.owners.get(id);
-      if (!cur || cur === wsId) sp.owners.set(id, wsId);
+    const now = new Set([...capsuleFileOwners(capsule)].filter((id) => !fileInMain(id)));
+    got.set(wsId, { capsuleJson, hash, capsule, now });
+  }
+  for (const wsId of drop) if ((sp.blobs.has(wsId) || ownedBy(wsId).length) && !spaceReady(wsId)) throw new SpaceLockedError();
+
+  // 2. Ce qui quitte un espace : vers un autre espace reçu (rescellé directement), sinon rendu lisible.
+  for (const [wsId, g] of got) {
+    for (const id of ownedBy(wsId)) {
+      if (g.now.has(id)) continue;
+      const next = [...got].find(([w, o]) => w !== wsId && o.now.has(id));
+      if (next) {
+        await transferSpaceFiles(id, wsId, next[0]);
+        sp.owners.set(id, next[0]);
+      } else {
+        await releaseSpaceFiles(wsId, [id]);
+        sp.owners.delete(id);
+      }
     }
-    sp.blobs.set(wsId, spacesKit.sealCapsule(sp.sk, wsId, capsuleJson));
-    sp.hashes.set(wsId, hash);
-    toSeal.push([wsId, [...now].filter((id) => sp.owners.get(id) === wsId)]);
-    const idsNow = capsuleIds(capsule);
+  }
+  // 3. Ce qui entre dans un espace.
+  const toSeal = [];
+  const entered = new Set();
+  for (const [wsId, g] of got) {
+    for (const id of g.now) {
+      const cur = sp.owners.get(id);
+      if (cur === wsId) continue;
+      // Déjà à un autre espace qui le garde (verrouillé, ou capsule inchangée) : il y reste.
+      if (cur) continue;
+      sp.owners.set(id, wsId);
+      sp.pending.add(id);
+    }
+    sp.blobs.set(wsId, spacesKit.sealCapsule(sp.sk, wsId, g.capsuleJson));
+    sp.hashes.set(wsId, g.hash);
+    toSeal.push([wsId, [...g.now].filter((id) => sp.owners.get(id) === wsId)]);
+    const idsNow = capsuleIds(g.capsule);
     const known = sp.ids.get(wsId) || new Set();
-    for (const k of idsNow) if (!known.has(k)) entered.add(k);
+    for (const k of idsNow) if (!known.has(k) && !inMain.has(k)) entered.add(k);
     sp.ids.set(wsId, idsNow);
   }
   for (const wsId of drop) {
     if (!sp.blobs.has(wsId) && !ownedBy(wsId).length) continue;
-    if (!sp.sk || !sp.unlocked.has(wsId)) throw new SpaceLockedError();
     const ids = ownedBy(wsId);
     await releaseSpaceFiles(wsId, ids);
     for (const id of ids) sp.owners.delete(id);
@@ -1663,7 +1764,15 @@ async function saveWithSpaces(json, meta, extra) {
   sp.base = json;
   sp.meta = meta;
   await queueSave(composeDb(json), meta);
-  for (const [wsId, ids] of toSeal) if (sp.sk && sp.unlocked.has(wsId)) await sealSpaceFiles(wsId, ids);
+  let sealed = false;
+  for (const [wsId, ids] of toSeal) {
+    if (!spaceReady(wsId)) continue;
+    const n = sp.pending.size;
+    await sealSpaceFiles(wsId, ids);
+    if (sp.pending.size !== n) sealed = true;
+  }
+  // Fichiers scellés : la liste d'attente écrite dans la base est mise à jour.
+  if (sealed) await queueSave(composeDb(sp.base), sp.meta);
   // Après l'écriture de la base (et sa copie .bak, faite juste avant) : dans la file d'écriture, pour ne
   // pas croiser une autre écriture de la base.
   if (entered.size) await inSaveChain(() => scrubBackups(entered));
@@ -1678,21 +1787,37 @@ async function saveSpaceKeys() {
 function spaceWait() {
   return Math.max(0, sp.nextTryAt - Date.now());
 }
-/** Clé maîtresse rendue par le mot de passe ou la clé de secours (délai croissant après trois échecs). */
-async function spaceSecret(secret) {
-  if (!sp.ks) return null;
-  const wait = spaceWait();
-  if (wait) await sleep(wait);
-  const sk = await spacesKit.unlock(sp.ks, String(secret || ''));
-  if (!sk) {
-    sp.failures++;
-    if (sp.failures >= 3) sp.nextTryAt = Date.now() + Math.min(30000, 1000 * 2 ** (sp.failures - 3));
-    diag('espaces', 'déverrouillage refusé', { essais: sp.failures });
-    return null;
-  }
-  sp.failures = 0;
-  sp.nextTryAt = 0;
-  return sk;
+/**
+ * Clé maîtresse rendue par le mot de passe ou la clé de secours. Délai croissant après trois échecs, et
+ * UN essai à la fois : des appels lancés ensemble attendaient tous le même délai une seule fois.
+ */
+let spaceTry = Promise.resolve();
+let spaceTryQueue = 0;
+function spaceSecret(secret) {
+  if (spaceTryQueue >= 2) return Promise.resolve(null); // essais en rafale : refusés sans être évalués
+  spaceTryQueue++;
+  const run = spaceTry
+    .catch(() => {})
+    .then(async () => {
+      if (!sp.ks) return null;
+      const wait = spaceWait();
+      if (wait) await sleep(wait);
+      const sk = await spacesKit.unlock(sp.ks, String(secret || ''));
+      if (!sk) {
+        sp.failures++;
+        if (sp.failures >= 3) sp.nextTryAt = Date.now() + Math.min(30000, 1000 * 2 ** (sp.failures - 3));
+        diag('espaces', 'déverrouillage refusé', { essais: sp.failures });
+        return null;
+      }
+      sp.failures = 0;
+      sp.nextTryAt = 0;
+      return sk;
+    })
+    .finally(() => {
+      spaceTryQueue--;
+    });
+  spaceTry = run;
+  return run;
 }
 function keepSk(sk) {
   if (sp.sk && sp.sk !== sk) vault.wipe(sp.sk);
@@ -1700,6 +1825,7 @@ function keepSk(sk) {
 }
 const spacesStatus = () => ({
   configured: !!sp.ks,
+  keysLost: sp.keysLost,
   encrypted: [...sp.blobs.keys()],
   unlocked: [...sp.unlocked],
   touchId: { available: touchIdAvailable() && systemStore(false).ok, enabled: !!(sp.ks && sp.ks.system) },
@@ -1710,6 +1836,8 @@ const spaceOps = {
   /** Premier espace chiffré : choix du mot de passe commun ; la clé de secours est rendue une seule fois. */
   async setup({ password }) {
     if (sp.ks) return fail('Les espaces chiffrés ont déjà un mot de passe.');
+    if (sp.keysLost || sp.blobs.size || sp.owners.size)
+      return fail('Des espaces chiffrés existent mais leurs clés sont introuvables. Restaurez une sauvegarde : choisir un nouveau mot de passe rendrait leur contenu définitivement illisible.');
     try {
       checkNewPassword(password);
     } catch (e) {
@@ -1745,25 +1873,40 @@ const spaceOps = {
       if (!sk) return { ok: false, error: 'Mot de passe incorrect.', waitMs: spaceWait() };
     }
     keepSk(sk);
-    let capsule = null;
-    if (sp.blobs.has(wsId)) {
-      try {
-        capsule = spacesKit.openCapsule(sp.sk, wsId, sp.blobs.get(wsId));
-      } catch (e) {
-        if (!sp.unlocked.size) lockAllSpaces();
-        diag('espaces', 'capsule illisible', e && e.message);
-        return fail('Le contenu de cet espace est illisible (base endommagée ou autre clé).');
-      }
-      sp.hashes.set(wsId, crypto.createHash('sha256').update(capsule).digest('hex'));
-      try {
-        sp.ids.set(wsId, capsuleIds(JSON.parse(capsule)));
-      } catch {
-        sp.ids.delete(wsId);
-      }
+    if (!sp.blobs.has(wsId)) {
+      // Un espace chiffré a toujours une capsule : absente, elle a été retirée de la base. Ouvrir un
+      // espace « vide » ferait croire que tout va bien, puis écrirait du vide par-dessus.
+      if (!sp.unlocked.size) lockAllSpaces();
+      return fail('Le contenu chiffré de cet espace est absent de la base. Restaurez une sauvegarde.');
     }
+    let capsule = null;
+    let parsed = null;
+    try {
+      capsule = spacesKit.openCapsule(sp.sk, wsId, sp.blobs.get(wsId));
+      parsed = JSON.parse(capsule);
+    } catch (e) {
+      if (!sp.unlocked.size) lockAllSpaces();
+      diag('espaces', 'capsule illisible', e && e.message);
+      return fail('Le contenu de cet espace est illisible (base endommagée ou autre clé).');
+    }
+    sp.hashes.set(wsId, crypto.createHash('sha256').update(capsule).digest('hex'));
+    sp.ids.set(wsId, capsuleIds(parsed));
     sp.unlocked.add(wsId);
+    // La liste des fichiers de l'espace est refaite d'après la capsule (authentifiée) : celle de la base
+    // est en clair, donc modifiable. Un fichier que la capsule cite et qui n'était plus noté est repris
+    // (et scellé s'il était resté en clair) ; un fichier noté que la capsule ne cite pas est relâché.
+    const cited = capsuleFileOwners(parsed);
+    for (const id of ownedBy(wsId)) if (!cited.has(id)) sp.owners.delete(id);
+    for (const id of cited) {
+      const cur = sp.owners.get(id);
+      if (cur === wsId) continue;
+      if (cur && sp.blobs.has(cur)) continue; // à un autre espace
+      sp.owners.set(id, wsId);
+      sp.pending.add(id);
+    }
     // Reprise : des fichiers de l'espace pas encore scellés (coupure pendant un enregistrement).
     await sealSpaceFiles(wsId, ownedBy(wsId)).catch((e) => diag('espaces', 'scellement des fichiers', e && e.message));
+    if (sp.base != null) await queueSave(composeDb(sp.base), sp.meta).catch((e) => diag('espaces', 'enregistrement', e && e.message));
     diag('espaces', 'déverrouillé');
     return { ok: true, capsule };
   },
@@ -1829,6 +1972,12 @@ const spaceOps = {
   async setTouchId({ on, secret }) {
     if (!sp.ks) return fail('Aucun espace chiffré sur cet ordinateur.');
     if (!on) {
+      // Retirer Touch ID se fait avec le mot de passe, ou pendant qu'un espace est ouvert.
+      if (!sp.sk) {
+        const sk = await spaceSecret(secret);
+        if (!sk) return { ok: false, error: 'Mot de passe incorrect.', waitMs: spaceWait() };
+        vault.wipe(sk);
+      }
       sp.ks = { ...sp.ks, system: null };
       await saveSpaceKeys();
       return { ok: true };
@@ -1854,14 +2003,15 @@ dataHandle('marginalia:spaces', async (_e, op, args) => {
 // ── Bibliothèque de fichiers ─────────────────────────────────
 dataHandle('marginalia:storeFile', async (_e, id, fileName, data) => {
   const file = libraryPath(id, fileName);
-  await withFileLock(file, () => writeAtomic(file, encodeFileFor(id, toBuffer(data))));
+  await withFileLock(file, () => writeAtomic(file, encodeFileFor(id, fileName, toBuffer(data))));
 });
 dataHandle('marginalia:readFile', async (_e, id, fileName) => {
-  const buf = decodeFile(await fsp.readFile(libraryPath(id, fileName)));
+  const buf = decodeFile(id, fileName, await fsp.readFile(libraryPath(id, fileName)));
   return new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength);
 });
 dataHandle('marginalia:deleteFile', async (_e, id, fileName) => {
   const file = libraryPath(id, fileName);
+  assertFileReachable(id);
   await withFileLock(file, () => fsp.rm(file, { force: true }));
   if (/^source\./.test(String(fileName))) {
     for (const d of DERIVED_FILES) {

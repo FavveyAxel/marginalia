@@ -3,8 +3,8 @@
 // processus principal (electron/spaces.cjs).
 import { create } from 'zustand';
 import { host } from '../../lib/platform';
-import { useStore, spaceOpened, spaceClosing, spaceUnsealed, saveDbNow, flushPendingSave } from '../../lib/store';
-import { parseCapsule, spaceScope } from '../../lib/spaces';
+import { useStore, spaceOpened, spaceClosing, spaceUnsealed, saveDbNow, flushPendingSave, capsuleOf } from '../../lib/store';
+import { parseCapsule } from '../../lib/spaces';
 import type { Route } from '../../lib/types';
 import { isLiveIn, stopCollab, useCollab } from '../collab/collabState';
 
@@ -16,15 +16,21 @@ export type SpaceDialog =
   | { t: 'password' }
   | null;
 /** Fenêtre ouverte (une à la fois) ; `configured` / `touchId` : état lu au processus principal. */
-export const useSpaceUi = create<{ dialog: SpaceDialog; configured: boolean | null; touchId: { available: boolean; enabled: boolean } }>(() => ({
+export const useSpaceUi = create<{ dialog: SpaceDialog; configured: boolean | null; keysLost: boolean; touchId: { available: boolean; enabled: boolean } }>(() => ({
   dialog: null,
   configured: null,
+  keysLost: false,
   touchId: { available: false, enabled: false },
 }));
 export async function refreshSpaceStatus() {
   if (!host.spaces) return;
   const st = await host.spaces.status();
-  useSpaceUi.setState({ configured: st.configured, touchId: st.touchId });
+  useSpaceUi.setState({ configured: st.configured, keysLost: !!st.keysLost, touchId: st.touchId });
+  // Un espace qui a un contenu scellé EST chiffré, quoi qu'en dise la base (marque retirée à la main) :
+  // sinon il s'afficherait comme un espace ordinaire et vide.
+  const sealed = new Set(st.encrypted);
+  const s = useStore.getState();
+  if (s.workspaces.some((w) => sealed.has(w.id) && !w.encrypted)) s.applyExternal((x) => ({ workspaces: x.workspaces.map((w) => (sealed.has(w.id) && !w.encrypted ? { ...w, encrypted: true } : w)) }));
 }
 export const openSpaceDialog = (dialog: SpaceDialog) => {
   void refreshSpaceStatus();
@@ -57,11 +63,8 @@ export async function unlockSpace(wsId: string, secret: string | null): Promise<
 
 /** La route affiche-t-elle un élément qui appartient à l'espace ? (On la quitte avant de verrouiller.) */
 function routeInside(route: Route, wsId: string): boolean {
-  const s = useStore.getState();
-  const c = spaceScope(
-    { version: 2, books: s.books, highlights: s.highlights, concepts: s.concepts, maps: s.maps, arguments: s.arguments, studies: s.studies, plans: s.plans, drafts: s.drafts, cards: s.cards, workspaces: s.workspaces, groups: s.groups, wsItems: s.wsItems, bookmarks: s.bookmarks, settings: s.settings, trash: s.trash, activity: s.activity, mapVersions: s.mapVersions },
-    wsId,
-  );
+  const c = capsuleOf(useStore.getState(), wsId);
+  if (!c) return false;
   const r = route as Record<string, unknown>;
   const has = (list: { id: string }[], id: unknown) => typeof id === 'string' && list.some((x) => x.id === id);
   return (

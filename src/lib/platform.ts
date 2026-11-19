@@ -470,6 +470,8 @@ export type SpaceResult = { ok: true } | { ok: false; error: string; waitMs?: nu
 export interface SpacesStatus {
   /** Un mot de passe commun a été choisi. */
   configured: boolean;
+  /** Des espaces scellés existent mais leurs clés sont absentes de la base : restaurer une sauvegarde. */
+  keysLost?: boolean;
   /** Espaces qui ont un contenu scellé dans la base. */
   encrypted: string[];
   unlocked: string[];

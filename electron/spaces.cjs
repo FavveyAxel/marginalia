@@ -16,8 +16,10 @@
 //   • la « capsule » d'un espace : ses données (JSON compressé) chiffrées, rangées DANS la base
 //     (db.json › sealedSpaces › id), écrite d'un seul tenant avec le reste : sauvegardes, restauration et
 //     chiffrement global de l'app s'appliquent sans rien changer ;
-//   • ses fichiers (library/<id>/…) : MGLSPC1\0 (8) | marque de l'espace (8) | IV (12) | AES-256-GCM |
-//     étiquette (16). L'en-tête (avec la marque) est authentifié.
+//   • ses fichiers (library/<id>/…) : MGLSPC2\0 (8) | marque de l'espace (8) | IV (12) | AES-256-GCM |
+//     étiquette (16). L'en-tête (avec la marque) ET l'emplacement du fichier (« id/nom ») sont
+//     authentifiés : un fichier scellé ne peut pas être mis à la place d'un autre. Les fichiers écrits
+//     par la 3.59 (MGLSPC1, sans l'emplacement) restent lisibles.
 'use strict';
 
 const crypto = require('node:crypto');
@@ -25,6 +27,7 @@ const zlib = require('node:zlib');
 const vault = require('./vault.cjs');
 
 const MAGIC = Buffer.from('MGLSPC1\0', 'latin1');
+const MAGIC2 = Buffer.from('MGLSPC2\0', 'latin1'); // fichiers : emplacement authentifié
 const MARK_LEN = 8;
 const IV_LEN = 12;
 const TAG_LEN = 16;
@@ -42,18 +45,20 @@ function markOf(sk, wsId) {
   return crypto.createHmac('sha256', sk).update('marginalia:space-mark:' + wsId).digest().subarray(0, MARK_LEN);
 }
 
+const hasMagic = (buf, m) => !!buf && buf.length >= HEAD_LEN + TAG_LEN && Buffer.compare(buf.subarray(0, m.length), m) === 0;
 function isSealed(buf) {
-  return !!buf && buf.length >= HEAD_LEN + TAG_LEN && Buffer.compare(buf.subarray(0, MAGIC.length), MAGIC) === 0;
+  return hasMagic(buf, MAGIC) || hasMagic(buf, MAGIC2);
 }
 const markIn = (buf) => buf.subarray(MAGIC.length, MAGIC.length + MARK_LEN);
 
-function seal(sk, wsId, plain) {
+/** `ctx` (fichiers : « id/nom ») : authentifié avec l'en-tête, format MGLSPC2 ; absent : MGLSPC1 (capsules). */
+function seal(sk, wsId, plain, ctx) {
   const key = spaceKey(sk, wsId);
   try {
-    const head = Buffer.concat([MAGIC, markOf(sk, wsId)]);
+    const head = Buffer.concat([ctx === undefined ? MAGIC : MAGIC2, markOf(sk, wsId)]);
     const iv = crypto.randomBytes(IV_LEN);
     const c = crypto.createCipheriv('aes-256-gcm', key, iv, { authTagLength: TAG_LEN });
-    c.setAAD(head);
+    c.setAAD(ctx === undefined ? head : Buffer.concat([head, Buffer.from(String(ctx), 'utf8')]));
     const body = [c.update(plain), c.final()];
     return Buffer.concat([head, iv, ...body, c.getAuthTag()]);
   } finally {
@@ -61,8 +66,10 @@ function seal(sk, wsId, plain) {
   }
 }
 
-function open(sk, wsId, buf) {
+/** `ctx` : emplacement attendu du fichier ; exigé pour un MGLSPC2, ignoré pour un MGLSPC1 (3.59). */
+function open(sk, wsId, buf, ctx) {
   if (!isSealed(buf)) throw new Error('Fichier d’espace chiffré invalide');
+  const v2 = hasMagic(buf, MAGIC2);
   const bad = () => {
     const e = new Error('Fichier d’espace chiffré illisible (autre espace, autre clé ou fichier endommagé)');
     e.code = 'MG_BADKEY';
@@ -72,7 +79,8 @@ function open(sk, wsId, buf) {
   const key = spaceKey(sk, wsId);
   try {
     const d = crypto.createDecipheriv('aes-256-gcm', key, buf.subarray(MAGIC.length + MARK_LEN, HEAD_LEN), { authTagLength: TAG_LEN });
-    d.setAAD(buf.subarray(0, MAGIC.length + MARK_LEN));
+    const head = buf.subarray(0, MAGIC.length + MARK_LEN);
+    d.setAAD(v2 ? Buffer.concat([head, Buffer.from(String(ctx === undefined ? '' : ctx), 'utf8')]) : head);
     d.setAuthTag(buf.subarray(buf.length - TAG_LEN));
     return Buffer.concat([d.update(buf.subarray(HEAD_LEN, buf.length - TAG_LEN)), d.final()]);
   } catch {
@@ -136,4 +144,5 @@ function rewrapRecovery(ks, sk) {
   return { ks: { ...ks, recovery: vault.wrapWithRecovery(recoveryKey, sk) }, recoveryKey };
 }
 
-module.exports = { MAGIC, isSpaceId, isSealed, seal, open, ownerOf, sealCapsule, openCapsule, createKeystore, validKeystore, unlock, rewrapPassword, rewrapRecovery, spaceKey, markOf };
+const isLegacyFile = (buf) => hasMagic(buf, MAGIC);
+module.exports = { MAGIC, MAGIC2, isLegacyFile, isSpaceId, isSealed, seal, open, ownerOf, sealCapsule, openCapsule, createKeystore, validKeystore, unlock, rewrapPassword, rewrapRecovery, spaceKey, markOf };

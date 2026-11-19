@@ -135,6 +135,7 @@ function KeyBox({ value }: { value: string }) {
 function EncryptDialog({ wsId, onClose }: { wsId: string; onClose: () => void }) {
   const ws = useStore((s) => s.workspaces.find((w) => w.id === wsId));
   const configured = useSpaceUi((s) => s.configured);
+  const keysLost = useSpaceUi((s) => s.keysLost);
   const anyOpen = useStore((s) => s.unlockedSpaces.length > 0);
   const [pw, setPw] = useState('');
   const [pw2, setPw2] = useState('');
@@ -143,6 +144,23 @@ function EncryptDialog({ wsId, onClose }: { wsId: string; onClose: () => void })
   const [recovery, setRecovery] = useState<string | null>(null);
   const [kept, setKept] = useState(false);
   if (!ws || configured === null) return null;
+  if (keysLost)
+    return (
+      <Modal title="Chiffrer cet espace" onClose={onClose}>
+        <div className="sp-dialog" data-testid="space-keys-lost">
+          <h3>
+            <ShieldCheck size={20} /> Clés des espaces chiffrés introuvables
+          </h3>
+          <p>Des espaces chiffrés existent sur cet ordinateur, mais leurs clés ne sont plus dans la base. Choisir un nouveau mot de passe rendrait leur contenu définitivement illisible.</p>
+          <p>Restaurez une sauvegarde complète (Fichier › Restaurer une sauvegarde…) : elle contient ces clés.</p>
+          <div className="sp-actions">
+            <button type="button" className="btn btn-primary" onClick={onClose}>
+              Fermer
+            </button>
+          </div>
+        </div>
+      </Modal>
+    );
   const first = !configured;
   // Mot de passe déjà choisi et un espace ouvert : la clé est en mémoire, rien à ressaisir.
   const needSecret = configured && !anyOpen && !recovery;
@@ -362,6 +380,11 @@ function PasswordDialog({ onClose }: { onClose: () => void }) {
 /** Fenêtres des espaces chiffrés (montée une fois, dans App). */
 export function SpaceHost() {
   const dialog = useSpaceUi((s) => s.dialog);
+  const ready = useStore((s) => s.ready);
+  // Au chargement : état des clés, et marque « chiffré » remise sur tout espace qui a un contenu scellé.
+  useEffect(() => {
+    if (ready) void refreshSpaceStatus();
+  }, [ready]);
   const close = () => openSpaceDialog(null);
   if (!dialog) return null;
   if (dialog.t === 'encrypt') return <EncryptDialog wsId={dialog.wsId} onClose={close} />;

@@ -72,7 +72,9 @@ try {
   const pkg = JSON.parse(fs.readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
   const v = pkg.build && pkg.build.mac && pkg.build.mac.minimumSystemVersion;
   if (typeof v === 'string' && /^\d+(\.\d+){0,2}$/.test(v)) minMacOS = v;
-} catch {}
+} catch {
+  console.log('::warning::package.json illisible : manifeste sans version minimale de macOS.');
+}
 const manifest = Buffer.from(JSON.stringify(minMacOS ? { version, minMacOS, files } : { version, files }, null, 2) + '\n', 'utf8');
 const sig = crypto.sign(null, manifest, key).toString('base64');
 // Contrôle : la signature se vérifie avec la clé publique.

@@ -187,6 +187,7 @@ jobs:
             release-notes/
             scripts/sign-update-manifest.mjs
             electron/update-key.cjs
+            package.json
           sparse-checkout-cone-mode: false
           path: src
 

@@ -80,6 +80,8 @@ function parseXml(src: string, type: DOMParserSupportedType = 'application/xhtml
   const p = new DOMParser();
   const doc = p.parseFromString(src, type);
   if (type !== 'text/html' && doc.getElementsByTagName('parsererror').length) {
+    // XML mal formé : relu par l'analyseur HTML, dont le coût dépend de la structure (voir sourceTooComplex)
+    checkSourceDepth(src, true);
     return p.parseFromString(src, 'text/html');
   }
   return doc;
@@ -147,12 +149,174 @@ interface PrepareCtx {
   epub: boolean;
 }
 
+// ── Plafonds de structure (documents reçus) ──
+// Un document fabriqué peut figer l'onglet bien avant l'assainissement : 100 000 <b> non fermés
+// (300 Ko) coûtent 20 s au seul analyseur HTML de Chromium, 5 000 tableaux imbriqués 3,7 s, un élément
+// à 40 000 attributs 12 s (chaque retrait d'attribut reparcourt la liste). Les plafonds sont très
+// au-dessus des vrais livres : quelques dizaines de niveaux d'imbrication, une dizaine d'attributs par
+// élément, quelques dizaines de milliers d'éléments pour un très gros livre en un seul fichier.
+/** Niveaux d'éléments ouverts (non fermés) tolérés dans la source, avant l'analyse. */
+const MAX_OPEN_DEPTH = 1000;
+/** Éléments d'un document (ou d'un chapitre) analysé. */
+const MAX_ELEMENTS = 500_000;
+/** Attributs gardés par élément (les suivants sont abandonnés). */
+const MAX_ATTRS = 100;
+const TOO_DEEP = 'Ce document a une structure anormale (des milliers d’éléments imbriqués ou non fermés) : Marginalia ne peut pas l’ouvrir.';
+const TOO_BIG = 'Ce document contient trop d’éléments pour être ouvert (plus de 500 000).';
+
+const VOID_TAGS = new Set(['area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input', 'link', 'meta', 'param', 'source', 'track', 'wbr', 'keygen', 'basefont', 'bgsound', 'frame', 'isindex', 'image']);
+const RAW_TEXT_TAGS = new Set(['script', 'style', 'textarea', 'title', 'xmp', 'noembed', 'noframes', 'plaintext', 'iframe', 'noscript']);
+/** Éléments de mise en forme, rouverts par l'analyseur HTML après chaque paragraphe tant qu'ils ne sont pas fermés. */
+const FORMATTING_TAGS = new Set(['a', 'b', 'big', 'code', 'em', 'font', 'i', 'nobr', 's', 'small', 'strike', 'strong', 'tt', 'u']);
+/** Balises de bloc qui ferment un <p> ouvert (et les mises en forme qu'il contient). */
+const P_CLOSERS = new Set(['address', 'article', 'aside', 'blockquote', 'center', 'details', 'dialog', 'dir', 'div', 'dl', 'fieldset', 'figcaption', 'figure', 'footer', 'header', 'hgroup', 'main', 'menu', 'nav', 'ol', 'p', 'section', 'summary', 'ul', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'pre', 'listing', 'form', 'table', 'hr', 'li', 'dd', 'dt']);
+/** Fins implicites : une nouvelle balise du même groupe ferme la précédente. */
+const SIBLING_CLOSE: Record<string, string[]> = { li: ['li'], dd: ['dd', 'dt'], dt: ['dd', 'dt'], td: ['td', 'th'], th: ['td', 'th'], tr: ['tr'], option: ['option'], tbody: ['tbody', 'thead', 'tfoot'], thead: ['tbody', 'thead', 'tfoot'], tfoot: ['tbody', 'thead', 'tfoot'] };
+
+/**
+ * Modèle simplifié, en une passe sur la source, de la pile d'éléments ouverts de l'analyseur HTML :
+ * fins implicites (p, li, td…), balises fermantes orphelines ignorées, « /> » ignoré en HTML hors
+ * SVG/MathML, mises en forme non fermées rouvertes à chaque paragraphe (au plus 3 identiques, comme
+ * l'analyseur). Vrai si la source dépasse MAX_OPEN_DEPTH niveaux, ou si les réouvertures de mises en
+ * forme produiraient plus de MAX_ELEMENTS éléments (« <p><b class="cN">x » × 4 000, 90 Ko : 8 millions
+ * d'éléments, 5 s d'analyse). Un document mal fermé mais réel (<p><font size=3>… sans </font>) passe.
+ */
+function sourceTooComplex(src: string, html: boolean): boolean {
+  const stack: string[] = [];
+  const open = new Map<string, number>();
+  const has = (n: string) => (open.get(n) ?? 0) > 0;
+  const popThrough = (n: string) => {
+    if (!has(n)) return;
+    for (;;) {
+      const t = stack.pop()!;
+      open.set(t, open.get(t)! - 1);
+      if (t === n) return;
+    }
+  };
+  // Mises en forme actives : nombre d'entrées par balise complète (au plus 3 comptées par clé)
+  const afe = new Map<string, number>();
+  const afeByName = new Map<string, string[]>();
+  let afeSize = 0;
+  const afeRemoveLast = (name: string) => {
+    const key = afeByName.get(name)?.pop();
+    if (key === undefined) return;
+    const c = afe.get(key)!;
+    afe.set(key, c - 1);
+    if (c <= 3) afeSize--;
+  };
+  let reopened = 0;
+  let textFrom = 0;
+  for (let i = src.indexOf('<'); i >= 0; i = src.indexOf('<', i + 1)) {
+    if (src.startsWith('<!--', i) || src.startsWith('<![CDATA[', i)) {
+      const end = src.indexOf(src[i + 2] === '-' ? '-->' : ']]>', i + 4);
+      if (end < 0) break;
+      i = end + 2;
+      continue;
+    }
+    const closing = src[i + 1] === '/';
+    const j = i + (closing ? 2 : 1);
+    if (!/[A-Za-z]/.test(src[j] ?? '')) continue;
+    let k = j + 1;
+    while (k < src.length && /[\w:.-]/.test(src[k])) k++;
+    const gt = src.indexOf('>', k);
+    if (gt < 0) break;
+    // texte avant la balise : l'analyseur y rouvre les mises en forme fermées par un paragraphe
+    const text = /\S/.test(src.slice(textFrom, i));
+    textFrom = gt + 1;
+    const name = src.slice(j, k).toLowerCase();
+    const local = name.slice(name.indexOf(':') + 1);
+    i = gt;
+    if (closing) {
+      if (local === 'td' || local === 'th' || local === 'caption' || local === 'table') {
+        afe.clear();
+        afeByName.clear();
+        afeSize = 0;
+      } else if (FORMATTING_TAGS.has(local)) afeRemoveLast(local);
+      popThrough(local);
+      continue;
+    }
+    if (text && afeSize > 0 && (reopened += afeSize) > MAX_ELEMENTS) return true;
+    if (P_CLOSERS.has(local)) popThrough('p');
+    for (const sib of SIBLING_CLOSE[local] ?? []) popThrough(sib);
+    if (local === 'td' || local === 'th' || local === 'caption') {
+      afe.clear();
+      afeByName.clear();
+      afeSize = 0;
+    }
+    if (local === 'a') {
+      // un lien dans un lien ferme le premier (algorithme d'adoption)
+      popThrough('a');
+      afeRemoveLast('a');
+    }
+    if (VOID_TAGS.has(local) || local === 'html' || local === 'head' || local === 'body') continue;
+    const selfClosed = src[gt - 1] === '/' && (!html || has('svg') || has('math') || local === 'svg' || local === 'math');
+    if (selfClosed) continue;
+    if (RAW_TEXT_TAGS.has(local)) {
+      // contenu brut (« if (a<b) » d'un script) : sauté jusqu'après la balise fermante
+      const re = new RegExp(`</${local}\\b[^>]*>`, 'ig');
+      re.lastIndex = gt;
+      const m = re.exec(src);
+      if (!m) break;
+      i = m.index + m[0].length - 1;
+      textFrom = i + 1;
+      continue;
+    }
+    stack.push(local);
+    open.set(local, (open.get(local) ?? 0) + 1);
+    if (stack.length > MAX_OPEN_DEPTH) return true;
+    if (FORMATTING_TAGS.has(local)) {
+      const key = src.slice(j, gt).replace(/\s+/g, ' ').toLowerCase();
+      const c = afe.get(key) ?? 0;
+      afe.set(key, c + 1);
+      if (c < 3) afeSize++;
+      const l = afeByName.get(local);
+      if (l) l.push(key);
+      else afeByName.set(local, [key]);
+      if (afeSize > MAX_OPEN_DEPTH) return true;
+    }
+  }
+  return false;
+}
+
+/** Refuse (ReaderError lisible) une source trop profondément imbriquée, avant toute analyse. */
+function checkSourceDepth(src: string, html = true) {
+  if (sourceTooComplex(src, html)) throw new ReaderError(TOO_DEEP);
+}
+
+/** Refuse un document analysé qui a trop d'éléments. */
+function checkElementCount(root: Element) {
+  if (root.getElementsByTagName('*').length > MAX_ELEMENTS) throw new ReaderError(TOO_BIG);
+}
+
+/**
+ * Élément aux attributs trop nombreux remplacé par une copie qui n'en garde que MAX_ATTRS (mêmes
+ * enfants) : retirer les autres un à un serait quadratique. Renvoie l'élément à utiliser.
+ */
+function capAttributes(el: Element): Element {
+  if (el.attributes.length <= MAX_ATTRS) return el;
+  const copy = el.ownerDocument.createElementNS(el.namespaceURI, el.prefix ? `${el.prefix}:${el.localName}` : el.localName);
+  for (let i = 0; i < MAX_ATTRS; i++) {
+    const a = el.attributes[i];
+    try {
+      copy.setAttributeNS(a.namespaceURI, a.name, a.value);
+    } catch {
+      /* nom refusé hors de l'analyseur : attribut abandonné */
+    }
+  }
+  while (el.firstChild) copy.appendChild(el.firstChild);
+  el.replaceWith(copy);
+  return copy;
+}
+
 /**
  * Travail sur le document inerte (DOMParser) AVANT DOMPurify :
  * attributs data-* de l'éditeur retirés, id → data-fid (unicité par instance),
  * liens et images réécrits en attributs data-* (aucune navigation possible).
+ * Renvoie la racine à assainir (une copie si la racine avait trop d'attributs).
  */
-function prepareSource(root: Element, ctx: PrepareCtx) {
+function prepareSource(root0: Element, ctx: PrepareCtx): Element {
+  const root = capAttributes(root0);
+  for (const el of Array.from(root.querySelectorAll('*'))) if (el.attributes.length > MAX_ATTRS) capAttributes(el);
   root.querySelectorAll('[hidden], script, style, link, template, noscript').forEach((el) => el.remove());
   // SVG de couverture (image unique) → <img>
   root.querySelectorAll('svg').forEach((svg) => {
@@ -211,6 +375,7 @@ function prepareSource(root: Element, ctx: PrepareCtx) {
       }
     }
   }
+  return root;
 }
 
 const PURIFY_CFG = {
@@ -420,11 +585,12 @@ function finishSingle(parts: { el: HTMLElement; label: string }[], lang: string)
 }
 
 function fromHtmlString(html: string, book: Book): ParsedDoc {
+  checkSourceDepth(html);
   const doc = new DOMParser().parseFromString(html, 'text/html');
   const lang = doc.documentElement.getAttribute('lang') ?? '';
   const body = bodyOf(doc);
-  prepareSource(body, { path: '', epub: false });
-  const root = sanitize(body);
+  checkElementCount(body);
+  const root = sanitize(prepareSource(body, { path: '', epub: false }));
   return finishSingle(splitAtHeadings(root, book.title || 'Document'), lang);
 }
 
@@ -493,14 +659,20 @@ const MD_MAX_NESTING = 100;
 const MD_INLINE_BUDGET = 1e7;
 const MD_TOO_COMPLEX = 'Ce fichier Markdown a une structure anormale (imbrications ou marques de mise en forme par milliers) : Marginalia ne peut pas l’ouvrir.';
 
-/** Plus grand nombre de marques de bloc (> - * + 1.) en tête d'une ligne. */
+/**
+ * Plus grand nombre de marques de bloc (> - * + 1.) en tête d'une ligne. Une indentation de plus de
+ * 4 × MD_MAX_NESTING colonnes compte comme une imbrication excessive (listes emboîtées par retrait :
+ * 1 400 niveaux coûtent 3 s à marked).
+ */
 function markdownNesting(src: string): number {
   let max = 0;
   for (let i = 0; i < src.length; ) {
     let n = 0;
     let j = i;
     for (;;) {
+      const s0 = j;
       while (src[j] === ' ' || src[j] === '\t') j++;
+      if (j - s0 > 4 * MD_MAX_NESTING) return Infinity;
       const c = src[j];
       if (c === '>') j++;
       else if ((c === '-' || c === '*' || c === '+') && (src[j + 1] === ' ' || src[j + 1] === '\t')) j += 2;
@@ -674,10 +846,13 @@ async function fromEpub(data: ArrayBuffer, book: Book): Promise<ParsedDoc> {
   for (const m of spine) {
     const src = await readText(m.path);
     if (src == null) continue;
-    const doc = parseXml(src, m.type.includes('html') && !m.type.includes('xhtml') ? 'text/html' : 'application/xhtml+xml');
+    const asHtml = m.type.includes('html') && !m.type.includes('xhtml');
+    // XHTML : « /> » ferme vraiment l'élément (repères de page <span id="p12"/>) ; HTML : non.
+    checkSourceDepth(src, asHtml);
+    const doc = parseXml(src, asHtml ? 'text/html' : 'application/xhtml+xml');
     const body = bodyOf(doc);
-    prepareSource(body, { path: m.path, epub: true });
-    const root = sanitize(body);
+    checkElementCount(body);
+    const root = sanitize(prepareSource(body, { path: m.path, epub: true }));
     const el = makeChapterEl(Array.from(root.childNodes));
     if (!hasContent(el)) continue;
     chapters.push({ el, text: el.textContent ?? '', label: '', path: m.path });
@@ -825,8 +1000,7 @@ export function parseSpineDoc(src: string, mediaType: string): Document {
  */
 export function canonicalBodyText(doc: Document, path: string): string {
   const body = bodyOf(doc);
-  prepareSource(body, { path, epub: true });
-  const root = sanitize(body);
+  const root = sanitize(prepareSource(body, { path, epub: true }));
   return makeChapterEl(Array.from(root.childNodes)).textContent ?? '';
 }
 

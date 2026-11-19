@@ -272,32 +272,67 @@ const foldKey = (s: unknown) => (typeof s === 'string' ? s : '').normalize('NFD'
  * titre, auteur, éditeur et année (un livre papier n'a pas de fichier, donc pas d'empreinte).
  */
 export function findLocalPaperBook(src: { title?: unknown; author?: unknown; isbn?: unknown; edition?: unknown }, books: Book[]): Book | null {
-  const papers = books.filter((b) => b.format === 'paper');
-  if (typeof src.isbn === 'string' && src.isbn) {
-    const hit = papers.find((b) => b.isbn === src.isbn);
-    if (hit) return hit;
-  }
-  const ed = (src.edition && typeof src.edition === 'object' ? src.edition : {}) as { publisher?: unknown; year?: unknown };
-  return (
-    papers.find(
-      (b) => foldKey(b.title) === foldKey(src.title) && foldKey(b.author) === foldKey(src.author) && foldKey(b.edition.publisher) === foldKey(ed.publisher) && foldKey(b.edition.year) === foldKey(ed.year),
-    ) ?? null
-  );
+  return paperBookIndex(books).find(src);
+}
+
+/** Clé titre | auteur | éditeur | année, repliée (sans accents ni casse), sans ambiguïté de séparateur. */
+const paperKey = (title: unknown, author: unknown, publisher: unknown, year: unknown) => JSON.stringify([foldKey(title), foldKey(author), foldKey(publisher), foldKey(year)]);
+
+/**
+ * Index des livres papier d'une liste : même réponse que findLocalPaperBook (le premier livre de la
+ * liste qui convient), mais en temps constant par recherche. L'import d'un paquet de 4 000 livres
+ * papier filtrait et repliait toute la liste à chaque livre (3,4 s ; 100 000 livres : ~35 min).
+ * `add` prolonge la liste (livres créés pendant l'import).
+ */
+export function paperBookIndex(books: Book[]) {
+  const byIsbn = new Map<string, Book>();
+  const byMeta = new Map<string, Book>();
+  const add = (b: Book) => {
+    if (b.format !== 'paper') return;
+    if (typeof b.isbn === 'string' && !byIsbn.has(b.isbn)) byIsbn.set(b.isbn, b);
+    const k = paperKey(b.title, b.author, b.edition?.publisher, b.edition?.year);
+    if (!byMeta.has(k)) byMeta.set(k, b);
+  };
+  books.forEach(add);
+  return {
+    add,
+    find(src: { title?: unknown; author?: unknown; isbn?: unknown; edition?: unknown }): Book | null {
+      if (typeof src.isbn === 'string' && src.isbn) {
+        const hit = byIsbn.get(src.isbn);
+        if (hit) return hit;
+      }
+      const ed = (src.edition && typeof src.edition === 'object' ? src.edition : {}) as { publisher?: unknown; year?: unknown };
+      return byMeta.get(paperKey(src.title, src.author, ed.publisher, ed.year)) ?? null;
+    },
+  };
 }
 
 /** Vidéo de cette bibliothèque identique à une vidéo du paquet : même plateforme et même identifiant (ou même lien). */
 export function findLocalVideoBook(src: { video?: unknown }, books: Book[]): Book | null {
-  const v = (src.video && typeof src.video === 'object' ? src.video : {}) as { provider?: unknown; id?: unknown; url?: unknown };
-  if (typeof v.provider !== 'string') return null;
-  return (
-    books.find(
-      (b) =>
-        b.format === 'video' &&
-        !!b.video &&
-        b.video.provider === v.provider &&
-        (v.provider === 'link' ? typeof v.url === 'string' && b.video.url === v.url : typeof v.id === 'string' && !!v.id && b.video.id === v.id),
-    ) ?? null
-  );
+  return videoBookIndex(books).find(src);
+}
+
+/** Index des vidéos d'une liste (plateforme + identifiant, ou lien) : même réponse que findLocalVideoBook. */
+export function videoBookIndex(books: Book[]) {
+  const byKey = new Map<string, Book>();
+  const add = (b: Book) => {
+    if (b.format !== 'video' || !b.video) return;
+    const p: unknown = b.video.provider;
+    const k: unknown = p === 'link' ? b.video.url : b.video.id;
+    if (typeof p !== 'string' || typeof k !== 'string') return;
+    const key = JSON.stringify([p, k]);
+    if (!byKey.has(key)) byKey.set(key, b);
+  };
+  books.forEach(add);
+  return {
+    add,
+    find(src: { video?: unknown }): Book | null {
+      const v = (src.video && typeof src.video === 'object' ? src.video : {}) as { provider?: unknown; id?: unknown; url?: unknown };
+      if (typeof v.provider !== 'string') return null;
+      if (v.provider === 'link') return typeof v.url === 'string' ? (byKey.get(JSON.stringify(['link', v.url])) ?? null) : null;
+      return typeof v.id === 'string' && v.id ? (byKey.get(JSON.stringify([v.provider, v.id])) ?? null) : null;
+    },
+  };
 }
 
 /** Fiche d'une vidéo reçue (partage, travail à plusieurs) : seulement des valeurs sûres ; null si illisible. */
@@ -765,7 +800,9 @@ function mapOk(m: Record<string, unknown>): boolean {
 }
 const planNodesOk = (list: unknown): boolean =>
   Array.isArray(list) && list.every((n) => isObj(n) && optStr(n.title) && optStr(n.note) && (n.items === undefined || (Array.isArray(n.items) && n.items.every((it) => isObj(it) && isObj(it.ref) && isStr(it.ref.kind)))) && (n.children === undefined || planNodesOk(n.children)));
-const editionOk = (e: unknown) => e === undefined || e === null || (isObj(e) && Object.values(e).every((v) => v === null || isStr(v) || isNum(v)));
+/** Édition : champs connus du bon type (une année en nombre, un éditeur en tableau… étaient repris tels quels). */
+const editionOk = (e: unknown) =>
+  e === undefined || e === null || (isObj(e) && optStr(e.publisher) && optStr(e.year) && optStr(e.translator) && optStr(e.place) && optNum(e.pageOffset));
 const FORMATS: BookFormat[] = ['epub', 'pdf', 'docx', 'md', 'txt', 'html', 'image', 'paper', 'video'];
 
 /** Nom d'entrée de l'archive acceptable : manifest.json, data.json ou files/<id>/<fichier>. */
@@ -778,6 +815,26 @@ function safeEntryName(name: string, dir: boolean): boolean {
   return parts.length === 3 && parts[0] === 'files' && isSafeSegment(parts[1]) && isSafeSegment(parts[2]);
 }
 
+/**
+ * Taille maximale de chaque collection d'un paquet. Bien au-delà d'une vraie bibliothèque (quelques
+ * centaines de livres, quelques milliers d'extraits) : ces plafonds ne servent qu'à refuser d'emblée
+ * un paquet fabriqué pour faire travailler l'import pendant des minutes.
+ */
+const MAX_ITEMS: Record<string, number> = {
+  books: 20_000,
+  highlights: 200_000,
+  concepts: 50_000,
+  arguments: 50_000,
+  studies: 20_000,
+  plans: 20_000,
+  drafts: 20_000,
+  cards: 200_000,
+  workspaces: 1,
+  groups: 20_000,
+  wsItems: 200_000,
+  maps: 50_000,
+};
+
 /** Vérifie la forme de data.json ; renvoie les données complétées (collections absentes : vides). */
 function validateData(raw: unknown): ShareData | null {
   if (!isObj(raw)) return null;
@@ -786,23 +843,27 @@ function validateData(raw: unknown): ShareData | null {
   const out: Record<string, unknown[]> = {};
   for (const k of cols) {
     const a = arr(k);
-    if (!a || !a.every((x) => isObj(x) && isId(x.id))) return null;
+    if (!a || a.length > MAX_ITEMS[k] || !a.every((x) => isObj(x) && isId(x.id))) return null;
     if (new Set(a.map((x) => (x as { id: string }).id)).size !== a.length) return null;
     out[k] = a;
   }
   const maps = raw.maps === undefined ? {} : raw.maps;
-  if (!isObj(maps)) return null;
+  if (!isObj(maps) || Object.keys(maps).length > MAX_ITEMS.maps) return null;
   for (const [k, m] of Object.entries(maps)) if (!isId(k) || !isObj(m) || !Array.isArray(m.nodes) || !Array.isArray(m.edges) || !mapOk(m)) return null;
   const ok =
     (out.books as Record<string, unknown>[]).every(
       (b) => isStr(b.title) && isStr(b.author) && FORMATS.includes(b.format as BookFormat) && (withoutFile(b.format) ? b.fileName === '' : isSafeSegment(b.fileName)) && (b.format !== 'video' || !!safeVideoInfo(b.video)) && isNum(b.size) && (b.pages === undefined || (Array.isArray(b.pages) && b.pages.every(isSafeSegment))) && editionOk(b.edition),
     ) &&
     (out.highlights as Record<string, unknown>[]).every((h) => isId(h.bookId) && isStr(h.text) && anchorOk(h.anchor) && Array.isArray(h.conceptIds) && h.conceptIds.every(isId) && optStr(h.note) && optStr(h.category) && optNum(h.createdAt) && optNum(h.updatedAt)) &&
-    (out.concepts as Record<string, unknown>[]).every((c) => isStr(c.name) && optStr(c.definition) && Array.isArray(c.senses) && c.senses.every((x) => isObj(x) && isOptId(x.bookId) && (x.highlightIds === undefined || (Array.isArray(x.highlightIds) && x.highlightIds.every(isId)))) && Array.isArray(c.links) && c.links.every((x) => isObj(x) && isId(x.conceptId))) &&
+    (out.concepts as Record<string, unknown>[]).every((c) => isStr(c.name) && optStr(c.definition) && Array.isArray(c.senses) && c.senses.every((x) => isObj(x) && isOptId(x.bookId) && (x.highlightIds === undefined || (Array.isArray(x.highlightIds) && x.highlightIds.every(isId)))) && Array.isArray(c.links) && c.links.every((x) => isObj(x) && isId(x.conceptId) && optStr(x.note))) &&
     (out.arguments as Record<string, unknown>[]).every((a) => Array.isArray(a.premises) && a.premises.every((p) => isObj(p) && optStr(p.text) && isOptId(p.highlightId)) && isObj(a.conclusion) && optStr(a.conclusion.text) && isOptId(a.bookId)) &&
-    (out.studies as Record<string, unknown>[]).every((x) => isId(x.bookId) && movementsOk(x.movements)) &&
-    (out.plans as Record<string, unknown>[]).every((x) => planNodesOk(x.parts)) &&
-    (out.drafts as Record<string, unknown>[]).every((d) => isStr(d.title) && isSafeSegment(d.fileName)) &&
+    (out.studies as Record<string, unknown>[]).every(
+      (x) => isId(x.bookId) && movementsOk(x.movements) && optStr(x.title) && optStr(x.probleme) && optStr(x.these) && optStr(x.enjeu) && optNum(x.createdAt) && optNum(x.updatedAt),
+    ) &&
+    (out.plans as Record<string, unknown>[]).every(
+      (x) => planNodesOk(x.parts) && optStr(x.title) && optStr(x.sujet) && optStr(x.definitions) && optStr(x.problematique) && optStr(x.conclusion) && optNum(x.createdAt) && optNum(x.updatedAt),
+    ) &&
+    (out.drafts as Record<string, unknown>[]).every((d) => isStr(d.title) && isSafeSegment(d.fileName) && optStr(d.template) && optNum(d.wordCount) && optNum(d.wordGoal)) &&
     (out.cards as Record<string, unknown>[]).every((c) => isStr(c.front) && isStr(c.back) && isOptId(c.highlightId) && isOptId(c.conceptId) && isOptId(c.bookId)) &&
     (out.workspaces as Record<string, unknown>[]).every((w) => isStr(w.name)) &&
     (out.groups as Record<string, unknown>[]).every((g) => isId(g.workspaceId) && isOptId(g.parentId) && isStr(g.name)) &&
@@ -953,10 +1014,14 @@ export async function readSharePackage(bytes: Uint8Array | ArrayBuffer): Promise
   const { manifest, data } = await openSharePackage(bytes);
   const s = useStore.getState();
   const books: SharePreview['books'] = [];
+  // Recherches indexées une fois (pas de parcours de toute la liste pour chaque livre du paquet).
+  const srcOf = new Map(data.books.map((b) => [b.id, b]));
+  const papers = paperBookIndex(s.books);
+  const videos = videoBookIndex(s.books);
   for (const e of manifest.books) {
     const paper = withoutFile(e.format);
-    const src = data.books.find((b) => b.id === e.id);
-    const local = e.format === 'video' ? findLocalVideoBook(src ?? {}, s.books) : paper ? findLocalPaperBook(src ?? e, s.books) : await findLocalBook(e, s.books);
+    const src = srcOf.get(e.id);
+    const local = e.format === 'video' ? videos.find(src ?? {}) : paper ? papers.find(src ?? e) : await findLocalBook(e, s.books);
     books.push({ id: e.id, title: e.title, author: e.author ?? '', size: e.size, included: e.included, local: local ? { id: local.id, title: local.title, missing: !!local.missing } : null, ...(paper ? { paper: true } : {}) });
   }
   const counts = countsOf(data, manifest.books.filter((b) => b.included).length);

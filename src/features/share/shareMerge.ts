@@ -45,7 +45,7 @@ import type {
 } from '../../lib/types';
 import { CITE_BOOKMARK_PREFIX } from '../editor/privateNotes';
 import { newFsrs } from '../revision/fsrs';
-import { alreadyReceived, bookExtraFiles, bookSourceFiles, describeCounts, findLocalBook, findLocalPaperBook, findLocalVideoBook, safeVideoInfo, openSharePackage, rewriteDocxXml, ShareError, type ShareCounts } from './sharePackage';
+import { alreadyReceived, bookExtraFiles, bookSourceFiles, describeCounts, findLocalBook, paperBookIndex, videoBookIndex, safeVideoInfo, openSharePackage, rewriteDocxXml, ShareError, type ShareCounts } from './sharePackage';
 import { isReservedKey } from '../../lib/safeKey';
 
 export interface ShareImportOptions {
@@ -86,6 +86,8 @@ const CATEGORIES: CategoryId[] = ['probleme', 'these', 'argument', 'objection', 
 const NOTE_KINDS: NoteKind[] = ['reformulation', 'question', 'critique', 'presuppose'];
 const RELATIONS: RelationId[] = ['soutient', 'objecte', 'precise', 'illustre', 'repond', 'oppose', 'rattache', 'lien'];
 const WS_KINDS: WorkspaceItemKind[] = ['book', 'draft', 'plan', 'argument', 'study', 'map'];
+const DRAFT_TEMPLATES: Draft['template'][] = ['vide', 'dissertation', 'explication', 'fiche'];
+const PLAN_STATUSES = ['todo', 'draft', 'review', 'done'];
 
 const isObj = (x: unknown): x is Record<string, unknown> => !!x && typeof x === 'object' && !Array.isArray(x);
 const isId = (x: unknown): x is string => typeof x === 'string' && x.length > 0 && x.length <= 200 && !isReservedKey(x);
@@ -97,11 +99,29 @@ const safeCover = (x: unknown): string | null => (typeof x === 'string' && /^dat
 const validOrigin = (x: unknown): ShareOrigin | null => (isObj(x) && isId(x.shareId) && isId(x.srcId) ? { shareId: x.shareId, srcId: x.srcId } : null);
 const toBuffer = (b: Uint8Array): ArrayBuffer => b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength) as ArrayBuffer;
 
-/** « Nom », sinon « Nom (reçu) », « Nom (reçu 2) »… (comparaison sans casse). */
+/** Texte d'un champ d'édition : chaîne, nombre écrit en chaîne (vieux paquets), sinon vide. */
+const edStr = (x: unknown) => (typeof x === 'number' && Number.isFinite(x) ? String(x) : str(x));
+/** Statut et objectif de mots d'une partie : valeurs connues seulement (objet absent : absent). */
+const progressOf = (x: unknown): EssayPlan['introProgress'] => {
+  if (!isObj(x)) return undefined;
+  const status = typeof x.status === 'string' && PLAN_STATUSES.includes(x.status) ? (x.status as NonNullable<EssayPlan['introProgress']>['status']) : undefined;
+  return { ...(status ? { status } : {}), ...(typeof x.goal === 'number' && Number.isFinite(x.goal) ? { goal: x.goal } : {}) };
+};
+
+/**
+ * « Nom », sinon « Nom (reçu) », « Nom (reçu 2) »… (comparaison sans casse). Le premier rang libre d'un
+ * même nom ne fait que croître (les noms pris ne sont jamais rendus) : on repart du dernier rang donné
+ * au lieu de 1, sinon 20 000 concepts du même nom coûtaient 200 millions de comparaisons.
+ */
+const nextRank = new WeakMap<Set<string>, Map<string, number>>();
 function uniqueName(name: string, taken: Set<string>): string {
   const norm = (x: string) => x.trim().toLowerCase();
-  let out = name;
-  for (let i = 1; taken.has(norm(out)); i++) out = i === 1 ? `${name} (reçu)` : `${name} (reçu ${i})`;
+  const ranks = nextRank.get(taken) ?? nextRank.set(taken, new Map()).get(taken)!;
+  let i = ranks.get(name) ?? 0;
+  const at = (k: number) => (k === 0 ? name : k === 1 ? `${name} (reçu)` : `${name} (reçu ${k})`);
+  while (taken.has(norm(at(i)))) i++;
+  const out = at(i);
+  ranks.set(name, i);
   taken.add(norm(out));
   return out;
 }
@@ -133,13 +153,18 @@ export async function importSharePackage(bytes: Uint8Array | ArrayBuffer, opts: 
   const titleOfBook = new Map<string, string>();
   const sealedBooks = sealedBookIds(s0);
   const openBooks = s0.books.filter((b) => !sealedBooks.has(b.id));
+  // Livres papier et vidéos : index construits une fois, prolongés par les livres créés au fil de
+  // l'import (même ordre de recherche que l'ancienne liste [...openBooks, ...newBooks] refaite à chaque livre).
+  const paperIdx = paperBookIndex(openBooks);
+  const videoIdx = videoBookIndex(openBooks);
+  const attachedIds = new Set<string>();
   for (const src of data.books) {
     const e = entryOf.get(src.id)!;
     // Livre papier : reconnu par son ISBN (ou titre, auteur, éditeur, année), jamais « sans fichier ».
     const paper = src.format === 'paper';
     const video = src.format === 'video';
     // Jamais un livre d'un espace chiffré : s'y rattacher le rangerait aussi ailleurs, donc en clair.
-    const local = video ? findLocalVideoBook(src, [...openBooks, ...newBooks]) : paper ? findLocalPaperBook(src, [...openBooks, ...newBooks]) : await findLocalBook(e, openBooks);
+    const local = video ? videoIdx.find(src) : paper ? paperIdx.find(src) : await findLocalBook(e, openBooks);
     const fileNames = [...bookSourceFiles(src), ...bookExtraFiles(src)];
     if (local) {
       bookId.set(src.id, local.id);
@@ -152,7 +177,8 @@ export async function importSharePackage(bytes: Uint8Array | ArrayBuffer, opts: 
         const pages = (src as Book & { pages?: string[] }).pages;
         completions.set(local.id, { fileName: src.fileName, size: e.size, format: src.format, ...(Array.isArray(pages) ? { pages } : {}), ...(local.cover ? {} : { cover: safeCover(src.cover) }) } as Partial<Book>);
         completedBooks.push({ id: local.id, title: local.title });
-      } else if (!completions.has(local.id) && !attachedBooks.some((a) => a.id === local.id)) {
+      } else if (!completions.has(local.id) && !attachedIds.has(local.id)) {
+        attachedIds.add(local.id);
         attachedBooks.push({ id: local.id, title: local.title, missing: !!local.missing });
       }
       continue;
@@ -167,7 +193,17 @@ export async function importSharePackage(bytes: Uint8Array | ArrayBuffer, opts: 
       author: str(src.author),
       originalName: str(src.originalName, src.fileName),
       cover: safeCover(src.cover),
-      edition: { ...EMPTY_EDITION, ...(isObj(src.edition) ? src.edition : {}) },
+      // Champ par champ : une année en nombre ou un traducteur à null cassaient l'affichage et la recherche.
+      edition: isObj(src.edition)
+        ? {
+            ...EMPTY_EDITION,
+            publisher: edStr(src.edition.publisher),
+            year: edStr(src.edition.year),
+            translator: edStr(src.edition.translator),
+            place: edStr(src.edition.place),
+            pageOffset: num(src.edition.pageOffset, 0),
+          }
+        : { ...EMPTY_EDITION },
       addedAt: now,
       lastOpenedAt: null,
       progress: 0,
@@ -203,6 +239,8 @@ export async function importSharePackage(bytes: Uint8Array | ArrayBuffer, opts: 
     }
     titleOfBook.set(id, book.title);
     newBooks.push(book);
+    paperIdx.add(book);
+    videoIdx.add(book);
   }
   const newBookIds = new Set(newBooks.map((b) => b.id));
 
@@ -283,7 +321,7 @@ export async function importSharePackage(bytes: Uint8Array | ArrayBuffer, opts: 
         bookId: pick(bookId, se.bookId),
         highlightIds: ids(se.highlightIds).map((x) => hlId.get(x)).filter(isId),
       })),
-      links: (Array.isArray(c.links) ? c.links : []).filter((l) => isObj(l) && conceptId.has(l.conceptId)).map((l) => ({ ...l, conceptId: conceptId.get(l.conceptId)! })),
+      links: (Array.isArray(c.links) ? c.links : []).filter((l) => isObj(l) && conceptId.has(l.conceptId)).map((l) => ({ ...l, conceptId: conceptId.get(l.conceptId)!, note: str(l.note) })),
       programme: c.programme === 'notion' || c.programme === 'repere' ? c.programme : null,
       createdAt: num(c.createdAt, now),
       updatedAt: num(c.updatedAt, now),
@@ -310,7 +348,7 @@ export async function importSharePackage(bytes: Uint8Array | ArrayBuffer, opts: 
       if (out.color !== undefined && !(typeof out.color === 'string' && SAFE_COLOR.test(out.color))) delete out.color;
       return out;
     });
-    const edges = m.edges.filter(isObj).map((e) => ({ ...e, relation: RELATIONS.includes(e.relation) ? e.relation : 'lien' }));
+    const edges = m.edges.filter(isObj).map((e) => ({ ...e, relation: RELATIONS.includes(e.relation) ? e.relation : 'lien', ...(e.groupId !== undefined ? { groupId: isId(e.groupId) ? e.groupId : null } : {}) }));
     const zones = Array.isArray(m.zones) ? m.zones.filter(isObj).map((z) => ({ ...z, title: str(z.title), color: typeof z.color === 'string' && SAFE_COLOR.test(z.color) ? z.color : '--cat-these' })) : undefined;
     const base = { ...m, nodes, edges, ...(zones ? { zones } : {}), shareOrigin: origin(m, k) };
     if (key.startsWith('board-')) {
@@ -349,7 +387,19 @@ export async function importSharePackage(bytes: Uint8Array | ArrayBuffer, opts: 
     shareOrigin: origin(a, a.id),
   }));
 
-  const studies: TextStudy[] = data.studies.map((x) => ({ ...x, id: studyId.get(x.id)!, bookId: bookId.get(x.bookId)!, shareOrigin: origin(x, x.id) }));
+  // Champ par champ, comme les extraits : un titre en tableau faisait lever le journal des changements (item.title.trim).
+  const studies: TextStudy[] = data.studies.map((x) => ({
+    ...x,
+    id: studyId.get(x.id)!,
+    bookId: bookId.get(x.bookId)!,
+    title: str(x.title),
+    probleme: str(x.probleme),
+    these: str(x.these),
+    enjeu: str(x.enjeu),
+    createdAt: num(x.createdAt, now),
+    updatedAt: num(x.updatedAt, now),
+    shareOrigin: origin(x, x.id),
+  }));
 
   const planNodes = (nodes: unknown): PlanNode[] =>
     (Array.isArray(nodes) ? nodes : []).filter(isObj).map((n) => ({
@@ -367,7 +417,30 @@ export async function importSharePackage(bytes: Uint8Array | ArrayBuffer, opts: 
       }),
       children: planNodes(n.children),
     }));
-  const plans: EssayPlan[] = data.plans.map((x) => ({ ...x, id: planId.get(x.id)!, title: str(x.title), parts: planNodes(x.parts), draftId: pick(draftId, x.draftId), createdAt: num(x.createdAt, now), updatedAt: num(x.updatedAt, now), shareOrigin: origin(x, x.id) }));
+  const plans: EssayPlan[] = data.plans.map((x) => {
+    const { introProgress: _ip, conclusionProgress: _cp, pendingOrder: _po, pendingRenames: _pr, ...rest } = x;
+    const introProgress = progressOf(x.introProgress);
+    const conclusionProgress = progressOf(x.conclusionProgress);
+    const renames = isObj(x.pendingRenames) ? Object.entries(x.pendingRenames).filter(([k, v]) => isId(k) && typeof v === 'string') : [];
+    return {
+      ...rest,
+      id: planId.get(x.id)!,
+      title: str(x.title),
+      sujet: str(x.sujet),
+      definitions: str(x.definitions),
+      problematique: str(x.problematique),
+      conclusion: str(x.conclusion),
+      parts: planNodes(x.parts),
+      draftId: pick(draftId, x.draftId),
+      ...(introProgress ? { introProgress } : {}),
+      ...(conclusionProgress ? { conclusionProgress } : {}),
+      ...(typeof x.pendingOrder === 'boolean' ? { pendingOrder: x.pendingOrder } : {}),
+      ...(isObj(x.pendingRenames) ? { pendingRenames: Object.fromEntries(renames) } : {}),
+      createdAt: num(x.createdAt, now),
+      updatedAt: num(x.updatedAt, now),
+      shareOrigin: origin(x, x.id),
+    };
+  });
 
   // Écrits : nouveau .docx dont les signets de citation pointent vers les extraits remappés.
   const citeRe = new RegExp(`${CITE_BOOKMARK_PREFIX}([A-Za-z0-9_-]+)`, 'g');
@@ -383,7 +456,23 @@ export async function importSharePackage(bytes: Uint8Array | ArrayBuffer, opts: 
       console.warn('partage : citations non remappées', d.title, e);
     }
     writes.push({ ownerId: id, fileName: d.fileName, data: docx });
-    drafts.push({ ...rest, id, title: str(d.title, 'Sans titre'), externalPath: null, wordCount: num(d.wordCount, 0), createdAt: num(d.createdAt, now), updatedAt: num(d.updatedAt, now), shareOrigin: origin(d, d.id) });
+    const { wordGoal: _g, outline: _ol, template: _t, ...fields } = rest;
+    const outline = Array.isArray(d.outline)
+      ? d.outline.filter((h) => isObj(h) && (h.level === 1 || h.level === 2 || h.level === 3)).map((h) => ({ level: h.level, text: str(h.text), words: num(h.words, 0) }))
+      : undefined;
+    drafts.push({
+      ...fields,
+      id,
+      title: str(d.title, 'Sans titre'),
+      externalPath: null,
+      wordCount: num(d.wordCount, 0),
+      ...(typeof d.wordGoal === 'number' && Number.isFinite(d.wordGoal) ? { wordGoal: d.wordGoal } : {}),
+      ...(outline ? { outline } : {}),
+      template: DRAFT_TEMPLATES.includes(d.template) ? d.template : null,
+      createdAt: num(d.createdAt, now),
+      updatedAt: num(d.updatedAt, now),
+      shareOrigin: origin(d, d.id),
+    });
   }
 
   // Cartes de révision : une carte dont une référence n'a pas suivi est laissée de côté ; l'état de révision repart de zéro.

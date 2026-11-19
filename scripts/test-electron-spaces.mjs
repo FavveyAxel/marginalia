@@ -56,6 +56,12 @@ const menu = async (wsId, label) => {
   await page.getByRole('menuitem', { name: label }).click();
 };
 
+/** Verrouillage : le rendu est remplacé par un processus neuf ; on attend que la nouvelle page soit prête. */
+async function lockAndRenew(pg, act) {
+  await pg.evaluate(() => { window.__mgOldRenderer = 1; });
+  await act();
+  await pg.waitForFunction(() => !window.__mgOldRenderer && window.__store && window.__store.getState().ready, null, { timeout: 60000 });
+}
 try {
   await launch();
   // ── Préparation : un espace « Privé » (écrit, livre annoté) et un espace « Cours » ordinaire ──
@@ -118,7 +124,7 @@ try {
 
   // ── 2. Verrouiller : plus rien en mémoire ──
   await st((id) => window.__store.getState().navigate({ name: 'workspace', workspaceId: id, groupId: null }), seed.prive);
-  await page.click('[data-testid="space-lock"]');
+  await lockAndRenew(page, () => page.click('[data-testid="space-lock"]'));
   await page.waitForSelector('[data-testid="space-locked"]', { timeout: 30000 });
   const mem = await st((secret) => JSON.stringify(window.__store.getState(), (k, v) => (typeof v === 'function' ? undefined : v)).includes(secret) || JSON.stringify(window.__store.getState().drafts).includes('Journal'), SECRET);
   ok(!mem, 'verrouillé : rien du contenu dans la mémoire de l’interface (store)');
@@ -169,7 +175,7 @@ try {
   }, { prive: seed.prive, dPrive: seed.dPrive, secret: SECRET });
   await flush();
   ok(head(added.id, added.file) === 'MGLSPC2' && diskHas(SECRET).length === 0, 'écrit ajouté dans l’espace ouvert : scellé lui aussi, rien en clair', diskHas(SECRET));
-  await page.click('[data-testid="space-lock"]');
+  await lockAndRenew(page, () => page.click('[data-testid="space-lock"]'));
   await page.waitForSelector('[data-testid="space-locked"]', { timeout: 30000 });
   await quit();
   ok(diskHas(SECRET).length === 0 && diskHas('Journal modifié').length === 0, 'app fermée : rien en clair sur le disque', [...diskHas(SECRET), ...diskHas('Journal modifié')]);
@@ -228,7 +234,7 @@ try {
   const tid = await st((pw) => window.marginalia.spaces.setTouchId(true, pw), PASSWORD);
   ok(tid.ok === true && (await st(() => window.marginalia.spaces.setTouchId(true, 'faux'))).ok === false, 'Touch ID : activé avec le mot de passe, refusé sans');
   await st((id) => window.__store.getState().navigate({ name: 'workspace', workspaceId: id, groupId: null }), seed.prive);
-  await page.click('[data-testid="space-lock"]');
+  await lockAndRenew(page, () => page.click('[data-testid="space-lock"]'));
   await page.waitForSelector('[data-testid="space-locked"]', { timeout: 30000 });
   await page.click('[data-testid="space-touchid"]');
   await page.waitForSelector('[data-testid="space-bar"]', { timeout: 30000 });
@@ -251,7 +257,7 @@ try {
   ok(await st(({ dPrive, f }) => window.marginalia.readFile(dPrive, f).then((b) => b.byteLength > 100, () => false), { dPrive: seed.dPrive, f: seed.draftFile }), 'fichier de l’espace toujours lisible, espace ouvert');
   await st(({ dPrive }) => window.__store.getState().patch('drafts', dPrive, { title: 'Journal sous double protection' }), seed);
   await flush();
-  await page.click('[data-testid="space-lock"]');
+  await lockAndRenew(page, () => page.click('[data-testid="space-lock"]'));
   await page.waitForSelector('[data-testid="space-locked"]', { timeout: 30000 });
   await quit();
   ok(diskHas(SECRET).length === 0 && diskHas('Journal').length === 0 && diskHas('Dissertation').length === 0, 'app fermée : plus aucun texte en clair, ni de l’espace ni du reste', [...diskHas(SECRET), ...diskHas('Journal'), ...diskHas('Dissertation')]);

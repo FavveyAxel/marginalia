@@ -85,10 +85,16 @@ const unlock = async (wsId) => {
 };
 const lock = async (wsId) => {
   await st((id) => window.__store.getState().navigate({ name: 'workspace', workspaceId: id, groupId: null }), wsId);
-  await page.click('[data-testid="space-lock"]');
+  await lockAndRenew(page, () => page.click('[data-testid="space-lock"]'));
   await page.waitForSelector('[data-testid="space-locked"]', { timeout: 30000 });
 };
 
+/** Verrouillage : le rendu est remplacé par un processus neuf ; on attend que la nouvelle page soit prête. */
+async function lockAndRenew(pg, act) {
+  await pg.evaluate(() => { window.__mgOldRenderer = 1; });
+  await act();
+  await pg.waitForFunction(() => !window.__mgOldRenderer && window.__store && window.__store.getState().ready, null, { timeout: 60000 });
+}
 try {
   await launch('a');
   const seed = await st(async ({ b64, secret }) => {

@@ -1546,10 +1546,12 @@ const SECRETS_IDLE_MS = 30000;
 function secretsStart() {
   if (secrets.cur) return secrets.cur;
   const proc = utilityProcess.fork(path.join(__dirname, 'secrets-worker.cjs'), [], { serviceName: 'Marginalia secrets', stdio: 'inherit' });
-  const w = { proc, gen: ++secrets.gen, seq: 0, calls: new Map(), reveals: 0, alive: true, expected: false };
+  const w = { proc, gen: ++secrets.gen, seq: 0, calls: new Map(), reveals: 0, deposits: 0, alive: true, expected: false };
   proc.on('message', (m) => {
     if (!m || typeof m !== 'object') return;
     if (typeof m.reveals === 'number') w.reveals = m.reveals;
+    if (typeof m.deposits === 'number') w.deposits = m.deposits;
+    if (m.evt === 'deposits') return secretsIdleSoon();
     if (m.evt === 'reveals') return void setImmediate(secretsIdleCheck); // tout retiré : plus rien à garder
     const c = w.calls.get(m.id);
     if (!c) return;
@@ -1616,11 +1618,20 @@ function secretsStop() {
     /* déjà parti */
   }
 }
-/** Rien à garder (aucune clé, aucune opération en cours, rien à retirer) : terminé tout de suite. */
+/** Rien à garder (aucune clé, aucune opération en cours, aucune saisie en attente, rien à retirer) : terminé tout de suite. */
 function secretsIdleCheck() {
   const w = secrets.cur;
-  if (!w || sp.skLoaded || secrets.busy || w.calls.size || w.reveals) return;
-  secretsStop();
+  const idle = () => secrets.cur === w && !sp.skLoaded && !secrets.busy && !w.calls.size && !w.reveals && !w.deposits;
+  if (!w || !idle()) return;
+  // Dernière question au processus lui-même (une saisie a pu arriver à l'instant).
+  secretsCallOn(w, 'counts', {}).then(
+    (c) => {
+      w.deposits = c.deposits;
+      w.reveals = c.reveals;
+      if (idle()) secretsStop();
+    },
+    () => {},
+  );
 }
 function secretsIdleSoon() {
   // Garde-fou : sans clé à garder, le processus ne survit pas plus de 30 s (saisie déposée puis abandonnée).
@@ -1689,6 +1700,21 @@ function lockAllSpaces() {
   sp.unlocked.clear();
   sp.skLoaded = false;
   secretsStop();
+}
+/**
+ * Plus aucun espace ouvert, hors verrouillage (dernier espace dont on retire le chiffrement, échec
+ * d'ouverture) : la clé maîtresse est oubliée. Si une saisie attend dans le processus des secrets (un
+ * déverrouillage en route), il n'est pas terminé tout de suite : il efface la clé et finira inactif.
+ */
+function releaseSk() {
+  sp.unlocked.clear();
+  sp.skLoaded = false;
+  const w = secrets.cur;
+  if (!w) return;
+  if (secrets.busy || w.calls.size || w.deposits || w.reveals) {
+    secretsCallOn(w, 'forget', {}).catch(() => {});
+    secretsIdleSoon();
+  } else secretsStop();
 }
 /**
  * Base lue sur le disque : les champs des espaces restent ici, l'interface reçoit le reste.
@@ -2026,7 +2052,7 @@ async function saveWithSpacesNow(json, meta, extra) {
   // Après l'écriture de la base (et sa copie .bak, faite juste avant) : dans la file d'écriture, pour ne
   // pas croiser une autre écriture de la base.
   if (entered.size) await inSaveChain(() => scrubBackups(entered));
-  if (!sp.unlocked.size) lockAllSpaces();
+  if (!sp.unlocked.size) releaseSk();
   return undefined;
 }
 /** Réécrit la base après un changement de clés (mot de passe, clé de secours, Touch ID). */
@@ -2103,14 +2129,14 @@ async function openSpaceContent(wsId) {
   if (!sp.blobs.has(wsId)) {
     // Un espace chiffré a toujours une capsule : absente, elle a été retirée de la base. Ouvrir un
     // espace « vide » ferait croire que tout va bien, puis écrirait du vide par-dessus.
-    if (!sp.unlocked.size) lockAllSpaces();
+    if (!sp.unlocked.size) releaseSk();
     return fail('Le contenu chiffré de cet espace est absent de la base. Restaurez une sauvegarde.');
   }
   let c;
   try {
     c = await secretsCall('spOpenCapsule', { wsId, blob: sp.blobs.get(wsId) });
   } catch (e) {
-    if (!sp.unlocked.size) lockAllSpaces();
+    if (!sp.unlocked.size) releaseSk();
     diag('espaces', 'capsule illisible', e && e.message);
     return fail('Le contenu de cet espace est illisible (base endommagée ou autre clé).');
   }

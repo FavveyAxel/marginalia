@@ -92,6 +92,14 @@ function checkNew(pw) {
 
 // ── Opérations demandées par le processus principal ──
 const ops = {
+  forget() {
+    if (sk) sk.fill(0);
+    sk = null;
+    return true;
+  },
+  counts() {
+    return { deposits: deposits.size, reveals: reveals.size, sk: !!sk };
+  },
   // Vérification d'un nouveau mot de passe (longueur), sans le consommer.
   checkNew({ h }) {
     const v = peek(deposits, h);
@@ -264,6 +272,9 @@ function serveRenderer(port) {
         if (typeof v !== 'string' && !isBytes(v) && !(v instanceof ArrayBuffer)) throw new Error('Saisie invalide');
         const h = newHandle();
         deposits.set(h, v instanceof ArrayBuffer ? new Uint8Array(v) : v);
+        // Le processus principal ne termine pas ce processus tant qu'une saisie attend d'être utilisée
+        // (prévenu AVANT que le rendu ait la poignée, donc avant qu'il puisse s'en servir).
+        parent.postMessage({ evt: 'deposits', deposits: deposits.size });
         reply({ ok: true, v: h });
       } else if (m.op === 'reveal') {
         const v = take(reveals, m.h);
@@ -312,7 +323,7 @@ parent.on('message', async (e) => {
     if (e.ports && e.ports[0]) serveRenderer(e.ports[0]);
     return;
   }
-  const reply = (r) => parent.postMessage({ id: m.id, reveals: reveals.size, ...r });
+  const reply = (r) => parent.postMessage({ id: m.id, reveals: reveals.size, deposits: deposits.size, ...r });
   try {
     let r;
     if (m.op === 'handoffOut') r = await handoffOut(e.ports[0]);

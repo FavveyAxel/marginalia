@@ -49,12 +49,18 @@ function mk(name) {
     await h.page.click('[data-testid="space-encrypt-go"]');
     await h.page.waitForSelector('[data-testid="space-encrypt-dialog"]', { state: 'detached', timeout: 30000 }); await h.flush();
   };
-  h.lock = async (wsId) => { await h.nav(wsId); await h.page.click('[data-testid="space-lock"]'); await h.page.waitForSelector('[data-testid="space-locked"]', { timeout: 30000 }); await h.wait(300); };
+  h.lock = async (wsId) => { await h.nav(wsId); await lockAndRenew(h.page, () => h.page.click('[data-testid="space-lock"]')); await h.page.waitForSelector('[data-testid="space-locked"]', { timeout: 30000 }); await h.wait(300); };
   h.unlock = async (wsId, pw = PASSWORD) => { await h.nav(wsId); await h.page.waitForSelector('[data-testid="space-locked"]'); await h.page.fill('[data-testid="space-password"]', pw); await h.page.click('[data-testid="space-unlock"]'); await h.page.waitForSelector('[data-testid="space-bar"]', { timeout: 30000 }); await h.wait(300); };
   h.head = (id, f) => { try { return fs.readFileSync(path.join(UD, 'library', id, f)).subarray(0, 7).toString('latin1'); } catch (e) { return 'ERR ' + e.code; } };
   return h;
 }
 
+/** Verrouillage : le rendu est remplacé par un processus neuf ; on attend que la nouvelle page soit prête. */
+async function lockAndRenew(pg, act) {
+  await pg.evaluate(() => { window.__mgOldRenderer = 1; });
+  await act();
+  await pg.waitForFunction(() => !window.__mgOldRenderer && window.__store && window.__store.getState().ready, null, { timeout: 60000 });
+}
 const ok = (c, m, extra = '') => {
   console.log((c ? 'OK   ' : 'ÉCHEC ') + m + (extra !== '' ? ' — ' + (typeof extra === 'string' ? extra : JSON.stringify(extra)) : ''));
   if (!c) process.exitCode = 1;

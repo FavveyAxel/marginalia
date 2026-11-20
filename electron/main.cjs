@@ -1137,7 +1137,8 @@ async function lockPasswordError(ref) {
 }
 /** Enveloppe de `dek` par le nouveau mot de passe déposé (calculée dans le processus des secrets). */
 async function wrapLockPassword(ref, dek) {
-  const r = await secretsCall('vWrap', { h: handleOf(ref), key: dek });
+  const key = exactBytes(dek);
+  const r = await secretsCallWiping('vWrap', { h: handleOf(ref), key }, key);
   if (!r.ok) throw new Error(r.error);
   return r.envelope;
 }
@@ -1824,6 +1825,22 @@ const fileCtx = (id, rel) => `${id}/${String(rel).split(/[\\/]+/).filter(Boolean
 /** Octets rendus par le processus des secrets (Uint8Array) vus comme un Buffer, sans copie. */
 const bufOf = (u) => (Buffer.isBuffer(u) ? u : Buffer.from(u.buffer, u.byteOffset, u.byteLength));
 /**
+ * Octets à envoyer à un autre processus : copie exacte, dans un ArrayBuffer à elle. Un message copie
+ * tout l'ArrayBuffer sous un Buffer ; or les petits Buffer de Node partagent une réserve de 8 Ko (où peut
+ * se trouver, par exemple, la clé de données) : envoyer le Buffer lui-même enverrait toute la réserve.
+ */
+function exactBytes(b) {
+  const u = new Uint8Array(b.byteLength);
+  u.set(b);
+  return u;
+}
+/** Appel avec des octets sensibles (`bytes`, copie exacte) : la copie est effacée dès le message parti. */
+function secretsCallWiping(op, args, bytes, opts) {
+  const p = secretsCall(op, args, opts);
+  bytes.fill(0); // le message est déjà sérialisé (postMessage est synchrone)
+  return p;
+}
+/**
  * Scelle avec la clé de l'espace les fichiers de `ids` qui attendent de l'être (sp.pending : entrés dans
  * l'espace à l'instant, ou coupure avant la fin). Un fichier en clair qui n'est PAS attendu n'est pas
  * scellé : il n'a pas été écrit par Marginalia (remplacé sur le disque), et sa lecture est refusée.
@@ -1839,7 +1856,8 @@ async function sealSpaceFiles(wsId, ids) {
         if (!buf || spacesKit.isSealed(buf)) return;
         const plain = decodeIn(buf);
         try {
-          await writeAtomic(f.full, await secretsCall('spSealFile', { wsId, buf: plain, ctx: fileCtx(id, f.rel) }));
+          const copy = exactBytes(plain);
+          await writeAtomic(f.full, await secretsCallWiping('spSealFile', { wsId, buf: copy, ctx: fileCtx(id, f.rel) }, copy));
         } finally {
           plain.fill(0);
           buf.fill(0);
@@ -1882,7 +1900,8 @@ async function transferSpaceFiles(id, from, to) {
       if (spacesKit.isSealed(buf)) return writeAtomic(f.full, await secretsCall('spTransferFile', { from, to, buf, ctx }));
       const plain = decodeIn(buf);
       try {
-        await writeAtomic(f.full, await secretsCall('spSealFile', { wsId: to, buf: plain, ctx }));
+        const copy = exactBytes(plain);
+        await writeAtomic(f.full, await secretsCallWiping('spSealFile', { wsId: to, buf: copy, ctx }, copy));
       } finally {
         plain.fill(0);
         buf.fill(0);
@@ -1901,7 +1920,9 @@ async function encodeFileFor(id, fileName, data) {
   const h = handleOf(data);
   if (ws) {
     if (!spaceReady(ws)) throw new SpaceLockedError();
-    return secretsCall('spSealFile', h ? { wsId: ws, h, ctx: fileCtx(id, fileName) } : { wsId: ws, buf: toBuffer(data), ctx: fileCtx(id, fileName) });
+    if (h) return secretsCall('spSealFile', { wsId: ws, h, ctx: fileCtx(id, fileName) });
+    const copy = exactBytes(toBuffer(data));
+    return secretsCallWiping('spSealFile', { wsId: ws, buf: copy, ctx: fileCtx(id, fileName) }, copy);
   }
   // Fichier commun : le contenu déposé (le fichier appartenait à un espace quand le rendu l'a envoyé) est repris.
   if (h) {
@@ -1930,7 +1951,7 @@ async function decodeFile(id, fileName, buf) {
     return { buf: decodeIn(buf) };
   }
   if (!sp.skLoaded) throw new SpaceLockedError();
-  const ws = owner || (await secretsCall('spOwnerOf', { head: buf.subarray(0, 64), wsIds: [...new Set([...sp.blobs.keys(), ...sp.unlocked])] }));
+  const ws = owner || (await secretsCall('spOwnerOf', { head: exactBytes(buf.subarray(0, 64)), wsIds: [...new Set([...sp.blobs.keys(), ...sp.unlocked])] }));
   if (!ws || !sp.unlocked.has(ws)) throw new SpaceLockedError();
   const r = await secretsCall('spOpenFile', { wsId: ws, buf, ctx: fileCtx(id, fileName) });
   return { ref: revealRef(r.rh) };
@@ -2221,7 +2242,8 @@ const spaceOps = {
       }
       if (!sk) return fail('Touch ID ne rend plus la clé : saisissez le mot de passe.');
       try {
-        await secretsCall('spAdopt', { sk }, { spawn: true });
+        const copy = exactBytes(sk);
+        await secretsCallWiping('spAdopt', { sk: copy }, copy, { spawn: true });
       } finally {
         vault.wipe(sk);
       }
@@ -2340,7 +2362,10 @@ dataHandle('marginalia:storeFile', async (_e, id, fileName, data) => {
 dataHandle('marginalia:readFile', async (_e, id, fileName) => {
   const r = await secretsOp(async () => decodeFile(id, fileName, await fsp.readFile(libraryPath(id, fileName))));
   if (r.ref) return r.ref;
-  return new Uint8Array(r.buf.buffer, r.buf.byteOffset, r.buf.byteLength);
+  // Copie exacte : le Buffer déchiffré peut venir de la réserve partagée de Node (voir exactBytes).
+  const out = exactBytes(r.buf);
+  r.buf.fill(0);
+  return out;
 });
 dataHandle('marginalia:deleteFile', async (_e, id, fileName) => {
   const file = libraryPath(id, fileName);

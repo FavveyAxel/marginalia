@@ -85,13 +85,13 @@ export const SecretInput = forwardRef<HTMLInputElement, Props>(function SecretIn
       }
     };
     const onBefore = (ev: InputEvent) => {
-      if (ev.inputType === 'insertCompositionText') return; // repris à la fin de la composition
+      const t = ev.inputType;
+      if (t === 'insertCompositionText') return; // repris à la fin de la composition
+      if (t === 'insertLineBreak' || t === 'insertParagraph') return; // Entrée : envoi du formulaire
       ev.preventDefault();
       const v = valueRef.current;
       const [s, en] = sel();
-      const t = ev.inputType;
       if (t.startsWith('insert')) {
-        if (t === 'insertLineBreak' || t === 'insertParagraph') return;
         const data = (ev.data ?? ev.dataTransfer?.getData('text/plain') ?? '').replace(/[\r\n]+/g, '');
         return commit(v.slice(0, s) + data + v.slice(en), s + data.length);
       }

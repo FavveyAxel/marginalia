@@ -33,6 +33,18 @@ const asBuffer = (v) => (Buffer.isBuffer(v) ? v : isBytes(v) ? Buffer.from(v.buf
 const wipe = (v) => {
   if (isBytes(v)) v.fill(0);
 };
+/**
+ * Octets à envoyer (au processus principal ou au rendu) : copie EXACTE, dans un ArrayBuffer à elle.
+ * Un message copie tout l'ArrayBuffer sous un Buffer, et les petits Buffer de Node partagent une réserve
+ * de 8 Ko (où voisinent clé maîtresse, mot de passe, contenu…) : envoyer le Buffer lui-même enverrait
+ * toute la réserve. L'original est effacé.
+ */
+function exact(b) {
+  const u = new Uint8Array(b.byteLength);
+  u.set(b);
+  wipe(b);
+  return u;
+}
 function expired() {
   const e = new Error('Saisie expirée : recommencez.');
   e.code = 'MG_EXPIRED';
@@ -158,9 +170,9 @@ const ops = {
   },
   /** Touch ID (macOS) : la clé doit passer par le trousseau du système, que seul le processus principal atteint. */
   async spExport({ h, ks }) {
-    if (h === undefined) return { ok: true, sk: Buffer.from(needSk()) };
+    if (h === undefined) return { ok: true, sk: exact(Buffer.from(needSk())) };
     const k = await spacesKit.unlock(ks, takeText(h));
-    return k ? { ok: true, sk: k } : { ok: false };
+    return k ? { ok: true, sk: exact(k) } : { ok: false };
   },
   spAdopt({ sk: k }) {
     const b = Buffer.from(asBuffer(k));
@@ -198,14 +210,14 @@ const ops = {
   /** Fichier ouvert pour le rendu (retrait par poignée) ; `toMain` : fichier qui QUITTE l'espace (redevient commun). */
   spOpenFile({ wsId, buf, ctx, toMain }) {
     const plain = spacesKit.open(needSk(), wsId, asBuffer(buf), ctxOf(ctx));
-    if (toMain) return plain;
+    if (toMain) return exact(plain);
     return { rh: putReveal(plain) };
   },
   /** Scelle un contenu déposé par le rendu (`h`) ou confié par le processus principal (`buf` : contenu qui ENTRE dans l'espace). */
   spSealFile({ wsId, h, buf, ctx }) {
     const plain = h !== undefined ? takeBytes(h) : asBuffer(buf);
     try {
-      return spacesKit.seal(needSk(), wsId, plain, ctxOf(ctx));
+      return exact(spacesKit.seal(needSk(), wsId, plain, ctxOf(ctx)));
     } finally {
       plain.fill(0);
     }
@@ -214,14 +226,14 @@ const ops = {
     const k = needSk();
     const plain = spacesKit.open(k, from, asBuffer(buf), ctxOf(ctx));
     try {
-      return spacesKit.seal(k, to, plain, ctxOf(ctx));
+      return exact(spacesKit.seal(k, to, plain, ctxOf(ctx)));
     } finally {
       plain.fill(0);
     }
   },
   /** Contenu déposé pour un fichier qui n'appartient finalement à aucun espace (commun). */
   spTake({ h }) {
-    return takeBytes(h);
+    return exact(takeBytes(h));
   },
 
   // ── Verrouillage de l'app (vault.cjs) ──
@@ -238,7 +250,7 @@ const ops = {
       k.fill(0);
       return { ok: true, keyId };
     }
-    return { ok: true, keyId, key: k };
+    return { ok: true, keyId, key: exact(k) };
   },
   async vWrap({ h, key }) {
     const pw = takeText(h);
@@ -278,8 +290,7 @@ function serveRenderer(port) {
         reply({ ok: true, v: h });
       } else if (m.op === 'reveal') {
         const v = take(reveals, m.h);
-        reply({ ok: true, v });
-        wipe(v);
+        reply({ ok: true, v: typeof v === 'string' ? v : exact(v) });
         parent.postMessage({ evt: 'reveals', reveals: reveals.size });
       } else throw new Error('Opération inconnue');
     } catch (err) {

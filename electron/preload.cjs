@@ -84,7 +84,8 @@ function portCall(op, payload) {
 async function deposit(v) {
   if (v === undefined || v === null) return undefined;
   await ensurePort();
-  const payload = typeof v === 'string' ? v : v instanceof ArrayBuffer ? new Uint8Array(v) : ArrayBuffer.isView(v) ? new Uint8Array(v.buffer, v.byteOffset, v.byteLength) : String(v);
+  // Octets : copie exacte (un message copierait tout l'ArrayBuffer sous une vue).
+  const payload = typeof v === 'string' ? v : v instanceof ArrayBuffer ? new Uint8Array(v) : ArrayBuffer.isView(v) ? new Uint8Array(new Uint8Array(v.buffer, v.byteOffset, v.byteLength)) : String(v);
   return { h: await portCall('deposit', { v: payload }) };
 }
 const isRef = (r) => !!r && typeof r === 'object' && !ArrayBuffer.isView(r) && !(r instanceof ArrayBuffer) && typeof r.h === 'string';

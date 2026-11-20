@@ -21,6 +21,16 @@ export interface NewsEntry {
 
 export const NEWS: NewsEntry[] = [
   {
+    version: '3.61',
+    items: [
+      {
+        icon: 'lock',
+        title: 'Verrouiller vide vraiment la mémoire',
+        text: 'Après le verrouillage d’un espace chiffré ou de l’app, plus aucune trace du mot de passe ni du contenu ne reste dans la mémoire de l’ordinateur. Les espaces chiffrés se verrouillent aussi tout seuls : à la mise en veille, à l’écran verrouillé et après 15 minutes sans activité.',
+      },
+    ],
+  },
+  {
     version: '3.60',
     items: [
       {

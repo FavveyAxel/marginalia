@@ -163,8 +163,11 @@ const alive = (pid) => {
 /** Le rendu est remplacé par un processus neuf au verrouillage : on attend la nouvelle page. */
 async function renewed(act, until) {
   await page.evaluate(() => { window.__mgOldRenderer = 1; });
-  await act();
-  await page.waitForFunction(until, null, { timeout: 60000 });
+  // L'action remplace le rendu : sa propre réponse peut se perdre dans la navigation.
+  await act().catch((e) => { if (!/context was destroyed|navigation|Target closed/i.test(String(e))) throw e; });
+  for (let i = 0; ; i++) {
+    try { await page.waitForFunction(until, null, { timeout: 60000 }); break; } catch (e) { if (i >= 5 || !/context was destroyed|navigation/i.test(String(e))) throw e; }
+  }
 }
 const typeInto = async (sel, text) => {
   await page.click(sel);

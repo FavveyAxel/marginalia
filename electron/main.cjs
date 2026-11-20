@@ -1052,16 +1052,49 @@ function autoLockMs() {
   if (!sec.ks || !sec.ks.lock.enabled || !sec.ks.lock.autoLockMinutes) return 0;
   return TEST_AUTOLOCK_MS || sec.ks.lock.autoLockMinutes * 60000;
 }
+// Espaces chiffrés : verrouillés d'office à la mise en veille, au verrouillage de l'écran et après
+// 15 minutes d'inactivité, que le verrouillage de l'app soit activé ou non. Comme à la main : c'est le
+// rendu qui verrouille (il enregistre d'abord ce qui attend, et garde ouvert un espace qu'il n'a pas pu
+// enregistrer) ; la demande est renouvelée tant qu'un espace reste ouvert.
+const SPACES_AUTOLOCK_MS = (E2E && Number(process.env.MARGINALIA_E2E_SPACES_AUTOLOCK_MS)) || 15 * 60000;
+const spacesAuto = { why: null, askedAt: 0 };
+function requestSpacesLock(why) {
+  if (!sp.unlocked.size) return;
+  if (!spacesAuto.why) spacesAuto.askedAt = 0;
+  spacesAuto.why = why;
+  trySpacesLock();
+}
+function trySpacesLock() {
+  if (!spacesAuto.why) return;
+  if (!sp.unlocked.size) {
+    spacesAuto.why = null;
+    return;
+  }
+  // Pas au milieu d'une conversion des données, d'une opération sur un espace (chiffrer, enregistrer)
+  // ou d'un verrouillage de l'app : la demande attend.
+  if ((sec.migration && sec.migration.running) || secrets.busy || sec.locking) return;
+  const win = mainWindow;
+  if (!win || win.isDestroyed() || !flushReady.has(win.webContents.id)) return;
+  if (Date.now() - spacesAuto.askedAt < 10000) return;
+  spacesAuto.askedAt = Date.now();
+  diag('espaces', 'verrouillage automatique', spacesAuto.why);
+  win.webContents.send('marginalia:spaces-autolock', spacesAuto.why);
+}
 function startAutoLock() {
   setInterval(
     () => {
       const ms = autoLockMs();
       if (ms && sec.dek && Date.now() - sec.lastActivity >= ms) lockNow('inactivite').catch((e) => diag('securite', 'verrouillage', e && e.message));
+      if (sp.unlocked.size && Date.now() - Math.max(sec.lastActivity, sp.unlockedAt) >= SPACES_AUTOLOCK_MS) requestSpacesLock('inactivite');
+      trySpacesLock();
     },
-    TEST_AUTOLOCK_MS ? 250 : 5000,
+    TEST_AUTOLOCK_MS || (E2E && process.env.MARGINALIA_E2E_SPACES_AUTOLOCK_MS) ? 250 : 5000,
   ).unref?.();
   const onSleep = (why) => {
-    if (sec.ks && sec.ks.lock.enabled && sec.ks.lock.lockOnSleep !== false) lockNow(why).catch((e) => diag('securite', 'verrouillage', e && e.message));
+    const appLock = !!sec.ks && sec.ks.lock.enabled && sec.ks.lock.lockOnSleep !== false && !!sec.dek;
+    // Verrouillage de l'app à la veille : il verrouille aussi les espaces (après avoir tout enregistré).
+    if (appLock) lockNow(why).catch((e) => diag('securite', 'verrouillage', e && e.message));
+    else requestSpacesLock(why);
   };
   powerMonitor.on('suspend', () => onSleep('veille'));
   powerMonitor.on('lock-screen', () => onSleep('ecran-verrouille'));
@@ -1529,6 +1562,7 @@ const sp = {
   failures: 0,
   nextTryAt: 0,
   carryOver: false, // rendu remplacé après le verrouillage d'UN espace : les autres restent ouverts
+  unlockedAt: 0, // dernier déverrouillage (point de départ du verrouillage après inactivité)
 };
 class SpaceLockedError extends Error {
   constructor() {
@@ -2250,7 +2284,10 @@ const spaceOps = {
     } else if (!(await spaceSecret(secret, 'spUnlock'))) return badSecret();
     sp.skLoaded = true;
     const r = await openSpaceContent(wsId);
-    if (r.ok) diag('espaces', 'déverrouillé');
+    if (r.ok) {
+      sp.unlockedAt = Date.now();
+      diag('espaces', 'déverrouillé');
+    }
     return r;
   },
   /** Rendu neuf après le verrouillage d'un autre espace : il reprend le contenu des espaces restés ouverts. */
@@ -2293,6 +2330,7 @@ const spaceOps = {
       sp.skLoaded = true;
     } else if (!sp.skLoaded || !secrets.cur) return fail('Mot de passe requis.');
     sp.unlocked.add(wsId);
+    sp.unlockedAt = Date.now();
     return { ok: true };
   },
   /** Vérifie le mot de passe (avant de retirer le chiffrement d'un espace). */

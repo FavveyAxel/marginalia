@@ -82,7 +82,7 @@ function useTheme(theme: ThemeId, remember: boolean) {
   }, [theme, remember]);
 }
 
-/** Verrouillage après inactivité : les gestes de l'utilisateur sont signalés (au plus toutes les 10 s). */
+/** Verrouillage après inactivité (app, espaces chiffrés) : les gestes de l'utilisateur sont signalés (au plus toutes les 10 s). */
 function useActivityPing(active: boolean) {
   useEffect(() => {
     const api = host.security;
@@ -533,7 +533,8 @@ export function App() {
   const security = useSecurity();
   useTheme(ready ? theme : lastTheme(), ready);
   useAppStyle(useStore((s) => s.settings.appStyle ?? 'normal'));
-  useActivityPing(ready && !!security?.lock);
+  // Aussi sans verrouillage de l'app : les espaces chiffrés se verrouillent après inactivité.
+  useActivityPing(ready);
   useWindowDrag();
   useNativeMenu();
   useAppleBooksSync();

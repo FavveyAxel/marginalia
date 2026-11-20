@@ -502,6 +502,8 @@ export interface SpacesApi {
   changePassword(current: string, password: string): Promise<SpaceResult>;
   newRecoveryKey(secret: string): Promise<{ ok: true; recoveryKey: string } | { ok: false; error: string; waitMs?: number }>;
   setTouchId(on: boolean, secret?: string): Promise<SpaceResult>;
+  /** Verrouillage automatique demandé par le processus principal (veille, écran verrouillé, inactivité). */
+  onAutoLock?(cb: (why: string) => void): () => void;
 }
 
 export interface HostApi {

@@ -232,6 +232,12 @@ api.spaces = {
   changePassword: async (current, password) => spaceOp('changePassword', { current: await deposit(String(current)), password: await deposit(String(password)) }),
   newRecoveryKey: async (secret) => withRecovery(await spaceOp('newRecoveryKey', { secret: await deposit(String(secret)) })),
   setTouchId: async (on, secret) => spaceOp('setTouchId', { on, secret: await depositText(secret) }),
+  /** Verrouillage automatique demandé (veille, écran verrouillé, inactivité). */
+  onAutoLock: (cb) => {
+    const handler = (_e, why) => cb(String(why || ''));
+    ipcRenderer.on('marginalia:spaces-autolock', handler);
+    return () => ipcRenderer.removeListener('marginalia:spaces-autolock', handler);
+  },
 };
 api.security = {
   status: () => secOp('status'),

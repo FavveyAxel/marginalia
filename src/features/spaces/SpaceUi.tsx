@@ -6,7 +6,7 @@ import { useStore } from '../../lib/store';
 import { host } from '../../lib/platform';
 import { Modal } from '../workspaces/wsUi';
 import { SecretInput } from '../../components/SecretInput';
-import { decryptSpace, encryptSpace, lockSpace, openSpaceDialog, refreshSpaceStatus, setupSpaces, unlockSpace, useSpaceUi } from './spaceActions';
+import { decryptSpace, encryptSpace, lockAllSpaces, lockSpace, openSpaceDialog, refreshSpaceStatus, setupSpaces, unlockSpace, useSpaceUi } from './spaceActions';
 import './spaces.css';
 
 const PASSWORD_MIN = 8;
@@ -383,6 +383,21 @@ export function SpaceHost() {
   // Au chargement : état des clés, et marque « chiffré » remise sur tout espace qui a un contenu scellé.
   useEffect(() => {
     if (ready) void refreshSpaceStatus();
+  }, [ready]);
+  // Verrouillage automatique (veille, écran verrouillé, inactivité) : comme à la main, tout est d'abord
+  // enregistré ; un espace qui ne peut pas l'être reste ouvert (le processus principal redemandera).
+  useEffect(() => {
+    if (!ready || !host.spaces?.onAutoLock) return;
+    let running = false;
+    return host.spaces.onAutoLock(() => {
+      if (running) return;
+      running = true;
+      void lockAllSpaces()
+        .catch((e) => console.warn('verrouillage automatique', e))
+        .finally(() => {
+          running = false;
+        });
+    });
   }, [ready]);
   const close = () => openSpaceDialog(null);
   if (!dialog) return null;
